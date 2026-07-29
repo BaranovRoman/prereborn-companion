@@ -26,11 +26,12 @@ sudo mkdir -p /var/www/www-root/data/www/prereborn.ru
 sudo chown -R www-root:www-root /var/www/www-root/data/www/prereborn.ru
 ```
 
-Install Node.js 22, pnpm 11, PM2 and rsync on the server. Confirm:
+Install Node.js 20+, Corepack, PM2 and rsync on the server. The project pins
+its compatible pnpm version through `packageManager`. Confirm:
 
 ```bash
 node --version
-pnpm --version
+corepack pnpm --version
 pm2 --version
 rsync --version
 ```

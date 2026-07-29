@@ -26,13 +26,13 @@ set +a
 if [[ "${SKIP_GIT_PULL:-0}" != "1" ]]; then
   git pull --ff-only origin main
 fi
-pnpm install --frozen-lockfile
-pnpm --filter @prereborn/web build
-pnpm --filter @prereborn/api build
+corepack pnpm install --frozen-lockfile
+corepack pnpm --filter @prereborn/web build
+corepack pnpm --filter @prereborn/api build
 
 mkdir -p "$DEPLOY_PATH/logs" "$API_PATH/uploads"
 
-pnpm --filter @prereborn/api db:migrate
+corepack pnpm --filter @prereborn/api db:migrate
 
 pm2 startOrReload ecosystem.config.cjs --update-env
 pm2 save

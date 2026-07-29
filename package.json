@@ -2,7 +2,7 @@
   "name": "prereborn-companion",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@11.9.0",
+  "packageManager": "pnpm@10.28.0",
   "scripts": {
     "dev": "pnpm --parallel --recursive dev",
     "build": "pnpm --filter @prereborn/web build && pnpm --filter @prereborn/api build && pnpm --filter @prereborn/companion build",
