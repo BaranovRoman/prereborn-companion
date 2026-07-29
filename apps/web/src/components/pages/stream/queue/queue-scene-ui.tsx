@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { getHeroById } from "@/entities/dota-hero/lib/search";
 import { useAccountMatches } from "@/entities/stream-session/lib/use-account-matches";
 import { useOverlayPolling } from "@/entities/stream-session/lib/use-overlay-polling";
@@ -14,6 +14,10 @@ import type { TwitchIntegrationStatus } from "@/entities/twitch-integration/mode
 import styles from "./queue-scene.module.scss";
 
 const EMPTY_VALUE = "—";
+
+const subscribeToHostname = () => () => {};
+const getHostname = () => window.location.hostname;
+const getServerHostname = () => "";
 
 const formatRating = (rating: number | null | undefined) =>
     rating === null || rating === undefined
@@ -298,8 +302,11 @@ const StreamProfile = ({
 };
 
 const TwitchChat = ({ twitch }: QueueDataProps) => {
-    const [parent, setParent] = useState("");
-    useEffect(() => setParent(window.location.hostname), []);
+    const parent = useSyncExternalStore(
+        subscribeToHostname,
+        getHostname,
+        getServerHostname
+    );
     return (
         <Panel title="Twitch chat" className={styles.chatPanel}>
             {twitch?.connected && twitch.login && parent ? (
@@ -393,7 +400,7 @@ export const QueueSceneUi = () => {
                 </div>
             </div>
             <footer className={styles.sceneFooter}>
-                <span>{data.steamConnected ? "STEAM CONNECTED" : "STEAM OFFLINE"} // {data.matches.length} MATCHES LOADED</span>
+                <span>{`${data.steamConnected ? "STEAM CONNECTED" : "STEAM OFFLINE"} // ${data.matches.length} MATCHES LOADED`}</span>
                 <span>PREREBORN COMPANION // OBS SCENE</span>
             </footer>
         </div>
