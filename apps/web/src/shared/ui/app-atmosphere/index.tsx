@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { QueueTreeLayers } from "@/components/pages/stream/queue/queue-tree-layers";
 import {
@@ -12,8 +13,18 @@ const ignoreDebugState: (state: RedFogDebugState) => void = () => {};
 
 export const AppAtmosphere = () => {
     const pathname = usePathname();
-    const ownsBackground =
-        pathname === "/stream/queue" || pathname.startsWith("/overlay/");
+    const isOverlay = pathname.startsWith("/overlay/");
+    const ownsBackground = pathname === "/stream/queue" || isOverlay;
+
+    useEffect(() => {
+        document.documentElement.classList.toggle("obsOverlayRoute", isOverlay);
+        document.body.classList.toggle("obsOverlayRoute", isOverlay);
+
+        return () => {
+            document.documentElement.classList.remove("obsOverlayRoute");
+            document.body.classList.remove("obsOverlayRoute");
+        };
+    }, [isOverlay]);
 
     if (ownsBackground) return null;
 
