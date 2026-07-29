@@ -1,0 +1,36 @@
+.tree {
+    font-family: "SF Mono", "Fira Code", ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.line {
+    display: block;
+}
+
+.key {
+    color: #7dd3fc;
+}
+
+.string {
+    color: #86efac;
+}
+
+.number {
+    color: #fca5a5;
+}
+
+.boolean {
+    color: #fcd34d;
+}
+
+.null {
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.punct {
+    color: rgba(255, 255, 255, 0.45);
+}

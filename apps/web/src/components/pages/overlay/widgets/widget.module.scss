@@ -1,0 +1,197 @@
+// Общий "стеклянный" вид всех виджетов оверлея - размеры в ЛОГИЧЕСКИХ px
+// виртуальной сцены 1920x1080 (см. OverlayCanvas), НЕ vw/clamp(). Вся сцена
+// целиком масштабируется под реальный размер (OBS Browser Source любого
+// разрешения, либо превью в редакторе) одним transform: scale(...) -
+// поэтому величины ниже уже не нужно подбирать отдельно под разные
+// разрешения: то, что выглядит нормально при "родных" 1920x1080, будет
+// выглядеть идентично и на 1280x720, и на 2560x1440 после масштабирования
+// сцены.
+.card {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px 20px;
+    border-radius: 16px;
+    background: rgba(15, 23, 42, 0.55);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: #fff;
+    font-size: 20px;
+    line-height: 1.3;
+    white-space: nowrap;
+}
+
+.rating {
+    font-weight: 600;
+    letter-spacing: 0.01em;
+}
+
+.record {
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+.unrankedTag {
+    font-size: 0.7em;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: rgba(255, 255, 255, 0.45);
+}
+
+.sessionDeltaPositive {
+    font-weight: 600;
+    color: #4ade80;
+}
+
+.sessionDeltaNegative {
+    font-weight: 600;
+    color: #f87171;
+}
+
+.sessionDeltaNeutral {
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.hero {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+// Официальный hero-арт Dota (dota_react/heroes/{name}.png) горизонтальный
+// (225x127) - раньше эти боксы были ~вертикальными (40x47 и т.п.), что
+// обрезало/сжимало картинку в неправильную пропорцию. aspect-ratio: 225/127 +
+// object-fit: cover (уже было) - единственное изменение, сам ассет не трогаем.
+.heroIcon {
+    width: 64px;
+    aspect-ratio: 225 / 127;
+    border-radius: 6px;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+// Единственный размер портрета в логе матчей (см. задачу: "иконка героя —
+// KDA — результат", без отдельного compact/detailed варианта) - 30px, в
+// диапазоне 28-32px из задачи.
+.heroIconTiny {
+    width: 30px;
+    aspect-ratio: 225 / 127;
+    border-radius: 4px;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+// max-width заметно уже, чем раньше (280px) - строка теперь всего "номер +
+// маленький портрет + KDA + W/L", без имени героя, поэтому весь виджет
+// умещается в узкую вертикальную колонку (см. задачу).
+.matchesList {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-width: 170px;
+    white-space: normal;
+}
+
+// growDirection="up": новые матчи ближе к нижнему (заякоренному) краю - см.
+// задачу, п.7. Реализовано без реверса массива - только сменой направления
+// flex, порядок данных (direction в RecentMatchesSettings) остаётся
+// логически отдельным от того, куда визуально растёт список.
+.matchesListGrowDown {
+    flex-direction: column;
+}
+
+.matchesListGrowUp {
+    flex-direction: column-reverse;
+}
+
+.matchRow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+}
+
+// Порядковый номер строки в видимом окне лога (1 = первая сверху с учётом
+// direction/growDirection, см. RecentMatches) - фиксированная узкая колонка,
+// чтобы портреты/KDA/результат у всех строк выстраивались вертикально.
+.matchIndex {
+    flex-shrink: 0;
+    width: 14px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+// nowrap + ellipsis - КДА никогда не переносится на вторую строку (см.
+// задачу). Имя героя в строке больше не рендерится вообще (только title/alt
+// на портрете), поэтому на практике контент всегда короткий ("7/10/25") и
+// ellipsis - просто защитный запас, а не рабочий механизм обрезки.
+.matchKda {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.matchResultWin {
+    flex-shrink: 0;
+    font-weight: 600;
+    color: #4ade80;
+}
+
+.matchResultLoss {
+    flex-shrink: 0;
+    font-weight: 600;
+    color: #f87171;
+}
+
+.matchResultAbandon {
+    flex-shrink: 0;
+    font-weight: 600;
+    color: #fb923c;
+}
+
+.matchesEmpty {
+    max-width: 280px;
+    font-size: 15px;
+    line-height: 1.4;
+    color: rgba(255, 255, 255, 0.55);
+    white-space: normal;
+}
+
+// "+N ещё" - см. задачу, п.7: не выводить все 15-20 матчей сессии одним
+// списком, только limit последних + компактный индикатор остатка.
+.matchesOverflow {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.5);
+    text-align: center;
+}
+
+.companion {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.companionDot {
+    flex-shrink: 0;
+    font-size: 1em;
+}
+
+.companionOnline {
+    color: #4ade80;
+}
+
+.companionOffline {
+    color: rgba(255, 255, 255, 0.35);
+}

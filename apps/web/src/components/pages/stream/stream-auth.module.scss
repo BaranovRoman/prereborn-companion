@@ -1,0 +1,79 @@
+// Общие стили карточки логина/регистрации (components/pages/stream/login,
+// .../register). Палитра/радиусы взяты из features/home/contact-drawer -
+// в проекте нет отдельного файла цветовых токенов (см. _tokens.scss -
+// только layout), поэтому ink/border-цвета переиспользуются как есть.
+
+.page {
+    min-height: 100vh;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.card {
+    width: 100%;
+    max-width: 360px;
+}
+
+.title {
+    margin: 0 0 4px;
+    font-size: 22px;
+    font-weight: 500;
+    color: #0f172a;
+    letter-spacing: -0.01em;
+}
+
+.subtitle {
+    margin: 0 0 24px;
+    font-size: 14px;
+    color: rgba(15, 23, 42, 0.55);
+}
+
+.form {
+    display: flex;
+    flex-direction: column;
+}
+
+.input {
+    height: 44px;
+    border-radius: 10px;
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    font-size: 15px;
+    padding: 0 12px;
+    width: 100%;
+    box-sizing: border-box;
+    font-family: inherit;
+
+    &:focus,
+    &:hover {
+        border-color: rgba(15, 23, 42, 0.3);
+        outline: none;
+    }
+}
+
+.submitButton {
+    height: 44px;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 500;
+    margin-top: 8px;
+}
+
+.switchLink {
+    margin-top: 20px;
+    text-align: center;
+    font-size: 14px;
+    color: rgba(15, 23, 42, 0.55);
+
+    a {
+        color: #0f172a;
+        font-weight: 500;
+        text-decoration: none;
+
+        &:hover {
+            text-decoration: underline;
+        }
+    }
+}

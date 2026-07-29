@@ -1,0 +1,215 @@
+.loading {
+    font-size: 13px;
+    color: rgba(15, 23, 42, 0.45);
+}
+
+.empty {
+    font-size: 13px;
+    color: rgba(15, 23, 42, 0.45);
+}
+
+// Компактный превью топ-5 матчей текущей сессии (см. задачу: "портрет · W/L
+// · KDA · рейтинг/дельта") - визуально того же семейства, что и unified
+// recent-matches row в overlay-виджетах (components/pages/overlay/widgets/
+// recent-matches.tsx), но светлая палитра вместо тёмного HUD и с рейтингом/
+// дельтой, которых в overlay-варианте больше нет.
+.compactList {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+
+.compactRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+
+    &:last-child {
+        border-bottom: none;
+    }
+}
+
+.compactHeroIcon {
+    width: 40px;
+    aspect-ratio: 225 / 127;
+    border-radius: 4px;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: rgba(15, 23, 42, 0.05);
+}
+
+.compactResultWin,
+.compactResultLoss,
+.compactResultAbandon {
+    flex-shrink: 0;
+    width: 18px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 4px;
+}
+
+.compactResultWin {
+    color: #15803d;
+}
+
+.compactResultLoss {
+    color: #b42318;
+}
+
+.compactResultAbandon {
+    color: #92400e;
+}
+
+.compactKda {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: rgba(15, 23, 42, 0.6);
+}
+
+.compactDeltaPositive,
+.compactDeltaNegative {
+    flex-shrink: 0;
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.compactDeltaPositive {
+    color: #15803d;
+}
+
+.compactDeltaNegative {
+    color: #b42318;
+}
+
+.compactRatingAfter {
+    flex-shrink: 0;
+    width: 44px;
+    text-align: right;
+    font-size: 13px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: #0f172a;
+}
+
+.historyCollapse {
+    margin-top: 4px;
+
+    :global(.ant-collapse-header) {
+        padding-left: 0 !important;
+        font-size: 13px;
+        color: rgba(15, 23, 42, 0.55);
+    }
+
+    :global(.ant-collapse-content-box) {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+}
+
+.list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 420px;
+    overflow-y: auto;
+}
+
+.row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+
+    &:last-child {
+        border-bottom: none;
+    }
+}
+
+// Официальный hero-арт Dota горизонтальный (225x127) - см. widget.module.scss
+// в components/pages/overlay/widgets для той же правку в overlay-виджетах.
+.heroIcon {
+    width: 44px;
+    aspect-ratio: 225 / 127;
+    border-radius: 4px;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: rgba(15, 23, 42, 0.05);
+}
+
+.kda {
+    width: 70px;
+    flex-shrink: 0;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: rgba(15, 23, 42, 0.6);
+}
+
+.resultSelect {
+    width: 120px;
+}
+
+// Применяется через option.className (см. rc-component/select SingleContent -
+// проброс полей объекта опции на отображаемое значение и на пункт в
+// выпадающем списке) - красит и выбранное значение, и строку в дропдауне
+// одним и тем же классом.
+.resultOptionAbandon {
+    color: #fb923c;
+    font-weight: 600;
+}
+
+.ratingInput {
+    width: 130px;
+}
+
+.note {
+    flex-basis: 100%;
+    font-size: 12px;
+    color: rgba(15, 23, 42, 0.4);
+}
+
+// Мобильный список компактнее (см. задачу, п.5): меньше вертикальных
+// отступов на строку, редактирование (Select/InputNumber) не трогаем -
+// только геометрия. .note дополнительно приглушается - на маленьком экране
+// он и так занимает отдельную строку под каждым непривязанным матчем, не
+// нужно, чтобы это читалось как предупреждение.
+@media (max-width: 480px) {
+    .list {
+        gap: 4px;
+    }
+
+    .row {
+        padding: 5px 0;
+        gap: 6px;
+    }
+
+    .heroIcon {
+        width: 36px;
+    }
+
+    .kda {
+        width: auto;
+        font-size: 12px;
+    }
+
+    .resultSelect {
+        width: 100px;
+    }
+
+    .ratingInput {
+        width: 100px;
+    }
+
+    .note {
+        font-size: 10px;
+        color: rgba(15, 23, 42, 0.3);
+    }
+}

@@ -1,0 +1,99 @@
+"use client";
+
+import { useOverlayPolling } from "@/entities/stream-session/lib/use-overlay-polling";
+import { DEFAULT_OVERLAY_LAYOUT } from "@/entities/stream-overlay-layout/model/default-layout";
+import type { OverlayData } from "@/entities/stream-session/model/types";
+import { OverlayCanvas } from "./overlay-canvas";
+import { AnchoredWidget } from "./anchored-widget";
+import { SessionStats } from "./widgets/session-stats";
+import { CurrentGame } from "./widgets/current-game";
+import { RecentMatches } from "./widgets/recent-matches";
+import { CompanionStatus } from "./widgets/companion-status";
+import { DebugPanel } from "./debug-panel";
+
+interface OverlayPageProps {
+    publicToken: string;
+    initialData: OverlayData | null;
+    debug?: boolean;
+    scale?: number;
+}
+
+// Оркестратор сцены - рендерит ту же самую виртуальную сцену 1920x1080
+// (OverlayCanvas, mode="live"), что и превью /stream/overlay-editor, только
+// без safe area и без drag (AnchoredWidget без interactive - просто
+// позиционированный div). Раньше живой overlay и editor-превью были двумя
+// разными системами координат (vw/vh+clamp() vs проценты произвольного
+// контейнера) - теперь это буквально один и тот же рендер-путь.
+export const OverlayPage = ({
+    publicToken,
+    initialData,
+    debug = false,
+    scale,
+}: OverlayPageProps) => {
+    // Сайтовый Preloader для /overlay/:token не рендерится - см.
+    // app/transition-provider.tsx (PreloaderWrapper распознаёт этот route по
+    // usePathname() и пропускает и сам Preloader, и связанную с ним задержку
+    // видимости) - поэтому здесь больше нет смысла вызывать
+    // usePageReady()/ready(), раньше только закрывавший этот прелоадер.
+    const data = useOverlayPolling(publicToken, initialData);
+
+    if (!data) {
+        return <div style={{ position: "fixed", inset: 0, background: "transparent" }} />;
+    }
+
+    const layout = data.layout ?? DEFAULT_OVERLAY_LAYOUT;
+
+    return (
+        <>
+            <OverlayCanvas mode="live" aspectRatio={layout.aspectRatio}>
+                {({ sceneWidth, sceneHeight }) => (
+                    <>
+                        <AnchoredWidget
+                            layout={layout.widgets.session}
+                            sceneWidth={sceneWidth}
+                            sceneHeight={sceneHeight}
+                        >
+                            <SessionStats
+                                rating={data.rating}
+                                sessionRatingDelta={data.sessionRatingDelta}
+                                wins={data.wins}
+                                losses={data.losses}
+                                gameMode={data.gameMode}
+                            />
+                        </AnchoredWidget>
+
+                        <AnchoredWidget
+                            layout={layout.widgets.currentGame}
+                            sceneWidth={sceneWidth}
+                            sceneHeight={sceneHeight}
+                        >
+                            <CurrentGame lastHeroId={data.lastHeroId} />
+                        </AnchoredWidget>
+
+                        <AnchoredWidget
+                            layout={layout.widgets.recentMatches}
+                            sceneWidth={sceneWidth}
+                            sceneHeight={sceneHeight}
+                        >
+                            <RecentMatches
+                                matches={data.matches}
+                                settings={layout.widgets.recentMatches.recentMatches}
+                                anchor={layout.widgets.recentMatches.anchor}
+                            />
+                        </AnchoredWidget>
+
+                        <AnchoredWidget
+                            layout={layout.widgets.companionStatus}
+                            sceneWidth={sceneWidth}
+                            sceneHeight={sceneHeight}
+                        >
+                            <CompanionStatus companion={data.companion} />
+                        </AnchoredWidget>
+                    </>
+                )}
+            </OverlayCanvas>
+
+            {debug && <DebugPanel companion={data.companion} scale={scale} />}
+        </>
+    );
+};

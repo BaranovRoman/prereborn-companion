@@ -1,0 +1,83 @@
+.page {
+    min-height: 100vh;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.card {
+    width: 100%;
+    max-width: 560px;
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.title {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 500;
+    color: #0f172a;
+    letter-spacing: -0.01em;
+}
+
+.description {
+    font-size: 14px;
+    color: rgba(15, 23, 42, 0.65);
+    line-height: 1.5;
+    margin: 0 0 16px;
+}
+
+.meta {
+    display: flex;
+    gap: 8px;
+    font-size: 13px;
+    color: rgba(15, 23, 42, 0.5);
+    margin-bottom: 20px;
+}
+
+.downloadRow {
+    margin-bottom: 28px;
+}
+
+.section {
+    border-top: 1px solid rgba(15, 23, 42, 0.1);
+    padding-top: 16px;
+    margin-top: 16px;
+}
+
+.sectionTitle {
+    margin: 0 0 10px;
+    font-size: 15px;
+    font-weight: 500;
+    color: #0f172a;
+}
+
+.steps {
+    margin: 0;
+    padding-left: 20px;
+    font-size: 13px;
+    color: rgba(15, 23, 42, 0.7);
+    line-height: 1.6;
+}
+
+.hint {
+    font-size: 13px;
+    color: rgba(15, 23, 42, 0.6);
+    line-height: 1.5;
+    margin: 0;
+}
+
+.securityList {
+    margin: 0;
+    padding-left: 20px;
+    font-size: 13px;
+    color: rgba(15, 23, 42, 0.6);
+    line-height: 1.6;
+}

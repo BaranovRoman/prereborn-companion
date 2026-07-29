@@ -1,0 +1,14 @@
+{
+  "name": "prereborn-companion",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter './apps/*' dev",
+    "build": "pnpm --filter @prereborn/web build && pnpm --filter @prereborn/api build && pnpm --filter @prereborn/companion build",
+    "lint": "pnpm --filter @prereborn/web lint",
+    "typecheck": "pnpm --filter @prereborn/web typecheck && pnpm --filter @prereborn/api typecheck",
+    "test": "pnpm --filter @prereborn/web test && pnpm --filter @prereborn/api test",
+    "check:rust": "cargo check --manifest-path apps/companion/src-tauri/Cargo.toml"
+  }
+}

@@ -1,0 +1,60 @@
+.summaryRow {
+    display: flex;
+    gap: 24px;
+    flex-wrap: wrap;
+}
+
+.summaryItem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+}
+
+.summaryLabel {
+    font-weight: 500;
+    color: #0f172a;
+}
+
+.summaryValue {
+    color: rgba(15, 23, 42, 0.55);
+}
+
+.dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.dotOn {
+    background: #15803d;
+}
+
+.dotOff {
+    background: rgba(15, 23, 42, 0.25);
+}
+
+.manageCollapse {
+    margin-top: 12px;
+
+    :global(.ant-collapse-header) {
+        padding-left: 0 !important;
+        font-size: 13px;
+        color: rgba(15, 23, 42, 0.55);
+    }
+
+    :global(.ant-collapse-content-box) {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+}
+
+// SteamIntegrationPanel/CompanionPanel уже сами оборачивают себя в
+// sharedStyles.section (со своей рамкой/паддингом) - здесь только зазор
+// между ними, без второй рамки поверх.
+.managementList {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}

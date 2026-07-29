@@ -1,0 +1,43 @@
+[package]
+name = "dota-companion"
+version = "0.2.1"
+description = "A Tauri App"
+authors = ["you"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "dota_companion_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tiny_http = "0.12"
+chrono = { version = "0.4", features = ["clock"] }
+# blocking + rustls-tls: outbound sender runs on a plain std::thread (no
+# tokio elsewhere in this app), and rustls avoids depending on a system
+# OpenSSL - see the report for why native-tls was a cross-build risk we'd
+# rather not repeat after the Windows CI/llvm-rc lesson from the MVP phase.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+# Diagnostics ZIP export only - pure-Rust deflate backend (no system zlib/C
+# toolchain needed), matches the same "no extra native build deps on Windows
+# CI" constraint that drove the reqwest/rustls choice above.
+zip = { version = "2", default-features = false, features = ["deflate"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
+
+[dev-dependencies]
+tempfile = "3"
+

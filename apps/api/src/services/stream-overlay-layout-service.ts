@@ -1,0 +1,299 @@
+import { z } from "zod";
+import { pool } from "../db/client.js";
+
+export const OVERLAY_WIDGET_IDS = [
+    "session",
+    "currentGame",
+    "recentMatches",
+    "companionStatus",
+] as const;
+
+export type OverlayWidgetId = (typeof OVERLAY_WIDGET_IDS)[number];
+
+// Точка виджета, чья позиция задаётся xVw/yVh - "top-left" означает
+// поведение до появления anchors (левый верхний угол виджета сидит в
+// xVw/yVh), остальные 8 - виджет растёт от выбранной точки в противоположную
+// сторону, поэтому изменение его размера (scale, либо высота истории матчей
+// при добавлении строк) не сдвигает закреплённый край.
+export const OVERLAY_ANCHORS = [
+    "top-left",
+    "top-center",
+    "top-right",
+    "center-left",
+    "center",
+    "center-right",
+    "bottom-left",
+    "bottom-center",
+    "bottom-right",
+] as const;
+
+export type OverlayAnchor = (typeof OVERLAY_ANCHORS)[number];
+
+export interface OverlayWidgetLayout {
+    xVw: number;
+    yVh: number;
+    scale: number;
+    visible: boolean;
+    anchor: OverlayAnchor;
+}
+
+export const RECENT_MATCHES_LIMIT_MIN = 1;
+export const RECENT_MATCHES_LIMIT_MAX = 20;
+
+// Виртуальная сцена больше не всегда 1920x1080 (см. задачу "aspect ratio
+// сцены") - ширина остаётся константой (OVERLAY_BASE_WIDTH,
+// entities/stream-overlay-layout в frontend), высота вычисляется из
+// aspectRatio. preset - только для UI (какая кнопка подсвечена), реальная
+// геометрия всегда считается из widthRatio/heightRatio - "custom" просто
+// единственный preset без готовой пары чисел.
+export const OVERLAY_ASPECT_RATIO_PRESETS = [
+    "16:9",
+    "16:10",
+    "21:9",
+    "32:9",
+    "4:3",
+    "custom",
+] as const;
+
+export type OverlayAspectRatioPreset =
+    (typeof OVERLAY_ASPECT_RATIO_PRESETS)[number];
+
+export interface OverlayAspectRatio {
+    preset: OverlayAspectRatioPreset;
+    widthRatio: number;
+    heightRatio: number;
+}
+
+export const DEFAULT_OVERLAY_ASPECT_RATIO: OverlayAspectRatio = {
+    preset: "16:9",
+    widthRatio: 16,
+    heightRatio: 9,
+};
+
+// growDirection раньше было отдельным пользовательским полем - теперь
+// вычисляется из anchor виджета (top-* растёт вниз, bottom-* растёт вверх,
+// center-* вниз как самый предсказуемый вариант), поэтому в layout JSON
+// больше не хранится (см. задачу, п.3). Старое сохранённое значение просто
+// не описано в схеме ниже - buildRecentMatchesSettingsSchema его игнорирует.
+export interface RecentMatchesSettings {
+    limit: number;
+    direction: "newest-first" | "oldest-first";
+    compact: boolean;
+}
+
+export interface RecentMatchesWidgetLayout extends OverlayWidgetLayout {
+    recentMatches: RecentMatchesSettings;
+}
+
+export interface OverlayLayoutWidgets {
+    session: OverlayWidgetLayout;
+    currentGame: OverlayWidgetLayout;
+    recentMatches: RecentMatchesWidgetLayout;
+    companionStatus: OverlayWidgetLayout;
+}
+
+export type OverlayLayout = {
+    version: 1;
+    widgets: OverlayLayoutWidgets;
+    aspectRatio: OverlayAspectRatio;
+};
+
+// Раскладка по умолчанию воспроизводит сегодняшний вид (всё сложено в
+// левом верхнем углу) плюс новый companionStatus-виджет, которого раньше в
+// HUD вообще не было (только в debug-панели) - размещён внизу слева, чтобы
+// не спорить за место с остальными тремя. anchor "top-left" везде - тот же
+// смысл, который xVw/yVh уже имели ДО появления anchors: намеренно не
+// переезжаем на более "красивые" bottom-* дефолты, чтобы не переизобретать
+// сегодняшний внешний вид заодно с этой задачей.
+export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
+    version: 1,
+    widgets: {
+        session: { xVw: 3, yVh: 4, scale: 1, visible: true, anchor: "top-left" },
+        currentGame: {
+            xVw: 3,
+            yVh: 12,
+            scale: 1,
+            visible: true,
+            anchor: "top-left",
+        },
+        recentMatches: {
+            xVw: 3,
+            yVh: 22,
+            scale: 1,
+            visible: true,
+            anchor: "top-left",
+            recentMatches: {
+                limit: 5,
+                direction: "newest-first",
+                compact: true,
+            },
+        },
+        companionStatus: {
+            xVw: 3,
+            yVh: 92,
+            scale: 1,
+            visible: true,
+            anchor: "top-left",
+        },
+    },
+    aspectRatio: DEFAULT_OVERLAY_ASPECT_RATIO,
+};
+
+export class InvalidOverlayLayoutError extends Error {
+    constructor(message: string) {
+        super(message);
+    }
+}
+
+const clamp = (value: number, min: number, max: number): number =>
+    Math.min(Math.max(value, min), max);
+
+const anchorEnum = z.enum(OVERLAY_ANCHORS);
+// Целое число 1-20 (см. задачу, п.4/п.12) - старые union-значения (3/5/8/10)
+// парсятся как обычные числа, ничего специально мигрировать не нужно.
+const limitSchema = z
+    .number()
+    .int()
+    .min(RECENT_MATCHES_LIMIT_MIN)
+    .max(RECENT_MATCHES_LIMIT_MAX);
+
+// Каждое поле валидируется и при некорректном значении откатывается на своё
+// ЛИЧНОЕ дефолтное значение через .catch(...), а не всё целиком - именно
+// так старый сохранённый layout (без anchor/recentMatches, до этой задачи)
+// нормализуется без потери xVw/yVh: отсутствующий/некорректный anchor
+// становится "top-left" (см. задачу, п.11 - миграция без потери позиции),
+// а реальные сохранённые координаты остаются как есть.
+const buildWidgetSchema = (fallback: OverlayWidgetLayout) =>
+    z
+        .object({
+            xVw: z.number().catch(fallback.xVw),
+            yVh: z.number().catch(fallback.yVh),
+            scale: z.number().catch(fallback.scale),
+            visible: z.boolean().catch(fallback.visible),
+            anchor: anchorEnum.catch(fallback.anchor),
+        })
+        .catch(fallback);
+
+// growDirection намеренно не описан здесь - если он присутствует в старом
+// сохранённом JSON, zod.object() (без .passthrough()) просто не включает
+// незнакомые/более неактуальные поля в результат, поэтому он молча
+// отбрасывается при следующей нормализации/сохранении (см. задачу, п.3/п.12).
+const buildRecentMatchesSettingsSchema = (fallback: RecentMatchesSettings) =>
+    z
+        .object({
+            limit: limitSchema.catch(fallback.limit),
+            direction: z
+                .enum(["newest-first", "oldest-first"])
+                .catch(fallback.direction),
+            compact: z.boolean().catch(fallback.compact),
+        })
+        .catch(fallback);
+
+const buildRecentMatchesWidgetSchema = (fallback: RecentMatchesWidgetLayout) =>
+    z
+        .object({
+            xVw: z.number().catch(fallback.xVw),
+            yVh: z.number().catch(fallback.yVh),
+            scale: z.number().catch(fallback.scale),
+            visible: z.boolean().catch(fallback.visible),
+            anchor: anchorEnum.catch(fallback.anchor),
+            recentMatches: buildRecentMatchesSettingsSchema(
+                fallback.recentMatches
+            ).catch(fallback.recentMatches),
+        })
+        .catch(fallback);
+
+const layoutBodySchema = z.object({
+    version: z.literal(1).optional(),
+    widgets: z.record(z.string(), z.unknown()),
+    aspectRatio: z.unknown().optional(),
+});
+
+const aspectRatioPresetEnum = z.enum(OVERLAY_ASPECT_RATIO_PRESETS);
+// Только положительные числа (см. задачу - "не пиксели, а две части
+// соотношения") - каждое поле откатывается на дефолт независимо, тем же
+// паттерном .catch(), что и buildWidgetSchema выше.
+const ratioPartSchema = z.number().positive();
+
+const buildAspectRatioSchema = (fallback: OverlayAspectRatio) =>
+    z
+        .object({
+            preset: aspectRatioPresetEnum.catch(fallback.preset),
+            widthRatio: ratioPartSchema.catch(fallback.widthRatio),
+            heightRatio: ratioPartSchema.catch(fallback.heightRatio),
+        })
+        .catch(fallback);
+
+const clampWidget = (widget: OverlayWidgetLayout): OverlayWidgetLayout => ({
+    ...widget,
+    xVw: clamp(widget.xVw, 0, 100),
+    yVh: clamp(widget.yVh, 0, 100),
+    scale: clamp(widget.scale, 0.5, 2),
+});
+
+// Валидирует произвольный JSON от клиента. Проходим только по 4 известным
+// widget id - значит неизвестные ключи (например опечатка или устаревший
+// id) автоматически никогда не попадают в результат, без явного списка
+// "запрещённых" id.
+export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
+    const parsed = layoutBodySchema.safeParse(input);
+    if (!parsed.success) {
+        throw new InvalidOverlayLayoutError("Invalid overlay layout shape");
+    }
+
+    const defaults = DEFAULT_OVERLAY_LAYOUT.widgets;
+    const raw = parsed.data.widgets;
+
+    const session = clampWidget(
+        buildWidgetSchema(defaults.session).parse(raw.session)
+    );
+    const currentGame = clampWidget(
+        buildWidgetSchema(defaults.currentGame).parse(raw.currentGame)
+    );
+    const companionStatus = clampWidget(
+        buildWidgetSchema(defaults.companionStatus).parse(raw.companionStatus)
+    );
+    const recentMatchesParsed = buildRecentMatchesWidgetSchema(
+        defaults.recentMatches
+    ).parse(raw.recentMatches);
+    const recentMatches: RecentMatchesWidgetLayout = {
+        ...clampWidget(recentMatchesParsed),
+        recentMatches: recentMatchesParsed.recentMatches,
+    };
+
+    const aspectRatio = buildAspectRatioSchema(
+        DEFAULT_OVERLAY_ASPECT_RATIO
+    ).parse(parsed.data.aspectRatio);
+
+    return {
+        version: 1,
+        widgets: { session, currentGame, recentMatches, companionStatus },
+        aspectRatio,
+    };
+};
+
+export const getOverlayLayout = async (
+    streamUserId: string
+): Promise<OverlayLayout> => {
+    const result = await pool.query<{ layout: OverlayLayout }>(
+        `SELECT layout FROM stream_overlay_settings WHERE stream_user_id = $1`,
+        [streamUserId]
+    );
+    if (!result.rows[0]) return DEFAULT_OVERLAY_LAYOUT;
+    return normalizeOverlayLayout(result.rows[0].layout);
+};
+
+export const saveOverlayLayout = async (
+    streamUserId: string,
+    input: unknown
+): Promise<OverlayLayout> => {
+    const layout = normalizeOverlayLayout(input);
+    await pool.query(
+        `INSERT INTO stream_overlay_settings (stream_user_id, layout_version, layout)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (stream_user_id)
+         DO UPDATE SET layout = $3, layout_version = $2, updated_at = CURRENT_TIMESTAMP`,
+        [streamUserId, layout.version, JSON.stringify(layout)]
+    );
+    return layout;
+};

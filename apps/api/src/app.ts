@@ -1,0 +1,32 @@
+import express from "express";
+import cors from "cors";
+import { streamAuthRouter } from "./routes/stream/auth.js";
+import { streamAccountRouter } from "./routes/stream/account.js";
+import { streamOverlayRouter } from "./routes/stream/overlay.js";
+import { streamIntegrationsRouter } from "./routes/stream/integrations.js";
+import { streamCompanionRouter } from "./routes/stream/companion.js";
+import { corsOptions } from "./config/cors.js";
+import { securityHeaders } from "./config/security-headers.js";
+import { requestId } from "./middleware/request-id.js";
+import { requestLogger } from "./middleware/request-logger.js";
+import { notFoundHandler, errorHandler } from "./middleware/error-handler.js";
+import { pool } from "./db/client.js";
+
+export const app = express();
+app.set("trust proxy", 1);
+app.use(requestId, securityHeaders, cors(corsOptions), express.json({ limit: "1mb" }), requestLogger);
+app.use("/api/stream/auth", streamAuthRouter);
+app.use("/api/stream/account", streamAccountRouter);
+app.use("/api/stream/overlay", streamOverlayRouter);
+app.use("/api/stream/integrations", streamIntegrationsRouter);
+app.use("/api/stream/companion", streamCompanionRouter);
+app.get("/api/health", async (_req, res) => {
+  try {
+    await pool.query("SELECT 1");
+    res.json({ status: "ok", database: "connected" });
+  } catch {
+    res.json({ status: "ok", database: "disconnected" });
+  }
+});
+app.use(notFoundHandler, errorHandler);
+

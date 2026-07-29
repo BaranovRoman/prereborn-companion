@@ -1,0 +1,190 @@
+.headerRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.toggleButton {
+    padding: 0;
+    font-weight: 500;
+}
+
+// Mobile-first: базовые правила уже целятся в маленький экран (полная
+// ширина, вертикальный стек) - расширение под десктоп идёт через min-width
+// media query, а не наоборот (см. задачу, п.4 - "mobile-first").
+.summary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 10px 0;
+}
+
+.heroIcon {
+    width: 64px;
+    aspect-ratio: 225 / 127;
+    border-radius: 8px;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: rgba(15, 23, 42, 0.05);
+}
+
+.summaryInfo {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.kda {
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+    color: #0f172a;
+}
+
+.summaryRating {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.ratingAfterValue {
+    font-size: 20px;
+    font-weight: 600;
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+}
+
+.deltaPositive,
+.deltaNegative {
+    font-size: 13px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    padding: 1px 8px;
+    border-radius: 999px;
+}
+
+.deltaPositive {
+    color: #15803d;
+    background: rgba(21, 128, 61, 0.1);
+}
+
+.deltaNegative {
+    color: #b42318;
+    background: rgba(180, 35, 24, 0.1);
+}
+
+.badgeWin,
+.badgeLoss,
+.badgeAbandon,
+.badgeUnknown {
+    display: inline-flex;
+    width: fit-content;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: 999px;
+}
+
+.badgeWin {
+    color: #15803d;
+    background: rgba(21, 128, 61, 0.1);
+}
+
+.badgeLoss {
+    color: #b42318;
+    background: rgba(180, 35, 24, 0.1);
+}
+
+.badgeAbandon {
+    color: #92400e;
+    background: rgba(217, 119, 6, 0.12);
+}
+
+.badgeUnknown {
+    color: rgba(15, 23, 42, 0.4);
+    background: rgba(15, 23, 42, 0.05);
+}
+
+.note {
+    font-size: 12px;
+    color: rgba(15, 23, 42, 0.4);
+}
+
+// Результат, рейтинг и кнопки ±25 сгруппированы в один визуальный блок
+// (см. задачу, п.4: "должны читаться как одна форма") - вместо трёх
+// отдельных .field с собственными margin-bottom, как было раньше.
+.form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.03);
+    margin-bottom: 10px;
+}
+
+.formLabel {
+    font-size: 12px;
+    color: rgba(15, 23, 42, 0.5);
+}
+
+.ratingRow {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+}
+
+// Числовой рейтинг и кнопки ±25 - одна строка на любой ширине (см. задачу,
+// п.4): при узком экране input просто сжимается (min-width: 0), а не
+// переносится под кнопки, как раньше.
+.ratingInput {
+    flex: 1 1 auto;
+    min-width: 0;
+
+    :global(.ant-input-number-input) {
+        // Touch target по высоте (~44px) - см. задачу, п.4.
+        height: 44px;
+    }
+}
+
+.deltaButtons {
+    display: flex;
+    gap: 6px;
+    flex: 0 0 auto;
+
+    button {
+        flex: 0 0 auto;
+        min-width: 56px;
+        min-height: 44px;
+        padding: 0 10px;
+    }
+}
+
+.deltaPreview {
+    font-size: 12px;
+    color: rgba(15, 23, 42, 0.45);
+}
+
+.saveButton {
+    min-height: 48px;
+
+    & + & {
+        margin-top: 8px;
+    }
+}
+
+// Минимальная индикация needs_review (см. задачу: "не менять визуальный
+// дизайн редактора, кроме... минимального состояния needs_review") - тёплый
+// предупреждающий акцент, не перекрашивающий остальную панель.
+.needsReviewBanner {
+    font-size: 13px;
+    color: #92400e;
+    background: rgba(217, 119, 6, 0.12);
+    border-radius: 8px;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+}

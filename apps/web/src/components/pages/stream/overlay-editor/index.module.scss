@@ -1,0 +1,242 @@
+.page {
+    min-height: 100vh;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    padding: 24px;
+}
+
+.card {
+    width: 100%;
+    max-width: 960px;
+}
+
+.header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 16px;
+    gap: 16px;
+}
+
+.title {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 500;
+    color: #0f172a;
+    letter-spacing: -0.01em;
+}
+
+.hint {
+    font-size: 13px;
+    color: rgba(15, 23, 42, 0.5);
+    margin-bottom: 16px;
+}
+
+.sceneTools {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    font-size: 13px;
+    color: rgba(15, 23, 42, 0.65);
+}
+
+// Обёртка над OverlayCanvas - сама сцена (checkerboard/safe area/масштаб)
+// теперь целиком реализована в overlay-canvas.module.scss (используется и
+// здесь, и на реальном /overlay/:token), эта обёртка только резервирует
+// отступ снизу.
+.sceneWrapper {
+    margin-bottom: 8px;
+}
+
+.sceneCaption {
+    font-size: 12px;
+    color: rgba(15, 23, 42, 0.45);
+    margin-bottom: 20px;
+}
+
+.guideLineX {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: #2563eb;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.guideLineY {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: #2563eb;
+    pointer-events: none;
+    z-index: 5;
+}
+
+// Короткий индикатор дистанции у gap-направляющей ("24") - только во время
+// активного drag (см. задачу, п.7).
+.gapLabel {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    background: #2563eb;
+    color: #fff;
+    font-size: 11px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    padding: 3px 5px;
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 6;
+    white-space: nowrap;
+}
+
+.presetsSection {
+    margin-bottom: 20px;
+}
+
+.sectionTitle {
+    font-size: 14px;
+    font-weight: 500;
+    color: #0f172a;
+    margin-bottom: 10px;
+}
+
+.presetButtons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.referenceControls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.referenceFileName {
+    font-size: 12px;
+    color: rgba(15, 23, 42, 0.5);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 220px;
+}
+
+.referenceAlert {
+    margin-bottom: 10px;
+}
+
+.opacitySlider {
+    flex: 1 1 auto;
+    min-width: 120px;
+    max-width: 260px;
+}
+
+.opacityValue {
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: rgba(15, 23, 42, 0.6);
+    min-width: 36px;
+}
+
+.referenceSuggestion {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 13px;
+    color: rgba(15, 23, 42, 0.65);
+}
+
+.paddingSection {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+
+.paddingLabel {
+    font-size: 13px;
+    color: rgba(15, 23, 42, 0.6);
+}
+
+.paddingButtons {
+    display: flex;
+    gap: 6px;
+}
+
+.controls {
+    margin-bottom: 20px;
+}
+
+.collapseHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+}
+
+.collapseHeaderTitle {
+    font-size: 14px;
+    font-weight: 500;
+    color: #0f172a;
+}
+
+.widgetBody {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.settingsRow {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.settingsRowLabel {
+    min-width: 130px;
+    font-size: 13px;
+    color: rgba(15, 23, 42, 0.6);
+}
+
+.recentMatchesSettings {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(15, 23, 42, 0.06);
+}
+
+.limitStepper {
+    width: 90px;
+}
+
+.actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.dirtyHint {
+    font-size: 12px;
+    color: rgba(217, 119, 6, 0.9);
+}
+
+.loading {
+    min-height: 100vh;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(15, 23, 42, 0.45);
+}

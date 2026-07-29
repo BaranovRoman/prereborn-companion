@@ -1,0 +1,288 @@
+:root {
+  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #0f0f0f;
+  background-color: #f6f6f6;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.app {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.app__subtitle {
+  margin-top: -8px;
+  color: #666;
+  font-size: 0.9em;
+}
+
+.app__error {
+  color: #b00020;
+  background: rgba(176, 0, 32, 0.08);
+  border: 1px solid rgba(176, 0, 32, 0.3);
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+.app__log-dir {
+  margin-top: 24px;
+  font-size: 0.8em;
+  color: #888;
+  word-break: break-all;
+}
+
+h1 {
+  margin-bottom: 4px;
+}
+
+section {
+  margin: 20px 0;
+}
+
+.status-checklist {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.check-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.check-item__box {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2em;
+  height: 1.2em;
+  border: 1px solid #999;
+  border-radius: 3px;
+  font-size: 0.85em;
+  flex-shrink: 0;
+}
+
+.check-item--ok .check-item__box {
+  background: #2e7d32;
+  border-color: #2e7d32;
+  color: #fff;
+}
+
+.check-item__detail {
+  color: #777;
+  font-size: 0.8em;
+  word-break: break-all;
+}
+
+.action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+button {
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  padding: 0.5em 1em;
+  font-size: 0.9em;
+  font-weight: 500;
+  font-family: inherit;
+  color: #0f0f0f;
+  background-color: #ffffff;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: #396cd8;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.last-event dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.last-event dt {
+  color: #777;
+}
+
+.last-event dd {
+  margin: 0;
+  word-break: break-all;
+}
+
+.last-event__count {
+  font-weight: 400;
+  color: #777;
+  font-size: 0.8em;
+}
+
+.last-event__empty {
+  color: #888;
+}
+
+.last-event__file {
+  font-size: 0.8em;
+  color: #999;
+}
+
+.event-history ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 0.85em;
+}
+
+.event-history li {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.event-history__time {
+  color: #999;
+  flex-shrink: 0;
+}
+
+.backend-status__line {
+  font-size: 0.85em;
+  color: #555;
+  margin: 4px 0;
+}
+
+.backend-status__error {
+  font-size: 0.85em;
+  color: #b00020;
+  margin: 4px 0 10px;
+  word-break: break-word;
+}
+
+.companion-token__hint {
+  font-size: 0.8em;
+  color: #888;
+  margin: 0 0 8px;
+}
+
+.companion-token__status {
+  font-size: 0.85em;
+  color: #555;
+  margin: 0 0 10px;
+}
+
+.companion-token__row {
+  display: flex;
+  gap: 8px;
+}
+
+.companion-token__row input {
+  flex: 1;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  padding: 0.5em 0.8em;
+  font-size: 0.9em;
+  font-family: inherit;
+}
+
+.diagnostics-panel__hint {
+  font-size: 0.8em;
+  color: #888;
+  margin: 0 0 10px;
+}
+
+.diagnostics-panel__stats {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 10px 0;
+  font-size: 0.85em;
+}
+
+.diagnostics-panel__stats dt {
+  color: #777;
+}
+
+.diagnostics-panel__stats dd {
+  margin: 0;
+  word-break: break-word;
+}
+
+.diagnostics-panel__warning {
+  color: #b06a00;
+}
+
+.diagnostics-panel__export-path {
+  font-size: 0.8em;
+  color: #555;
+  word-break: break-all;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color: #f6f6f6;
+    background-color: #1e1e1e;
+  }
+
+  .app__subtitle,
+  .app__log-dir,
+  .last-event dt,
+  .last-event__empty,
+  .event-history__time,
+  .backend-status__line,
+  .companion-token__status,
+  .diagnostics-panel__hint,
+  .diagnostics-panel__stats dt,
+  .diagnostics-panel__export-path {
+    color: #999;
+  }
+
+  .diagnostics-panel__warning {
+    color: #e0a030;
+  }
+
+  .companion-token__hint {
+    color: #777;
+  }
+
+  .companion-token__row input {
+    color: #f6f6f6;
+    background-color: #0f0f0f98;
+    border-color: #444;
+  }
+
+  .check-item {
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .event-history li {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  button {
+    color: #f6f6f6;
+    background-color: #2a2a2a;
+    border-color: #444;
+  }
+}

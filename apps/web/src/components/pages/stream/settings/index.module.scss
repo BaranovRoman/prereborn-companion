@@ -1,0 +1,204 @@
+// Desktop-дашборд стримера (см. задачу: широкий контейнер, dashboard grid
+// вместо одной узкой колонки по центру). sectionTitle/section переиспользуются
+// дочерними панелями (companion-panel.tsx, steam-integration-panel.tsx,
+// recent-matches-panel.tsx, integrations-card.tsx, index.tsx сам) как общий
+// "карточка + заголовок" примитив.
+.page {
+    min-height: 100vh;
+    width: 100%;
+    padding: 32px 0 48px;
+}
+
+.loading {
+    min-height: 100vh;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(15, 23, 42, 0.45);
+}
+
+.header {
+    width: min(1240px, calc(100% - 48px));
+    margin: 0 auto 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.title {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 600;
+    color: #0f172a;
+    letter-spacing: -0.01em;
+}
+
+.headerRight {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+// Компактные статус-чипы (см. задачу: "статусы оформляй компактными
+// badge/chip") - точка + подпись, без рамки/тени.
+.statusChip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: rgba(15, 23, 42, 0.6);
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.04);
+}
+
+.statusDot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.statusDotOn {
+    background: #15803d;
+}
+
+.statusDotOff {
+    background: rgba(15, 23, 42, 0.25);
+}
+
+.accountButton {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    background: #fff;
+    font-size: 13px;
+    color: #0f172a;
+    cursor: pointer;
+    font-family: inherit;
+
+    &:hover {
+        border-color: rgba(15, 23, 42, 0.3);
+    }
+}
+
+.accountEmail {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.accountCaret {
+    font-size: 10px;
+    color: rgba(15, 23, 42, 0.4);
+}
+
+// Desktop-дашборд-грид (см. задачу): 7fr/5fr, не одна узкая колонка по
+// центру. Дочерние карточки идут в DOM-порядке построчно (row1: Текущий
+// стрим/Последний матч, row2: Последние матчи/Оверлей); .fullSpan - явное
+// исключение для "Интеграции", которая идёт третьей строкой на всю ширину.
+.grid {
+    width: min(1240px, calc(100% - 48px));
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: minmax(0, 7fr) minmax(340px, 5fr);
+    gap: 20px;
+    align-items: start;
+}
+
+.fullSpan {
+    grid-column: 1 / -1;
+}
+
+.section {
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 14px;
+    padding: 20px 24px;
+    background: #fff;
+}
+
+.sectionTitle {
+    margin: 0 0 12px;
+    font-size: 15px;
+    font-weight: 500;
+    color: #0f172a;
+}
+
+.loadingHint {
+    font-size: 13px;
+    color: rgba(15, 23, 42, 0.45);
+}
+
+.overlayState {
+    font-size: 13px;
+    color: rgba(15, 23, 42, 0.55);
+    margin-bottom: 12px;
+}
+
+.urlRow {
+    margin-bottom: 12px;
+}
+
+.urlInput {
+    width: 100%;
+    height: 36px;
+    border-radius: 8px;
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    font-size: 12px;
+    padding: 0 10px;
+    color: rgba(15, 23, 42, 0.6);
+    background: rgba(15, 23, 42, 0.02);
+    font-family: var(--font-mono, monospace);
+    box-sizing: border-box;
+}
+
+.overlayActions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.overlayCollapse {
+    margin-top: 8px;
+
+    :global(.ant-collapse-header) {
+        padding-left: 0 !important;
+        font-size: 13px;
+        color: rgba(15, 23, 42, 0.55);
+    }
+
+    :global(.ant-collapse-content-box) {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+}
+
+@media (max-width: 900px) {
+    .grid {
+        grid-template-columns: 1fr;
+    }
+
+    .header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+@media (max-width: 480px) {
+    .section {
+        padding: 16px;
+    }
+
+    .accountEmail {
+        max-width: 100px;
+    }
+}

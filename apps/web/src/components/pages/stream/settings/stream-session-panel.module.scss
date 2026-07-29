@@ -1,0 +1,178 @@
+// "Текущий стрим" - главная карточка первого экрана дашборда (см. задачу:
+// самая большая карточка, крупные значения, ranked/unranked + reset внутри
+// неё же). Своя карточка-обёртка (а не sharedStyles.section) - нужен
+// cardHeader с кнопкой в правом верхнем углу, чего общий .section не даёт.
+.card {
+    border: 1px solid rgba(15, 23, 42, 0.1);
+    border-radius: 14px;
+    padding: 20px 24px;
+    background: #fff;
+}
+
+.cardHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+
+.resetButton {
+    font-weight: 500;
+}
+
+.modeRow {
+    max-width: 320px;
+    margin-bottom: 20px;
+}
+
+.statsRow {
+    display: flex;
+    gap: 32px;
+    flex-wrap: wrap;
+}
+
+.statBlock {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 140px;
+}
+
+.statLabel {
+    font-size: 12px;
+    color: rgba(15, 23, 42, 0.45);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.statValue {
+    font-size: 28px;
+    font-weight: 600;
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+}
+
+.ratingRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.ratingInput {
+    width: 140px;
+
+    :global(.ant-input-number-input) {
+        font-size: 28px;
+        font-weight: 600;
+        color: #0f172a;
+        height: 40px;
+        padding: 0;
+    }
+}
+
+.deltaPositive,
+.deltaNegative {
+    font-size: 16px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    padding: 2px 8px;
+    border-radius: 999px;
+}
+
+.deltaPositive {
+    color: #15803d;
+    background: rgba(21, 128, 61, 0.1);
+}
+
+.deltaNegative {
+    color: #b42318;
+    background: rgba(180, 35, 24, 0.1);
+}
+
+.savingHint {
+    font-size: 12px;
+    color: rgba(15, 23, 42, 0.4);
+}
+
+.counters {
+    display: flex;
+    gap: 20px;
+}
+
+.counter {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.counterValue {
+    font-size: 22px;
+    font-weight: 600;
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+}
+
+.counterButtons {
+    display: flex;
+    gap: 6px;
+}
+
+.heroSelect {
+    width: 220px;
+}
+
+.heroOption {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+// Официальный hero-арт Dota горизонтальный (225x127) - см. widget.module.scss
+// в components/pages/overlay/widgets для той же правку в overlay-виджетах.
+.heroOptionIcon {
+    width: 36px;
+    aspect-ratio: 225 / 127;
+    border-radius: 3px;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.readonlyHero {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 18px;
+    font-weight: 500;
+    color: #0f172a;
+}
+
+.readonlyHeroIcon {
+    width: 44px;
+    aspect-ratio: 225 / 127;
+    border-radius: 4px;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.sessionLoading {
+    font-size: 13px;
+    color: rgba(15, 23, 42, 0.45);
+}
+
+@media (max-width: 720px) {
+    .statsRow {
+        gap: 20px;
+    }
+}
+
+@media (max-width: 480px) {
+    .card {
+        padding: 16px;
+    }
+
+    .modeRow {
+        max-width: none;
+    }
+}

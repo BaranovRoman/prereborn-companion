@@ -1,0 +1,149 @@
+mod backend;
+mod commands;
+mod diagnostics;
+mod gsi;
+mod server;
+mod state;
+mod storage;
+
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::TrayIconBuilder,
+    Manager, WindowEvent,
+};
+
+use state::AppState;
+
+fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let show_item = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+    TrayIconBuilder::new()
+        .menu(&menu)
+        .tooltip("Dota Companion")
+        .icon(app.default_window_icon().unwrap().clone())
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let tauri::tray::TrayIconEvent::Click {
+                button: tauri::tray::MouseButton::Left,
+                button_state: tauri::tray::MouseButtonState::Up,
+                ..
+            } = event
+            {
+                let app = tray.app_handle();
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
+/// Runs once at startup: tries to find Dota and write the GSI config with no
+/// user interaction, so the happy path is zero clicks. Failures here are not
+/// fatal — the UI's "Find Dota" / "Install GSI" buttons cover the fallback.
+fn try_auto_provision(app: &tauri::AppHandle) {
+    let Some(dota_path) = gsi::finder::find_dota_auto() else {
+        storage::append_rolling_log(
+            app,
+            "Startup auto-detection found no Dota install; waiting for manual folder pick.",
+        );
+        return;
+    };
+    storage::append_rolling_log(app, &format!("Dota auto-detected at {dota_path}"));
+
+    {
+        let state = app.state::<AppState>();
+        let mut inner = state.0.lock().unwrap();
+        inner.dota_path = Some(dota_path.clone());
+        inner.dota_source = Some("auto".to_string());
+    }
+
+    match gsi::config::install_gsi(&dota_path) {
+        Ok(target) => {
+            let state = app.state::<AppState>();
+            let mut inner = state.0.lock().unwrap();
+            inner.gsi_installed = true;
+            inner.gsi_config_path = Some(target.to_string_lossy().to_string());
+            drop(inner);
+            storage::append_rolling_log(app, &format!("GSI config auto-installed at {}", target.display()));
+        }
+        Err(e) => {
+            storage::append_rolling_log(app, &format!("GSI auto-install failed, use the Install GSI button: {e}"));
+        }
+    }
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .manage(AppState::new())
+        .manage(diagnostics::DiagnosticsState::new())
+        .setup(|app| {
+            let handle = app.handle().clone();
+
+            storage::init(&handle)?;
+            {
+                let state = handle.state::<AppState>();
+                let mut inner = state.0.lock().unwrap();
+                inner.log_dir = Some(storage::logs_root(&handle).to_string_lossy().to_string());
+            }
+            storage::append_rolling_log(&handle, "Dota Companion starting up.");
+            diagnostics::recover_last_session(&handle);
+
+            if let Err(e) = server::start(handle.clone()) {
+                storage::append_rolling_log(
+                    &handle,
+                    &format!("Failed to start GSI HTTP server: {e}"),
+                );
+            }
+
+            try_auto_provision(&handle);
+            backend::init(handle.clone());
+
+            build_tray(&handle)?;
+
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Keep the app alive in the tray instead of quitting when the
+            // window is closed — the GSI server must keep running.
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let _ = window.hide();
+                api.prevent_close();
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::get_status,
+            commands::find_dota,
+            commands::pick_dota_folder,
+            commands::install_gsi,
+            commands::open_logs_folder,
+            commands::open_dota_folder,
+            commands::clear_log,
+            commands::save_companion_token,
+            commands::resend_current_state,
+            commands::diagnostics_get_status,
+            commands::diagnostics_start,
+            commands::diagnostics_stop,
+            commands::diagnostics_clear,
+            commands::diagnostics_export,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
