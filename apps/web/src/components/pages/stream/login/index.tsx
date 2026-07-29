@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Form, Input, Button, message } from "antd";
 import Link from "next/link";
+import Image from "next/image";
 import axios from "axios";
 import { streamAuthApi } from "@/entities/stream-user/api/stream-auth";
 import { usePageReady } from "@/shared/ui/route-transition/usePageReady";
@@ -55,8 +56,23 @@ export const StreamLoginPage = () => {
         <div className={styles.page}>
             {contextHolder}
             <div className={styles.card}>
-                <h1 className={styles.title}>Вход</h1>
-                <p className={styles.subtitle}>Overlay-аккаунт стрим-сервиса</p>
+                <div className={styles.cardHeader}>
+                    <Image
+                        className={styles.brandLogo}
+                        src="/logo.png"
+                        width={58}
+                        height={58}
+                        alt=""
+                        priority
+                    />
+                    <div>
+                        <div className={styles.brandName}>PreReborn Companion</div>
+                        <h1 className={styles.title}>Вход в аккаунт</h1>
+                    </div>
+                </div>
+                <p className={styles.subtitle}>
+                    Управляйте стримом, матчами и виджетами оверлея в одном месте.
+                </p>
 
                 <Form
                     layout="vertical"
@@ -66,6 +82,7 @@ export const StreamLoginPage = () => {
                 >
                     <Form.Item
                         name="email"
+                        label="Email"
                         validateTrigger="onBlur"
                         rules={[
                             { required: true, message: "Введите email" },
@@ -82,6 +99,7 @@ export const StreamLoginPage = () => {
 
                     <Form.Item
                         name="password"
+                        label="Пароль"
                         validateTrigger="onBlur"
                         rules={[{ required: true, message: "Введите пароль" }]}
                     >
@@ -101,7 +119,7 @@ export const StreamLoginPage = () => {
                             disabled={isSubmitting}
                             className={styles.submitButton}
                         >
-                            Войти
+                            Войти в Companion
                         </Button>
                     </Form.Item>
                 </Form>

@@ -1,79 +1,214 @@
-// Общие стили карточки логина/регистрации (components/pages/stream/login,
-// .../register). Палитра/радиусы взяты из features/home/contact-drawer -
-// в проекте нет отдельного файла цветовых токенов (см. _tokens.scss -
-// только layout), поэтому ink/border-цвета переиспользуются как есть.
-
 .page {
     min-height: 100vh;
     width: 100%;
-    display: flex;
+    display: grid;
     align-items: center;
     justify-content: center;
-    padding: 24px;
+    padding: 40px 24px;
 }
 
 .card {
+    position: relative;
     width: 100%;
-    max-width: 360px;
+    max-width: 460px;
+    padding: 32px 34px 28px;
+    overflow: hidden;
+    border: 1px solid rgba(151, 132, 126, 0.42);
+    border-radius: 2px;
+    background:
+        linear-gradient(180deg, rgba(31, 28, 29, 0.97), rgba(10, 9, 10, 0.97)),
+        repeating-linear-gradient(90deg, transparent 0 4px, rgba(255, 255, 255, 0.012) 4px 5px);
+    box-shadow:
+        inset 0 0 0 2px rgba(0, 0, 0, 0.68),
+        inset 0 1px rgba(255, 255, 255, 0.06),
+        0 22px 70px rgba(0, 0, 0, 0.54);
+
+    &::before {
+        content: "";
+        position: absolute;
+        inset: 8px 8px auto;
+        height: 2px;
+        background: linear-gradient(90deg, #70252a 0 16px, transparent 16px calc(100% - 16px), #70252a calc(100% - 16px));
+        opacity: 0.85;
+    }
+}
+
+.cardHeader {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding-bottom: 20px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid rgba(137, 117, 111, 0.25);
+}
+
+.brandLogo {
+    width: 58px;
+    height: 58px;
+    object-fit: contain;
+    flex-shrink: 0;
+    filter: drop-shadow(0 6px 12px rgba(0, 0, 0, 0.6));
+}
+
+.brandName {
+    margin-bottom: 5px;
+    color: #aa9993;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.17em;
+    line-height: 1.2;
+    text-transform: uppercase;
 }
 
 .title {
-    margin: 0 0 4px;
-    font-size: 22px;
-    font-weight: 500;
-    color: #0f172a;
-    letter-spacing: -0.01em;
+    margin: 0;
+    color: #fff7f5;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 24px;
+    font-weight: 400;
+    letter-spacing: 0.01em;
+    text-shadow: 0 2px 18px rgba(0, 0, 0, 0.7);
 }
 
 .subtitle {
-    margin: 0 0 24px;
-    font-size: 14px;
-    color: rgba(15, 23, 42, 0.55);
+    margin: 0 0 26px;
+    color: rgba(255, 238, 238, 0.58);
+    font-size: 13px;
+    line-height: 1.55;
 }
 
 .form {
     display: flex;
     flex-direction: column;
+
+    :global(.ant-form-item) {
+        margin-bottom: 18px;
+    }
+
+    :global(.ant-form-item-label) {
+        padding-bottom: 7px;
+    }
+
+    :global(.ant-form-item-label > label) {
+        height: auto;
+        color: #aa9993;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: 10px;
+        letter-spacing: 0.15em;
+        text-transform: uppercase;
+    }
+
+    :global(.ant-form-item-label > label::after) {
+        display: none;
+    }
+
+    :global(.ant-form-item-explain-error) {
+        padding-top: 4px;
+        color: #df777b;
+        font-size: 12px;
+    }
 }
 
 .input {
-    height: 44px;
-    border-radius: 10px;
-    border: 1px solid rgba(15, 23, 42, 0.1);
-    font-size: 15px;
-    padding: 0 12px;
+    min-height: 46px;
+    border: 1px solid rgba(255, 225, 225, 0.15) !important;
+    border-radius: 2px !important;
+    background: rgba(4, 3, 4, 0.78) !important;
+    color: #fff7f5 !important;
+    font-size: 14px;
+    padding: 0 13px;
     width: 100%;
     box-sizing: border-box;
     font-family: inherit;
+    box-shadow: inset 0 1px 8px rgba(0, 0, 0, 0.32);
 
     &:focus,
     &:hover {
-        border-color: rgba(15, 23, 42, 0.3);
+        border-color: rgba(198, 61, 67, 0.72) !important;
+        background: rgba(7, 5, 6, 0.88) !important;
         outline: none;
+    }
+
+    &:global(.ant-input-affix-wrapper-focused) {
+        border-color: rgba(198, 61, 67, 0.88);
+        box-shadow: 0 0 0 2px rgba(198, 61, 67, 0.12);
+    }
+
+    :global(.ant-input) {
+        color: #fff7f5 !important;
+        background: transparent !important;
+    }
+
+    :global(.ant-input-password-icon) {
+        color: rgba(255, 238, 238, 0.42);
+    }
+
+    &::placeholder,
+    :global(.ant-input)::placeholder {
+        color: rgba(255, 238, 238, 0.3) !important;
     }
 }
 
 .submitButton {
-    height: 44px;
-    border-radius: 10px;
-    font-size: 15px;
-    font-weight: 500;
-    margin-top: 8px;
+    height: 46px;
+    margin-top: 6px;
+    border: 1px solid #a93339 !important;
+    border-radius: 2px !important;
+    background: linear-gradient(180deg, #c63d43, #8f252b) !important;
+    color: #fff7f5 !important;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    box-shadow:
+        inset 0 1px rgba(255, 255, 255, 0.12),
+        0 8px 20px rgba(113, 25, 30, 0.24);
+
+    &:hover,
+    &:focus {
+        border-color: #db555b !important;
+        background: linear-gradient(180deg, #d54a50, #9d2b30) !important;
+        color: #fff !important;
+    }
 }
 
 .switchLink {
-    margin-top: 20px;
+    margin-top: 4px;
+    padding-top: 20px;
+    border-top: 1px solid rgba(137, 117, 111, 0.2);
     text-align: center;
-    font-size: 14px;
-    color: rgba(15, 23, 42, 0.55);
+    font-size: 13px;
+    color: rgba(255, 238, 238, 0.48);
 
     a {
-        color: #0f172a;
-        font-weight: 500;
+        color: #dc666b;
+        font-weight: 600;
         text-decoration: none;
 
         &:hover {
-            text-decoration: underline;
+            color: #f0878b;
         }
+    }
+}
+
+@media (max-width: 560px) {
+    .page {
+        align-items: start;
+        padding: 20px 14px;
+    }
+
+    .card {
+        margin-top: max(0px, calc((100vh - 620px) / 2));
+        padding: 26px 22px 24px;
+    }
+
+    .brandLogo {
+        width: 50px;
+        height: 50px;
+    }
+
+    .title {
+        font-size: 21px;
     }
 }
