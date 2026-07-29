@@ -121,7 +121,22 @@ jobs:
           sed -i '0,/^version = /s/^version = ".*"/version = "'"$version"'"/' apps/companion/src-tauri/Cargo.toml
 
       - name: Build Tauri app (Windows installer)
-        run: pnpm --filter @prereborn/companion run tauri build -- --bundles nsis
+        shell: powershell
+        run: |
+          pnpm --filter @prereborn/companion run tauri build -- --bundles nsis 2>&1 |
+            Tee-Object -FilePath tauri-build.log
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Publish failed build log
+        if: failure()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "PreReborn Companion ${{ steps.version.outputs.version }} (build failed)"
+          draft: false
+          files: tauri-build.log
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
