@@ -123,7 +123,7 @@ jobs:
       - name: Build Tauri app (Windows installer)
         shell: powershell
         run: |
-          pnpm.cmd --filter @prereborn/companion exec tauri build --bundles nsis *> tauri-build.log
+          cmd.exe /d /s /c "pnpm.cmd --filter @prereborn/companion exec tauri build --bundles nsis > tauri-build.log 2>&1"
           $buildExitCode = $LASTEXITCODE
           Get-Content tauri-build.log
           exit $buildExitCode
