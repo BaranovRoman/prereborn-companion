@@ -265,6 +265,7 @@ export const correctStreamMatch = async (
             ratingBefore = sessionRating.rows[0]?.rating ?? null;
         }
 
+        const ratingChainAnchor = ratingBefore;
         let ratingDelta: number | null;
         let ratingAfter: number | null;
         let ratingSource: RatingSource | null = match.rating_source;
@@ -299,6 +300,7 @@ export const correctStreamMatch = async (
                 ratingBefore !== null && ratingDelta !== null ? ratingBefore + ratingDelta : null;
         }
         if (matchIsRanked !== true) {
+            ratingBefore = null;
             ratingDelta = null;
             ratingAfter = null;
             ratingSource = null;
@@ -377,7 +379,8 @@ export const correctStreamMatch = async (
             [sessionId, match.id]
         );
 
-        let prevAfter = newIsRanked === true ? ratingAfter : ratingBefore;
+        let prevAfter =
+            newIsRanked === true ? ratingAfter : ratingChainAnchor;
         let affectedMatches = 0;
         let tailRatingAfter = prevAfter;
 
