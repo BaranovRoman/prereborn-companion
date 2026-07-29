@@ -1,0 +1,116 @@
+name: Deploy production
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+concurrency:
+  group: prereborn-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Checkout verified commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.PRODUCTION_SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Ensure release directory exists
+        env:
+          SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+          SSH_PORT: ${{ secrets.PRODUCTION_SSH_PORT }}
+          SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+        run: |
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            'mkdir -p /var/www/www-root/data/www/prereborn.ru'
+
+      - name: Upload verified source
+        env:
+          SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+          SSH_PORT: ${{ secrets.PRODUCTION_SSH_PORT }}
+          SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+        run: |
+          rsync -az --delete \
+            -e "ssh -p $SSH_PORT" \
+            --exclude='.git/' \
+            --exclude='.env' \
+            --exclude='node_modules/' \
+            --exclude='logs/' \
+            --exclude='apps/api/uploads/' \
+            ./ "$SSH_USER@$SSH_HOST:/var/www/www-root/data/www/prereborn.ru/"
+
+      - name: Install production environment
+        env:
+          SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+          SSH_PORT: ${{ secrets.PRODUCTION_SSH_PORT }}
+          SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+          DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          STREAM_JWT_SECRET: ${{ secrets.PRODUCTION_STREAM_JWT_SECRET }}
+          OPENDOTA_API_KEY: ${{ secrets.OPENDOTA_API_KEY }}
+          TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+          DOTA_COMPANION_DOWNLOAD_URL: ${{ secrets.DOTA_COMPANION_DOWNLOAD_URL }}
+        run: |
+          test -n "$DATABASE_URL" || {
+            echo "PRODUCTION_DATABASE_URL is empty"
+            exit 1
+          }
+          test -n "$STREAM_JWT_SECRET" || {
+            echo "PRODUCTION_STREAM_JWT_SECRET is empty"
+            exit 1
+          }
+
+          {
+            printf 'DATABASE_URL=%s\n' "$DATABASE_URL"
+            printf 'PORT=5102\n'
+            printf 'NODE_ENV=production\n'
+            printf 'STREAM_JWT_SECRET=%s\n' "$STREAM_JWT_SECRET"
+            printf 'CORS_ALLOWED_ORIGINS=https://prereborn.ru,https://www.prereborn.ru\n'
+            printf 'STEAM_OPENID_REALM=https://prereborn.ru\n'
+            printf 'STEAM_OPENID_RETURN_URL=https://prereborn.ru/api/stream/integrations/steam/callback\n'
+            printf 'OPENDOTA_API_KEY=%s\n' "$OPENDOTA_API_KEY"
+            printf 'TWITCH_CLIENT_ID=%s\n' "$TWITCH_CLIENT_ID"
+            printf 'TWITCH_CLIENT_SECRET=%s\n' "$TWITCH_CLIENT_SECRET"
+            printf 'TWITCH_REDIRECT_URI=https://prereborn.ru/api/stream/integrations/twitch/callback\n'
+            printf 'TWITCH_FRONTEND_ORIGIN=https://prereborn.ru\n'
+            printf 'BACKEND_URL=http://127.0.0.1:5102\n'
+            printf 'NEXT_PUBLIC_API_URL=/api\n'
+            printf 'NEXT_PUBLIC_SITE_URL=https://prereborn.ru\n'
+            printf 'NEXT_PUBLIC_DOTA_COMPANION_DOWNLOAD_URL=%s\n' "$DOTA_COMPANION_DOWNLOAD_URL"
+          } | \
+            ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+              'umask 077; cat > /var/www/www-root/data/www/prereborn.ru/.env'
+
+      - name: Build, migrate and reload
+        env:
+          SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+          SSH_PORT: ${{ secrets.PRODUCTION_SSH_PORT }}
+          SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
+        run: |
+          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            'cd /var/www/www-root/data/www/prereborn.ru && SKIP_GIT_PULL=1 bash deploy.sh'
+
+      - name: Verify public endpoint
+        run: |
+          curl --fail --silent --show-error \
+            --retry 5 --retry-delay 3 \
+            https://prereborn.ru/api/health
