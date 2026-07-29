@@ -37,7 +37,11 @@ corepack pnpm --filter @prereborn/api db:migrate
 pm2 startOrReload ecosystem.config.cjs --update-env
 pm2 save
 
-curl --fail --silent --show-error http://127.0.0.1:5102/api/health
-curl --fail --silent --show-error --head http://127.0.0.1:5100
+curl --fail --silent --show-error \
+  --retry 10 --retry-delay 2 --retry-connrefused \
+  http://127.0.0.1:5102/api/health
+curl --fail --silent --show-error --head \
+  --retry 10 --retry-delay 2 --retry-connrefused \
+  http://127.0.0.1:5100
 
 echo "Деплой prereborn.ru завершён."

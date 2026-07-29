@@ -4,11 +4,14 @@ use std::sync::Mutex;
 pub const GSI_PORT: u16 = 3665;
 pub const GSI_CONFIG_FILE_NAME: &str = "gamestate_integration_dota_companion.cfg";
 
-// The backend URL below is the local development endpoint.
+// Debug builds use the local API; release installers use production HTTPS.
 // backend/config/env.ts, тот же паттерн для STEAM_OPENID_REALM) - companion
 // не даёт настроить этот URL из UI в этой итерации (см. отчёт по фиче), это
 // единственное место, которое нужно поменять для другого окружения/домена.
+#[cfg(debug_assertions)]
 pub const DEFAULT_BACKEND_URL: &str = "http://127.0.0.1:3001/api";
+#[cfg(not(debug_assertions))]
+pub const DEFAULT_BACKEND_URL: &str = "https://prereborn.ru/api";
 pub const COMPANION_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Clone, Serialize, Default)]
