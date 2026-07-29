@@ -3,10 +3,14 @@
 // неё же). Своя карточка-обёртка (а не sharedStyles.section) - нужен
 // cardHeader с кнопкой в правом верхнем углу, чего общий .section не даёт.
 .card {
-    border: 1px solid rgba(15, 23, 42, 0.1);
+    border: 1px solid rgba(255, 225, 225, 0.12);
     border-radius: 14px;
     padding: 20px 24px;
-    background: #fff;
+    background:
+        linear-gradient(180deg, rgba(31, 27, 28, 0.94), rgba(15, 12, 13, 0.94));
+    color: #f5eaea;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.24);
+    backdrop-filter: blur(14px);
 }
 
 .cardHeader {
@@ -42,7 +46,7 @@
 
 .statLabel {
     font-size: 12px;
-    color: rgba(15, 23, 42, 0.45);
+    color: rgba(255, 238, 238, 0.48);
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
@@ -50,7 +54,7 @@
 .statValue {
     font-size: 28px;
     font-weight: 600;
-    color: #0f172a;
+    color: #f5eaea;
     font-variant-numeric: tabular-nums;
 }
 
@@ -66,7 +70,7 @@
     :global(.ant-input-number-input) {
         font-size: 28px;
         font-weight: 600;
-        color: #0f172a;
+        color: #f5eaea;
         height: 40px;
         padding: 0;
     }
@@ -93,7 +97,7 @@
 
 .savingHint {
     font-size: 12px;
-    color: rgba(15, 23, 42, 0.4);
+    color: rgba(255, 238, 238, 0.44);
 }
 
 .counters {
@@ -110,7 +114,7 @@
 .counterValue {
     font-size: 22px;
     font-weight: 600;
-    color: #0f172a;
+    color: #f5eaea;
     font-variant-numeric: tabular-nums;
 }
 
@@ -145,7 +149,7 @@
     gap: 8px;
     font-size: 18px;
     font-weight: 500;
-    color: #0f172a;
+    color: #f5eaea;
 }
 
 .readonlyHeroIcon {
@@ -158,7 +162,7 @@
 
 .sessionLoading {
     font-size: 13px;
-    color: rgba(15, 23, 42, 0.45);
+    color: rgba(255, 238, 238, 0.48);
 }
 
 @media (max-width: 720px) {

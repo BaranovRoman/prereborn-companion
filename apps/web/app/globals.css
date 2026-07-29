@@ -3,3 +3,22 @@ html, body { margin: 0; min-height: 100%; background: #090305; }
 body { color: #f1e8e8; font-family: Arial, Helvetica, sans-serif; }
 a { color: inherit; }
 
+.appAtmosphere {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+}
+
+.appAtmosphere,
+.appAtmosphere * {
+  pointer-events: none !important;
+}
+
+.appContent {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+}

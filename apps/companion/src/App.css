@@ -23,6 +23,19 @@ body {
   padding: 24px;
 }
 
+.app__brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.app__logo {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
 .app__subtitle {
   margin-top: -8px;
   color: #666;

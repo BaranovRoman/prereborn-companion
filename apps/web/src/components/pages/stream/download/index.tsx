@@ -20,7 +20,7 @@ export const StreamDownloadPage = () => {
         <div className={styles.page}>
             <div className={styles.card}>
                 <div className={styles.header}>
-                    <h1 className={styles.title}>Dota Companion</h1>
+                    <h1 className={styles.title}>PreReborn Companion</h1>
                     <Tag color="gold">Beta / Experimental</Tag>
                 </div>
 
@@ -54,7 +54,7 @@ export const StreamDownloadPage = () => {
                     <ol className={styles.steps}>
                         <li>Скачайте и запустите установщик (Setup.exe).</li>
                         <li>
-                            Откройте Dota Companion — он сам найдёт Dota 2 и
+                            Откройте PreReborn Companion — он сам найдёт Dota 2 и
                             настроит Game State Integration.
                         </li>
                         <li>

@@ -1,9 +1,14 @@
 import type { Metadata } from "next";
 import { AntdRegistry } from "@ant-design/nextjs-registry";
+import { AppAtmosphere } from "@/shared/ui/app-atmosphere";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "PreReborn Companion",
+  title: {
+    default: "PreReborn Companion",
+    template: "%s — PreReborn Companion"
+  },
+  applicationName: "PreReborn Companion",
   description: "Dota streamer companion and OBS overlays",
   robots: { index: false, follow: false }
 };
@@ -11,7 +16,12 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body><AntdRegistry>{children}</AntdRegistry></body>
+      <body>
+        <AntdRegistry>
+          <AppAtmosphere />
+          <div className="appContent">{children}</div>
+        </AntdRegistry>
+      </body>
     </html>
   );
 }

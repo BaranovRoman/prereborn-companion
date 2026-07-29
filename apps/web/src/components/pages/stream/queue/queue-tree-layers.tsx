@@ -4,17 +4,17 @@ import styles from "./queue-scene.module.scss";
 const TREE_LAYERS = [
     {
         className: styles.treeFar,
-        src: "/vendor/origin-unknown/trees-1.png",
+        src: "/generated/chatgpt/trees-1.png",
         testId: "queue-tree-far",
     },
     {
         className: styles.treeMiddle,
-        src: "/vendor/origin-unknown/trees-2.png",
+        src: "/generated/chatgpt/trees-2.png",
         testId: "queue-tree-middle",
     },
     {
         className: styles.treeNear,
-        src: "/vendor/origin-unknown/trees-3.png",
+        src: "/generated/chatgpt/trees-3.png",
         testId: "queue-tree-near",
     },
 ] as const;
@@ -27,7 +27,7 @@ export const QueueTreeLayers = () => (
         >
             <Image
                 className={styles.treeImage}
-                src="/vendor/origin-unknown/trees-2.png"
+                src="/generated/chatgpt/trees-2.png"
                 alt=""
                 fill
                 priority

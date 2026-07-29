@@ -21,7 +21,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 
     TrayIconBuilder::new()
         .menu(&menu)
-        .tooltip("Dota Companion")
+        .tooltip("PreReborn Companion")
         .icon(app.default_window_icon().unwrap().clone())
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => {
@@ -103,7 +103,7 @@ pub fn run() {
                 let mut inner = state.0.lock().unwrap();
                 inner.log_dir = Some(storage::logs_root(&handle).to_string_lossy().to_string());
             }
-            storage::append_rolling_log(&handle, "Dota Companion starting up.");
+            storage::append_rolling_log(&handle, "PreReborn Companion starting up.");
             diagnostics::recover_last_session(&handle);
 
             if let Err(e) = server::start(handle.clone()) {

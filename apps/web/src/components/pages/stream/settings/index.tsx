@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Button, Collapse, Dropdown, Popconfirm, message } from "antd";
+import Image from "next/image";
+import { Button, Collapse, ConfigProvider, Dropdown, Popconfirm, message, theme } from "antd";
 import type { CollapseProps, MenuProps } from "antd";
 import { DownOutlined, UserOutlined } from "@ant-design/icons";
 import { useStreamSession } from "@/entities/stream-user/lib/use-stream-session";
@@ -156,11 +157,34 @@ export const StreamSettingsPage = () => {
     };
 
     return (
+        <ConfigProvider
+            theme={{
+                algorithm: theme.darkAlgorithm,
+                token: {
+                    colorPrimary: "#c63d43",
+                    colorBgContainer: "rgba(20, 16, 17, 0.9)",
+                    colorBorder: "rgba(255, 225, 225, 0.14)",
+                },
+            }}
+        >
         <div className={styles.page}>
             {contextHolder}
 
             <header className={styles.header}>
-                <h1 className={styles.title}>Стрим-дашборд</h1>
+                <div className={styles.brand}>
+                    <Image
+                        className={styles.brandLogo}
+                        src="/logo.png"
+                        width={52}
+                        height={52}
+                        alt="PreReborn Companion"
+                        priority
+                    />
+                    <div>
+                        <div className={styles.brandName}>PreReborn Companion</div>
+                        <h1 className={styles.title}>Стрим-дашборд</h1>
+                    </div>
+                </div>
                 <div className={styles.headerRight}>
                     <span className={styles.statusChip}>
                         <span
@@ -273,5 +297,6 @@ export const StreamSettingsPage = () => {
                 </div>
             </div>
         </div>
+        </ConfigProvider>
     );
 };

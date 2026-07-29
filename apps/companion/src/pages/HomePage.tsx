@@ -55,7 +55,10 @@ export function HomePage() {
   return (
     <main className="app">
       <header>
-        <h1>Dota Companion</h1>
+        <div className="app__brand">
+          <img className="app__logo" src="/logo.png" alt="PreReborn Companion" width="72" height="72" />
+          <h1>PreReborn Companion</h1>
+        </div>
         <p className="app__subtitle">Исследовательский GSI-компаньон — MVP, не финальная архитектура</p>
       </header>
 

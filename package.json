@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@11.9.0",
   "scripts": {
-    "dev": "pnpm --parallel --filter './apps/*' dev",
+    "dev": "pnpm --parallel --recursive dev",
     "build": "pnpm --filter @prereborn/web build && pnpm --filter @prereborn/api build && pnpm --filter @prereborn/companion build",
     "lint": "pnpm --filter @prereborn/web lint",
     "typecheck": "pnpm --filter @prereborn/web typecheck && pnpm --filter @prereborn/api typecheck",

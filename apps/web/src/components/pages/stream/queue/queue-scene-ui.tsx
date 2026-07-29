@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { queueSceneMock as data } from "./queue-scene-mock";
 import styles from "./queue-scene.module.scss";
 
@@ -137,8 +138,15 @@ const Supporters = () => (
 export const QueueSceneUi = () => (
     <div className={styles.interface}>
         <header className={styles.topBar}>
-            <div className={styles.brandMark}>N</div>
-            <div className={styles.brand}><strong>NORTHWIND</strong><span>ANCIENT ARCHIVES</span></div>
+            <Image
+                className={styles.brandLogo}
+                src="/logo.png"
+                width={52}
+                height={52}
+                alt="PreReborn Companion"
+                priority
+            />
+            <div className={styles.brand}><strong>PREREBORN</strong><span>COMPANION</span></div>
             <div className={styles.navOrnaments}><span>PROFILE</span><span>HEROES</span><span>HISTORY</span><span>COMMUNITY</span></div>
             <div className={styles.broadcast}><i /> LIVE BROADCAST</div>
         </header>
@@ -158,7 +166,6 @@ export const QueueSceneUi = () => (
                 <Supporters />
             </div>
         </div>
-        <footer className={styles.sceneFooter}><span>EUROPE WEST // ARCHIVE ONLINE</span><span>DOTA COMPANION // OBS SCENE</span></footer>
+        <footer className={styles.sceneFooter}><span>EUROPE WEST // ARCHIVE ONLINE</span><span>PREREBORN COMPANION // OBS SCENE</span></footer>
     </div>
 );
-

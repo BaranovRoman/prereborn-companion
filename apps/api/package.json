@@ -9,7 +9,7 @@
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "db:migrate": "tsx src/db/migrate.ts"
+    "db:migrate": "pnpm build && node dist/db/migrate-cli.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

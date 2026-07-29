@@ -356,21 +356,12 @@
 .topBar::before { left: 7px; }
 .topBar::after { right: 7px; }
 
-.brandMark {
-    width: 39px;
-    height: 39px;
-    display: grid;
-    place-items: center;
-    border: 1px solid #7f5c53;
-    background: #171616;
-    color: #c7aaa0;
-    font-family: Georgia, serif;
-    font-size: 25px;
-    transform: rotate(45deg);
-    box-shadow: inset 0 0 0 3px #0b0b0b;
+.brandLogo {
+    width: 52px;
+    height: 52px;
+    object-fit: contain;
+    justify-self: center;
 }
-
-.brandMark::first-letter { transform: rotate(-45deg); }
 
 .brand {
     display: flex;

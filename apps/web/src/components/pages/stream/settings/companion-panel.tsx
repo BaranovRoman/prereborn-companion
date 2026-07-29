@@ -106,7 +106,7 @@ export const CompanionPanel = ({
             {revealedToken ? (
                 <div className={styles.tokenBox}>
                     <div className={styles.tokenHint}>
-                        Вставьте этот токен в Dota Companion (поле «Companion
+                        Вставьте этот токен в PreReborn Companion (поле «Companion
                         token»). Он показывается только сейчас — сохраните его.
                     </div>
                     <div className={styles.tokenRow}>
