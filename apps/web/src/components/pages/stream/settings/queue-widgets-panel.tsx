@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { Button, Switch, message } from "antd";
+import { Button, Select, Switch, message } from "antd";
+import { DOTA_HEROES } from "@/entities/dota-hero/model/heroes";
 import { useQueueSettings } from "@/entities/stream-queue-settings/lib/use-queue-settings";
 import type { QueueWidgetId } from "@/entities/stream-queue-settings/model/types";
 import styles from "./queue-widgets-panel.module.scss";
@@ -32,6 +33,14 @@ export const QueueWidgetsPanel = () => {
         }
     };
 
+    const selectFavoriteHeroes = async (heroIds: number[]) => {
+        try {
+            await save({ ...settings, favoriteHeroIds: heroIds });
+        } catch {
+            messageApi.error("Не удалось сохранить любимых героев");
+        }
+    };
+
     return (
         <section className={styles.section}>
             {contextHolder}
@@ -53,6 +62,27 @@ export const QueueWidgetsPanel = () => {
                         />
                     </label>
                 ))}
+            </div>
+            <div className={styles.heroPicker}>
+                <div>
+                    <strong>Герои в Favorite Heroes</strong>
+                    <span>Выберите до трёх. Пустой список — автоматически по истории матчей.</span>
+                </div>
+                <Select
+                    mode="multiple"
+                    maxCount={3}
+                    showSearch
+                    allowClear
+                    value={settings.favoriteHeroIds}
+                    disabled={loading}
+                    placeholder="Автоматический выбор"
+                    optionFilterProp="label"
+                    options={DOTA_HEROES.map((hero) => ({
+                        value: hero.id,
+                        label: hero.localizedName,
+                    }))}
+                    onChange={(ids) => void selectFavoriteHeroes(ids)}
+                />
             </div>
         </section>
     );

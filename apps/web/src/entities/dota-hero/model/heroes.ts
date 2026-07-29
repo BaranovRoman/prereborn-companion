@@ -151,4 +151,5 @@ const RAW_HEROES: RawHero[] = [
 export const DOTA_HEROES: DotaHero[] = RAW_HEROES.map((hero) => ({
     ...hero,
     imageUrl: buildHeroImageUrl(hero.name),
+    videoUrl: `/vendor/valve/video/heroes/${hero.name}.webm`,
 }));

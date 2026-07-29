@@ -23,14 +23,15 @@ export const CurrentGame = ({ lastHeroId }: CurrentGameProps) => {
                     exit={{ opacity: 0 }}
                     transition={FADE_TRANSITION}
                 >
-                    <img
-                        src={hero.imageUrl}
-                        alt=""
+                    <video
+                        src={hero.videoUrl}
+                        poster={hero.imageUrl}
                         title={hero.localizedName}
                         className={styles.heroIcon}
-                        onError={(event) => {
-                            event.currentTarget.style.visibility = "hidden";
-                        }}
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
                     />
                     {hero.localizedName}
                 </motion.div>

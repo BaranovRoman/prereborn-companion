@@ -3,4 +3,5 @@ export interface DotaHero {
     name: string;
     localizedName: string;
     imageUrl: string;
+    videoUrl: string;
 }

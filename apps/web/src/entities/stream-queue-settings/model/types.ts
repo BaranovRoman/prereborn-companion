@@ -11,6 +11,7 @@ export type QueueWidgetId =
 export interface QueueSettings {
     version: 1;
     visibility: Record<QueueWidgetId, boolean>;
+    favoriteHeroIds: number[];
 }
 
 export const DEFAULT_QUEUE_SETTINGS: QueueSettings = {
@@ -25,4 +26,5 @@ export const DEFAULT_QUEUE_SETTINGS: QueueSettings = {
         twitchChat: true,
         systemStatus: true,
     },
+    favoriteHeroIds: [],
 };

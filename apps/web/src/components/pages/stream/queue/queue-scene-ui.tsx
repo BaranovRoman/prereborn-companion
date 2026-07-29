@@ -119,10 +119,14 @@ const FeaturedMatch = ({ matches }: QueueDataProps) => {
         <Panel title="Last match // Featured hero" className={styles.featuredMatch}>
             <div className={styles.heroArt} aria-label={hero?.localizedName ?? "No match data"}>
                 {hero ? (
-                    <img
+                    <video
                         className={styles.featuredHeroImage}
-                        src={hero.imageUrl}
-                        alt={hero.localizedName}
+                        src={hero.videoUrl}
+                        poster={hero.imageUrl}
+                        autoPlay
+                        loop
+                        muted
+                        playsInline
                     />
                 ) : (
                     <>
@@ -186,13 +190,20 @@ const WebcamSlot = () => (
     </Panel>
 );
 
-const FavoriteHeroes = ({ matches }: QueueDataProps) => {
-    const favorites = [...matches.reduce((counts, match) => {
+const FavoriteHeroes = ({
+    matches,
+    selectedHeroIds,
+}: QueueDataProps & { selectedHeroIds: number[] }) => {
+    const allMatchCounts = matches.reduce((counts, match) => {
         counts.set(match.heroId, (counts.get(match.heroId) ?? 0) + 1);
         return counts;
-    }, new Map<number, number>())]
+    }, new Map<number, number>());
+    const automaticFavorites = [...allMatchCounts]
         .sort((a, b) => b[1] - a[1])
         .slice(0, 3);
+    const favorites: Array<[number, number]> = selectedHeroIds.length
+        ? selectedHeroIds.map((heroId) => [heroId, allMatchCounts.get(heroId) ?? 0])
+        : automaticFavorites;
 
     return (
         <Panel title="Favorite heroes" className={styles.favorites}>
@@ -202,11 +213,11 @@ const FavoriteHeroes = ({ matches }: QueueDataProps) => {
                     return (
                         <div key={heroId} className={styles.favorite}>
                             {hero ? (
-                                <img className={styles.miniHeroImage} src={hero.imageUrl} alt="" />
+                                <video className={styles.miniHeroImage} src={hero.videoUrl} poster={hero.imageUrl} autoPlay loop muted playsInline />
                             ) : (
                                 <span className={styles.miniPortrait}>?</span>
                             )}
-                            <div><b>{hero?.localizedName ?? `Hero ${heroId}`}</b><small>{games} matches</small></div>
+                            <div><b>{hero?.localizedName ?? `Hero ${heroId}`}</b><small>{games ? `${games} matches` : "Selected hero"}</small></div>
                             <em>0{index + 1}</em>
                         </div>
                     );
@@ -358,7 +369,9 @@ export const QueueSceneUi = () => {
                     {queueSettings.settings.visibility.featuredMatch ? <FeaturedMatch {...data} /> : <HiddenSlot />}
                     <div className={styles.sideStack}>
                         {queueSettings.settings.visibility.webcam ? <WebcamSlot /> : <HiddenSlot />}
-                        {queueSettings.settings.visibility.favoriteHeroes ? <FavoriteHeroes {...data} /> : <HiddenSlot />}
+                        {queueSettings.settings.visibility.favoriteHeroes ? (
+                            <FavoriteHeroes {...data} selectedHeroIds={queueSettings.settings.favoriteHeroIds} />
+                        ) : <HiddenSlot />}
                         {queueSettings.settings.visibility.recentGames ? <RecentGames {...data} /> : <HiddenSlot />}
                     </div>
                 </div>

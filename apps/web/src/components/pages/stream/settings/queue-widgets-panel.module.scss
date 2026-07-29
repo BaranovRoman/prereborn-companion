@@ -18,6 +18,36 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     border: 1px solid rgba(255,255,255,.07);
 }
+
+.heroPicker {
+    display: grid;
+    grid-template-columns: minmax(240px, 1fr) minmax(280px, 1fr);
+    gap: 20px;
+    align-items: center;
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(255, 225, 225, 0.12);
+
+    div {
+        display: grid;
+        gap: 5px;
+    }
+
+    strong {
+        color: #f5eaea;
+    }
+
+    span {
+        color: rgba(255, 238, 238, 0.58);
+        font-size: 12px;
+    }
+}
+
+@media (max-width: 720px) {
+    .heroPicker {
+        grid-template-columns: 1fr;
+    }
+}
 .row {
     min-height: 46px;
     display: flex;

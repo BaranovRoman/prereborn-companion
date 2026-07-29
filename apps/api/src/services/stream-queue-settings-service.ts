@@ -17,6 +17,7 @@ const visibilitySchema = z.record(queueWidgetIdSchema, z.boolean());
 export const queueSettingsSchema = z.object({
     version: z.literal(1),
     visibility: visibilitySchema,
+    favoriteHeroIds: z.array(z.number().int().positive()).max(3).default([]),
 });
 
 export type QueueSettings = z.infer<typeof queueSettingsSchema>;
@@ -33,6 +34,7 @@ export const DEFAULT_QUEUE_SETTINGS: QueueSettings = {
         twitchChat: true,
         systemStatus: true,
     },
+    favoriteHeroIds: [],
 };
 
 export class InvalidQueueSettingsError extends Error {}
