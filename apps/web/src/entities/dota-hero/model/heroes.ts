@@ -11,6 +11,7 @@
 // эндпоинт не нужно.
 import { buildHeroImageUrl } from "../lib/hero-image";
 import type { DotaHero } from "./types";
+import { getHeroAttribute } from "./attributes";
 
 interface RawHero {
     id: number;
@@ -152,4 +153,5 @@ export const DOTA_HEROES: DotaHero[] = RAW_HEROES.map((hero) => ({
     ...hero,
     imageUrl: buildHeroImageUrl(hero.name),
     videoUrl: `/vendor/valve/video/heroes/${hero.name}.webm`,
+    attribute: getHeroAttribute(hero.id),
 }));

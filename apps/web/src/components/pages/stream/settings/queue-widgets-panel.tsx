@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Button, Select, Switch, message } from "antd";
+import { useMemo, useState } from "react";
+import { Button, Input, Switch, message } from "antd";
 import { DOTA_HEROES } from "@/entities/dota-hero/model/heroes";
+import type { DotaHeroAttribute } from "@/entities/dota-hero/model/attributes";
 import { useQueueSettings } from "@/entities/stream-queue-settings/lib/use-queue-settings";
 import type { QueueWidgetId } from "@/entities/stream-queue-settings/model/types";
 import styles from "./queue-widgets-panel.module.scss";
@@ -18,9 +20,29 @@ const LABELS: Record<QueueWidgetId, string> = {
     systemStatus: "Статусы интеграций",
 };
 
+const ATTRIBUTES: Array<{
+    id: DotaHeroAttribute;
+    label: string;
+    mark: string;
+}> = [
+    { id: "strength", label: "Сила", mark: "◆" },
+    { id: "agility", label: "Ловкость", mark: "▲" },
+    { id: "intelligence", label: "Интеллект", mark: "●" },
+    { id: "universal", label: "Универсальные", mark: "✦" },
+];
+
 export const QueueWidgetsPanel = () => {
     const { settings, loading, save } = useQueueSettings();
     const [messageApi, contextHolder] = message.useMessage();
+    const [heroQuery, setHeroQuery] = useState("");
+    const filteredHeroes = useMemo(() => {
+        const query = heroQuery.trim().toLocaleLowerCase();
+        return query
+            ? DOTA_HEROES.filter((hero) =>
+                  hero.localizedName.toLocaleLowerCase().includes(query)
+              )
+            : DOTA_HEROES;
+    }, [heroQuery]);
 
     const toggle = async (id: QueueWidgetId, visible: boolean) => {
         try {
@@ -33,7 +55,15 @@ export const QueueWidgetsPanel = () => {
         }
     };
 
-    const selectFavoriteHeroes = async (heroIds: number[]) => {
+    const toggleFavoriteHero = async (heroId: number) => {
+        const selected = settings.favoriteHeroIds.includes(heroId);
+        const heroIds = selected
+            ? settings.favoriteHeroIds.filter((id) => id !== heroId)
+            : [...settings.favoriteHeroIds, heroId];
+        if (heroIds.length > 3) {
+            messageApi.warning("Можно выбрать не больше трёх героев");
+            return;
+        }
         try {
             await save({ ...settings, favoriteHeroIds: heroIds });
         } catch {
@@ -64,25 +94,62 @@ export const QueueWidgetsPanel = () => {
                 ))}
             </div>
             <div className={styles.heroPicker}>
-                <div>
+                <div className={styles.heroPickerHeader}>
+                    <div>
                     <strong>Герои в Favorite Heroes</strong>
                     <span>Выберите до трёх. Пустой список — автоматически по истории матчей.</span>
+                    </div>
+                    <div className={styles.heroPickerTools}>
+                        <span className={styles.selectionCount}>
+                            {settings.favoriteHeroIds.length} / 3
+                        </span>
+                        <Input
+                            allowClear
+                            value={heroQuery}
+                            placeholder="Поиск героя"
+                            onChange={(event) => setHeroQuery(event.target.value)}
+                        />
+                    </div>
                 </div>
-                <Select
-                    mode="multiple"
-                    maxCount={3}
-                    showSearch
-                    allowClear
-                    value={settings.favoriteHeroIds}
-                    disabled={loading}
-                    placeholder="Автоматический выбор"
-                    optionFilterProp="label"
-                    options={DOTA_HEROES.map((hero) => ({
-                        value: hero.id,
-                        label: hero.localizedName,
-                    }))}
-                    onChange={(ids) => void selectFavoriteHeroes(ids)}
-                />
+                <div className={styles.attributeGrid}>
+                    {ATTRIBUTES.map((attribute) => {
+                        const heroes = filteredHeroes
+                            .filter((hero) => hero.attribute === attribute.id)
+                            .sort((a, b) => a.localizedName.localeCompare(b.localizedName));
+                        return (
+                            <section
+                                key={attribute.id}
+                                className={styles.attributeColumn}
+                                data-attribute={attribute.id}
+                            >
+                                <h3><i>{attribute.mark}</i>{attribute.label}</h3>
+                                <div className={styles.heroGrid}>
+                                    {heroes.map((hero) => {
+                                        const selected = settings.favoriteHeroIds.includes(hero.id);
+                                        const disabled =
+                                            loading ||
+                                            (!selected && settings.favoriteHeroIds.length >= 3);
+                                        return (
+                                            <button
+                                                key={hero.id}
+                                                type="button"
+                                                className={styles.heroTile}
+                                                data-selected={selected}
+                                                disabled={disabled}
+                                                title={hero.localizedName}
+                                                onClick={() => void toggleFavoriteHero(hero.id)}
+                                            >
+                                                <img src={hero.imageUrl} alt="" />
+                                                <span>{hero.localizedName}</span>
+                                                <b aria-hidden="true">✓</b>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </section>
+                        );
+                    })}
+                </div>
             </div>
         </section>
     );

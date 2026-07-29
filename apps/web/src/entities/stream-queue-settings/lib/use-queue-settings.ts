@@ -16,7 +16,17 @@ export const useQueueSettings = () => {
         streamQueueSettingsApi
             .get()
             .then((value) => {
-                if (!cancelled) setSettings(value);
+                if (!cancelled) {
+                    setSettings({
+                        ...DEFAULT_QUEUE_SETTINGS,
+                        ...value,
+                        visibility: {
+                            ...DEFAULT_QUEUE_SETTINGS.visibility,
+                            ...value.visibility,
+                        },
+                        favoriteHeroIds: value.favoriteHeroIds ?? [],
+                    });
+                }
             })
             .finally(() => {
                 if (!cancelled) setLoading(false);
@@ -27,11 +37,22 @@ export const useQueueSettings = () => {
     }, []);
 
     const save = useCallback(async (next: QueueSettings) => {
+        const previous = settings;
         setSettings(next);
-        const saved = await streamQueueSettingsApi.save(next);
-        setSettings(saved);
-        return saved;
-    }, []);
+        try {
+            const saved = await streamQueueSettingsApi.save(next);
+            const normalized = {
+                ...DEFAULT_QUEUE_SETTINGS,
+                ...saved,
+                favoriteHeroIds: saved.favoriteHeroIds ?? [],
+            };
+            setSettings(normalized);
+            return normalized;
+        } catch (error) {
+            setSettings(previous);
+            throw error;
+        }
+    }, [settings]);
 
     return { settings, loading, save };
 };

@@ -39,6 +39,12 @@ export const DEFAULT_QUEUE_SETTINGS: QueueSettings = {
 
 export class InvalidQueueSettingsError extends Error {}
 
+const queueSettingsInputSchema = z.object({
+    version: z.literal(1).optional(),
+    visibility: z.record(z.string(), z.boolean()).optional(),
+    favoriteHeroIds: z.array(z.number().int().positive()).max(3).optional(),
+});
+
 export const getQueueSettings = async (streamUserId: string): Promise<QueueSettings> => {
     const { rows } = await pool.query<{ settings: unknown }>(
         "SELECT settings FROM stream_queue_settings WHERE stream_user_id = $1",
@@ -52,16 +58,26 @@ export const saveQueueSettings = async (
     streamUserId: string,
     input: unknown
 ): Promise<QueueSettings> => {
-    const parsed = queueSettingsSchema.safeParse(input);
+    const parsed = queueSettingsInputSchema.safeParse(input);
     if (!parsed.success) {
         throw new InvalidQueueSettingsError("Invalid queue settings");
     }
+    const current = await getQueueSettings(streamUserId);
+    const next = queueSettingsSchema.parse({
+        version: 1,
+        visibility: {
+            ...current.visibility,
+            ...parsed.data.visibility,
+        },
+        favoriteHeroIds:
+            parsed.data.favoriteHeroIds ?? current.favoriteHeroIds,
+    });
     await pool.query(
         `INSERT INTO stream_queue_settings (stream_user_id, settings)
          VALUES ($1, $2::jsonb)
          ON CONFLICT (stream_user_id) DO UPDATE
          SET settings = EXCLUDED.settings, updated_at = CURRENT_TIMESTAMP`,
-        [streamUserId, JSON.stringify(parsed.data)]
+        [streamUserId, JSON.stringify(next)]
     );
-    return parsed.data;
+    return next;
 };

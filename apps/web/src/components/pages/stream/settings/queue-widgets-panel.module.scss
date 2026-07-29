@@ -20,15 +20,19 @@
 }
 
 .heroPicker {
-    display: grid;
-    grid-template-columns: minmax(240px, 1fr) minmax(280px, 1fr);
-    gap: 20px;
-    align-items: center;
     margin-top: 18px;
     padding-top: 18px;
     border-top: 1px solid rgba(255, 225, 225, 0.12);
+}
 
-    div {
+.heroPickerHeader {
+    display: flex;
+    justify-content: space-between;
+    gap: 24px;
+    align-items: end;
+    margin-bottom: 18px;
+
+    > div:first-child {
         display: grid;
         gap: 5px;
     }
@@ -43,9 +47,140 @@
     }
 }
 
+.heroPickerTools {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    width: min(340px, 100%);
+}
+
+.selectionCount {
+    flex: 0 0 auto;
+    color: #e6a2a5 !important;
+    font-family: monospace;
+}
+
+.attributeGrid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 18px;
+}
+
+.attributeColumn {
+    min-width: 0;
+
+    h3 {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 10px;
+        color: rgba(255, 240, 240, 0.8);
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+
+    i {
+        color: #c75a5f;
+        font-style: normal;
+    }
+
+    &[data-attribute="agility"] i { color: #65a876; }
+    &[data-attribute="intelligence"] i { color: #65a0c8; }
+    &[data-attribute="universal"] i { color: #b78bc8; }
+}
+
+.heroGrid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 5px;
+}
+
+.heroTile {
+    position: relative;
+    aspect-ratio: 1.78;
+    min-width: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid rgba(255, 225, 225, 0.08);
+    background: #0b090a;
+    cursor: pointer;
+    transition: transform 120ms ease, border-color 120ms ease, filter 120ms ease;
+
+    img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+    }
+
+    span {
+        position: absolute;
+        inset: auto 2px 2px;
+        overflow: hidden;
+        color: white;
+        font-size: 7px;
+        line-height: 1;
+        text-overflow: ellipsis;
+        text-shadow: 0 1px 3px black;
+        white-space: nowrap;
+    }
+
+    b {
+        position: absolute;
+        top: 3px;
+        right: 3px;
+        display: grid;
+        width: 18px;
+        height: 18px;
+        place-items: center;
+        border: 1px solid rgba(255,255,255,.72);
+        border-radius: 2px;
+        background: rgba(10, 8, 9, 0.82);
+        color: transparent;
+        font-size: 12px;
+    }
+
+    &:hover:not(:disabled) {
+        z-index: 1;
+        border-color: rgba(220, 90, 96, 0.75);
+        transform: scale(1.08);
+    }
+
+    &[data-selected="true"] {
+        border-color: #d3545a;
+        box-shadow: 0 0 0 1px #d3545a, 0 0 14px rgba(198, 61, 67, 0.35);
+
+        b {
+            background: #b63137;
+            color: white;
+        }
+    }
+
+    &:disabled:not([data-selected="true"]) {
+        cursor: not-allowed;
+        filter: grayscale(1) brightness(0.35);
+    }
+}
+
+@media (max-width: 1100px) {
+    .attributeGrid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
 @media (max-width: 720px) {
-    .heroPicker {
+    .heroPickerHeader {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .attributeGrid {
         grid-template-columns: 1fr;
+    }
+
+    .heroGrid {
+        grid-template-columns: repeat(6, minmax(0, 1fr));
     }
 }
 .row {
