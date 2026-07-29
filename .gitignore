@@ -11,7 +11,7 @@ playwright-report/
 .env.*
 !.env.example
 uploads/
-diagnostics/
+/diagnostics/
 *.zip
 *.msi
 *.exe
