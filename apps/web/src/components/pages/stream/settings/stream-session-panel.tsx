@@ -195,7 +195,7 @@ export const StreamSessionPanel = ({
     if (loading || !session) {
         return (
             <div className={styles.card}>
-                <h2 className={sharedStyles.sectionTitle}>Текущий стрим</h2>
+                <h2 className={`${sharedStyles.sectionTitle} ${styles.cardTitle}`}>Текущий стрим</h2>
                 <div className={styles.sessionLoading}>Загрузка…</div>
             </div>
         );
@@ -209,7 +209,7 @@ export const StreamSessionPanel = ({
         <div className={styles.card}>
             {contextHolder}
             <div className={styles.cardHeader}>
-                <h2 className={sharedStyles.sectionTitle}>Текущий стрим</h2>
+                <h2 className={`${sharedStyles.sectionTitle} ${styles.cardTitle}`}>Текущий стрим</h2>
                 <Popconfirm
                     title="Начать новый стрим?"
                     description="Победы, поражения и последний герой обнулятся. Рейтинг сохранится."

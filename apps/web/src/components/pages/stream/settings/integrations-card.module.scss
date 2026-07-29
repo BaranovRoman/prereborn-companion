@@ -17,7 +17,7 @@
 }
 
 .summaryValue {
-    color: rgba(15, 23, 42, 0.55);
+    color: rgba(255, 238, 238, 0.58);
 }
 
 .dot {
@@ -32,7 +32,7 @@
 }
 
 .dotOff {
-    background: rgba(15, 23, 42, 0.25);
+    background: rgba(255, 238, 238, 0.28);
 }
 
 .manageCollapse {
@@ -41,7 +41,7 @@
     :global(.ant-collapse-header) {
         padding-left: 0 !important;
         font-size: 13px;
-        color: rgba(15, 23, 42, 0.55);
+        color: rgba(255, 238, 238, 0.58);
     }
 
     :global(.ant-collapse-content-box) {

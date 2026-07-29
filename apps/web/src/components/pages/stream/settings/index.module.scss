@@ -6,7 +6,7 @@
 .page {
     min-height: 100vh;
     width: 100%;
-    padding: 32px 0 48px;
+    padding: 20px 0 40px;
 }
 
 .loading {
@@ -19,13 +19,37 @@
 }
 
 .header {
-    width: min(1240px, calc(100% - 48px));
-    margin: 0 auto 20px;
+    position: relative;
+    width: min(1680px, calc(100% - 56px));
+    min-height: 74px;
+    margin: 0 auto 12px;
+    padding: 8px 20px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 16px;
     flex-wrap: wrap;
+    border: 1px solid rgba(151, 132, 126, 0.38);
+    border-radius: 2px;
+    background:
+        linear-gradient(90deg, rgba(43, 37, 36, 0.96), rgba(14, 13, 14, 0.96) 38%, rgba(28, 22, 23, 0.96));
+    box-shadow:
+        inset 0 0 0 2px rgba(0, 0, 0, 0.64),
+        inset 0 1px rgba(255, 255, 255, 0.06),
+        0 8px 24px rgba(0, 0, 0, 0.28);
+
+    &::before,
+    &::after {
+        content: "";
+        position: absolute;
+        top: 7px;
+        bottom: 7px;
+        width: 2px;
+        border-block: 7px solid #70252a;
+    }
+
+    &::before { left: 7px; }
+    &::after { right: 7px; }
 }
 
 .brand {
@@ -35,23 +59,28 @@
 }
 
 .brandLogo {
-    width: 52px;
-    height: 52px;
+    width: 58px;
+    height: 58px;
     object-fit: contain;
     flex-shrink: 0;
 }
 
 .brandName {
     color: rgba(255, 244, 244, 0.72);
-    font-size: 14px;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 12px;
     font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
     line-height: 1.2;
 }
 
 .title {
     margin: 2px 0 0;
-    font-size: 20px;
-    font-weight: 600;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 18px;
+    font-weight: 400;
+    letter-spacing: 0.08em;
     color: #fff7f5;
     text-shadow: 0 2px 20px rgba(0, 0, 0, 0.72);
     letter-spacing: -0.01em;
@@ -131,11 +160,11 @@
 // стрим/Последний матч, row2: Последние матчи/Оверлей); .fullSpan - явное
 // исключение для "Интеграции", которая идёт третьей строкой на всю ширину.
 .grid {
-    width: min(1240px, calc(100% - 48px));
+    width: min(1680px, calc(100% - 56px));
     margin: 0 auto;
     display: grid;
     grid-template-columns: minmax(0, 7fr) minmax(340px, 5fr);
-    gap: 20px;
+    gap: 12px;
     align-items: start;
 }
 
@@ -145,19 +174,40 @@
 
 .section {
     border: 1px solid rgba(255, 225, 225, 0.12);
-    border-radius: 14px;
-    padding: 20px 24px;
+    position: relative;
+    overflow: hidden;
+    border-radius: 2px;
+    padding: 0 18px 18px;
     background:
-        linear-gradient(180deg, rgba(31, 27, 28, 0.94), rgba(15, 12, 13, 0.94));
-    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.24);
-    backdrop-filter: blur(14px);
+        linear-gradient(180deg, rgba(31, 30, 30, 0.96), rgba(12, 12, 13, 0.96)),
+        repeating-linear-gradient(90deg, transparent 0 4px, rgba(255,255,255,.012) 4px 5px);
+    box-shadow:
+        inset 0 0 0 2px rgba(0, 0, 0, 0.62),
+        inset 0 1px rgba(255, 255, 255, 0.05),
+        0 8px 22px rgba(0, 0, 0, 0.3);
 }
 
 .sectionTitle {
-    margin: 0 0 12px;
-    font-size: 15px;
-    font-weight: 500;
-    color: #f5eaea;
+    height: 34px;
+    margin: 0 -18px 16px;
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    border-bottom: 1px solid rgba(137, 117, 111, 0.26);
+    background: linear-gradient(90deg, rgba(111, 32, 36, .24), transparent 52%);
+    color: #aa9993;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+
+    &::before {
+        content: "◆";
+        margin-right: 9px;
+        color: #7b2d31;
+        font-size: 7px;
+    }
 }
 
 .loadingHint {
@@ -206,6 +256,36 @@
     :global(.ant-collapse-content-box) {
         padding-left: 0 !important;
         padding-right: 0 !important;
+    }
+}
+
+.page {
+    :global(.ant-btn-default),
+    :global(.ant-btn-color-default) {
+        color: rgba(255, 244, 244, 0.88);
+        border-color: rgba(255, 225, 225, 0.16);
+        background: rgba(255, 255, 255, 0.055);
+        box-shadow: none;
+
+        &:hover {
+            color: #fff;
+            border-color: rgba(210, 70, 77, 0.65) !important;
+            background: rgba(198, 61, 67, 0.12) !important;
+        }
+    }
+
+    :global(.ant-input),
+    :global(.ant-input-number),
+    :global(.ant-select-selector) {
+        color: rgba(255, 244, 244, 0.88) !important;
+        border-color: rgba(255, 225, 225, 0.13) !important;
+        background: rgba(0, 0, 0, 0.24) !important;
+        box-shadow: none !important;
+    }
+
+    :global(.ant-select-selection-placeholder),
+    :global(.ant-input::placeholder) {
+        color: rgba(255, 238, 238, 0.35) !important;
     }
 }
 

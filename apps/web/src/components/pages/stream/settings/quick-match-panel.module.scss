@@ -26,7 +26,7 @@
     border-radius: 8px;
     object-fit: cover;
     flex-shrink: 0;
-    background: rgba(15, 23, 42, 0.05);
+    background: rgba(255, 255, 255, 0.055);
 }
 
 .summaryInfo {
@@ -105,13 +105,13 @@
 }
 
 .badgeUnknown {
-    color: rgba(15, 23, 42, 0.4);
-    background: rgba(15, 23, 42, 0.05);
+    color: rgba(255, 238, 238, 0.42);
+    background: rgba(255, 255, 255, 0.055);
 }
 
 .note {
     font-size: 12px;
-    color: rgba(15, 23, 42, 0.4);
+    color: rgba(255, 238, 238, 0.42);
 }
 
 // Результат, рейтинг и кнопки ±25 сгруппированы в один визуальный блок
@@ -123,13 +123,13 @@
     gap: 8px;
     padding: 10px;
     border-radius: 10px;
-    background: rgba(15, 23, 42, 0.03);
+    background: rgba(255, 255, 255, 0.04);
     margin-bottom: 10px;
 }
 
 .formLabel {
     font-size: 12px;
-    color: rgba(15, 23, 42, 0.5);
+    color: rgba(255, 238, 238, 0.56);
 }
 
 .ratingRow {
@@ -166,7 +166,7 @@
 
 .deltaPreview {
     font-size: 12px;
-    color: rgba(15, 23, 42, 0.45);
+    color: rgba(255, 238, 238, 0.48);
 }
 
 .saveButton {
