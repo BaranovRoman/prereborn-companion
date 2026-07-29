@@ -20,6 +20,8 @@ import { StreamSessionPanel } from "./stream-session-panel";
 import { QuickMatchPanel } from "./quick-match-panel";
 import { RecentMatchesPanel } from "./recent-matches-panel";
 import { IntegrationsCard } from "./integrations-card";
+import { QueueWidgetsPanel } from "./queue-widgets-panel";
+import { useTwitchIntegration } from "@/entities/twitch-integration/lib/use-twitch-integration";
 import styles from "./index.module.scss";
 
 // Человеко-понятные причины ошибки привязки Steam - reason приходит от
@@ -42,6 +44,7 @@ export const StreamSettingsPage = () => {
     const [matchesRefreshToken, setMatchesRefreshToken] = useState(0);
     const [messageApi, contextHolder] = message.useMessage();
     const steamIntegration = useSteamIntegration();
+    const twitchIntegration = useTwitchIntegration();
     const { matches, handleUpdated: handleMatchUpdated } = useAccountMatches();
     // Тот же публичный /overlay/:publicToken, что читает OBS - переиспользуем
     // его и здесь, чтобы получить sessionRatingDelta и статус Companion, не
@@ -89,6 +92,19 @@ export const StreamSettingsPage = () => {
             );
         }
 
+        router.replace("/stream");
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchParams]);
+
+    useEffect(() => {
+        const twitchStatus = searchParams.get("twitch");
+        if (!twitchStatus) return;
+        if (twitchStatus === "connected") {
+            messageApi.success("Twitch подключён");
+            void twitchIntegration.refresh();
+        } else {
+            messageApi.error("Не удалось подключить Twitch");
+        }
         router.replace("/stream");
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchParams]);
@@ -277,6 +293,10 @@ export const StreamSettingsPage = () => {
                 </div>
 
                 <div className={styles.fullSpan}>
+                    <QueueWidgetsPanel />
+                </div>
+
+                <div className={styles.fullSpan}>
                     <IntegrationsCard
                         steamStatus={steamIntegration.status}
                         steamLoading={steamIntegration.loading}
@@ -293,6 +313,9 @@ export const StreamSettingsPage = () => {
                                 companionTokenCreatedAt: createdAt,
                             })
                         }
+                        twitchStatus={twitchIntegration.status}
+                        twitchLoading={twitchIntegration.loading}
+                        onTwitchChanged={twitchIntegration.refresh}
                     />
                 </div>
             </div>

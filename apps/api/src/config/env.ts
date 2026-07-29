@@ -30,6 +30,10 @@ const steamOpenidReturnUrl = process.env.STEAM_OPENID_RETURN_URL || null;
 // (services/dota-sync-service.ts). Ключ добавлен только чтобы поднять лимит
 // в будущем, если понадобится - без него всё работает.
 const openDotaApiKey = process.env.OPENDOTA_API_KEY || null;
+const twitchClientId = process.env.TWITCH_CLIENT_ID || null;
+const twitchClientSecret = process.env.TWITCH_CLIENT_SECRET || null;
+const twitchRedirectUri = process.env.TWITCH_REDIRECT_URI || null;
+const twitchFrontendOrigin = process.env.TWITCH_FRONTEND_ORIGIN || steamOpenidRealm;
 
 const nodeEnv = process.env.NODE_ENV || "development";
 const isProduction = nodeEnv === "production";
@@ -56,6 +60,10 @@ export const env = {
     steamOpenidRealm,
     steamOpenidReturnUrl,
     openDotaApiKey,
+    twitchClientId,
+    twitchClientSecret,
+    twitchRedirectUri,
+    twitchFrontendOrigin,
     port: parseInt(process.env.PORT || "5002", 10),
     nodeEnv,
     isProduction,

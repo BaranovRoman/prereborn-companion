@@ -1,12 +1,16 @@
 "use client";
 
 import Image from "next/image";
+import { useEffect, useState } from "react";
 import { getHeroById } from "@/entities/dota-hero/lib/search";
 import { useAccountMatches } from "@/entities/stream-session/lib/use-account-matches";
 import { useOverlayPolling } from "@/entities/stream-session/lib/use-overlay-polling";
 import type { StreamMatch } from "@/entities/stream-session/model/types";
 import { useSteamIntegration } from "@/entities/steam-integration/lib/use-steam-integration";
 import { useStreamSession } from "@/entities/stream-user/lib/use-stream-session";
+import { useQueueSettings } from "@/entities/stream-queue-settings/lib/use-queue-settings";
+import { useTwitchIntegration } from "@/entities/twitch-integration/lib/use-twitch-integration";
+import type { TwitchIntegrationStatus } from "@/entities/twitch-integration/model/types";
 import styles from "./queue-scene.module.scss";
 
 const EMPTY_VALUE = "—";
@@ -60,6 +64,8 @@ const Panel = ({
     </section>
 );
 
+const HiddenSlot = () => <div className={styles.hiddenSlot} aria-hidden="true" />;
+
 interface QueueDataProps {
     email: string | null;
     gameMode: "ranked" | "unranked" | null;
@@ -71,6 +77,7 @@ interface QueueDataProps {
     steamConnected: boolean;
     steamId: string | undefined;
     steamSyncStatus: string | null | undefined;
+    twitch: TwitchIntegrationStatus | null;
 }
 
 const PlayerProfile = ({
@@ -242,19 +249,22 @@ const StreamProfile = ({
     steamConnected,
     steamId,
     steamSyncStatus,
+    twitch,
 }: QueueDataProps) => {
-    const accountName = email?.split("@")[0] || "stream account";
+    const accountName = twitch?.displayName || twitch?.login || email?.split("@")[0] || "stream account";
     const initials = accountName.slice(0, 2).toUpperCase();
     return (
         <Panel title="Channel transmission" className={styles.streamProfile}>
             <div className={styles.streamProfileBody}>
-                <span className={styles.twitchAvatar}>{initials}</span>
+                {twitch?.profileImageUrl ? (
+                    <img className={styles.twitchAvatarImage} src={twitch.profileImageUrl} alt="" />
+                ) : <span className={styles.twitchAvatar}>{initials}</span>}
                 <div>
-                    <span className={styles.overline}>PREREBORN STREAM</span>
+                    <span className={styles.overline}>{twitch?.connected ? "TWITCH CHANNEL" : "PREREBORN STREAM"}</span>
                     <strong>{accountName}</strong>
-                    <small>{steamConnected ? `Steam ${steamId ?? "connected"}` : "Steam not connected"}</small>
+                    <small>{twitch?.live ? twitch.live.title : (steamConnected ? `Steam ${steamId ?? "connected"}` : "Steam not connected")}</small>
                 </div>
-                <div className={styles.liveBadge}><i data-online={companionOnline} /> {companionOnline ? "LIVE DATA" : "OFFLINE"}</div>
+                <div className={styles.liveBadge}><i data-online={Boolean(twitch?.live)} /> {twitch?.live ? `${twitch.live.viewerCount} LIVE` : "OFFLINE"}</div>
                 <div className={styles.goal}>
                     <div><span>STEAM SYNC</span><b>{steamSyncStatus?.replaceAll("_", " ").toUpperCase() ?? (steamConnected ? "READY" : "NOT CONNECTED")}</b></div>
                     <span className={styles.goalTrack}><i data-connected={steamConnected} /></span>
@@ -264,15 +274,29 @@ const StreamProfile = ({
     );
 };
 
-const TwitchChat = () => (
-    <Panel title="Twitch chat" className={styles.chatPanel}>
-        <div className={`${styles.chatBody} ${styles.chatUnavailable}`}>
-            <strong>TWITCH CHAT IS NOT CONNECTED</strong>
-            <span>Messages are not collected by PreReborn Companion yet.</span>
-        </div>
-        <div className={styles.chatFooter}>CHANNEL CHAT // NO DATA SOURCE</div>
-    </Panel>
-);
+const TwitchChat = ({ twitch }: QueueDataProps) => {
+    const [parent, setParent] = useState("");
+    useEffect(() => setParent(window.location.hostname), []);
+    return (
+        <Panel title="Twitch chat" className={styles.chatPanel}>
+            {twitch?.connected && twitch.login && parent ? (
+                <iframe
+                    className={styles.twitchChatEmbed}
+                    src={`https://www.twitch.tv/embed/${encodeURIComponent(twitch.login)}/chat?parent=${encodeURIComponent(parent)}&darkpopout`}
+                    title={`Twitch chat — ${twitch.displayName || twitch.login}`}
+                />
+            ) : (
+                <div className={`${styles.chatBody} ${styles.chatUnavailable}`}>
+                    <strong>TWITCH CHAT IS NOT CONNECTED</strong>
+                    <span>Connect Twitch in the stream dashboard integrations.</span>
+                </div>
+            )}
+            <div className={styles.chatFooter}>
+                CHANNEL CHAT // {twitch?.connected ? twitch.login?.toUpperCase() : "NO DATA SOURCE"}
+            </div>
+        </Panel>
+    );
+};
 
 const SystemStatus = ({
     gameMode,
@@ -301,6 +325,8 @@ export const QueueSceneUi = () => {
     const { user } = useStreamSession();
     const { matches } = useAccountMatches();
     const steam = useSteamIntegration();
+    const queueSettings = useQueueSettings();
+    const twitch = useTwitchIntegration();
     const overlay = useOverlayPolling(user?.publicToken ?? "", null);
     const realMatches = overlay?.matches ?? matches ?? [];
     const data: QueueDataProps = {
@@ -314,6 +340,7 @@ export const QueueSceneUi = () => {
         steamConnected: steam.status?.connected ?? false,
         steamId: steam.status?.steamId64,
         steamSyncStatus: steam.status?.lastSyncStatus,
+        twitch: twitch.status,
     };
 
     return (
@@ -325,19 +352,19 @@ export const QueueSceneUi = () => {
                 <div className={styles.broadcast}><i data-online={data.companionOnline} /> {data.companionOnline ? "LIVE DATA" : "WAITING FOR COMPANION"}</div>
             </header>
             <div className={styles.dashboard}>
-                <PlayerProfile {...data} />
-                <StreamProfile {...data} />
+                {queueSettings.settings.visibility.playerProfile ? <PlayerProfile {...data} /> : <HiddenSlot />}
+                {queueSettings.settings.visibility.streamProfile ? <StreamProfile {...data} /> : <HiddenSlot />}
                 <div className={styles.leftMain}>
-                    <FeaturedMatch {...data} />
+                    {queueSettings.settings.visibility.featuredMatch ? <FeaturedMatch {...data} /> : <HiddenSlot />}
                     <div className={styles.sideStack}>
-                        <WebcamSlot />
-                        <FavoriteHeroes {...data} />
-                        <RecentGames {...data} />
+                        {queueSettings.settings.visibility.webcam ? <WebcamSlot /> : <HiddenSlot />}
+                        {queueSettings.settings.visibility.favoriteHeroes ? <FavoriteHeroes {...data} /> : <HiddenSlot />}
+                        {queueSettings.settings.visibility.recentGames ? <RecentGames {...data} /> : <HiddenSlot />}
                     </div>
                 </div>
                 <div className={styles.rightMain}>
-                    <TwitchChat />
-                    <SystemStatus {...data} />
+                    {queueSettings.settings.visibility.twitchChat ? <TwitchChat {...data} /> : <HiddenSlot />}
+                    {queueSettings.settings.visibility.systemStatus ? <SystemStatus {...data} /> : <HiddenSlot />}
                 </div>
             </div>
             <footer className={styles.sceneFooter}>

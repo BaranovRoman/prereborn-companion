@@ -19,6 +19,10 @@ import {
     putOverlayLayoutController,
 } from "../../controllers/stream/overlay-layout.js";
 import {
+    getQueueSettingsController,
+    putQueueSettingsController,
+} from "../../controllers/stream/queue-settings.js";
+import {
     getReferenceBackgroundController,
     uploadReferenceBackgroundMiddleware,
     uploadReferenceBackgroundController,
@@ -49,6 +53,8 @@ streamAccountRouter.patch("/me/matches/:matchId", patchMatchController);
 
 streamAccountRouter.get("/me/overlay-layout", getOverlayLayoutController);
 streamAccountRouter.put("/me/overlay-layout", putOverlayLayoutController);
+streamAccountRouter.get("/me/queue-settings", getQueueSettingsController);
+streamAccountRouter.put("/me/queue-settings", putQueueSettingsController);
 
 streamAccountRouter.get(
     "/me/overlay-reference-background",

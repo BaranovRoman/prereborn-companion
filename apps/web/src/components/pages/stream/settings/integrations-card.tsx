@@ -6,6 +6,8 @@ import type { SteamIntegrationStatus } from "@/entities/steam-integration/model/
 import type { OverlayCompanionState } from "@/entities/stream-session/model/types";
 import { SteamIntegrationPanel } from "./steam-integration-panel";
 import { CompanionPanel } from "./companion-panel";
+import { TwitchIntegrationPanel } from "./twitch-integration-panel";
+import type { TwitchIntegrationStatus } from "@/entities/twitch-integration/model/types";
 import sharedStyles from "./index.module.scss";
 import styles from "./integrations-card.module.scss";
 
@@ -25,6 +27,9 @@ interface IntegrationsCardProps {
     companionTokenConfigured: boolean;
     companionTokenCreatedAt: string | null;
     onCompanionRegenerated: (createdAt: string) => void;
+    twitchStatus: TwitchIntegrationStatus | null;
+    twitchLoading: boolean;
+    onTwitchChanged: () => void;
 }
 
 // Steam и Companion объединены в одну вторичную карточку (см. задачу):
@@ -42,6 +47,9 @@ export const IntegrationsCard = ({
     companionTokenConfigured,
     companionTokenCreatedAt,
     onCompanionRegenerated,
+    twitchStatus,
+    twitchLoading,
+    onTwitchChanged,
 }: IntegrationsCardProps) => {
     const steamSummary = steamLoading
         ? "Загрузка…"
@@ -85,6 +93,11 @@ export const IntegrationsCard = ({
                         companionTokenCreatedAt={companionTokenCreatedAt}
                         onRegenerated={onCompanionRegenerated}
                     />
+                    <TwitchIntegrationPanel
+                        status={twitchStatus}
+                        loading={twitchLoading}
+                        onChanged={onTwitchChanged}
+                    />
                 </div>
             ),
         },
@@ -102,6 +115,13 @@ export const IntegrationsCard = ({
                     />
                     <span className={styles.summaryLabel}>Steam</span>
                     <span className={styles.summaryValue}>{steamSummary}</span>
+                </div>
+                <div className={styles.summaryItem}>
+                    <span className={`${styles.dot} ${twitchStatus?.connected ? styles.dotOn : styles.dotOff}`} />
+                    <span className={styles.summaryLabel}>Twitch</span>
+                    <span className={styles.summaryValue}>
+                        {twitchLoading ? "Загрузка…" : twitchStatus?.connected ? twitchStatus.displayName : "Не подключён"}
+                    </span>
                 </div>
                 <div className={styles.summaryItem}>
                     <span

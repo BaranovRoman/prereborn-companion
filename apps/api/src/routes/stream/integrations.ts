@@ -8,6 +8,12 @@ import {
 import { syncDotaController } from "../../controllers/stream/dota-sync.js";
 import { authenticateStreamUser } from "../../middleware/stream-auth.js";
 import { steamCallbackRateLimiter } from "../../middleware/rate-limit.js";
+import {
+    connectTwitchController,
+    disconnectTwitchController,
+    getTwitchStatusController,
+    twitchCallbackController,
+} from "../../controllers/stream/twitch.js";
 
 export const streamIntegrationsRouter = Router();
 
@@ -38,3 +44,8 @@ streamIntegrationsRouter.post(
     authenticateStreamUser,
     syncDotaController
 );
+
+streamIntegrationsRouter.get("/twitch", authenticateStreamUser, getTwitchStatusController);
+streamIntegrationsRouter.get("/twitch/connect", authenticateStreamUser, connectTwitchController);
+streamIntegrationsRouter.get("/twitch/callback", steamCallbackRateLimiter, twitchCallbackController);
+streamIntegrationsRouter.delete("/twitch", authenticateStreamUser, disconnectTwitchController);

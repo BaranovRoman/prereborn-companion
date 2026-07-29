@@ -409,6 +409,33 @@ export const createTables = async (): Promise<void> => {
       ALTER TABLE stream_matches ALTER COLUMN finalize_reason TYPE VARCHAR(64);
     `);
 
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS stream_queue_settings (
+        stream_user_id INTEGER PRIMARY KEY REFERENCES stream_users(id) ON DELETE CASCADE,
+        settings JSONB NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS stream_twitch_links (
+        stream_user_id INTEGER PRIMARY KEY REFERENCES stream_users(id) ON DELETE CASCADE,
+        twitch_user_id VARCHAR(64) NOT NULL UNIQUE,
+        login VARCHAR(64) NOT NULL,
+        display_name VARCHAR(128) NOT NULL,
+        profile_image_url TEXT,
+        connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS stream_twitch_connect_states (
+        state VARCHAR(128) PRIMARY KEY,
+        stream_user_id INTEGER NOT NULL REFERENCES stream_users(id) ON DELETE CASCADE,
+        expires_at TIMESTAMP NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_stream_twitch_states_expires
+        ON stream_twitch_connect_states(expires_at);
+    `);
+
         await client.query("COMMIT");
     } catch (error) {
         await client.query("ROLLBACK");
