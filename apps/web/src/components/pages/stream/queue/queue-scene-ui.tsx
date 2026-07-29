@@ -78,11 +78,45 @@ interface QueueDataProps {
     losses: number;
     matches: StreamMatch[];
     companionOnline: boolean;
+    companionPayload: unknown | null;
     steamConnected: boolean;
     steamId: string | undefined;
     steamSyncStatus: string | null | undefined;
     twitch: TwitchIntegrationStatus | null;
 }
+
+interface GsiItem {
+    name: string;
+    displayName: string;
+    imageUrl: string;
+}
+
+const INVENTORY_SLOT_COUNT = 9;
+const MANTLE_PLACEHOLDER: GsiItem = {
+    name: "item_mantle",
+    displayName: "mantle of intelligence",
+    imageUrl: "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/mantle.png",
+};
+
+const getMatchItems = (payload: unknown): Array<GsiItem | null> => {
+    if (!payload || typeof payload !== "object") return [];
+    const items = (payload as Record<string, unknown>).items;
+    if (!items || typeof items !== "object") return [];
+
+    const slots = items as Record<string, unknown>;
+    return Array.from({ length: INVENTORY_SLOT_COUNT }, (_, index) => {
+        const value = slots[`slot${index}`];
+        if (!value || typeof value !== "object") return null;
+        const name = (value as Record<string, unknown>).name;
+        if (typeof name !== "string" || !name.startsWith("item_") || name === "item_empty") return null;
+        const assetName = name.slice("item_".length);
+        return {
+            name,
+            displayName: assetName.replaceAll("_", " "),
+            imageUrl: `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/${assetName}.png`,
+        };
+    });
+};
 
 const PlayerProfile = ({
     email,
@@ -115,9 +149,13 @@ const PlayerProfile = ({
     );
 };
 
-const FeaturedMatch = ({ matches }: QueueDataProps) => {
+const FeaturedMatch = ({ matches, companionPayload }: QueueDataProps) => {
     const match = matches[0];
     const hero = match ? getHeroById(match.heroId) : undefined;
+    const recordedItems = getMatchItems(companionPayload);
+    const matchItems = recordedItems.some(Boolean)
+        ? recordedItems
+        : Array.from({ length: INVENTORY_SLOT_COUNT }, () => MANTLE_PLACEHOLDER);
 
     return (
         <Panel title="Last match // Featured hero" className={styles.featuredMatch}>
@@ -165,21 +203,17 @@ const FeaturedMatch = ({ matches }: QueueDataProps) => {
                         </b>
                     </div>
                 </div>
-                <div className={styles.items} aria-label="Recorded match metadata">
-                    {match ? (
-                        [
-                            `HERO ${match.heroId}`,
-                            "FINAL",
-                            match.result?.toUpperCase() ?? "UNKNOWN",
-                            match.gameMode.toUpperCase(),
-                            match.ratingBefore === null ? "MMR —" : `${match.ratingBefore}`,
-                            match.ratingAfter === null ? "AFTER —" : `${match.ratingAfter}`,
-                        ].map((item, index) => (
-                            <span key={`${item}-${index}`} className={styles.item} data-tone={index % 3}>{item}</span>
-                        ))
-                    ) : (
-                        <span className={styles.matchDataEmpty}>Waiting for the first completed match</span>
-                    )}
+                <div className={styles.items} aria-label="Last recorded inventory">
+                    {matchItems.map((item, index) => (
+                        <span
+                            key={index}
+                            className={styles.item}
+                            data-empty={item ? undefined : "true"}
+                            title={item?.displayName}
+                        >
+                            {item ? <img src={item.imageUrl} alt={item.displayName} /> : null}
+                        </span>
+                    ))}
                 </div>
             </div>
         </Panel>
@@ -212,7 +246,7 @@ const FavoriteHeroes = ({
     return (
         <Panel title="Favorite heroes" className={styles.favorites}>
             <div className={styles.favoriteList}>
-                {favorites.length ? favorites.map(([heroId, games], index) => {
+                {favorites.length ? favorites.map(([heroId]) => {
                     const hero = getHeroById(heroId);
                     return (
                         <div key={heroId} className={styles.favorite}>
@@ -229,11 +263,9 @@ const FavoriteHeroes = ({
                                 ) : (
                                     <span>?</span>
                                 )}
-                                <em>0{index + 1}</em>
                             </div>
                             <div className={styles.favoriteCaption}>
                                 <b>{hero?.localizedName ?? `Hero ${heroId}`}</b>
-                                <small>{games ? `${games} MATCHES` : "FEATURED"}</small>
                             </div>
                         </div>
                     );
@@ -367,6 +399,7 @@ export const QueueSceneUi = () => {
         losses: overlay?.losses ?? 0,
         matches: realMatches,
         companionOnline: overlay?.companion.isOnline ?? false,
+        companionPayload: overlay?.companion.payload ?? null,
         steamConnected: steam.status?.connected ?? false,
         steamId: steam.status?.steamId64,
         steamSyncStatus: steam.status?.lastSyncStatus,
