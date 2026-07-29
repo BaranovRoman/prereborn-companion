@@ -555,7 +555,7 @@
 .leftMain {
     min-height: 0;
     display: grid;
-    grid-template-columns: minmax(0, 1.62fr) minmax(260px, .78fr);
+    grid-template-columns: minmax(0, 1.32fr) minmax(340px, 1fr);
     gap: 12px;
 }
 
@@ -724,7 +724,7 @@
 
 .favoritePortrait {
     position: relative;
-    height: 92px;
+    height: 148px;
     overflow: hidden;
     border-bottom: 1px solid #493d39;
     background:
