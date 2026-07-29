@@ -53,7 +53,6 @@ In repository settings, create the `production` environment. Add:
 - `OPENDOTA_API_KEY`: optional OpenDota key
 - `TWITCH_CLIENT_ID`: optional Twitch application ID
 - `TWITCH_CLIENT_SECRET`: optional Twitch application secret
-- `DOTA_COMPANION_DOWNLOAD_URL`: optional public installer URL
 
 Generate the JWT value locally:
 
