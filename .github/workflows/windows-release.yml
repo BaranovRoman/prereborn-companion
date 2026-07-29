@@ -47,7 +47,7 @@ jobs:
           CI: true
 
       - name: Build Tauri app (Windows installer)
-        run: pnpm --filter @prereborn/companion run tauri build -- --bundles nsis
+        run: pnpm --filter @prereborn/companion exec tauri build --bundles nsis
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
