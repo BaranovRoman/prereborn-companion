@@ -64,10 +64,10 @@ development checkout.
 
 ## Domains and production
 
-The dedicated public API and product domain are not finalized. The released
-desktop companion therefore retains the old production API as a temporary
-compatibility default. See `docs/extraction-plan.md` for the domain cutover and
-two-copy workflow.
+The dedicated public API and product domain are not finalized. Local builds
+use `127.0.0.1:3001`; production builds must provide the future dedicated API
+URL through environment-specific configuration. See `docs/extraction-plan.md`
+for the cutover workflow.
 
 ## Trademark and third-party notice
 

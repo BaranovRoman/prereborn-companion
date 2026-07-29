@@ -51,7 +51,7 @@ const parseOrigins = (value: string | undefined): string[] =>
         .filter(Boolean);
 
 // В production сюда должны попадать реальные домены фронтенда и админки
-// (например https://baranov-digital.ru). Локальные origin разработки
+// Production origins are supplied explicitly. Локальные origin разработки
 // разрешаются отдельно и только вне production, см. src/config/cors.ts.
 const corsAllowedOrigins = parseOrigins(process.env.CORS_ALLOWED_ORIGINS);
 
@@ -64,7 +64,7 @@ export const env = {
     twitchClientSecret,
     twitchRedirectUri,
     twitchFrontendOrigin,
-    port: parseInt(process.env.PORT || "5002", 10),
+    port: parseInt(process.env.PORT || "3001", 10),
     nodeEnv,
     isProduction,
     isTest,

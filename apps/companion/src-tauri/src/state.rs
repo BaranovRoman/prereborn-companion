@@ -4,11 +4,11 @@ use std::sync::Mutex;
 pub const GSI_PORT: u16 = 3665;
 pub const GSI_CONFIG_FILE_NAME: &str = "gamestate_integration_dota_companion.cfg";
 
-// baranov-digital.ru обслуживает и сайт, и API через один nginx-хост (см.
+// The backend URL below is the local development endpoint.
 // backend/config/env.ts, тот же паттерн для STEAM_OPENID_REALM) - companion
 // не даёт настроить этот URL из UI в этой итерации (см. отчёт по фиче), это
 // единственное место, которое нужно поменять для другого окружения/домена.
-pub const DEFAULT_BACKEND_URL: &str = "https://baranov-digital.ru/api";
+pub const DEFAULT_BACKEND_URL: &str = "http://127.0.0.1:3001/api";
 pub const COMPANION_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Clone, Serialize, Default)]

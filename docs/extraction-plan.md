@@ -82,16 +82,16 @@ only after web/API drift is measured.
 1. The web surface currently depends on portfolio-wide Next configuration and
    shared API helpers.
 2. The API migration is monolithic and must not carry unrelated schema.
-3. `DEFAULT_BACKEND_URL` in the Tauri application points to
-   `https://baranov-digital.ru/api`; it remains the compatibility default until
-   the domain cutover, but must be documented and made configurable.
+3. `DEFAULT_BACKEND_URL` in the Tauri application currently points to the
+   local API at `http://127.0.0.1:3001/api`. A future production build must
+   receive its dedicated API URL from environment-specific configuration.
 4. Steam realm/return URL, CORS origins, download URL, cookie behavior, and OBS
    URLs require coordinated cutover.
 5. Companion tokens, JWT secrets, Steam IDs, database rows, GSI payloads, and
    diagnostics archives are sensitive and must never enter the public tree.
 6. Installer binaries and Rust/Node build directories are excluded.
-7. The three `trees-*.png` files have no recorded source. They remain
-   third-party/origin-unknown until provenance is supplied.
+7. The three `trees-*.png` files were generated with ChatGPT specifically for
+   this project and are registered as AI-generated project assets.
 8. No video files are currently present in the audited source tree.
 
 ## Repository-hosted video decision
