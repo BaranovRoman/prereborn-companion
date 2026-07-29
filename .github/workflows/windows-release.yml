@@ -25,14 +25,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v2
+        uses: pnpm/action-setup@v4
         with:
           version: 11
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "pnpm"
 
       - name: Setup Rust
@@ -60,8 +60,8 @@ jobs:
             apps/companion/src-tauri/target/release/bundle/msi/*.msi
           if-no-files-found: error
 
-  # Tag-triggered release - tag format: dota-companion-vX.Y.Z (e.g.
-  # dota-companion-v0.2.0). Patches the version in package.json/tauri.conf.json
+  # Tag-triggered release - tag format: prereborn-vX.Y.Z (e.g.
+  # prereborn-v0.2.1). Patches the version in package.json/tauri.conf.json
   # from the tag BEFORE building, so the bundle filename
   # (dota-companion_X.Y.Z_x64-setup.exe) always matches the tag - no manual
   # version-bump commit required before tagging. Publishes/updates a GitHub
@@ -79,14 +79,14 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v2
+        uses: pnpm/action-setup@v4
         with:
           version: 11
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "pnpm"
 
       - name: Setup Rust
