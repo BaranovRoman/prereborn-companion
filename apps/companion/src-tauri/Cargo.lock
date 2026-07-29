@@ -845,7 +845,7 @@ dependencies = [
 
 [[package]]
 name = "dota-companion"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "reqwest 0.12.28",

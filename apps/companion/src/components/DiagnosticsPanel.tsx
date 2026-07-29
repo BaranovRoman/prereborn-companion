@@ -40,7 +40,7 @@ export function DiagnosticsPanel({ status, refresh }: Props) {
 
   return (
     <section className="diagnostics-panel">
-      <h2>Диагностика GSI (v0.2.2)</h2>
+      <h2>Диагностика GSI (v0.3.0)</h2>
       <p className="diagnostics-panel__hint">
         Отдельный от обычной работы Companion сбор полного сырого GSI-payload'а — только для анализа того, что
         реально присылает Dota. Выключено по умолчанию, ничего не меняет в обычной работе приложения.
