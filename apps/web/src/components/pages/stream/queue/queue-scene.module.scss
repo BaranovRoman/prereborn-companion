@@ -709,17 +709,47 @@
 }
 .webcam small { margin-top: 5px; color: #443e3c; font-family: Arial, sans-serif; font-size: 7px; letter-spacing: .15em; }
 
-.favoriteList { padding: 5px 10px 8px; }
-.favorite {
+.favoriteList {
     display: grid;
-    grid-template-columns: 38px 1fr auto;
-    align-items: center;
-    gap: 9px;
-    min-height: 46px;
-    border-bottom: 1px solid rgba(255,255,255,.055);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 7px;
+    padding: 9px 10px 10px;
 }
-.favorite:last-child { border-bottom: 0; }
-.miniPortrait,
+.favorite {
+    min-width: 0;
+    border: 1px solid #493d39;
+    background: linear-gradient(#171516, #0b0b0c);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.025);
+}
+
+.favoritePortrait {
+    position: relative;
+    height: 92px;
+    overflow: hidden;
+    border-bottom: 1px solid #493d39;
+    background:
+        radial-gradient(circle at 50% 42%, rgba(112, 48, 46, .35), transparent 52%),
+        linear-gradient(145deg, #211819, #09090a 72%);
+}
+
+.favoritePortrait::after {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, transparent 56%, rgba(5, 5, 6, .72));
+    content: "";
+    pointer-events: none;
+}
+
+.favoritePortrait video {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+    object-position: center 20%;
+    filter: saturate(.82) contrast(1.05) brightness(.82);
+}
+
+.favoritePortrait > span,
 .gameMark {
     display: grid;
     place-items: center;
@@ -728,19 +758,47 @@
     color: #9f8580;
     font-family: Georgia, serif;
 }
-.miniPortrait { width: 32px; height: 32px; }
-.miniHeroImage,
+
+.favoritePortrait > span { width: 100%; height: 100%; font-size: 24px; }
+.favoritePortrait em {
+    position: absolute;
+    z-index: 1;
+    top: 5px;
+    right: 6px;
+    color: rgba(231, 199, 190, .55);
+    font-size: 8px;
+    font-style: normal;
+    letter-spacing: .12em;
+}
+
 .gameHeroImage {
     border: 1px solid #4a3d39;
     object-fit: cover;
     filter: saturate(.7) brightness(.76);
 }
-.miniHeroImage { width: 32px; height: 32px; }
 .gameHeroImage { width: 26px; height: 26px; }
-.favorite div { display: flex; flex-direction: column; }
+
+.favoriteCaption {
+    display: flex;
+    min-height: 35px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3px;
+    text-align: center;
+}
 .favorite b, .gameRow b { color: #b7aaa4; font-family: Georgia, serif; font-size: 11px; font-weight: 400; }
+.favorite b {
+    width: 100%;
+    overflow: hidden;
+    font-size: 9px;
+    letter-spacing: .04em;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
 .favorite small, .gameRow small { color: #655f5c; font-size: 8px; }
-.favorite em { color: #574d49; font-size: 9px; font-style: normal; }
+.favorite small { margin-top: 2px; font-size: 6px; letter-spacing: .1em; }
 
 .gamesList { height: calc(100% - 30px); display: flex; flex-direction: column; padding: 5px 10px 8px; }
 .gameRow {

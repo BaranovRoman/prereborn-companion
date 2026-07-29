@@ -212,13 +212,25 @@ const FavoriteHeroes = ({
                     const hero = getHeroById(heroId);
                     return (
                         <div key={heroId} className={styles.favorite}>
-                            {hero ? (
-                                <video className={styles.miniHeroImage} src={hero.videoUrl} poster={hero.imageUrl} autoPlay loop muted playsInline />
-                            ) : (
-                                <span className={styles.miniPortrait}>?</span>
-                            )}
-                            <div><b>{hero?.localizedName ?? `Hero ${heroId}`}</b><small>{games ? `${games} matches` : "Selected hero"}</small></div>
-                            <em>0{index + 1}</em>
+                            <div className={styles.favoritePortrait}>
+                                {hero ? (
+                                    <video
+                                        src={hero.videoUrl}
+                                        poster={hero.imageUrl}
+                                        autoPlay
+                                        loop
+                                        muted
+                                        playsInline
+                                    />
+                                ) : (
+                                    <span>?</span>
+                                )}
+                                <em>0{index + 1}</em>
+                            </div>
+                            <div className={styles.favoriteCaption}>
+                                <b>{hero?.localizedName ?? `Hero ${heroId}`}</b>
+                                <small>{games ? `${games} MATCHES` : "FEATURED"}</small>
+                            </div>
                         </div>
                     );
                 }) : (
