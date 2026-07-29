@@ -3,167 +3,196 @@
     width: 100%;
     display: flex;
     justify-content: center;
-    padding: 24px;
+    padding: 34px 24px 56px;
+    color: #d8d1cc;
 }
 
 .card {
     width: 100%;
-    max-width: 960px;
+    max-width: 1120px;
+    padding: 26px;
+    border: 1px solid rgba(177, 80, 76, 0.28);
+    border-radius: 2px;
+    background:
+        linear-gradient(180deg, rgba(35, 29, 29, 0.96), rgba(12, 11, 12, 0.96));
+    box-shadow:
+        0 22px 70px rgba(0, 0, 0, 0.42),
+        inset 0 1px rgba(255, 255, 255, 0.035);
 }
 
 .header {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     justify-content: space-between;
-    margin-bottom: 16px;
     gap: 16px;
+    padding-bottom: 18px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid rgba(177, 80, 76, 0.22);
+}
+
+.header a {
+    color: #b9aaa6;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-decoration: none;
+    text-transform: uppercase;
+    transition: color 160ms ease;
+}
+
+.header a:hover {
+    color: #f1dfd9;
 }
 
 .title {
     margin: 0;
-    font-size: 22px;
+    color: #eee6e2;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 27px;
     font-weight: 500;
-    color: #0f172a;
-    letter-spacing: -0.01em;
+    letter-spacing: 0.035em;
 }
 
 .hint {
+    max-width: 850px;
+    margin-bottom: 20px;
+    color: #8f8582;
     font-size: 13px;
-    color: rgba(15, 23, 42, 0.5);
-    margin-bottom: 16px;
+    line-height: 1.65;
+}
+
+.presetsSection {
+    padding: 17px 18px;
+    margin-bottom: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(5, 5, 6, 0.32);
+}
+
+.sectionTitle {
+    margin-bottom: 12px;
+    color: #b8aaa5;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.presetButtons,
+.referenceControls,
+.referenceSuggestion,
+.paddingSection,
+.settingsRow {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.referenceControls {
+    margin-bottom: 12px;
+}
+
+.referenceFileName,
+.opacityValue,
+.referenceSuggestion,
+.paddingLabel,
+.settingsRowLabel {
+    color: #918784;
+    font-size: 12px;
+}
+
+.referenceFileName {
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.referenceAlert {
+    margin-bottom: 12px;
+}
+
+.opacitySlider {
+    flex: 1 1 auto;
+    min-width: 140px;
+    max-width: 300px;
+}
+
+.opacityValue {
+    min-width: 38px;
+    color: #c0b4b0;
+    font-variant-numeric: tabular-nums;
 }
 
 .sceneTools {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 10px;
-    font-size: 13px;
-    color: rgba(15, 23, 42, 0.65);
+    gap: 10px;
+    padding: 13px 16px;
+    margin: 18px 0 10px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(5, 5, 6, 0.42);
+    color: #a59a96;
+    font-size: 12px;
+    letter-spacing: 0.025em;
 }
 
-// Обёртка над OverlayCanvas - сама сцена (checkerboard/safe area/масштаб)
-// теперь целиком реализована в overlay-canvas.module.scss (используется и
-// здесь, и на реальном /overlay/:token), эта обёртка только резервирует
-// отступ снизу.
 .sceneWrapper {
-    margin-bottom: 8px;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid rgba(177, 80, 76, 0.32);
+    background: #080708;
+    box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
 }
 
 .sceneCaption {
-    font-size: 12px;
-    color: rgba(15, 23, 42, 0.45);
+    padding: 0 2px;
     margin-bottom: 20px;
+    color: #756c69;
+    font-size: 11px;
+    line-height: 1.55;
 }
 
 .guideLineX {
     position: absolute;
     top: 0;
     bottom: 0;
-    width: 1px;
-    background: #2563eb;
-    pointer-events: none;
     z-index: 5;
+    width: 1px;
+    background: #b64a4a;
+    pointer-events: none;
 }
 
 .guideLineY {
     position: absolute;
-    left: 0;
     right: 0;
-    height: 1px;
-    background: #2563eb;
-    pointer-events: none;
+    left: 0;
     z-index: 5;
+    height: 1px;
+    background: #b64a4a;
+    pointer-events: none;
 }
 
-// Короткий индикатор дистанции у gap-направляющей ("24") - только во время
-// активного drag (см. задачу, п.7).
 .gapLabel {
     position: absolute;
-    transform: translate(-50%, -50%);
-    background: #2563eb;
+    z-index: 6;
+    padding: 3px 6px;
+    border-radius: 2px;
+    background: #a43c3c;
     color: #fff;
     font-size: 11px;
+    font-variant-numeric: tabular-nums;
     line-height: 1;
-    font-variant-numeric: tabular-nums;
-    padding: 3px 5px;
-    border-radius: 4px;
     pointer-events: none;
-    z-index: 6;
+    transform: translate(-50%, -50%);
     white-space: nowrap;
-}
-
-.presetsSection {
-    margin-bottom: 20px;
-}
-
-.sectionTitle {
-    font-size: 14px;
-    font-weight: 500;
-    color: #0f172a;
-    margin-bottom: 10px;
-}
-
-.presetButtons {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-.referenceControls {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-bottom: 10px;
-}
-
-.referenceFileName {
-    font-size: 12px;
-    color: rgba(15, 23, 42, 0.5);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 220px;
-}
-
-.referenceAlert {
-    margin-bottom: 10px;
-}
-
-.opacitySlider {
-    flex: 1 1 auto;
-    min-width: 120px;
-    max-width: 260px;
-}
-
-.opacityValue {
-    font-size: 13px;
-    font-variant-numeric: tabular-nums;
-    color: rgba(15, 23, 42, 0.6);
-    min-width: 36px;
-}
-
-.referenceSuggestion {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 10px;
-    font-size: 13px;
-    color: rgba(15, 23, 42, 0.65);
 }
 
 .paddingSection {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 20px;
-    flex-wrap: wrap;
-}
-
-.paddingLabel {
-    font-size: 13px;
-    color: rgba(15, 23, 42, 0.6);
+    padding: 14px 16px;
+    margin-bottom: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(5, 5, 6, 0.32);
 }
 
 .paddingButtons {
@@ -172,7 +201,7 @@
 }
 
 .controls {
-    margin-bottom: 20px;
+    margin-bottom: 18px;
 }
 
 .collapseHeader {
@@ -184,9 +213,11 @@
 }
 
 .collapseHeaderTitle {
-    font-size: 14px;
-    font-weight: 500;
-    color: #0f172a;
+    color: #c4b8b3;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.055em;
+    text-transform: uppercase;
 }
 
 .widgetBody {
@@ -195,17 +226,8 @@
     gap: 14px;
 }
 
-.settingsRow {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 16px;
-}
-
 .settingsRowLabel {
     min-width: 130px;
-    font-size: 13px;
-    color: rgba(15, 23, 42, 0.6);
 }
 
 .recentMatchesSettings {
@@ -213,7 +235,7 @@
     flex-direction: column;
     gap: 14px;
     padding-top: 12px;
-    border-top: 1px solid rgba(15, 23, 42, 0.06);
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .limitStepper {
@@ -221,15 +243,22 @@
 }
 
 .actions {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
+    gap: 14px;
+    padding-top: 18px;
+    border-top: 1px solid rgba(177, 80, 76, 0.22);
+}
+
+.actions > :last-child {
+    justify-self: end;
 }
 
 .dirtyHint {
-    font-size: 12px;
-    color: rgba(217, 119, 6, 0.9);
+    color: #c9956f;
+    font-size: 11px;
+    letter-spacing: 0.035em;
 }
 
 .loading {
@@ -238,5 +267,115 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: rgba(15, 23, 42, 0.45);
+    color: #a99d98;
+}
+
+.card :global(.ant-btn) {
+    border-color: rgba(177, 80, 76, 0.28);
+    border-radius: 2px;
+    background: linear-gradient(180deg, #302929, #1c1819);
+    box-shadow: none;
+    color: #cfc4bf;
+}
+
+.card :global(.ant-btn:hover) {
+    border-color: rgba(207, 103, 97, 0.7) !important;
+    background: #352728 !important;
+    color: #fff !important;
+}
+
+.card :global(.ant-btn-primary) {
+    border-color: #9e3d3d;
+    background: linear-gradient(180deg, #a84646, #762929);
+    color: #fff;
+}
+
+.card :global(.ant-segmented) {
+    padding: 3px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 2px;
+    background: #0c0b0c;
+    color: #897f7c;
+}
+
+.card :global(.ant-segmented-item-selected) {
+    border-radius: 1px;
+    background: #2c2627;
+    box-shadow: inset 0 -1px #93403f;
+    color: #e3d9d4;
+}
+
+.card :global(.ant-collapse) {
+    overflow: hidden;
+    border: 1px solid rgba(177, 80, 76, 0.22);
+    border-radius: 2px;
+    background: rgba(5, 5, 6, 0.38);
+}
+
+.card :global(.ant-collapse-item) {
+    border-color: rgba(255, 255, 255, 0.07) !important;
+}
+
+.card :global(.ant-collapse-header),
+.card :global(.ant-collapse-content) {
+    color: #c4b8b3 !important;
+}
+
+.card :global(.ant-collapse-content) {
+    border-color: rgba(255, 255, 255, 0.07);
+    background: #111011;
+}
+
+.card :global(.ant-input-number) {
+    border-color: rgba(177, 80, 76, 0.24);
+    border-radius: 2px;
+    background: #0c0b0c;
+}
+
+.card :global(.ant-input-number-input) {
+    color: #ddd2cd;
+}
+
+.card :global(.ant-switch:not(.ant-switch-checked)) {
+    background: #3b3434;
+}
+
+.card :global(.ant-switch-checked) {
+    background: #9d3e3e;
+}
+
+.card :global(.ant-slider-track) {
+    background: #a34242;
+}
+
+.card :global(.ant-slider-handle::after) {
+    box-shadow: 0 0 0 2px #a34242;
+}
+
+@media (max-width: 720px) {
+    .page {
+        padding: 14px 10px 32px;
+    }
+
+    .card {
+        padding: 17px 12px;
+    }
+
+    .header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .title {
+        font-size: 23px;
+    }
+
+    .actions {
+        grid-template-columns: 1fr auto;
+    }
+
+    .dirtyHint {
+        grid-column: 1 / -1;
+        grid-row: 1;
+    }
 }
