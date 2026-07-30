@@ -11,10 +11,22 @@ describe("isGameInProgress", () => {
         ).toBe(true);
     });
 
+    it("enables game widgets when the 90-second pre-game countdown starts", () => {
+        expect(
+            isGameInProgress({
+                map: {
+                    game_state: "DOTA_GAMERULES_STATE_PRE_GAME",
+                    clock_time: -90,
+                },
+                player: { activity: "playing" },
+            })
+        ).toBe(true);
+    });
+
     it.each([
         "DOTA_GAMERULES_STATE_HERO_SELECTION",
         "DOTA_GAMERULES_STATE_STRATEGY_TIME",
-        "DOTA_GAMERULES_STATE_PRE_GAME",
+        "DOTA_GAMERULES_STATE_TEAM_SHOWCASE",
         "DOTA_GAMERULES_STATE_POST_GAME",
     ])("keeps the queue scene during %s", (gameState) => {
         expect(

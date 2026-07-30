@@ -8,6 +8,7 @@ import {
 import { logger } from "../../utils/logger.js";
 
 export const getDonationAlertsStatusController = async (req: Request, res: Response) => {
+    res.set("Cache-Control", "no-store");
     try { res.json(await getDonationAlertsStatus(req.streamUserId as string)); }
     catch (error) {
         logger.error("DonationAlerts status error", { message: error instanceof Error ? error.message : String(error) });

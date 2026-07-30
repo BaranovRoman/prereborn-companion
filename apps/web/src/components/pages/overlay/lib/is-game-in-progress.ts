@@ -7,9 +7,13 @@ export const isGameInProgress = (payload: unknown): boolean => {
     const root = asRecord(payload);
     const map = asRecord(root?.map);
     const player = asRecord(root?.player);
+    const gameState = map?.game_state;
 
     return (
-        map?.game_state === "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS" &&
+        (
+            gameState === "DOTA_GAMERULES_STATE_PRE_GAME" ||
+            gameState === "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS"
+        ) &&
         player?.activity === "playing"
     );
 };

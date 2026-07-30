@@ -19,6 +19,20 @@ import styles from "./queue-scene.module.scss";
 
 const EMPTY_VALUE = "—";
 
+const DONATION_RANKS = [
+    { min: 10_000, tier: 8, name: "Immortal" },
+    { min: 5_000, tier: 7, name: "Divine" },
+    { min: 3_000, tier: 6, name: "Ancient" },
+    { min: 1_500, tier: 5, name: "Legend" },
+    { min: 700, tier: 4, name: "Archon" },
+    { min: 300, tier: 3, name: "Crusader" },
+    { min: 100, tier: 2, name: "Guardian" },
+    { min: 0, tier: 1, name: "Herald" },
+] as const;
+
+const getDonationRank = (amount: number) =>
+    DONATION_RANKS.find((rank) => amount >= rank.min) ?? DONATION_RANKS.at(-1)!;
+
 const subscribeToHostname = () => () => {};
 const getHostname = () => window.location.hostname;
 const getServerHostname = () => "";
@@ -442,18 +456,36 @@ const TwitchChat = ({ twitch }: QueueDataProps) => {
 };
 
 const DonationTop = ({ donationAlerts }: QueueDataProps) => {
-    const leaders = (donationAlerts?.topDonors ?? []).slice(0, 3);
+    const leaders = (donationAlerts?.topDonors ?? []).slice(0, 9);
     return (
-        <Panel title="Top supporters" className={styles.donationPanel}>
+        <Panel title="Supporters // Online" className={styles.donationPanel}>
             {leaders.length ? (
                 <div className={styles.donationTop}>
-                    {leaders.map((leader, index) => (
-                        <div key={`${leader.username}-${leader.currency}`}>
-                            <span>{index + 1}</span>
-                            <strong>{leader.username}</strong>
-                            <b>{new Intl.NumberFormat("ru-RU").format(leader.amount)} {leader.currency}</b>
-                        </div>
-                    ))}
+                    {leaders.map((leader) => {
+                        const rank = getDonationRank(leader.amount);
+                        return (
+                            <div
+                                key={`${leader.username}-${leader.currency}`}
+                                className={styles.donationFriend}
+                                title={`${rank.name}: от ${rank.min.toLocaleString("ru-RU")} ${leader.currency}`}
+                            >
+                                <Image
+                                    src={`/vendor/opendota/rank-icons/rank_icon_${rank.tier}.png`}
+                                    alt={`${rank.name} medal`}
+                                    width={42}
+                                    height={42}
+                                />
+                                <p>
+                                    <strong>{leader.username}</strong>
+                                    <small>{rank.name}</small>
+                                </p>
+                                <b>
+                                    {new Intl.NumberFormat("ru-RU").format(leader.amount)}
+                                    <em>{leader.currency}</em>
+                                </b>
+                            </div>
+                        );
+                    })}
                 </div>
             ) : (
                 <div className={styles.donationEmpty}>

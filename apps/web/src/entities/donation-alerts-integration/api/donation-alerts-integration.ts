@@ -3,7 +3,13 @@ import type { DonationAlertsIntegrationStatus } from "../model/types";
 
 export const donationAlertsIntegrationApi = {
     getStatus: async () => {
-        const { data } = await streamApiClient.get<DonationAlertsIntegrationStatus>("/integrations/donation-alerts");
+        const { data } = await streamApiClient.get<DonationAlertsIntegrationStatus>(
+            "/integrations/donation-alerts",
+            {
+                params: { _: Date.now() },
+                headers: { "Cache-Control": "no-cache" },
+            }
+        );
         return data;
     },
     connect: async () => {

@@ -1041,20 +1041,47 @@
     height: calc(100% - 34px);
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-auto-rows: minmax(0, 1fr);
     gap: 1px;
-    background: #252b2b;
+    padding: 3px;
+    background: linear-gradient(180deg, rgba(38, 50, 47, .94), rgba(12, 17, 17, .96));
 }
-.donationTop > div {
+.donationFriend {
     min-width: 0;
     display: grid;
-    grid-template-rows: 28px minmax(0, 1fr) 30px;
-    place-items: center;
-    padding: 8px 10px;
-    background: #0d1112;
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 7px;
+    padding: 2px 8px 2px 2px;
+    border: 1px solid rgba(73, 86, 81, .42);
+    box-shadow: inset 0 1px rgba(178, 195, 182, .035);
+    background: linear-gradient(90deg, #101918, #0d1414);
 }
-.donationTop span { color: #7b3532; font-family: var(--font-title); font-size: 17px; }
-.donationTop strong { max-width: 100%; overflow: hidden; color: #bbb7ae; font-family: var(--font-title); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
-.donationTop b { color: #9eb17f; font-family: var(--font-title); font-size: 13px; font-weight: 400; }
+.donationFriend:hover { background: linear-gradient(90deg, #182826, #101a19); }
+.donationFriend img { width: 42px; height: 42px; object-fit: contain; filter: drop-shadow(0 1px 2px #000); }
+.donationFriend p { min-width: 0; display: flex; flex-direction: column; gap: 1px; margin: 0; }
+.donationFriend strong {
+    overflow: hidden;
+    color: #b8d68d;
+    font-family: var(--font-title);
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 1.1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.donationFriend small { color: #6f928b; font-size: 8px; letter-spacing: .07em; text-transform: uppercase; }
+.donationFriend b {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    color: #b8d68d;
+    font-family: var(--font-title);
+    font-size: 11px;
+    font-weight: 400;
+    white-space: nowrap;
+}
+.donationFriend em { color: #64746f; font-size: 7px; font-style: normal; letter-spacing: .1em; }
 .donationEmpty { height: calc(100% - 34px); display: grid; place-items: center; color: #747a76; letter-spacing: .12em; }
 .chatBody {
     padding: 13px 18px;
