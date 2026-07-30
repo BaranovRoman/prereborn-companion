@@ -115,6 +115,7 @@ vec2 emberLayer(
     float time,
     float scale,
     float riseSpeed,
+    float rightDrift,
     float occupancy,
     float layerSeed
 ) {
@@ -130,6 +131,7 @@ vec2 emberLayer(
         sin(windPhase * 0.47 + 1.9) * 0.006;
 
     vec2 gridPosition = emberSpace * scale;
+    gridPosition.x -= time * rightDrift;
     gridPosition.y -= time * riseSpeed;
     vec2 cell = floor(gridPosition);
     vec2 localPosition = fract(gridPosition);
@@ -161,14 +163,14 @@ vec2 emberLayer(
         0.032 *
         tailProgress *
         tailProgress;
-    float tailWidth = mix(0.034, 0.010, tailProgress);
+    float tailWidth = mix(0.042, 0.014, tailProgress);
     float tailBand =
         smoothstep(-tailLength, -tailLength * 0.72, delta.y) *
         (1.0 - smoothstep(-0.006, 0.026, delta.y));
     float trail =
         (1.0 - smoothstep(
             tailWidth,
-            tailWidth + 0.018,
+            tailWidth + 0.022,
             abs(delta.x - tailCurve)
         )) *
         tailBand *
@@ -180,9 +182,9 @@ vec2 emberLayer(
         delta.y * headStretch
     );
     float headDistance = length(headPosition);
-    float core = 1.0 - smoothstep(0.016, 0.055, headDistance);
+    float core = 1.0 - smoothstep(0.020, 0.067, headDistance);
     float aura = exp(
-        -104.0 *
+        -78.0 *
         dot(
             vec2(delta.x * 1.48, delta.y * 0.88),
             vec2(delta.x * 1.48, delta.y * 0.88)
@@ -190,8 +192,8 @@ vec2 emberLayer(
     );
 
     float altitudeFade =
-        smoothstep(0.015, 0.105, uv.y) *
-        (1.0 - smoothstep(0.66, 0.98, uv.y));
+        smoothstep(0.015, 0.075, uv.y) *
+        (1.0 - smoothstep(0.27, 0.39, uv.y));
     float sourceBias = mix(
         1.0,
         0.28,
@@ -469,8 +471,9 @@ void main() {
         uv,
         time,
         10.0,
+        0.28,
         0.20,
-        0.105,
+        0.32,
         17.1
     );
     embers +=
@@ -478,8 +481,9 @@ void main() {
             uv,
             time,
             14.0,
-            0.17,
-            0.075,
+            0.25,
+            0.14,
+            0.24,
             83.4
         ) *
         mix(0.58, 1.0, uQuality);
@@ -488,8 +492,9 @@ void main() {
             uv,
             time,
             7.5,
+            0.30,
             0.24,
-            0.095,
+            0.30,
             147.2
         ) *
         uQuality *
