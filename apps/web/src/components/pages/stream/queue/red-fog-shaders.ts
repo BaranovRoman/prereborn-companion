@@ -129,6 +129,15 @@ vec2 emberLayer(
     emberSpace.x +=
         sin(windPhase) * 0.011 +
         sin(windPhase * 0.47 + 1.9) * 0.006;
+    float liftProgress = smoothstep(0.02, 0.39, uv.y);
+    emberSpace.x -=
+        liftProgress *
+        liftProgress *
+        mix(
+            0.045,
+            0.085,
+            clamp(rightDrift / max(riseSpeed, 0.001), 0.0, 1.0)
+        );
 
     vec2 gridPosition = emberSpace * scale;
     gridPosition.x -= time * rightDrift;
@@ -145,22 +154,43 @@ vec2 emberLayer(
         presence
     );
 
+    float shapeSeed = hash21(
+        cell + vec2(layerSeed * 0.41, 73.91)
+    );
+    float swaySeed = hash21(
+        cell + vec2(29.31, layerSeed * 1.27)
+    );
     vec2 anchor = vec2(
         0.24 +
             hash21(cell + vec2(layerSeed * 2.31, 19.17)) * 0.52,
         0.34 +
             hash21(cell + vec2(41.73, layerSeed * 0.83)) * 0.40
     );
+    anchor.x +=
+        sin(
+            time * mix(0.72, 1.46, swaySeed) +
+            shapeSeed * 19.0
+        ) *
+        mix(0.012, 0.046, swaySeed);
+    anchor.y +=
+        sin(
+            time * mix(0.48, 0.86, shapeSeed) +
+            swaySeed * 23.0
+        ) *
+        0.008;
     vec2 delta = localPosition - anchor;
 
-    float shapeSeed = hash21(
-        cell + vec2(layerSeed * 0.41, 73.91)
-    );
     float tailLength = mix(0.13, 0.31, shapeSeed);
     float tailProgress = clamp(-delta.y / tailLength, 0.0, 1.0);
+    float driftRatio =
+        rightDrift /
+        max(riseSpeed, 0.001);
     float tailCurve =
+        delta.y *
+        driftRatio *
+        0.72 +
         sin(cell.y * 0.73 + layerSeed) *
-        0.032 *
+        0.026 *
         tailProgress *
         tailProgress;
     float tailWidth = mix(0.042, 0.014, tailProgress);
@@ -471,8 +501,8 @@ void main() {
         uv,
         time,
         10.0,
-        0.28,
-        0.20,
+        0.65,
+        0.42,
         0.32,
         17.1
     );
@@ -481,8 +511,8 @@ void main() {
             uv,
             time,
             14.0,
-            0.25,
-            0.14,
+            0.75,
+            0.36,
             0.24,
             83.4
         ) *
@@ -492,8 +522,8 @@ void main() {
             uv,
             time,
             7.5,
-            0.30,
-            0.24,
+            0.65,
+            0.50,
             0.30,
             147.2
         ) *
