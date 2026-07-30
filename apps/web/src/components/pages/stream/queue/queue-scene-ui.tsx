@@ -390,9 +390,7 @@ const RecentGames = ({ matches }: QueueDataProps) => (
 
 const StreamProfile = ({
     email,
-    companionOnline,
     steamConnected,
-    steamId,
     steamSyncStatus,
     twitch,
     channelGoal,
@@ -409,7 +407,7 @@ const StreamProfile = ({
                 <div>
                     <span className={styles.overline}>{twitch?.connected ? "TWITCH CHANNEL" : "PREREBORN STREAM"}</span>
                     <strong>{accountName}</strong>
-                    <small>{twitch?.live ? twitch.live.title : (steamConnected ? `Steam ${steamId ?? "connected"}` : "Steam not connected")}</small>
+                    {twitch?.live?.title && <small>{twitch.live.title}</small>}
                 </div>
                 <div className={styles.liveBadge}><i data-online={Boolean(twitch?.live)} /> {twitch?.live ? `${twitch.live.viewerCount} LIVE` : "OFFLINE"}</div>
                 <div className={styles.goal}>
@@ -453,9 +451,6 @@ const TwitchChat = ({ twitch }: QueueDataProps) => {
                     <span>Connect Twitch in the stream dashboard integrations.</span>
                 </div>
             )}
-            <div className={styles.chatFooter}>
-                CHANNEL CHAT // {twitch?.connected ? twitch.login?.toUpperCase() : "NO DATA SOURCE"}
-            </div>
         </Panel>
     );
 };
@@ -591,10 +586,6 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
                     </div>
                 )}
             </div>
-            <footer className={styles.sceneFooter}>
-                <span>{`${data.steamConnected ? "STEAM CONNECTED" : "STEAM OFFLINE"} // ${data.matches.length} MATCHES LOADED`}</span>
-                <span>PREREBORN COMPANION // OBS SCENE</span>
-            </footer>
         </div>
     );
 };

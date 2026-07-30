@@ -319,7 +319,7 @@
     inset: 20px 28px 18px;
     z-index: 8;
     display: grid;
-    grid-template-rows: 78px 1fr 22px;
+    grid-template-rows: 78px 1fr;
     gap: 10px;
     font-family: var(--font-ui);
     pointer-events: none;
@@ -626,15 +626,22 @@
 .profileStats b { margin-top: 5px; color: #c9c5bd; font-family: var(--font-title); font-size: 19px; font-weight: 400; }
 
 .streamProfileBody {
-    height: calc(100% - 34px);
+    height: 100%;
     display: grid;
     grid-template-columns: 62px 1fr auto;
     grid-template-rows: 1fr 31px;
     align-items: center;
     gap: 0 13px;
-    padding: 7px 17px 8px;
+    padding: 10px 17px 9px;
+    border-top: 1px solid rgba(255, 255, 255, .08);
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, .035), transparent 34%),
+        linear-gradient(90deg, rgba(103, 44, 42, .22), transparent 52%),
+        #151a1b;
+    box-shadow: inset 0 -1px #070909;
 }
 
+.streamProfile .panelTitle { display: none; }
 .twitchAvatar { width: 52px; height: 52px; grid-row: 1; font-size: 15px; }
 .streamProfileBody > div:nth-child(2) { display: flex; flex-direction: column; gap: 2px; }
 .streamProfileBody > div:nth-child(2) strong { color: #cecac2; font-family: var(--font-title); font-size: 18px; font-weight: 400; letter-spacing: .06em; }
@@ -1051,17 +1058,8 @@
 }
 
 .gamesList::after {
-    content: "MATCH ARCHIVE // SESSION RECORD";
-    display: none;
-    min-height: 54px;
-    flex: 1;
-    place-items: end center;
-    padding-bottom: 12px;
-    color: rgba(114, 122, 119, .28);
-    font-size: 8px;
-    letter-spacing: .18em;
+    content: none;
 }
-.gamesList:has(.gameRow)::after { display: grid; }
 .gameRow {
     z-index: 1;
     flex: 0 0 46px;
@@ -1096,10 +1094,31 @@
     gap: 10px;
 }
 
-.chatPanel { display: grid; grid-template-rows: 34px 1fr 32px; }
+.chatPanel { display: grid; grid-template-rows: 42px 1fr; }
 .donationPanel { min-height: 0; }
+.chatPanel .panelTitle,
+.donationPanel .panelTitle {
+    height: 42px;
+    border-top: 1px solid rgba(255, 255, 255, .07);
+    border-bottom-color: #090b0c;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, .055), transparent 38%),
+        linear-gradient(90deg, rgba(116, 53, 49, .13), transparent 45%),
+        #282d2e;
+    box-shadow:
+        inset 0 -1px rgba(255, 255, 255, .035),
+        0 2px 7px rgba(0, 0, 0, .48);
+    color: #d0ccc3;
+    font-size: 17px;
+    letter-spacing: .045em;
+    text-shadow: 0 1px #080909;
+}
+.chatPanel .panelTitle span,
+.donationPanel .panelTitle span { padding-inline: 22px; }
+.chatPanel .panelTitle span::before,
+.donationPanel .panelTitle span::before { content: none; }
 .donationTop {
-    height: calc(100% - 34px);
+    height: calc(100% - 42px);
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     grid-auto-rows: 48px;
@@ -1138,7 +1157,7 @@
     white-space: nowrap;
 }
 .donationFriend small { color: #75c5c0; font-size: 9px; letter-spacing: .03em; }
-.donationEmpty { height: calc(100% - 34px); display: grid; place-items: center; color: #747a76; letter-spacing: .12em; }
+.donationEmpty { height: calc(100% - 42px); display: grid; place-items: center; color: #747a76; letter-spacing: .12em; }
 .chatBody {
     padding: 13px 18px;
     background:
@@ -1151,16 +1170,6 @@
 .chatBody p span[data-color="2"] { color: #8fa078; }
 .chatBody p span[data-color="3"] { color: #a28c68; }
 .chatBody p b { color: #656a67; font-weight: 400; }
-.chatFooter {
-    display: flex;
-    align-items: center;
-    padding-left: 17px;
-    border-top: 1px solid #2b3131;
-    background: #0c1011;
-    color: #666d69;
-    font-size: 8px;
-    letter-spacing: .16em;
-}
 .chatUnavailable {
     display: flex;
     flex-direction: column;
@@ -1244,18 +1253,10 @@
 .supporterGrid small { color: #696f6b; font-size: 8px; letter-spacing: .1em; }
 .supporterGrid > div[data-active="true"] small { color: #829276; }
 
-.sceneFooter {
-    display: flex;
-    justify-content: space-between;
-    color: rgba(143, 149, 144, .62);
-    font-size: 8px;
-    letter-spacing: .2em;
-}
-
 @media (max-height: 860px) {
     .interface {
         inset: 20px 28px 16px;
-        grid-template-rows: 70px minmax(0, 1fr) 18px;
+        grid-template-rows: 70px minmax(0, 1fr);
         gap: 10px;
     }
 
