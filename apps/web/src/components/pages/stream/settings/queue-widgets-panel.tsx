@@ -23,12 +23,28 @@ const LABELS: Record<QueueWidgetId, string> = {
 const ATTRIBUTES: Array<{
     id: DotaHeroAttribute;
     label: string;
-    mark: string;
+    iconUrl: string;
 }> = [
-    { id: "strength", label: "Сила", mark: "◆" },
-    { id: "agility", label: "Ловкость", mark: "▲" },
-    { id: "intelligence", label: "Интеллект", mark: "●" },
-    { id: "universal", label: "Универсальные", mark: "✦" },
+    {
+        id: "strength",
+        label: "Сила",
+        iconUrl: "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/icons/hero_strength.png",
+    },
+    {
+        id: "agility",
+        label: "Ловкость",
+        iconUrl: "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/icons/hero_agility.png",
+    },
+    {
+        id: "intelligence",
+        label: "Интеллект",
+        iconUrl: "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/icons/hero_intelligence.png",
+    },
+    {
+        id: "universal",
+        label: "Универсальные",
+        iconUrl: "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/icons/hero_universal.png",
+    },
 ];
 
 export const QueueWidgetsPanel = () => {
@@ -122,7 +138,10 @@ export const QueueWidgetsPanel = () => {
                                 className={styles.attributeColumn}
                                 data-attribute={attribute.id}
                             >
-                                <h3><i>{attribute.mark}</i>{attribute.label}</h3>
+                                <h3>
+                                    <img src={attribute.iconUrl} alt="" aria-hidden="true" />
+                                    {attribute.label}
+                                </h3>
                                 <div className={styles.heroGrid}>
                                     {heroes.map((hero) => {
                                         const selected = settings.favoriteHeroIds.includes(hero.id);

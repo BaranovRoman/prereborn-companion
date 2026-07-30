@@ -233,63 +233,66 @@ export const StreamSettingsPage = () => {
             </header>
 
             <div className={styles.grid}>
-                <StreamSessionPanel
-                    steamConnected={steamIntegration.status?.connected ?? false}
-                    sessionRatingDelta={overlayData?.sessionRatingDelta ?? null}
-                    gameMode={user.gameMode}
-                    onGameModeChanged={(gameMode) => setUser({ ...user, gameMode })}
-                />
+                <div className={styles.dashboardColumn}>
+                    <StreamSessionPanel
+                        steamConnected={steamIntegration.status?.connected ?? false}
+                        sessionRatingDelta={overlayData?.sessionRatingDelta ?? null}
+                        gameMode={user.gameMode}
+                        onGameModeChanged={(gameMode) => setUser({ ...user, gameMode })}
+                    />
+                    <RecentMatchesPanel
+                        recentMatches={recentMatches}
+                        matches={matches}
+                        onUpdated={handleMatchCorrection}
+                    />
+                </div>
 
-                {matches === null ? (
+                <div className={styles.dashboardColumn}>
+                    {matches === null ? (
+                        <div className={styles.section}>
+                            <h2 className={styles.sectionTitle}>Последний матч</h2>
+                            <div className={styles.loadingHint}>Загрузка…</div>
+                        </div>
+                    ) : lastMatch ? (
+                        <QuickMatchPanel match={lastMatch} onUpdated={handleMatchCorrection} />
+                    ) : (
+                        <div className={styles.section}>
+                            <h2 className={styles.sectionTitle}>Последний матч</h2>
+                            <div className={styles.loadingHint}>Матчей пока нет</div>
+                        </div>
+                    )}
+
                     <div className={styles.section}>
-                        <h2 className={styles.sectionTitle}>Последний матч</h2>
-                        <div className={styles.loadingHint}>Загрузка…</div>
-                    </div>
-                ) : lastMatch ? (
-                    <QuickMatchPanel match={lastMatch} onUpdated={handleMatchCorrection} />
-                ) : (
-                    <div className={styles.section}>
-                        <h2 className={styles.sectionTitle}>Последний матч</h2>
-                        <div className={styles.loadingHint}>Матчей пока нет</div>
-                    </div>
-                )}
+                        <h2 className={styles.sectionTitle}>Оверлей</h2>
+                        <div className={styles.overlayState}>
+                            {overlayData
+                                ? `Данные обновлены ${new Date(overlayData.updatedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`
+                                : "Загрузка состояния…"}
+                        </div>
 
-                <RecentMatchesPanel
-                    recentMatches={recentMatches}
-                    matches={matches}
-                    onUpdated={handleMatchCorrection}
-                />
+                        <div className={styles.urlRow}>
+                            <input
+                                readOnly
+                                value={obsUrl}
+                                className={styles.urlInput}
+                                onFocus={(e) => e.currentTarget.select()}
+                            />
+                        </div>
 
-                <div className={styles.section}>
-                    <h2 className={styles.sectionTitle}>Оверлей</h2>
-                    <div className={styles.overlayState}>
-                        {overlayData
-                            ? `Данные обновлены ${new Date(overlayData.updatedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`
-                            : "Загрузка состояния…"}
-                    </div>
+                        <div className={styles.overlayActions}>
+                            <Button onClick={handleCopy}>Скопировать OBS URL</Button>
+                            <Link href="/stream/overlay-editor">
+                                <Button type="default">Настроить расположение виджетов</Button>
+                            </Link>
+                        </div>
 
-                    <div className={styles.urlRow}>
-                        <input
-                            readOnly
-                            value={obsUrl}
-                            className={styles.urlInput}
-                            onFocus={(e) => e.currentTarget.select()}
+                        <Collapse
+                            className={styles.overlayCollapse}
+                            items={overlaySettingsItems}
+                            defaultActiveKey={[]}
+                            ghost
                         />
                     </div>
-
-                    <div className={styles.overlayActions}>
-                        <Button onClick={handleCopy}>Скопировать OBS URL</Button>
-                        <Link href="/stream/overlay-editor">
-                            <Button type="default">Настроить расположение виджетов</Button>
-                        </Link>
-                    </div>
-
-                    <Collapse
-                        className={styles.overlayCollapse}
-                        items={overlaySettingsItems}
-                        defaultActiveKey={[]}
-                        ghost
-                    />
                 </div>
 
                 <div className={styles.fullSpan}>

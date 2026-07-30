@@ -80,14 +80,12 @@
         text-transform: uppercase;
     }
 
-    i {
-        color: #c75a5f;
-        font-style: normal;
+    h3 > img {
+        width: 18px;
+        height: 18px;
+        object-fit: contain;
+        filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.65));
     }
-
-    &[data-attribute="agility"] i { color: #65a876; }
-    &[data-attribute="intelligence"] i { color: #65a0c8; }
-    &[data-attribute="universal"] i { color: #b78bc8; }
 }
 
 .heroGrid {
@@ -105,7 +103,10 @@
     border: 1px solid rgba(255, 225, 225, 0.08);
     background: #0b090a;
     cursor: pointer;
-    transition: transform 120ms ease, border-color 120ms ease, filter 120ms ease;
+    opacity: .48;
+    filter: grayscale(.82) brightness(.72);
+    transition: transform 140ms ease, border-color 140ms ease, filter 140ms ease,
+        opacity 140ms ease, box-shadow 140ms ease;
 
     img {
         width: 100%;
@@ -128,38 +129,44 @@
 
     b {
         position: absolute;
-        top: 3px;
-        right: 3px;
-        display: grid;
-        width: 18px;
-        height: 18px;
+        top: 4px;
+        right: 4px;
+        display: none;
+        width: 17px;
+        height: 17px;
         place-items: center;
-        border: 1px solid rgba(255,255,255,.72);
-        border-radius: 2px;
-        background: rgba(10, 8, 9, 0.82);
-        color: transparent;
-        font-size: 12px;
+        border: 1px solid rgba(255,255,255,.68);
+        border-radius: 50%;
+        background: #b63137;
+        color: white;
+        font-size: 11px;
+        line-height: 1;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, .55);
     }
 
     &:hover:not(:disabled) {
         z-index: 1;
         border-color: rgba(220, 90, 96, 0.75);
         transform: scale(1.08);
+        opacity: .9;
+        filter: grayscale(.15) brightness(.92);
     }
 
     &[data-selected="true"] {
         border-color: #d3545a;
         box-shadow: 0 0 0 1px #d3545a, 0 0 14px rgba(198, 61, 67, 0.35);
+        opacity: 1;
+        filter: none;
 
         b {
-            background: #b63137;
-            color: white;
+            display: grid;
         }
     }
 
     &:disabled:not([data-selected="true"]) {
         cursor: not-allowed;
-        filter: grayscale(1) brightness(0.35);
+        opacity: .25;
+        filter: grayscale(1) brightness(.45);
     }
 }
 

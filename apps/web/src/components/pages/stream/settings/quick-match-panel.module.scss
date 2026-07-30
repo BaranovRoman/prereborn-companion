@@ -6,8 +6,20 @@
 }
 
 .toggleButton {
-    padding: 0;
+    height: 25px;
+    padding: 0 9px;
+    border: 1px solid rgba(255, 225, 225, .13);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, .045);
+    color: rgba(255, 238, 238, .64);
+    font-size: 11px;
     font-weight: 500;
+
+    &:hover {
+        color: #fff !important;
+        border-color: rgba(198, 61, 67, .55) !important;
+        background: rgba(198, 61, 67, .12) !important;
+    }
 }
 
 // Mobile-first: базовые правила уже целятся в маленький экран (полная

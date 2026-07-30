@@ -168,6 +168,13 @@
     align-items: start;
 }
 
+.dashboardColumn {
+    display: grid;
+    min-width: 0;
+    gap: 12px;
+    align-content: start;
+}
+
 .fullSpan {
     grid-column: 1 / -1;
 }
