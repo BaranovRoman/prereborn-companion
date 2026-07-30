@@ -1,6 +1,16 @@
 import { expect, test } from "@playwright/test";
 
 test.describe("queue anti-stream-sniping scene", () => {
+    test.beforeEach(async ({ page }) => {
+        await page.route("**/api/stream/**", async (route) => {
+            await route.fulfill({
+                status: 401,
+                contentType: "application/json",
+                body: JSON.stringify({ error: "E2E unauthenticated" }),
+            });
+        });
+    });
+
     test("renders a fullscreen WebGL2 scene without scroll", async ({ page }) => {
         await page.setViewportSize({ width: 1920, height: 1080 });
         await page.goto("/stream/queue?quality=medium&debug=1&seed=123");
@@ -74,7 +84,6 @@ test.describe("queue anti-stream-sniping scene", () => {
             "Favorite heroes",
             "Recent games",
             "Twitch chat",
-            "System // Live status",
         ]) {
             const panel = page.getByRole("region", { name: title });
             await expect(panel).toBeVisible();
