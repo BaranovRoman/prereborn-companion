@@ -14,7 +14,7 @@ const nextConfig = {
   async headers() {
     return [
       {
-        source: "/vendor/valve/video/heroes/:path*",
+        source: "/vendor/valve/video/:path*",
         headers: [
           {
             key: "Cache-Control",
