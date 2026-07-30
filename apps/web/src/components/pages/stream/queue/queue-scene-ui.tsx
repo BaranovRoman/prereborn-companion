@@ -197,10 +197,10 @@ const PlayerProfile = ({
             <div className={styles.profileBody}>
                 <div className={styles.profileBrand}>
                     <span>
-                        <strong>PRE REBORN</strong>
+                        <strong>PREREBORN</strong>
                         <small>Companion</small>
                     </span>
-                    <Image src="/logo-new.png" width={44} height={44} alt="" priority />
+                    <Image src="/logo-new.png" width={68} height={68} alt="" priority />
                 </div>
                 <div className={styles.profileAvatarFrame}>
                     {steamProfile?.avatarUrl ? (
@@ -484,8 +484,8 @@ const DonationTop = ({ donationAlerts }: QueueDataProps) => {
                                 <Image
                                     src={`/vendor/valve/rank-medals/${medalFile}`}
                                     alt={`${rankLabel} medal`}
-                                    width={42}
-                                    height={42}
+                                    width={58}
+                                    height={58}
                                 />
                                 <p>
                                     <strong>{leader.username}</strong>
