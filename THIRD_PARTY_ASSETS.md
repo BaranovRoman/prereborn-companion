@@ -14,7 +14,7 @@ rights.
 | `apps/web/public/generated/chatgpt/trees-1.png` | Generated with ChatGPT for this project | Project owner | Queue-scene background | Repository | AI-generated original project asset |
 | `apps/web/public/generated/chatgpt/trees-2.png` | Generated with ChatGPT for this project | Project owner | Queue-scene background | Repository | AI-generated original project asset |
 | `apps/web/public/generated/chatgpt/trees-3.png` | Generated with ChatGPT for this project | Project owner | Queue-scene background | Repository | AI-generated original project asset |
-| `apps/web/public/vendor/opendota/rank-icons/rank_icon_1.png` through `rank_icon_8.png` | [OpenDota web assets](https://github.com/odota/web/tree/master/public/assets/images/dota2/rank_icons) | Valve Corporation | Donation supporter rank medals | Repository | Dota 2 rank artwork; mirrored from OpenDota |
+| `apps/web/public/vendor/valve/rank-medals/*.png` | [Hawk Live Dota 2 rank table](https://hawk.live/posts/dota-2-ranks-mmr-seasonal-medals-ranking) | Valve Corporation | Donation supporter rank medals, including every 1–5 star preset | Repository | 35 starred medal presets plus Immortal |
 
 Future Valve video files are stored under
 `apps/web/public/vendor/valve/video/`. Add a row with a direct source and exact

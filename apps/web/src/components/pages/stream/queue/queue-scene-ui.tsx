@@ -470,6 +470,9 @@ const DonationTop = ({ donationAlerts }: QueueDataProps) => {
                         const rankLabel = rank.stars
                             ? `${rank.name} ${"★".repeat(rank.stars)}`
                             : rank.name;
+                        const medalFile = rank.tier === 8
+                            ? "immortal.png"
+                            : `${rank.name.toLowerCase()}-${rank.stars}.png`;
                         return (
                             <div
                                 key={`${leader.username}-${leader.currency}`}
@@ -477,7 +480,7 @@ const DonationTop = ({ donationAlerts }: QueueDataProps) => {
                                 title={`${rankLabel}: от ${rank.min.toLocaleString("ru-RU")} ${leader.currency}`}
                             >
                                 <Image
-                                    src={`/vendor/opendota/rank-icons/rank_icon_${rank.tier}.png`}
+                                    src={`/vendor/valve/rank-medals/${medalFile}`}
                                     alt={`${rankLabel} medal`}
                                     width={42}
                                     height={42}
