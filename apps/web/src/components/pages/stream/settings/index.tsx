@@ -177,9 +177,20 @@ export const StreamSettingsPage = () => {
             theme={{
                 algorithm: theme.darkAlgorithm,
                 token: {
-                    colorPrimary: "#c63d43",
-                    colorBgContainer: "rgba(20, 16, 17, 0.9)",
-                    colorBorder: "rgba(255, 225, 225, 0.14)",
+                    fontFamily:
+                        '"Radiance", "PT Sans Narrow", "Arial Narrow", Arial, sans-serif',
+                    fontSize: 14,
+                    borderRadius: 2,
+                    borderRadiusLG: 2,
+                    controlHeight: 36,
+                    colorPrimary: "#7b3532",
+                    colorPrimaryHover: "#98504a",
+                    colorPrimaryActive: "#632b29",
+                    colorBgContainer: "#15191a",
+                    colorBgElevated: "#202526",
+                    colorBorder: "#3a3f40",
+                    colorText: "#c8c4bd",
+                    colorTextSecondary: "#8b8e89",
                 },
             }}
         >

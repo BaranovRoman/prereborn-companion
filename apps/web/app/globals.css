@@ -1,6 +1,48 @@
+@font-face {
+  font-family: "Radiance";
+  src: url("https://cdn.cloudflare.steamstatic.com/apps/dota2/fonts/radiance.woff") format("woff");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Radiance";
+  src: url("https://cdn.cloudflare.steamstatic.com/apps/dota2/fonts/radiance-semibold.woff") format("woff");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 600;
+}
+
+@font-face {
+  font-family: "Reaver";
+  src: url("https://cdn.cloudflare.steamstatic.com/apps/dota2/fonts/Reaver-Regular.woff") format("woff");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Reaver";
+  src: url("https://cdn.cloudflare.steamstatic.com/apps/dota2/fonts/Reaver-SemiBold.woff") format("woff");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 600;
+}
+
+:root {
+  --font-ui: "Radiance", "PT Sans Narrow", "Arial Narrow", Arial, sans-serif;
+  --font-title: "Reaver", "Forum", "Times New Roman", serif;
+  --font-mono: "Radiance", "PT Sans Narrow", "Arial Narrow", monospace;
+}
+
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; background: #090305; }
-body { color: #f1e8e8; font-family: Arial, Helvetica, sans-serif; }
+body {
+  color: #c8c4bd;
+  font-family: var(--font-ui);
+  font-size: 14px;
+}
 a { color: inherit; }
 
 html.obsOverlayRoute,

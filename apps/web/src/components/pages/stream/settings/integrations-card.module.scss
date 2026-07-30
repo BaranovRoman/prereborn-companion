@@ -13,11 +13,11 @@
 
 .summaryLabel {
     font-weight: 500;
-    color: #f5eaea;
+    color: var(--ui-text);
 }
 
 .summaryValue {
-    color: rgba(255, 238, 238, 0.58);
+    color: var(--ui-text-soft);
 }
 
 .dot {
@@ -28,11 +28,12 @@
 }
 
 .dotOn {
-    background: #15803d;
+    background: var(--ui-green);
+    box-shadow: 0 0 6px rgba(152, 201, 101, .42);
 }
 
 .dotOff {
-    background: rgba(255, 238, 238, 0.28);
+    background: #5a605e;
 }
 
 .manageCollapse {
@@ -41,7 +42,7 @@
     :global(.ant-collapse-header) {
         padding-left: 0 !important;
         font-size: 13px;
-        color: rgba(255, 238, 238, 0.58);
+        color: var(--ui-text-soft);
     }
 
     :global(.ant-collapse-content-box) {
@@ -56,5 +57,5 @@
 .managementList {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 10px;
 }
