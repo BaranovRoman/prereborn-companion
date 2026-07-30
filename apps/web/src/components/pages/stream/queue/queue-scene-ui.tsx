@@ -76,19 +76,21 @@ const PreloadedVideo = ({
     className,
 }: {
     src: string;
-    poster: string;
+    poster?: string;
     className: string;
 }) => {
     const [ready, setReady] = useState(false);
 
     return (
         <>
-            <img
-                className={`${className} ${styles.videoPosterLayer}`}
-                src={poster}
-                alt=""
-                aria-hidden="true"
-            />
+            {poster && (
+                <img
+                    className={`${className} ${styles.videoPosterLayer}`}
+                    src={poster}
+                    alt=""
+                    aria-hidden="true"
+                />
+            )}
             <video
                 className={`${className} ${styles.videoPlaybackLayer}`}
                 src={src}
@@ -219,7 +221,6 @@ const FeaturedMatch = ({ matches }: QueueDataProps) => {
                     <PreloadedVideo
                         className={styles.featuredHeroImage}
                         src={hero.featuredVideoUrl}
-                        poster={hero.imageUrl}
                     />
                 ) : (
                     <>
@@ -311,7 +312,6 @@ const FavoriteHeroes = ({
                                 {hero ? (
                                     <PreloadedVideo
                                         src={hero.favoriteVideoUrl}
-                                        poster={hero.imageUrl}
                                         className=""
                                     />
                                 ) : (

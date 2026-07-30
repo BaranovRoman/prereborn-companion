@@ -980,15 +980,12 @@
 }
 .attributeIcon {
     position: absolute;
-    top: 7px;
-    right: 7px;
+    top: 8px;
+    right: 8px;
     z-index: 3;
-    width: 20px;
-    height: 20px;
-    padding: 3px;
-    border: 1px solid rgba(131, 142, 139, .55);
-    background: rgba(7, 10, 11, .8);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, .7);
+    width: 24px;
+    height: 24px;
+    filter: drop-shadow(0 1px 2px #000) drop-shadow(0 0 3px rgba(0, 0, 0, .8));
     object-fit: contain;
 }
 
