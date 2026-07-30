@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { getHeroById } from "@/entities/dota-hero/lib/search";
 import { useAccountMatches } from "@/entities/stream-session/lib/use-account-matches";
 import { useOverlayPolling } from "@/entities/stream-session/lib/use-overlay-polling";
@@ -18,6 +18,10 @@ import type { QueueChannelGoal } from "@/entities/stream-queue-settings/model/ty
 import styles from "./queue-scene.module.scss";
 
 const EMPTY_VALUE = "—";
+
+const subscribeToHostname = () => () => {};
+const getHostname = () => window.location.hostname;
+const getServerHostname = () => "";
 
 const formatRating = (rating: number | null | undefined) =>
     rating === null || rating === undefined
@@ -413,29 +417,60 @@ const StreamProfile = ({
     );
 };
 
-const DonationFeed = ({ donationAlerts }: QueueDataProps) => {
-    const donations = donationAlerts?.donations ?? [];
+const TwitchChat = ({ twitch }: QueueDataProps) => {
+    const parent = useSyncExternalStore(subscribeToHostname, getHostname, getServerHostname);
     return (
-        <Panel title="Donation feed" className={styles.chatPanel}>
-            {donationAlerts?.connected && donations.length ? (
-                <div className={styles.donationList}>
-                    {donations.map((donation) => (
-                        <div className={styles.donationRow} key={donation.id}>
-                            <div><strong>{donation.username || "ANONYMOUS"}</strong><span>{donation.message || "Thanks for the support"}</span></div>
-                            <b>{new Intl.NumberFormat("ru-RU").format(donation.amount)} {donation.currency}</b>
+        <Panel title="Twitch chat" className={styles.chatPanel}>
+            {twitch?.connected && twitch.login && parent ? (
+                <iframe
+                    className={styles.twitchChatEmbed}
+                    src={`https://www.twitch.tv/embed/${encodeURIComponent(twitch.login)}/chat?parent=${encodeURIComponent(parent)}&darkpopout`}
+                    title={`Twitch chat — ${twitch.displayName || twitch.login}`}
+                />
+            ) : (
+                <div className={`${styles.chatBody} ${styles.chatUnavailable}`}>
+                    <i aria-hidden="true">T</i>
+                    <strong>TWITCH CHAT IS NOT CONNECTED</strong>
+                    <span>Connect Twitch in the stream dashboard integrations.</span>
+                </div>
+            )}
+            <div className={styles.chatFooter}>
+                CHANNEL CHAT // {twitch?.connected ? twitch.login?.toUpperCase() : "NO DATA SOURCE"}
+            </div>
+        </Panel>
+    );
+};
+
+const DonationTop = ({ donationAlerts }: QueueDataProps) => {
+    const totals = new Map<string, { username: string; amount: number; currency: string }>();
+    for (const donation of donationAlerts?.donations ?? []) {
+        const username = donation.username?.trim() || "Anonymous";
+        const key = `${username.toLocaleLowerCase()}::${donation.currency}`;
+        const current = totals.get(key);
+        totals.set(key, {
+            username,
+            currency: donation.currency,
+            amount: (current?.amount ?? 0) + donation.amount,
+        });
+    }
+    const leaders = [...totals.values()].sort((a, b) => b.amount - a.amount).slice(0, 3);
+    return (
+        <Panel title="Top supporters" className={styles.donationPanel}>
+            {leaders.length ? (
+                <div className={styles.donationTop}>
+                    {leaders.map((leader, index) => (
+                        <div key={`${leader.username}-${leader.currency}`}>
+                            <span>{index + 1}</span>
+                            <strong>{leader.username}</strong>
+                            <b>{new Intl.NumberFormat("ru-RU").format(leader.amount)} {leader.currency}</b>
                         </div>
                     ))}
                 </div>
             ) : (
-                <div className={`${styles.chatBody} ${styles.chatUnavailable}`}>
-                    <i aria-hidden="true">₽</i>
-                    <strong>{donationAlerts?.connected ? "NO DONATIONS YET" : "DONATIONALERTS IS NOT CONNECTED"}</strong>
-                    <span>{donationAlerts?.connected ? "New donations will appear here." : "Connect DonationAlerts in the stream dashboard."}</span>
+                <div className={styles.donationEmpty}>
+                    {donationAlerts?.connected ? "NO DONATIONS YET" : "CONNECT DONATIONALERTS"}
                 </div>
             )}
-            <div className={styles.chatFooter}>
-                SUPPORT LOG // {donationAlerts?.connected ? donationAlerts.displayName?.toUpperCase() : "NO DATA SOURCE"}
-            </div>
         </Panel>
     );
 };
@@ -519,7 +554,12 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
                         {visibility.recentGames && <RecentGames {...data} />}
                     </div>}
                 </div>}
-                {visibility.twitchChat && <div className={styles.rightMain}><DonationFeed {...data} /></div>}
+                {visibility.twitchChat && (
+                    <div className={styles.rightMain}>
+                        <TwitchChat {...data} />
+                        <DonationTop {...data} />
+                    </div>
+                )}
             </div>
             <footer className={styles.sceneFooter}>
                 <span>{`${data.steamConnected ? "STEAM CONNECTED" : "STEAM OFFLINE"} // ${data.matches.length} MATCHES LOADED`}</span>

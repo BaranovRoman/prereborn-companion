@@ -132,7 +132,7 @@ export const getDonationAlertsStatus = async (streamUserId: string) => {
     return {
         connected: true, configured: true, code: link.code, displayName: link.display_name,
         avatarUrl: link.avatar_url, connectedAt: link.connected_at,
-        donations: result.data.slice(0, 10).map((item) => ({
+        donations: result.data.slice(0, 30).map((item) => ({
             id: item.id, username: item.username, message: item.message,
             amount: item.amount, currency: item.currency, createdAt: item.created_at,
         })),

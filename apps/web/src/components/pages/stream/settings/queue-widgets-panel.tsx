@@ -20,7 +20,7 @@ const WIDGETS: Array<{ id: QueueWidgetId; label: string }> = [
     { id: "webcam", label: "Область веб-камеры" },
     { id: "favoriteHeroes", label: "Любимые герои" },
     { id: "recentGames", label: "Последние игры" },
-    { id: "twitchChat", label: "DonationAlerts" },
+    { id: "twitchChat", label: "Чат и топ донатеров" },
 ];
 
 const ATTRIBUTES: Array<{

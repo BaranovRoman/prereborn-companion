@@ -426,20 +426,6 @@
     letter-spacing: .14em;
 }
 
-.donationList { height: calc(100% - 30px); overflow: hidden; padding: 12px 16px; }
-.donationRow {
-    min-height: 58px;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 16px;
-    border-bottom: 1px solid #292f2f;
-}
-.donationRow div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
-.donationRow strong { color: #c7c1b5; font-family: var(--font-title); letter-spacing: .08em; }
-.donationRow span { overflow: hidden; color: #858b87; text-overflow: ellipsis; white-space: nowrap; }
-.donationRow > b { color: #9eb17f; font-family: var(--font-title); font-size: 16px; font-weight: 400; }
-
 .navOrnaments span:first-child {
     color: #c7bda8;
     background:
@@ -1045,11 +1031,31 @@
 .rightMain {
     min-height: 0;
     display: grid;
-    grid-template-rows: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 176px;
     gap: 10px;
 }
 
 .chatPanel { display: grid; grid-template-rows: 34px 1fr 32px; }
+.donationPanel { min-height: 0; }
+.donationTop {
+    height: calc(100% - 34px);
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1px;
+    background: #252b2b;
+}
+.donationTop > div {
+    min-width: 0;
+    display: grid;
+    grid-template-rows: 28px minmax(0, 1fr) 30px;
+    place-items: center;
+    padding: 8px 10px;
+    background: #0d1112;
+}
+.donationTop span { color: #7b3532; font-family: var(--font-title); font-size: 17px; }
+.donationTop strong { max-width: 100%; overflow: hidden; color: #bbb7ae; font-family: var(--font-title); font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.donationTop b { color: #9eb17f; font-family: var(--font-title); font-size: 13px; font-weight: 400; }
+.donationEmpty { height: calc(100% - 34px); display: grid; place-items: center; color: #747a76; letter-spacing: .12em; }
 .chatBody {
     padding: 13px 18px;
     background:
