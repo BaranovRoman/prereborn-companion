@@ -82,21 +82,34 @@ const PreloadedVideo = ({
     const [ready, setReady] = useState(false);
 
     return (
-        <video
-            className={className}
-            src={src}
-            poster={poster}
-            preload="auto"
-            autoPlay
-            loop
-            muted
-            playsInline
-            onCanPlay={() => setReady(true)}
-            style={{
-                opacity: ready ? 1 : 0,
-                transition: "opacity 180ms ease",
-            }}
-        />
+        <>
+            <img
+                className={`${className} ${styles.videoPosterLayer}`}
+                src={poster}
+                alt=""
+                aria-hidden="true"
+            />
+            <video
+                className={`${className} ${styles.videoPlaybackLayer}`}
+                src={src}
+                poster={poster}
+                preload="auto"
+                autoPlay
+                loop
+                muted
+                playsInline
+                onLoadedData={() => setReady(true)}
+                onCanPlay={() => setReady(true)}
+                onPlaying={() => setReady(true)}
+                onWaiting={() => setReady(false)}
+                onStalled={() => setReady(false)}
+                onError={() => setReady(false)}
+                style={{
+                    opacity: ready ? 1 : 0,
+                    transition: "opacity 220ms ease",
+                }}
+            />
+        </>
     );
 };
 

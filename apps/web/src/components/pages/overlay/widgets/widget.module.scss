@@ -99,6 +99,24 @@
 // (225x127) - раньше эти боксы были ~вертикальными (40x47 и т.п.), что
 // обрезало/сжимало картинку в неправильную пропорцию. aspect-ratio: 225/127 +
 // object-fit: cover (уже было) - единственное изменение, сам ассет не трогаем.
+.heroMedia {
+    position: relative;
+    width: 68px;
+    aspect-ratio: 225 / 127;
+    flex-shrink: 0;
+}
+
+.heroMedia .heroIcon {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.heroMedia video {
+    will-change: opacity;
+}
+
 .heroIcon {
     width: 68px;
     aspect-ratio: 225 / 127;

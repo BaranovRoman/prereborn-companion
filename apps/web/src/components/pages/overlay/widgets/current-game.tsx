@@ -21,22 +21,30 @@ const HeroVideo = ({
     const [videoReady, setVideoReady] = useState(false);
 
     return (
-        <video
-            src={src}
-            poster={poster}
-            title={title}
-            className={styles.heroIcon}
-            preload="auto"
-            autoPlay
-            loop
-            muted
-            playsInline
-            onCanPlay={() => setVideoReady(true)}
-            style={{
-                opacity: videoReady ? 1 : 0,
-                transition: "opacity 180ms ease",
-            }}
-        />
+        <span className={styles.heroMedia}>
+            <img src={poster} alt="" aria-hidden="true" className={styles.heroIcon} />
+            <video
+                src={src}
+                poster={poster}
+                title={title}
+                className={styles.heroIcon}
+                preload="auto"
+                autoPlay
+                loop
+                muted
+                playsInline
+                onLoadedData={() => setVideoReady(true)}
+                onCanPlay={() => setVideoReady(true)}
+                onPlaying={() => setVideoReady(true)}
+                onWaiting={() => setVideoReady(false)}
+                onStalled={() => setVideoReady(false)}
+                onError={() => setVideoReady(false)}
+                style={{
+                    opacity: videoReady ? 1 : 0,
+                    transition: "opacity 220ms ease",
+                }}
+            />
+        </span>
     );
 };
 

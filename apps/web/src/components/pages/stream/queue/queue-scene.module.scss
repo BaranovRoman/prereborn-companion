@@ -672,6 +672,14 @@
     filter: saturate(.82) contrast(1.08) brightness(.92) sepia(.04);
 }
 
+.videoPosterLayer {
+    pointer-events: none;
+}
+
+.videoPlaybackLayer {
+    will-change: opacity;
+}
+
 .heroArt::before {
     content: "";
     position: absolute;
@@ -901,7 +909,10 @@
     pointer-events: none;
 }
 
-.favoritePortrait video {
+.favoritePortrait video,
+.favoritePortrait img {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     display: block;
