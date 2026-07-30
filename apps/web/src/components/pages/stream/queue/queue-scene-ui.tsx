@@ -462,7 +462,7 @@ const TwitchChat = ({ twitch }: QueueDataProps) => {
 const DonationTop = ({ donationAlerts }: QueueDataProps) => {
     const leaders = (donationAlerts?.topDonors ?? []).slice(0, 9);
     return (
-        <Panel title="Supporters // Online" className={styles.donationPanel}>
+        <Panel title="Top supporters" className={styles.donationPanel}>
             {leaders.length ? (
                 <div className={styles.donationTop}>
                     {leaders.map((leader) => {
