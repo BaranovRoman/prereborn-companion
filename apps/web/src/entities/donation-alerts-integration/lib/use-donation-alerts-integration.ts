@@ -13,9 +13,12 @@ export const useDonationAlertsIntegration = () => {
         finally { setLoading(false); }
     }, []);
     useEffect(() => {
-        void refresh();
+        const initial = window.setTimeout(refresh, 0);
         const timer = window.setInterval(refresh, 15_000);
-        return () => window.clearInterval(timer);
+        return () => {
+            window.clearTimeout(initial);
+            window.clearInterval(timer);
+        };
     }, [refresh]);
     return { status, loading, refresh };
 };
