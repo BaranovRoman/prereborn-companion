@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Button, Input, InputNumber, Select, Switch, Upload, message } from "antd";
 import { DOTA_HEROES } from "@/entities/dota-hero/model/heroes";
 import type { DotaHeroAttribute } from "@/entities/dota-hero/model/attributes";
@@ -58,15 +58,12 @@ export const QueueWidgetsPanel = ({
     const { settings, loading, save } = useQueueSettings();
     const [messageApi, contextHolder] = message.useMessage();
     const [heroQuery, setHeroQuery] = useState("");
-    const [goalDraft, setGoalDraft] = useState<QueueChannelGoal>(
-        settings.channelGoal
-    );
+    const [goalDraftOverride, setGoalDraft] =
+        useState<QueueChannelGoal | null>(null);
+    const goalDraft = goalDraftOverride ?? settings.channelGoal;
     const [savingGoal, setSavingGoal] = useState(false);
     const [uploadingImage, setUploadingImage] = useState(false);
 
-    useEffect(() => {
-        setGoalDraft(settings.channelGoal);
-    }, [settings.channelGoal]);
     const filteredHeroes = useMemo(() => {
         const query = heroQuery.trim().toLocaleLowerCase();
         return query
