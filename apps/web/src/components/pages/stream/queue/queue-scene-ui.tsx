@@ -361,6 +361,7 @@ const TwitchChat = ({ twitch }: QueueDataProps) => {
                 />
             ) : (
                 <div className={`${styles.chatBody} ${styles.chatUnavailable}`}>
+                    <i aria-hidden="true">T</i>
                     <strong>TWITCH CHAT IS NOT CONNECTED</strong>
                     <span>Connect Twitch in the stream dashboard integrations.</span>
                 </div>
@@ -379,16 +380,19 @@ const SystemStatus = ({
     matches,
 }: QueueDataProps) => {
     const statuses = [
-        ["C", "Companion", companionOnline ? "ONLINE" : "OFFLINE"],
-        ["S", "Steam", steamConnected ? "CONNECTED" : "NOT CONNECTED"],
-        ["M", "Mode", gameMode?.toUpperCase() ?? "UNKNOWN"],
-        ["G", "Games", `${matches.length} RECORDED`],
+        { mark: "C", name: "Companion", status: companionOnline ? "ONLINE" : "OFFLINE", active: companionOnline },
+        { mark: "S", name: "Steam", status: steamConnected ? "CONNECTED" : "NOT CONNECTED", active: steamConnected },
+        { mark: "M", name: "Mode", status: gameMode?.toUpperCase() ?? "UNKNOWN", active: Boolean(gameMode) },
+        { mark: "G", name: "Games", status: `${matches.length} RECORDED`, active: matches.length > 0 },
     ];
     return (
         <Panel title="System // Live status" className={styles.supporters}>
             <div className={styles.supporterGrid}>
-                {statuses.map(([mark, name, status]) => (
-                    <div key={name}><span>{mark}</span><p><b>{name}</b><small>{status}</small></p></div>
+                {statuses.map(({ mark, name, status, active }) => (
+                    <div key={name} data-active={active}>
+                        <span>{mark}</span>
+                        <p><b>{name}</b><small>{status}</small></p>
+                    </div>
                 ))}
             </div>
         </Panel>
