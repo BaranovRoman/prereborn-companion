@@ -405,7 +405,6 @@ const StreamProfile = ({
                     <img className={styles.twitchAvatarImage} src={twitch.profileImageUrl} alt="" />
                 ) : <span className={styles.twitchAvatar}>{initials}</span>}
                 <div>
-                    <span className={styles.overline}>{twitch?.connected ? "TWITCH CHANNEL" : "PREREBORN STREAM"}</span>
                     <strong>{accountName}</strong>
                     {twitch?.live?.title && <small>{twitch.live.title}</small>}
                 </div>
