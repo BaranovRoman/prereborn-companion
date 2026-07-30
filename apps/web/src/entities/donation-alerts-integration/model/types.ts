@@ -15,4 +15,10 @@ export interface DonationAlertsIntegrationStatus {
     avatarUrl?: string | null;
     connectedAt?: string;
     donations: DonationAlertsDonation[];
+    topDonors?: Array<{
+        username: string;
+        amount: number;
+        currency: string;
+        donationCount: number;
+    }>;
 }

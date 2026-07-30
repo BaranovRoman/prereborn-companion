@@ -58,11 +58,47 @@ export const exchangeDonationAlertsCode = async (code: string) => {
 };
 
 const apiFetch = async <T>(path: string, token: string): Promise<T> => {
-    const response = await fetch(`https://www.donationalerts.com/api/v1${path}`, {
+    const url = path.startsWith("https://") ? path : `https://www.donationalerts.com/api/v1${path}`;
+    const response = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
     });
     if (!response.ok) throw new Error(`DonationAlerts API returned ${response.status}`);
     return response.json() as Promise<T>;
+};
+
+type DonationResource = {
+    id: number; username: string; message: string; amount: number; currency: string; created_at: string;
+};
+
+const syncDonationHistory = async (streamUserId: string, token: string) => {
+    let next: string | null = "/alerts/donations?page=1";
+    let firstPage = true;
+    while (next) {
+        const page: { data: DonationResource[]; links: { next: string | null } } =
+            await apiFetch(next, token);
+        if (!page.data.length) break;
+        const ids = page.data.map((item) => item.id);
+        const existing = await pool.query<{ donation_id: string }>(
+            `SELECT donation_id FROM stream_donation_alerts_donations
+             WHERE stream_user_id=$1 AND donation_id = ANY($2::bigint[])`,
+            [streamUserId, ids]
+        );
+        const existingIds = new Set(existing.rows.map((row) => String(row.donation_id)));
+        for (const item of page.data) {
+            await pool.query(
+                `INSERT INTO stream_donation_alerts_donations
+                 (donation_id, stream_user_id, username, amount, currency, message, donated_at)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (donation_id) DO NOTHING`,
+                [item.id, streamUserId, item.username?.trim() || "Anonymous", item.amount,
+                 item.currency, item.message || "", item.created_at || null]
+            );
+        }
+        // API returns newest donations first. Once an entire page is already
+        // known, all following pages were persisted by an earlier backfill.
+        if (!firstPage && existingIds.size === page.data.length) break;
+        firstPage = false;
+        next = page.links.next;
+    }
 };
 
 export const getDonationAlertsUser = async (token: string) =>
@@ -126,15 +162,24 @@ export const getDonationAlertsStatus = async (streamUserId: string) => {
     const link = await getLink(streamUserId);
     if (!link) return { connected: false, configured: Boolean(getDonationAlertsConfig()), donations: [] };
     const token = await validToken(streamUserId, link);
-    const result = await apiFetch<{ data: Array<{
-        id: number; username: string; message: string; amount: number; currency: string; created_at: string;
-    }> }>("/alerts/donations?page=1", token);
+    await syncDonationHistory(streamUserId, token);
+    const top = await pool.query<{
+        username: string; currency: string; total_amount: string; donation_count: string;
+    }>(
+        `SELECT username, currency, SUM(amount)::text AS total_amount, COUNT(*)::text AS donation_count
+         FROM stream_donation_alerts_donations WHERE stream_user_id=$1
+         GROUP BY username, currency ORDER BY SUM(amount) DESC LIMIT 10`,
+        [streamUserId]
+    );
     return {
         connected: true, configured: true, code: link.code, displayName: link.display_name,
         avatarUrl: link.avatar_url, connectedAt: link.connected_at,
-        donations: result.data.slice(0, 30).map((item) => ({
-            id: item.id, username: item.username, message: item.message,
-            amount: item.amount, currency: item.currency, createdAt: item.created_at,
+        donations: [],
+        topDonors: top.rows.map((row) => ({
+            username: row.username,
+            currency: row.currency,
+            amount: Number(row.total_amount),
+            donationCount: Number(row.donation_count),
         })),
     };
 };

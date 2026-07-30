@@ -442,18 +442,7 @@ const TwitchChat = ({ twitch }: QueueDataProps) => {
 };
 
 const DonationTop = ({ donationAlerts }: QueueDataProps) => {
-    const totals = new Map<string, { username: string; amount: number; currency: string }>();
-    for (const donation of donationAlerts?.donations ?? []) {
-        const username = donation.username?.trim() || "Anonymous";
-        const key = `${username.toLocaleLowerCase()}::${donation.currency}`;
-        const current = totals.get(key);
-        totals.set(key, {
-            username,
-            currency: donation.currency,
-            amount: (current?.amount ?? 0) + donation.amount,
-        });
-    }
-    const leaders = [...totals.values()].sort((a, b) => b.amount - a.amount).slice(0, 3);
+    const leaders = (donationAlerts?.topDonors ?? []).slice(0, 3);
     return (
         <Panel title="Top supporters" className={styles.donationPanel}>
             {leaders.length ? (
