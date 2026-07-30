@@ -20,15 +20,19 @@ import styles from "./queue-scene.module.scss";
 const EMPTY_VALUE = "—";
 
 const DONATION_RANKS = [
-    { min: 10_000, tier: 8, name: "Immortal" },
-    { min: 5_000, tier: 7, name: "Divine" },
-    { min: 3_000, tier: 6, name: "Ancient" },
-    { min: 1_500, tier: 5, name: "Legend" },
-    { min: 700, tier: 4, name: "Archon" },
-    { min: 300, tier: 3, name: "Crusader" },
-    { min: 100, tier: 2, name: "Guardian" },
-    { min: 0, tier: 1, name: "Herald" },
-] as const;
+    { min: 5_620, tier: 8, name: "Immortal", stars: 0 },
+    ...[
+        { tier: 7, name: "Divine", thresholds: [4_620, 4_820, 5_020, 5_220, 5_420] },
+        { tier: 6, name: "Ancient", thresholds: [3_850, 4_004, 4_158, 4_312, 4_466] },
+        { tier: 5, name: "Legend", thresholds: [3_080, 3_234, 3_388, 3_542, 3_696] },
+        { tier: 4, name: "Archon", thresholds: [2_310, 2_464, 2_618, 2_772, 2_926] },
+        { tier: 3, name: "Crusader", thresholds: [1_540, 1_694, 1_848, 2_002, 2_156] },
+        { tier: 2, name: "Guardian", thresholds: [770, 924, 1_078, 1_232, 1_386] },
+        { tier: 1, name: "Herald", thresholds: [0, 154, 308, 462, 616] },
+    ].flatMap(({ tier, name, thresholds }) =>
+        thresholds.map((min, index) => ({ min, tier, name, stars: index + 1 }))
+    ),
+].sort((a, b) => b.min - a.min);
 
 const getDonationRank = (amount: number) =>
     DONATION_RANKS.find((rank) => amount >= rank.min) ?? DONATION_RANKS.at(-1)!;
@@ -463,21 +467,24 @@ const DonationTop = ({ donationAlerts }: QueueDataProps) => {
                 <div className={styles.donationTop}>
                     {leaders.map((leader) => {
                         const rank = getDonationRank(leader.amount);
+                        const rankLabel = rank.stars
+                            ? `${rank.name} ${"★".repeat(rank.stars)}`
+                            : rank.name;
                         return (
                             <div
                                 key={`${leader.username}-${leader.currency}`}
                                 className={styles.donationFriend}
-                                title={`${rank.name}: от ${rank.min.toLocaleString("ru-RU")} ${leader.currency}`}
+                                title={`${rankLabel}: от ${rank.min.toLocaleString("ru-RU")} ${leader.currency}`}
                             >
                                 <Image
                                     src={`/vendor/opendota/rank-icons/rank_icon_${rank.tier}.png`}
-                                    alt={`${rank.name} medal`}
+                                    alt={`${rankLabel} medal`}
                                     width={42}
                                     height={42}
                                 />
                                 <p>
                                     <strong>{leader.username}</strong>
-                                    <small>{rank.name}</small>
+                                    <small>{rankLabel}</small>
                                 </p>
                                 <b>
                                     {new Intl.NumberFormat("ru-RU").format(leader.amount)}
