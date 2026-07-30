@@ -10,6 +10,8 @@ import { CurrentGame } from "./widgets/current-game";
 import { RecentMatches } from "./widgets/recent-matches";
 import { CompanionStatus } from "./widgets/companion-status";
 import { DebugPanel } from "./debug-panel";
+import { QueueScene } from "@/components/pages/stream/queue/queue-scene";
+import { isGameInProgress } from "./lib/is-game-in-progress";
 
 interface OverlayPageProps {
     publicToken: string;
@@ -42,6 +44,22 @@ export const OverlayPage = ({
     }
 
     const layout = data.layout ?? DEFAULT_OVERLAY_LAYOUT;
+    const showGameOverlay = isGameInProgress(data.companion.payload);
+
+    if (!showGameOverlay) {
+        return (
+            <>
+                <QueueScene
+                    quality="high"
+                    seed={1}
+                    debug={false}
+                    forceFallback={false}
+                    publicData={data}
+                />
+                {debug && <DebugPanel companion={data.companion} scale={scale} />}
+            </>
+        );
+    }
 
     return (
         <>

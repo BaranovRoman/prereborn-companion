@@ -11,6 +11,7 @@ import {
 } from "./red-fog-background";
 import { QueueTreeLayers } from "./queue-tree-layers";
 import { QueueSceneUi } from "./queue-scene-ui";
+import type { OverlayData } from "@/entities/stream-session/model/types";
 import styles from "./queue-scene.module.scss";
 
 interface QueueSceneProps {
@@ -18,6 +19,7 @@ interface QueueSceneProps {
     seed: number;
     debug: boolean;
     forceFallback: boolean;
+    publicData?: OverlayData;
 }
 
 export const QueueScene = ({
@@ -25,6 +27,7 @@ export const QueueScene = ({
     seed,
     debug,
     forceFallback,
+    publicData,
 }: QueueSceneProps) => {
     const qualityConfig = QUEUE_QUALITY_CONFIG[quality];
     const [debugState, setDebugState] = useState<RedFogDebugState>({
@@ -47,7 +50,7 @@ export const QueueScene = ({
                 onDebugStateChange={setDebugState}
             />
             <div className={styles.atmosphereFinish} aria-hidden="true" />
-            <QueueSceneUi />
+            <QueueSceneUi publicData={publicData} />
 
             {debug && (
                 <section className={styles.content} aria-labelledby="queue-title">

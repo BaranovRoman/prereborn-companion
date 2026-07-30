@@ -11,6 +11,7 @@ import {
     getSessionStartRating,
 } from "../../services/stream-match-service.js";
 import { getOverlayLayout } from "../../services/stream-overlay-layout-service.js";
+import { getQueueSettings } from "../../services/stream-queue-settings-service.js";
 import {
     getCompanionState,
     isCompanionOnline,
@@ -50,7 +51,10 @@ export const getOverlayController = async (req: Request, res: Response) => {
         // Раскладка виджетов - редко меняется, но отдаётся вместе с
         // остальным payload'ом одного и того же поллинга (см. задачу, п.12):
         // отдельный опрос под layout не нужен.
-        const layout = await getOverlayLayout(streamUserId);
+        const [layout, queueSettings] = await Promise.all([
+            getOverlayLayout(streamUserId),
+            getQueueSettings(streamUserId),
+        ]);
 
         // Суммарное изменение рейтинга за текущую сессию (см. задачу: рядом
         // с MMR показывать "+75"/"-25"/"±0") - только для ranked, unranked
@@ -107,6 +111,7 @@ export const getOverlayController = async (req: Request, res: Response) => {
                 payload: companionState?.payload ?? null,
             },
             layout,
+            queueSettings,
         });
     } catch (error) {
         if (error instanceof z.ZodError) {

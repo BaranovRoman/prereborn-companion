@@ -1,4 +1,5 @@
 import type { OverlayLayout } from "@/entities/stream-overlay-layout/model/types";
+import type { QueueSettings } from "@/entities/stream-queue-settings/model/types";
 
 export interface StreamSession {
     id: string;
@@ -129,4 +130,5 @@ export interface OverlayData {
     // Раскладка виджетов - приходит в том же payload'е, что и остальные
     // данные (см. задачу: не заводить отдельный поллинг под layout).
     layout: OverlayLayout;
+    queueSettings: QueueSettings;
 }

@@ -5,7 +5,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { getHeroById } from "@/entities/dota-hero/lib/search";
 import { useAccountMatches } from "@/entities/stream-session/lib/use-account-matches";
 import { useOverlayPolling } from "@/entities/stream-session/lib/use-overlay-polling";
-import type { StreamMatch } from "@/entities/stream-session/model/types";
+import type { OverlayData, StreamMatch } from "@/entities/stream-session/model/types";
 import { useSteamIntegration } from "@/entities/steam-integration/lib/use-steam-integration";
 import { useStreamSession } from "@/entities/stream-user/lib/use-stream-session";
 import { useQueueSettings } from "@/entities/stream-queue-settings/lib/use-queue-settings";
@@ -439,32 +439,34 @@ const SystemStatus = ({
     );
 };
 
-export const QueueSceneUi = () => {
+export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
     const { user } = useStreamSession();
     const { matches } = useAccountMatches();
     const steam = useSteamIntegration();
     const queueSettings = useQueueSettings();
     const twitch = useTwitchIntegration();
     const overlay = useOverlayPolling(user?.publicToken ?? "", null);
-    const realMatches = overlay?.matches ?? matches ?? [];
+    const activeOverlay = publicData ?? overlay;
+    const activeSettings = publicData?.queueSettings ?? queueSettings.settings;
+    const realMatches = activeOverlay?.matches ?? matches ?? [];
     const data: QueueDataProps = {
         email: user?.email ?? null,
-        gameMode: user?.gameMode ?? overlay?.gameMode ?? null,
-        rating: overlay?.rating,
-        wins: overlay?.wins ?? 0,
-        losses: overlay?.losses ?? 0,
+        gameMode: user?.gameMode ?? activeOverlay?.gameMode ?? null,
+        rating: activeOverlay?.rating,
+        wins: activeOverlay?.wins ?? 0,
+        losses: activeOverlay?.losses ?? 0,
         matches: realMatches,
-        companionOnline: overlay?.companion.isOnline ?? false,
-        companionPayload: overlay?.companion.payload ?? null,
+        companionOnline: activeOverlay?.companion.isOnline ?? false,
+        companionPayload: activeOverlay?.companion.payload ?? null,
         steamConnected: steam.status?.connected ?? false,
         steamId: steam.status?.steamId64,
         steamSyncStatus: steam.status?.lastSyncStatus,
         steamProfile: steam.status?.profile,
         twitch: twitch.status,
-        webcamImageUrl: queueSettings.settings.webcamImageUrl,
-        channelGoal: queueSettings.settings.channelGoal,
+        webcamImageUrl: activeSettings.webcamImageUrl,
+        channelGoal: activeSettings.channelGoal,
     };
-    const visibility = queueSettings.settings.visibility;
+    const visibility = activeSettings.visibility;
     const topCount = Number(visibility.playerProfile) + Number(visibility.streamProfile);
     const sideCount = Number(visibility.webcam) + Number(visibility.favoriteHeroes) + Number(visibility.recentGames);
 
@@ -484,7 +486,7 @@ export const QueueSceneUi = () => {
                     {sideCount > 0 && <div className={styles.sideStack} data-widget-count={sideCount}>
                         {visibility.webcam && <WebcamSlot {...data} />}
                         {visibility.favoriteHeroes && (
-                            <FavoriteHeroes {...data} selectedHeroIds={queueSettings.settings.favoriteHeroIds} />
+                            <FavoriteHeroes {...data} selectedHeroIds={activeSettings.favoriteHeroIds} />
                         )}
                         {visibility.recentGames && <RecentGames {...data} />}
                     </div>}
