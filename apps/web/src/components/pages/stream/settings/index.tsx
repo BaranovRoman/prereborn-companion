@@ -214,7 +214,7 @@ export const StreamSettingsPage = () => {
                 <div className={styles.brand}>
                     <Image
                         className={styles.brandLogo}
-                        src="/logo.png"
+                        src="/logo-new.png"
                         width={52}
                         height={52}
                         alt="PreReborn Companion"

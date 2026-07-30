@@ -196,8 +196,11 @@ const PlayerProfile = ({
         <Panel title="Player record" className={styles.playerProfile}>
             <div className={styles.profileBody}>
                 <div className={styles.profileBrand}>
-                    <Image src="/logo.png" width={36} height={36} alt="" priority />
-                    <span><strong>PREREBORN</strong><small>COMPANION</small></span>
+                    <span>
+                        <strong>PRE REBORN</strong>
+                        <small>Companion</small>
+                    </span>
+                    <Image src="/logo-new.png" width={44} height={44} alt="" priority />
                 </div>
                 <div className={styles.profileAvatarFrame}>
                     {steamProfile?.avatarUrl ? (

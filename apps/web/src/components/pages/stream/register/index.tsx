@@ -59,7 +59,7 @@ export const StreamRegisterPage = () => {
                 <div className={styles.cardHeader}>
                     <Image
                         className={styles.brandLogo}
-                        src="/logo.png"
+                        src="/logo-new.png"
                         width={58}
                         height={58}
                         alt=""

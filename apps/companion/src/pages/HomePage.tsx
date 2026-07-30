@@ -56,7 +56,7 @@ export function HomePage() {
     <main className="app">
       <header>
         <div className="app__brand">
-          <img className="app__logo" src="/logo.png" alt="PreReborn Companion" width="72" height="72" />
+          <img className="app__logo" src="/logo-new.png" alt="PreReborn Companion" width="72" height="72" />
           <h1>PreReborn Companion</h1>
         </div>
         <p className="app__subtitle">Исследовательский GSI-компаньон — MVP, не финальная архитектура</p>
