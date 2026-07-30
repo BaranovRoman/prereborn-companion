@@ -378,14 +378,6 @@ const StreamProfile = ({
                 </div>
                 <div className={styles.liveBadge}><i data-online={Boolean(twitch?.live)} /> {twitch?.live ? `${twitch.live.viewerCount} LIVE` : "OFFLINE"}</div>
                 <div className={styles.goal}>
-                    <div>
-                        <span>{channelGoal.type === "none" ? "STEAM SYNC" : channelGoal.label || "CHANNEL GOAL"}</span>
-                        <b>
-                            {channelGoal.type === "none"
-                                ? steamSyncStatus?.replaceAll("_", " ").toUpperCase() ?? (steamConnected ? "READY" : "NOT CONNECTED")
-                                : `${channelGoal.type === "rating" ? formatRating(rating) : channelGoal.startValue} / ${channelGoal.targetValue}`}
-                        </b>
-                    </div>
                     <span className={styles.goalTrack}>
                         <i
                             style={{
@@ -394,6 +386,14 @@ const StreamProfile = ({
                                     : `${Math.max(0, Math.min(100, (((channelGoal.type === "rating" ? rating ?? channelGoal.startValue : channelGoal.startValue) - channelGoal.startValue) / Math.max(1, channelGoal.targetValue - channelGoal.startValue)) * 100))}%`,
                             }}
                         />
+                        <span className={styles.goalMeta}>
+                            <span>{channelGoal.type === "none" ? "STEAM SYNC" : channelGoal.label || "CHANNEL GOAL"}</span>
+                            <b>
+                                {channelGoal.type === "none"
+                                    ? steamSyncStatus?.replaceAll("_", " ").toUpperCase() ?? (steamConnected ? "READY" : "NOT CONNECTED")
+                                    : `${channelGoal.type === "rating" ? formatRating(rating) : channelGoal.startValue} / ${channelGoal.targetValue}`}
+                            </b>
+                        </span>
                     </span>
                 </div>
             </div>

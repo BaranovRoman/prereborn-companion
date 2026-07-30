@@ -581,11 +581,42 @@
 .liveBadge { grid-column: 3; }
 
 .goal { grid-column: 1 / -1; align-self: end; }
-.goal > div { display: flex; justify-content: space-between; color: #858b87; font-size: 9px; letter-spacing: .12em; }
-.goal > div b { color: #b1afa8; font-weight: 400; }
-.goalTrack { display: block; height: 6px; margin-top: 5px; border: 1px solid #050707; background: #080b0c; box-shadow: inset 0 0 0 1px #303637; }
-.goalTrack i { display: block; width: 18%; height: 100%; background: linear-gradient(90deg, #4f2a2a, #713432); }
+.goalTrack {
+    position: relative;
+    display: block;
+    height: 24px;
+    overflow: hidden;
+    border: 1px solid #050707;
+    background: #080b0c;
+    box-shadow: inset 0 0 0 1px #303637;
+}
+.goalTrack > i {
+    position: absolute;
+    inset: 0 auto 0 0;
+    display: block;
+    width: 18%;
+    height: 100%;
+    background: linear-gradient(90deg, #4f2a2a, #713432);
+}
 .goalTrack i[data-connected="true"] { width: 100%; background: linear-gradient(90deg, #6c302e, #a1534d); }
+.goalMeta {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    height: 100%;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 9px;
+    color: #b9b7b0;
+    font-size: 9px;
+    letter-spacing: .12em;
+    text-shadow: 0 1px 2px #050707;
+}
+.goalMeta b {
+    color: #d2cfc7;
+    font-weight: 500;
+    letter-spacing: .08em;
+}
 
 .leftMain {
     min-height: 0;
