@@ -543,24 +543,21 @@
     background: #090c0c;
     box-shadow:
         0 0 0 2px rgba(3, 5, 5, .92),
-        0 0 13px rgba(172, 219, 139, .14),
-        inset 0 0 0 2px rgba(223, 238, 217, .10);
+        inset 0 1px rgba(235, 240, 232, .15),
+        inset 0 -1px rgba(0, 0, 0, .82);
 
     &::before {
         content: "";
         position: absolute;
-        inset: -48%;
+        inset: 3px;
         z-index: 2;
         background: linear-gradient(
-            112deg,
-            transparent 40%,
-            rgba(219, 235, 222, .04) 45%,
-            rgba(239, 255, 240, .62) 49%,
-            rgba(191, 225, 199, .18) 53%,
-            transparent 59%
+            138deg,
+            rgba(255, 255, 255, .24) 0%,
+            rgba(241, 247, 238, .12) 19%,
+            rgba(223, 232, 219, .035) 35%,
+            transparent 48%
         );
-        transform: translateX(-68%);
-        animation: profileAvatarGlint 5.8s ease-in-out infinite;
         pointer-events: none;
     }
 
@@ -569,12 +566,16 @@
         position: absolute;
         inset: 3px;
         z-index: 3;
-        border:
-            1px solid
-            rgba(225, 237, 220, .24);
+        border-width: 1px;
+        border-style: solid;
+        border-color:
+            rgba(230, 237, 226, .28)
+            rgba(0, 0, 0, .62)
+            rgba(0, 0, 0, .72)
+            rgba(220, 229, 216, .20);
         box-shadow:
-            inset 0 0 10px rgba(229, 245, 224, .09),
-            inset 0 -12px 18px rgba(0, 0, 0, .28);
+            inset 0 0 7px rgba(229, 238, 225, .06),
+            inset 0 -10px 16px rgba(0, 0, 0, .24);
         pointer-events: none;
     }
 }
@@ -585,31 +586,13 @@
 .avatarImage {
     display: block;
     object-fit: cover;
-    filter: saturate(.78) contrast(1.08) brightness(.94);
+    filter: saturate(.70) contrast(1.06) brightness(.94);
 }
 .playerIdentity {
     display: flex;
     min-width: 0;
     flex-direction: column;
-    gap: 4px;
-
-    &::after {
-        content: "";
-        width: min(250px, 74%);
-        height: 4px;
-        margin-top: 3px;
-        border-top: 1px solid rgba(120, 208, 255, .55);
-        background: linear-gradient(
-            90deg,
-            #087fc9,
-            #1eb4ff 58%,
-            rgba(20, 132, 204, .34) 86%,
-            transparent
-        );
-        box-shadow:
-            0 0 5px rgba(23, 161, 242, .72),
-            0 1px 8px rgba(0, 111, 208, .56);
-    }
+    justify-content: center;
 }
 .playerIdentity strong {
     color: #c4f27d;
@@ -623,28 +606,6 @@
         0 2px 2px rgba(0, 0, 0, .92);
 }
 .playerIdentity > span:last-child { color: #91938e; font-size: 12px; }
-
-@keyframes profileAvatarGlint {
-    0%,
-    62% {
-        transform: translateX(-68%);
-        opacity: 0;
-    }
-
-    68% {
-        opacity: .82;
-    }
-
-    82% {
-        transform: translateX(68%);
-        opacity: .55;
-    }
-
-    100% {
-        transform: translateX(68%);
-        opacity: 0;
-    }
-}
 
 .profileStats {
     display: grid;
@@ -1459,12 +1420,6 @@
 @media (prefers-reduced-motion: reduce) {
     .canvas {
         transition: none;
-    }
-
-    .profileAvatarFrame::before {
-        animation: none;
-        opacity: .14;
-        transform: translateX(18%);
     }
 
     .treeLayer {

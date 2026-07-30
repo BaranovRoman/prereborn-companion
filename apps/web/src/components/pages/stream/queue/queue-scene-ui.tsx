@@ -203,8 +203,7 @@ const PlayerProfile = ({
                     )}
                 </div>
                 <div className={styles.playerIdentity}>
-                    <span className={styles.overline}>STEAM PLAYER</span>
-                    <strong>{accountName.toUpperCase()}</strong>
+                    <strong>{accountName}</strong>
                 </div>
                 <div className={styles.profileStats}>
                     <div><span>RATING</span><b>{formatRating(rating)}</b></div>
