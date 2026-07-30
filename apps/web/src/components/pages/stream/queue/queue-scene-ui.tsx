@@ -195,6 +195,10 @@ const PlayerProfile = ({
     return (
         <Panel title="Player record" className={styles.playerProfile}>
             <div className={styles.profileBody}>
+                <div className={styles.profileBrand}>
+                    <Image src="/logo.png" width={36} height={36} alt="" priority />
+                    <span><strong>PREREBORN</strong><small>COMPANION</small></span>
+                </div>
                 <div className={styles.profileAvatarFrame}>
                     {steamProfile?.avatarUrl ? (
                         <img className={styles.avatarImage} src={steamProfile.avatarUrl} alt="" />
@@ -559,12 +563,6 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
 
     return (
         <div className={styles.interface}>
-            <header className={styles.topBar}>
-                <Image className={styles.brandLogo} src="/logo.png" width={52} height={52} alt="PreReborn Companion" priority />
-                <div className={styles.brand}><strong>PREREBORN</strong><span>COMPANION</span></div>
-                <div className={styles.navOrnaments}><span>PROFILE</span><span>HEROES</span><span>HISTORY</span><span>STATUS</span></div>
-                <div className={styles.broadcast}><i data-online={data.companionOnline} /> {data.companionOnline ? "LIVE DATA" : "WAITING FOR COMPANION"}</div>
-            </header>
             <div className={styles.dashboard} data-top-count={topCount}>
                 {visibility.playerProfile && <PlayerProfile {...data} />}
                 {visibility.streamProfile && <StreamProfile {...data} />}

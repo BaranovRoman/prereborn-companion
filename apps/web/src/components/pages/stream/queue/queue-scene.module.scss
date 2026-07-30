@@ -319,13 +319,11 @@
     inset: 20px 28px 18px;
     z-index: 8;
     display: grid;
-    grid-template-rows: 78px 1fr;
-    gap: 10px;
+    grid-template-rows: 1fr;
     font-family: var(--font-ui);
     pointer-events: none;
 }
 
-.topBar,
 .panel {
     position: relative;
     border: 1px solid #070909;
@@ -401,7 +399,6 @@
     letter-spacing: .18em;
 }
 
-.brand span,
 .overline {
     color: #9a766f;
     font-size: 10px;
@@ -434,7 +431,6 @@
     box-shadow: inset 0 -2px #7b3532;
 }
 
-.broadcast,
 .liveBadge {
     justify-self: end;
     color: #aaa9a2;
@@ -442,7 +438,6 @@
     letter-spacing: .14em;
 }
 
-.broadcast i,
 .liveBadge i {
     display: inline-block;
     width: 6px;
@@ -453,7 +448,6 @@
     box-shadow: 0 0 10px rgba(184, 91, 83, .68);
 }
 
-.broadcast i[data-online="false"],
 .liveBadge i[data-online="false"] {
     background: #59605e;
     box-shadow: none;
@@ -515,13 +509,46 @@
 .profileBody {
     height: 100%;
     display: grid;
-    grid-template-columns: 66px 1fr 350px;
+    grid-template-columns: 145px 66px 1fr 350px;
     align-items: center;
     gap: 14px;
     padding: 9px 18px;
 }
 
 .playerProfile .panelTitle { display: none; }
+.profileBrand {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+    padding-right: 17px;
+    border-right: 1px solid #303637;
+}
+.profileBrand > img {
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+    object-fit: contain;
+    filter: drop-shadow(0 1px 2px #000);
+}
+.profileBrand > span {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.profileBrand strong {
+    color: #d0ccc3;
+    font-family: var(--font-title);
+    font-size: 14px;
+    font-weight: 400;
+    letter-spacing: .13em;
+}
+.profileBrand small {
+    color: #8d6963;
+    font-size: 7px;
+    letter-spacing: .18em;
+}
 .avatar,
 .twitchAvatar {
     display: grid;
@@ -1284,8 +1311,7 @@
 @media (max-height: 860px) {
     .interface {
         inset: 20px 28px 16px;
-        grid-template-rows: 70px minmax(0, 1fr);
-        gap: 10px;
+        grid-template-rows: minmax(0, 1fr);
     }
 
     .dashboard,
