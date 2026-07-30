@@ -34,6 +34,10 @@ const twitchClientId = process.env.TWITCH_CLIENT_ID || null;
 const twitchClientSecret = process.env.TWITCH_CLIENT_SECRET || null;
 const twitchRedirectUri = process.env.TWITCH_REDIRECT_URI || null;
 const twitchFrontendOrigin = process.env.TWITCH_FRONTEND_ORIGIN || steamOpenidRealm;
+const donationAlertsClientId = process.env.DONATION_ALERTS_CLIENT_ID || null;
+const donationAlertsClientSecret = process.env.DONATION_ALERTS_CLIENT_SECRET || null;
+const donationAlertsRedirectUri = process.env.DONATION_ALERTS_REDIRECT_URI || null;
+const donationAlertsFrontendOrigin = process.env.DONATION_ALERTS_FRONTEND_ORIGIN || steamOpenidRealm;
 
 const nodeEnv = process.env.NODE_ENV || "development";
 const isProduction = nodeEnv === "production";
@@ -64,6 +68,10 @@ export const env = {
     twitchClientSecret,
     twitchRedirectUri,
     twitchFrontendOrigin,
+    donationAlertsClientId,
+    donationAlertsClientSecret,
+    donationAlertsRedirectUri,
+    donationAlertsFrontendOrigin,
     port: parseInt(process.env.PORT || "3001", 10),
     nodeEnv,
     isProduction,

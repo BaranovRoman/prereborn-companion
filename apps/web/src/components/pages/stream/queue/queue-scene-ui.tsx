@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { getHeroById } from "@/entities/dota-hero/lib/search";
 import { useAccountMatches } from "@/entities/stream-session/lib/use-account-matches";
 import { useOverlayPolling } from "@/entities/stream-session/lib/use-overlay-polling";
@@ -10,16 +10,14 @@ import { useSteamIntegration } from "@/entities/steam-integration/lib/use-steam-
 import { useStreamSession } from "@/entities/stream-user/lib/use-stream-session";
 import { useQueueSettings } from "@/entities/stream-queue-settings/lib/use-queue-settings";
 import { useTwitchIntegration } from "@/entities/twitch-integration/lib/use-twitch-integration";
+import { useDonationAlertsIntegration } from "@/entities/donation-alerts-integration/lib/use-donation-alerts-integration";
+import type { DonationAlertsIntegrationStatus } from "@/entities/donation-alerts-integration/model/types";
 import type { TwitchIntegrationStatus } from "@/entities/twitch-integration/model/types";
 import type { SteamIntegrationStatus } from "@/entities/steam-integration/model/types";
 import type { QueueChannelGoal } from "@/entities/stream-queue-settings/model/types";
 import styles from "./queue-scene.module.scss";
 
 const EMPTY_VALUE = "—";
-
-const subscribeToHostname = () => () => {};
-const getHostname = () => window.location.hostname;
-const getServerHostname = () => "";
 
 const formatRating = (rating: number | null | undefined) =>
     rating === null || rating === undefined
@@ -128,6 +126,7 @@ interface QueueDataProps {
     steamSyncStatus: string | null | undefined;
     steamProfile: SteamIntegrationStatus["profile"];
     twitch: TwitchIntegrationStatus | null;
+    donationAlerts: DonationAlertsIntegrationStatus | null;
     webcamImageUrl: string | null;
     channelGoal: QueueChannelGoal;
 }
@@ -414,29 +413,28 @@ const StreamProfile = ({
     );
 };
 
-const TwitchChat = ({ twitch }: QueueDataProps) => {
-    const parent = useSyncExternalStore(
-        subscribeToHostname,
-        getHostname,
-        getServerHostname
-    );
+const DonationFeed = ({ donationAlerts }: QueueDataProps) => {
+    const donations = donationAlerts?.donations ?? [];
     return (
-        <Panel title="Twitch chat" className={styles.chatPanel}>
-            {twitch?.connected && twitch.login && parent ? (
-                <iframe
-                    className={styles.twitchChatEmbed}
-                    src={`https://www.twitch.tv/embed/${encodeURIComponent(twitch.login)}/chat?parent=${encodeURIComponent(parent)}&darkpopout`}
-                    title={`Twitch chat — ${twitch.displayName || twitch.login}`}
-                />
+        <Panel title="Donation feed" className={styles.chatPanel}>
+            {donationAlerts?.connected && donations.length ? (
+                <div className={styles.donationList}>
+                    {donations.map((donation) => (
+                        <div className={styles.donationRow} key={donation.id}>
+                            <div><strong>{donation.username || "ANONYMOUS"}</strong><span>{donation.message || "Thanks for the support"}</span></div>
+                            <b>{new Intl.NumberFormat("ru-RU").format(donation.amount)} {donation.currency}</b>
+                        </div>
+                    ))}
+                </div>
             ) : (
                 <div className={`${styles.chatBody} ${styles.chatUnavailable}`}>
-                    <i aria-hidden="true">T</i>
-                    <strong>TWITCH CHAT IS NOT CONNECTED</strong>
-                    <span>Connect Twitch in the stream dashboard integrations.</span>
+                    <i aria-hidden="true">₽</i>
+                    <strong>{donationAlerts?.connected ? "NO DONATIONS YET" : "DONATIONALERTS IS NOT CONNECTED"}</strong>
+                    <span>{donationAlerts?.connected ? "New donations will appear here." : "Connect DonationAlerts in the stream dashboard."}</span>
                 </div>
             )}
             <div className={styles.chatFooter}>
-                CHANNEL CHAT // {twitch?.connected ? twitch.login?.toUpperCase() : "NO DATA SOURCE"}
+                SUPPORT LOG // {donationAlerts?.connected ? donationAlerts.displayName?.toUpperCase() : "NO DATA SOURCE"}
             </div>
         </Panel>
     );
@@ -474,6 +472,7 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
     const steam = useSteamIntegration();
     const queueSettings = useQueueSettings();
     const twitch = useTwitchIntegration();
+    const donationAlerts = useDonationAlertsIntegration();
     const overlay = useOverlayPolling(user?.publicToken ?? "", null);
     const activeOverlay = publicData ?? overlay;
     const activeSettings = publicData?.queueSettings ?? queueSettings.settings;
@@ -491,6 +490,7 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
         steamSyncStatus: steam.status?.lastSyncStatus,
         steamProfile: publicData?.steam.profile ?? steam.status?.profile,
         twitch: twitch.status,
+        donationAlerts: donationAlerts.status,
         webcamImageUrl: activeSettings.webcamImageUrl,
         channelGoal: activeSettings.channelGoal,
     };
@@ -519,7 +519,7 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
                         {visibility.recentGames && <RecentGames {...data} />}
                     </div>}
                 </div>}
-                {visibility.twitchChat && <div className={styles.rightMain}><TwitchChat {...data} /></div>}
+                {visibility.twitchChat && <div className={styles.rightMain}><DonationFeed {...data} /></div>}
             </div>
             <footer className={styles.sceneFooter}>
                 <span>{`${data.steamConnected ? "STEAM CONNECTED" : "STEAM OFFLINE"} // ${data.matches.length} MATCHES LOADED`}</span>

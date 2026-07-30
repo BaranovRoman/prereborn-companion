@@ -69,6 +69,8 @@ jobs:
           OPENDOTA_API_KEY: ${{ secrets.OPENDOTA_API_KEY }}
           TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
           TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
+          DONATION_ALERTS_CLIENT_ID: ${{ secrets.DONATION_ALERTS_CLIENT_ID }}
+          DONATION_ALERTS_CLIENT_SECRET: ${{ secrets.DONATION_ALERTS_CLIENT_SECRET }}
         run: |
           test -n "$DATABASE_URL" || {
             echo "PRODUCTION_DATABASE_URL is empty"
@@ -92,6 +94,10 @@ jobs:
             printf 'TWITCH_CLIENT_SECRET=%s\n' "$TWITCH_CLIENT_SECRET"
             printf 'TWITCH_REDIRECT_URI=https://prereborn.ru/api/stream/integrations/twitch/callback\n'
             printf 'TWITCH_FRONTEND_ORIGIN=https://prereborn.ru\n'
+            printf 'DONATION_ALERTS_CLIENT_ID=%s\n' "$DONATION_ALERTS_CLIENT_ID"
+            printf 'DONATION_ALERTS_CLIENT_SECRET=%s\n' "$DONATION_ALERTS_CLIENT_SECRET"
+            printf 'DONATION_ALERTS_REDIRECT_URI=https://prereborn.ru/api/stream/integrations/donation-alerts/callback\n'
+            printf 'DONATION_ALERTS_FRONTEND_ORIGIN=https://prereborn.ru\n'
             printf 'BACKEND_URL=http://127.0.0.1:5102\n'
             printf 'NEXT_PUBLIC_API_URL=/api\n'
             printf 'NEXT_PUBLIC_SITE_URL=https://prereborn.ru\n'

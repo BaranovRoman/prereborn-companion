@@ -22,6 +22,7 @@ import { RecentMatchesPanel } from "./recent-matches-panel";
 import { IntegrationsCard } from "./integrations-card";
 import { QueueWidgetsPanel } from "./queue-widgets-panel";
 import { useTwitchIntegration } from "@/entities/twitch-integration/lib/use-twitch-integration";
+import { useDonationAlertsIntegration } from "@/entities/donation-alerts-integration/lib/use-donation-alerts-integration";
 import styles from "./index.module.scss";
 
 // Человеко-понятные причины ошибки привязки Steam - reason приходит от
@@ -45,6 +46,7 @@ export const StreamSettingsPage = () => {
     const [messageApi, contextHolder] = message.useMessage();
     const steamIntegration = useSteamIntegration();
     const twitchIntegration = useTwitchIntegration();
+    const donationAlertsIntegration = useDonationAlertsIntegration();
     const { matches, handleUpdated: handleMatchUpdated } = useAccountMatches();
     // Тот же публичный /overlay/:publicToken, что читает OBS - переиспользуем
     // его и здесь, чтобы получить sessionRatingDelta и статус Companion, не
@@ -92,6 +94,17 @@ export const StreamSettingsPage = () => {
             );
         }
 
+        router.replace("/stream");
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [searchParams]);
+
+    useEffect(() => {
+        const status = searchParams.get("donationAlerts");
+        if (!status) return;
+        if (status === "connected") {
+            messageApi.success("DonationAlerts подключён");
+            void donationAlertsIntegration.refresh();
+        } else messageApi.error("Не удалось подключить DonationAlerts");
         router.replace("/stream");
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchParams]);
@@ -330,6 +343,9 @@ export const StreamSettingsPage = () => {
                         twitchStatus={twitchIntegration.status}
                         twitchLoading={twitchIntegration.loading}
                         onTwitchChanged={twitchIntegration.refresh}
+                        donationAlertsStatus={donationAlertsIntegration.status}
+                        donationAlertsLoading={donationAlertsIntegration.loading}
+                        onDonationAlertsChanged={donationAlertsIntegration.refresh}
                     />
                 </div>
             </div>

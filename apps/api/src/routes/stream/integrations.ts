@@ -14,6 +14,12 @@ import {
     getTwitchStatusController,
     twitchCallbackController,
 } from "../../controllers/stream/twitch.js";
+import {
+    connectDonationAlertsController,
+    disconnectDonationAlertsController,
+    donationAlertsCallbackController,
+    getDonationAlertsStatusController,
+} from "../../controllers/stream/donation-alerts.js";
 
 export const streamIntegrationsRouter = Router();
 
@@ -49,3 +55,7 @@ streamIntegrationsRouter.get("/twitch", authenticateStreamUser, getTwitchStatusC
 streamIntegrationsRouter.get("/twitch/connect", authenticateStreamUser, connectTwitchController);
 streamIntegrationsRouter.get("/twitch/callback", steamCallbackRateLimiter, twitchCallbackController);
 streamIntegrationsRouter.delete("/twitch", authenticateStreamUser, disconnectTwitchController);
+streamIntegrationsRouter.get("/donation-alerts", authenticateStreamUser, getDonationAlertsStatusController);
+streamIntegrationsRouter.get("/donation-alerts/connect", authenticateStreamUser, connectDonationAlertsController);
+streamIntegrationsRouter.get("/donation-alerts/callback", steamCallbackRateLimiter, donationAlertsCallbackController);
+streamIntegrationsRouter.delete("/donation-alerts", authenticateStreamUser, disconnectDonationAlertsController);

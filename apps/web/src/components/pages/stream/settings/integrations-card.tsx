@@ -8,6 +8,8 @@ import { SteamIntegrationPanel } from "./steam-integration-panel";
 import { CompanionPanel } from "./companion-panel";
 import { TwitchIntegrationPanel } from "./twitch-integration-panel";
 import type { TwitchIntegrationStatus } from "@/entities/twitch-integration/model/types";
+import type { DonationAlertsIntegrationStatus } from "@/entities/donation-alerts-integration/model/types";
+import { DonationAlertsIntegrationPanel } from "./donation-alerts-integration-panel";
 import sharedStyles from "./index.module.scss";
 import styles from "./integrations-card.module.scss";
 
@@ -30,6 +32,9 @@ interface IntegrationsCardProps {
     twitchStatus: TwitchIntegrationStatus | null;
     twitchLoading: boolean;
     onTwitchChanged: () => void;
+    donationAlertsStatus: DonationAlertsIntegrationStatus | null;
+    donationAlertsLoading: boolean;
+    onDonationAlertsChanged: () => void;
 }
 
 // Steam и Companion объединены в одну вторичную карточку (см. задачу):
@@ -50,6 +55,9 @@ export const IntegrationsCard = ({
     twitchStatus,
     twitchLoading,
     onTwitchChanged,
+    donationAlertsStatus,
+    donationAlertsLoading,
+    onDonationAlertsChanged,
 }: IntegrationsCardProps) => {
     const steamSummary = steamLoading
         ? "Загрузка…"
@@ -98,6 +106,11 @@ export const IntegrationsCard = ({
                         loading={twitchLoading}
                         onChanged={onTwitchChanged}
                     />
+                    <DonationAlertsIntegrationPanel
+                        status={donationAlertsStatus}
+                        loading={donationAlertsLoading}
+                        onChanged={onDonationAlertsChanged}
+                    />
                 </div>
             ),
         },
@@ -115,6 +128,13 @@ export const IntegrationsCard = ({
                     />
                     <span className={styles.summaryLabel}>Steam</span>
                     <span className={styles.summaryValue}>{steamSummary}</span>
+                </div>
+                <div className={styles.summaryItem}>
+                    <span className={`${styles.dot} ${donationAlertsStatus?.connected ? styles.dotOn : styles.dotOff}`} />
+                    <span className={styles.summaryLabel}>DonationAlerts</span>
+                    <span className={styles.summaryValue}>
+                        {donationAlertsLoading ? "Загрузка…" : donationAlertsStatus?.connected ? donationAlertsStatus.displayName : "Не подключён"}
+                    </span>
                 </div>
                 <div className={styles.summaryItem}>
                     <span className={`${styles.dot} ${twitchStatus?.connected ? styles.dotOn : styles.dotOff}`} />

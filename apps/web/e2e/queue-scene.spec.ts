@@ -83,7 +83,7 @@ test.describe("queue anti-stream-sniping scene", () => {
             "Live capture",
             "Favorite heroes",
             "Recent games",
-            "Twitch chat",
+            "Donation feed",
         ]) {
             const panel = page.getByRole("region", { name: title });
             await expect(panel).toBeVisible();

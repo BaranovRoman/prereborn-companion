@@ -435,6 +435,25 @@ export const createTables = async (): Promise<void> => {
       );
       CREATE INDEX IF NOT EXISTS idx_stream_twitch_states_expires
         ON stream_twitch_connect_states(expires_at);
+      CREATE TABLE IF NOT EXISTS stream_donation_alerts_links (
+        stream_user_id INTEGER PRIMARY KEY REFERENCES stream_users(id) ON DELETE CASCADE,
+        donation_alerts_user_id VARCHAR(64) NOT NULL UNIQUE,
+        code VARCHAR(128) NOT NULL,
+        display_name VARCHAR(128) NOT NULL,
+        avatar_url TEXT,
+        access_token TEXT NOT NULL,
+        refresh_token TEXT,
+        token_expires_at TIMESTAMP,
+        connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS stream_donation_alerts_connect_states (
+        state VARCHAR(128) PRIMARY KEY,
+        stream_user_id INTEGER NOT NULL REFERENCES stream_users(id) ON DELETE CASCADE,
+        expires_at TIMESTAMP NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_stream_donation_alerts_states_expires
+        ON stream_donation_alerts_connect_states(expires_at);
     `);
 
         await client.query("COMMIT");
