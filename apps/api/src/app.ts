@@ -12,6 +12,7 @@ import { requestId } from "./middleware/request-id.js";
 import { requestLogger } from "./middleware/request-logger.js";
 import { notFoundHandler, errorHandler } from "./middleware/error-handler.js";
 import { pool } from "./db/client.js";
+import { env } from "./config/env.js";
 
 export const app = express();
 app.set("trust proxy", 1);
@@ -25,7 +26,15 @@ app.use("/api/stream/companion", streamCompanionRouter);
 app.get("/api/health", async (_req, res) => {
   try {
     await pool.query("SELECT 1");
-    res.json({ status: "ok", database: "connected" });
+    res.json({
+      status: "ok",
+      database: "connected",
+      integrations: {
+        donationAlertsConfigured: Boolean(
+          env.donationAlertsClientId && env.donationAlertsClientSecret
+        ),
+      },
+    });
   } catch {
     res.json({ status: "ok", database: "disconnected" });
   }
