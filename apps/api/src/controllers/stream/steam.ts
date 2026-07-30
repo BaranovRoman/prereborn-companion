@@ -18,6 +18,7 @@ import {
 } from "../../services/steam-connect-state-service.js";
 import { steamId64ToDotaAccountId } from "../../services/steam-id.js";
 import { logger } from "../../utils/logger.js";
+import { openDotaMatchProvider } from "../../services/dota-match-provider.js";
 
 // req.streamUserId гарантирован authenticateStreamUser (routes/stream/integrations.ts)
 // на всех этих контроллерах, КРОМЕ callbackController - тот публичный,
@@ -35,6 +36,9 @@ export const getSteamStatusController = async (req: Request, res: Response) => {
         }
 
         const session = await getOrCreateActiveSession(streamUserId);
+        const profileResult = await openDotaMatchProvider.getPlayerProfile(
+            link.dotaAccountId
+        );
 
         res.json({
             connected: true,
@@ -42,6 +46,10 @@ export const getSteamStatusController = async (req: Request, res: Response) => {
             connectedAt: link.connectedAt,
             lastSyncedAt: session.lastSyncedAt,
             lastSyncStatus: session.lastSyncStatus,
+            profile:
+                profileResult.status === "ok"
+                    ? profileResult.profile
+                    : null,
         });
     } catch (error) {
         logger.error("Steam status error", {

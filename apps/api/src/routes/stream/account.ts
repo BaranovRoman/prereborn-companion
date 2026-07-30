@@ -31,6 +31,11 @@ import {
 } from "../../controllers/stream/overlay-reference-background.js";
 import { authenticateStreamUser } from "../../middleware/stream-auth.js";
 import { uploadRateLimiter } from "../../middleware/rate-limit.js";
+import {
+    deleteQueueWebcamImageController,
+    uploadQueueWebcamImageController,
+    uploadQueueWebcamImageMiddleware,
+} from "../../controllers/stream/queue-webcam-image.js";
 
 export const streamAccountRouter = Router();
 
@@ -55,6 +60,16 @@ streamAccountRouter.get("/me/overlay-layout", getOverlayLayoutController);
 streamAccountRouter.put("/me/overlay-layout", putOverlayLayoutController);
 streamAccountRouter.get("/me/queue-settings", getQueueSettingsController);
 streamAccountRouter.put("/me/queue-settings", putQueueSettingsController);
+streamAccountRouter.post(
+    "/me/queue-webcam-image",
+    uploadRateLimiter,
+    uploadQueueWebcamImageMiddleware,
+    uploadQueueWebcamImageController
+);
+streamAccountRouter.delete(
+    "/me/queue-webcam-image",
+    deleteQueueWebcamImageController
+);
 
 streamAccountRouter.get(
     "/me/overlay-reference-background",

@@ -8,10 +8,19 @@ export type QueueWidgetId =
     | "twitchChat"
     | "systemStatus";
 
+export interface QueueChannelGoal {
+    type: "none" | "rating" | "custom";
+    label: string;
+    startValue: number;
+    targetValue: number;
+}
+
 export interface QueueSettings {
     version: 1;
     visibility: Record<QueueWidgetId, boolean>;
     favoriteHeroIds: number[];
+    webcamImageUrl: string | null;
+    channelGoal: QueueChannelGoal;
 }
 
 export const DEFAULT_QUEUE_SETTINGS: QueueSettings = {
@@ -24,7 +33,14 @@ export const DEFAULT_QUEUE_SETTINGS: QueueSettings = {
         favoriteHeroes: true,
         recentGames: true,
         twitchChat: true,
-        systemStatus: true,
+        systemStatus: false,
     },
     favoriteHeroIds: [],
+    webcamImageUrl: null,
+    channelGoal: {
+        type: "none",
+        label: "",
+        startValue: 0,
+        targetValue: 0,
+    },
 };

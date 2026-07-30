@@ -307,7 +307,7 @@ export const StreamSettingsPage = () => {
                 </div>
 
                 <div className={styles.fullSpan}>
-                    <QueueWidgetsPanel />
+                    <QueueWidgetsPanel currentRating={overlayData?.rating ?? null} />
                 </div>
 
                 <div className={styles.fullSpan}>

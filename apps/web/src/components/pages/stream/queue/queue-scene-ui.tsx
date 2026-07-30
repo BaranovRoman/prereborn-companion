@@ -11,6 +11,8 @@ import { useStreamSession } from "@/entities/stream-user/lib/use-stream-session"
 import { useQueueSettings } from "@/entities/stream-queue-settings/lib/use-queue-settings";
 import { useTwitchIntegration } from "@/entities/twitch-integration/lib/use-twitch-integration";
 import type { TwitchIntegrationStatus } from "@/entities/twitch-integration/model/types";
+import type { SteamIntegrationStatus } from "@/entities/steam-integration/model/types";
+import type { QueueChannelGoal } from "@/entities/stream-queue-settings/model/types";
 import styles from "./queue-scene.module.scss";
 
 const EMPTY_VALUE = "—";
@@ -68,8 +70,6 @@ const Panel = ({
     </section>
 );
 
-const HiddenSlot = () => <div className={styles.hiddenSlot} aria-hidden="true" />;
-
 interface QueueDataProps {
     email: string | null;
     gameMode: "ranked" | "unranked" | null;
@@ -82,7 +82,10 @@ interface QueueDataProps {
     steamConnected: boolean;
     steamId: string | undefined;
     steamSyncStatus: string | null | undefined;
+    steamProfile: SteamIntegrationStatus["profile"];
     twitch: TwitchIntegrationStatus | null;
+    webcamImageUrl: string | null;
+    channelGoal: QueueChannelGoal;
 }
 
 interface GsiItem {
@@ -120,13 +123,12 @@ const getMatchItems = (payload: unknown): Array<GsiItem | null> => {
 };
 
 const PlayerProfile = ({
-    email,
-    gameMode,
     rating,
     wins,
     losses,
+    steamProfile,
 }: QueueDataProps) => {
-    const accountName = email?.split("@")[0] || "STREAMER";
+    const accountName = steamProfile?.displayName || "STREAMER";
     const initials = accountName.slice(0, 2).toUpperCase();
     const total = wins + losses;
     const winRate = total ? Math.round((wins / total) * 100) : 0;
@@ -134,11 +136,14 @@ const PlayerProfile = ({
     return (
         <Panel title="Player record" className={styles.playerProfile}>
             <div className={styles.profileBody}>
-                <div className={styles.avatar}>{initials}</div>
+                {steamProfile?.avatarUrl ? (
+                    <img className={styles.avatarImage} src={steamProfile.avatarUrl} alt="" />
+                ) : (
+                    <div className={styles.avatar}>{initials}</div>
+                )}
                 <div className={styles.playerIdentity}>
-                    <span className={styles.overline}>STREAM ACCOUNT // LIVE DATA</span>
+                    <span className={styles.overline}>STEAM PLAYER</span>
                     <strong>{accountName.toUpperCase()}</strong>
-                    <span>{gameMode === "ranked" ? "Ranked session" : "Unranked session"}</span>
                 </div>
                 <div className={styles.profileStats}>
                     <div><span>RATING</span><b>{formatRating(rating)}</b></div>
@@ -195,7 +200,7 @@ const FeaturedMatch = ({ matches, companionPayload }: QueueDataProps) => {
             <div className={styles.heroDetails}>
                 <span className={styles.overline}>
                     {match
-                        ? `${match.gameMode.toUpperCase()} // ${formatDate(match.endedAt)}`
+                        ? `MATCH ${match.id} // ${match.gameMode.toUpperCase()} // ${formatDate(match.endedAt)}`
                         : "MATCH DATA // WAITING"}
                 </span>
                 <div className={styles.heroNameRow}>
@@ -232,10 +237,18 @@ const FeaturedMatch = ({ matches, companionPayload }: QueueDataProps) => {
     );
 };
 
-const WebcamSlot = () => (
+const WebcamSlot = ({ webcamImageUrl }: QueueDataProps) => (
     <Panel title="Live capture" className={styles.webcamPanel}>
-        <div className={styles.webcam} data-testid="webcam-slot">
-            <span>WEBCAM</span><small>EXTERNAL OBS SOURCE</small>
+        <div
+            className={styles.webcam}
+            data-testid="webcam-slot"
+            data-has-image={Boolean(webcamImageUrl)}
+        >
+            {webcamImageUrl ? (
+                <img src={webcamImageUrl} alt="" />
+            ) : (
+                <><span>WEBCAM</span><small>EXTERNAL OBS SOURCE</small></>
+            )}
         </div>
     </Panel>
 );
@@ -277,6 +290,13 @@ const FavoriteHeroes = ({
                                 )}
                             </div>
                             <div className={styles.favoriteCaption}>
+                                {hero && (
+                                    <img
+                                        className={styles.attributeIcon}
+                                        src={`https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/icons/hero_${hero.attribute}.png`}
+                                        alt=""
+                                    />
+                                )}
                                 <b>{hero?.localizedName ?? `Hero ${heroId}`}</b>
                             </div>
                         </div>
@@ -294,7 +314,7 @@ const RecentGames = ({ matches }: QueueDataProps) => (
         <div className={styles.gamesList}>
             {matches.length ? matches.slice(0, 5).map((match) => {
                 const hero = getHeroById(match.heroId);
-                const result = shortResult(match);
+                const result = resultLabel(match);
                 return (
                     <div key={match.id} className={styles.gameRow}>
                         {hero ? (
@@ -302,9 +322,12 @@ const RecentGames = ({ matches }: QueueDataProps) => (
                         ) : (
                             <span className={styles.gameMark}>?</span>
                         )}
-                        <div><b>{hero?.localizedName.toUpperCase() ?? `HERO ${match.heroId}`}</b><small>{match.kills}/{match.deaths}/{match.assists}</small></div>
+                        <div><b>{hero?.localizedName.toUpperCase() ?? `HERO ${match.heroId}`}</b><small>KDA {match.kills}/{match.deaths}/{match.assists}</small></div>
                         <em data-result={result}>{result}</em>
-                        <strong>{formatDelta(match.ratingDelta)}</strong>
+                        <strong data-positive={Boolean(match.ratingDelta && match.ratingDelta > 0)}>
+                            ({formatDelta(match.ratingDelta)})
+                        </strong>
+                        <time>{formatDate(match.endedAt)}</time>
                     </div>
                 );
             }) : (
@@ -321,6 +344,8 @@ const StreamProfile = ({
     steamId,
     steamSyncStatus,
     twitch,
+    channelGoal,
+    rating,
 }: QueueDataProps) => {
     const accountName = twitch?.displayName || twitch?.login || email?.split("@")[0] || "stream account";
     const initials = accountName.slice(0, 2).toUpperCase();
@@ -337,8 +362,23 @@ const StreamProfile = ({
                 </div>
                 <div className={styles.liveBadge}><i data-online={Boolean(twitch?.live)} /> {twitch?.live ? `${twitch.live.viewerCount} LIVE` : "OFFLINE"}</div>
                 <div className={styles.goal}>
-                    <div><span>STEAM SYNC</span><b>{steamSyncStatus?.replaceAll("_", " ").toUpperCase() ?? (steamConnected ? "READY" : "NOT CONNECTED")}</b></div>
-                    <span className={styles.goalTrack}><i data-connected={steamConnected} /></span>
+                    <div>
+                        <span>{channelGoal.type === "none" ? "STEAM SYNC" : channelGoal.label || "CHANNEL GOAL"}</span>
+                        <b>
+                            {channelGoal.type === "none"
+                                ? steamSyncStatus?.replaceAll("_", " ").toUpperCase() ?? (steamConnected ? "READY" : "NOT CONNECTED")
+                                : `${channelGoal.type === "rating" ? formatRating(rating) : channelGoal.startValue} / ${channelGoal.targetValue}`}
+                        </b>
+                    </div>
+                    <span className={styles.goalTrack}>
+                        <i
+                            style={{
+                                width: channelGoal.type === "none"
+                                    ? (steamConnected ? "100%" : "18%")
+                                    : `${Math.max(0, Math.min(100, (((channelGoal.type === "rating" ? rating ?? channelGoal.startValue : channelGoal.startValue) - channelGoal.startValue) / Math.max(1, channelGoal.targetValue - channelGoal.startValue)) * 100))}%`,
+                            }}
+                        />
+                    </span>
                 </div>
             </div>
         </Panel>
@@ -419,8 +459,14 @@ export const QueueSceneUi = () => {
         steamConnected: steam.status?.connected ?? false,
         steamId: steam.status?.steamId64,
         steamSyncStatus: steam.status?.lastSyncStatus,
+        steamProfile: steam.status?.profile,
         twitch: twitch.status,
+        webcamImageUrl: queueSettings.settings.webcamImageUrl,
+        channelGoal: queueSettings.settings.channelGoal,
     };
+    const visibility = queueSettings.settings.visibility;
+    const topCount = Number(visibility.playerProfile) + Number(visibility.streamProfile);
+    const sideCount = Number(visibility.webcam) + Number(visibility.favoriteHeroes) + Number(visibility.recentGames);
 
     return (
         <div className={styles.interface}>
@@ -430,23 +476,20 @@ export const QueueSceneUi = () => {
                 <div className={styles.navOrnaments}><span>PROFILE</span><span>HEROES</span><span>HISTORY</span><span>STATUS</span></div>
                 <div className={styles.broadcast}><i data-online={data.companionOnline} /> {data.companionOnline ? "LIVE DATA" : "WAITING FOR COMPANION"}</div>
             </header>
-            <div className={styles.dashboard}>
-                {queueSettings.settings.visibility.playerProfile ? <PlayerProfile {...data} /> : <HiddenSlot />}
-                {queueSettings.settings.visibility.streamProfile ? <StreamProfile {...data} /> : <HiddenSlot />}
-                <div className={styles.leftMain}>
-                    {queueSettings.settings.visibility.featuredMatch ? <FeaturedMatch {...data} /> : <HiddenSlot />}
-                    <div className={styles.sideStack}>
-                        {queueSettings.settings.visibility.webcam ? <WebcamSlot /> : <HiddenSlot />}
-                        {queueSettings.settings.visibility.favoriteHeroes ? (
+            <div className={styles.dashboard} data-top-count={topCount}>
+                {visibility.playerProfile && <PlayerProfile {...data} />}
+                {visibility.streamProfile && <StreamProfile {...data} />}
+                {(visibility.featuredMatch || sideCount > 0) && <div className={styles.leftMain} data-featured={visibility.featuredMatch}>
+                    {visibility.featuredMatch && <FeaturedMatch {...data} />}
+                    {sideCount > 0 && <div className={styles.sideStack} data-widget-count={sideCount}>
+                        {visibility.webcam && <WebcamSlot {...data} />}
+                        {visibility.favoriteHeroes && (
                             <FavoriteHeroes {...data} selectedHeroIds={queueSettings.settings.favoriteHeroIds} />
-                        ) : <HiddenSlot />}
-                        {queueSettings.settings.visibility.recentGames ? <RecentGames {...data} /> : <HiddenSlot />}
-                    </div>
-                </div>
-                <div className={styles.rightMain}>
-                    {queueSettings.settings.visibility.twitchChat ? <TwitchChat {...data} /> : <HiddenSlot />}
-                    {queueSettings.settings.visibility.systemStatus ? <SystemStatus {...data} /> : <HiddenSlot />}
-                </div>
+                        )}
+                        {visibility.recentGames && <RecentGames {...data} />}
+                    </div>}
+                </div>}
+                {visibility.twitchChat && <div className={styles.rightMain}><TwitchChat {...data} /></div>}
             </div>
             <footer className={styles.sceneFooter}>
                 <span>{`${data.steamConnected ? "STEAM CONNECTED" : "STEAM OFFLINE"} // ${data.matches.length} MATCHES LOADED`}</span>

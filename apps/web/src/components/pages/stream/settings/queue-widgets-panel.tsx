@@ -1,24 +1,27 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { Button, Input, Switch, message } from "antd";
+import { useEffect, useMemo, useState } from "react";
+import { Button, Input, InputNumber, Select, Switch, Upload, message } from "antd";
 import { DOTA_HEROES } from "@/entities/dota-hero/model/heroes";
 import type { DotaHeroAttribute } from "@/entities/dota-hero/model/attributes";
 import { useQueueSettings } from "@/entities/stream-queue-settings/lib/use-queue-settings";
-import type { QueueWidgetId } from "@/entities/stream-queue-settings/model/types";
+import type {
+    QueueChannelGoal,
+    QueueWidgetId,
+} from "@/entities/stream-queue-settings/model/types";
+import { queueWebcamImageApi } from "@/entities/stream-queue-settings/api/queue-webcam-image";
 import styles from "./queue-widgets-panel.module.scss";
 
-const LABELS: Record<QueueWidgetId, string> = {
-    playerProfile: "Профиль и статистика",
-    streamProfile: "Канал и трансляция",
-    featuredMatch: "Последний матч",
-    webcam: "Область веб-камеры",
-    favoriteHeroes: "Любимые герои",
-    recentGames: "Последние игры",
-    twitchChat: "Twitch-чат",
-    systemStatus: "Статусы интеграций",
-};
+const WIDGETS: Array<{ id: QueueWidgetId; label: string }> = [
+    { id: "playerProfile", label: "Профиль и статистика" },
+    { id: "streamProfile", label: "Канал и трансляция" },
+    { id: "featuredMatch", label: "Последний матч" },
+    { id: "webcam", label: "Область веб-камеры" },
+    { id: "favoriteHeroes", label: "Любимые герои" },
+    { id: "recentGames", label: "Последние игры" },
+    { id: "twitchChat", label: "Twitch-чат" },
+];
 
 const ATTRIBUTES: Array<{
     id: DotaHeroAttribute;
@@ -47,10 +50,23 @@ const ATTRIBUTES: Array<{
     },
 ];
 
-export const QueueWidgetsPanel = () => {
+export const QueueWidgetsPanel = ({
+    currentRating,
+}: {
+    currentRating: number | null;
+}) => {
     const { settings, loading, save } = useQueueSettings();
     const [messageApi, contextHolder] = message.useMessage();
     const [heroQuery, setHeroQuery] = useState("");
+    const [goalDraft, setGoalDraft] = useState<QueueChannelGoal>(
+        settings.channelGoal
+    );
+    const [savingGoal, setSavingGoal] = useState(false);
+    const [uploadingImage, setUploadingImage] = useState(false);
+
+    useEffect(() => {
+        setGoalDraft(settings.channelGoal);
+    }, [settings.channelGoal]);
     const filteredHeroes = useMemo(() => {
         const query = heroQuery.trim().toLocaleLowerCase();
         return query
@@ -87,6 +103,45 @@ export const QueueWidgetsPanel = () => {
         }
     };
 
+    const saveGoal = async () => {
+        setSavingGoal(true);
+        try {
+            await save({ ...settings, channelGoal: goalDraft });
+            messageApi.success("Цель трансляции сохранена");
+        } catch {
+            messageApi.error("Не удалось сохранить цель трансляции");
+        } finally {
+            setSavingGoal(false);
+        }
+    };
+
+    const uploadWebcamImage = async (file: File) => {
+        setUploadingImage(true);
+        try {
+            const uploaded = await queueWebcamImageApi.upload(file);
+            await save(uploaded);
+            messageApi.success("Изображение для области веб-камеры сохранено");
+        } catch {
+            messageApi.error("Не удалось загрузить изображение");
+        } finally {
+            setUploadingImage(false);
+        }
+        return false;
+    };
+
+    const removeWebcamImage = async () => {
+        setUploadingImage(true);
+        try {
+            await queueWebcamImageApi.remove();
+            await save({ ...settings, webcamImageUrl: null });
+            messageApi.success("Изображение удалено");
+        } catch {
+            messageApi.error("Не удалось удалить изображение");
+        } finally {
+            setUploadingImage(false);
+        }
+    };
+
     return (
         <section className={styles.section}>
             {contextHolder}
@@ -98,9 +153,9 @@ export const QueueWidgetsPanel = () => {
                 <Link href="/stream/queue"><Button>Открыть Queue</Button></Link>
             </div>
             <div className={styles.grid} aria-busy={loading}>
-                {(Object.keys(LABELS) as QueueWidgetId[]).map((id) => (
+                {WIDGETS.map(({ id, label }) => (
                     <label key={id} className={styles.row}>
-                        <span>{LABELS[id]}</span>
+                        <span>{label}</span>
                         <Switch
                             checked={settings.visibility[id]}
                             disabled={loading}
@@ -108,6 +163,120 @@ export const QueueWidgetsPanel = () => {
                         />
                     </label>
                 ))}
+            </div>
+            <div className={styles.queueOptions}>
+                <section className={styles.optionCard}>
+                    <div>
+                        <strong>Изображение области веб-камеры</strong>
+                        <span>Фотография или заставка, если видеосигнал не используется.</span>
+                    </div>
+                    {settings.webcamImageUrl && (
+                        <img
+                            className={styles.webcamPreview}
+                            src={settings.webcamImageUrl}
+                            alt="Предпросмотр области веб-камеры"
+                        />
+                    )}
+                    <div className={styles.optionActions}>
+                        <Upload
+                            accept="image/jpeg,image/png,image/webp"
+                            showUploadList={false}
+                            beforeUpload={(file) => {
+                                void uploadWebcamImage(file);
+                                return false;
+                            }}
+                        >
+                            <Button loading={uploadingImage}>Выбрать изображение</Button>
+                        </Upload>
+                        {settings.webcamImageUrl && (
+                            <Button
+                                danger
+                                type="text"
+                                loading={uploadingImage}
+                                onClick={() => void removeWebcamImage()}
+                            >
+                                Удалить
+                            </Button>
+                        )}
+                    </div>
+                </section>
+                <section className={styles.optionCard}>
+                    <div>
+                        <strong>Цель канала и трансляции</strong>
+                        <span>Twitch заполняет данные канала. Цель можно связать с рейтингом или указать вручную.</span>
+                    </div>
+                    <div className={styles.goalEditor}>
+                        <Select
+                            value={goalDraft.type}
+                            options={[
+                                { value: "none", label: "Без цели" },
+                                { value: "rating", label: "Цель по рейтингу" },
+                                { value: "custom", label: "Своя цель" },
+                            ]}
+                            onChange={(type: QueueChannelGoal["type"]) => {
+                                const startValue =
+                                    type === "rating"
+                                        ? currentRating ?? 0
+                                        : goalDraft.startValue;
+                                setGoalDraft({
+                                    ...goalDraft,
+                                    type,
+                                    startValue,
+                                    targetValue:
+                                        type === "rating"
+                                            ? startValue + 300
+                                            : goalDraft.targetValue,
+                                    label:
+                                        type === "rating"
+                                            ? "RATING GOAL"
+                                            : goalDraft.label,
+                                });
+                            }}
+                        />
+                        {goalDraft.type !== "none" && (
+                            <>
+                                <Input
+                                    value={goalDraft.label}
+                                    maxLength={48}
+                                    placeholder="Название цели"
+                                    onChange={(event) =>
+                                        setGoalDraft({
+                                            ...goalDraft,
+                                            label: event.target.value,
+                                        })
+                                    }
+                                />
+                                <InputNumber
+                                    value={goalDraft.startValue}
+                                    placeholder="Старт"
+                                    onChange={(value) =>
+                                        setGoalDraft({
+                                            ...goalDraft,
+                                            startValue: Number(value ?? 0),
+                                        })
+                                    }
+                                />
+                                <InputNumber
+                                    value={goalDraft.targetValue}
+                                    placeholder="Цель"
+                                    onChange={(value) =>
+                                        setGoalDraft({
+                                            ...goalDraft,
+                                            targetValue: Number(value ?? 0),
+                                        })
+                                    }
+                                />
+                            </>
+                        )}
+                        <Button
+                            type="primary"
+                            loading={savingGoal}
+                            onClick={() => void saveGoal()}
+                        >
+                            Сохранить цель
+                        </Button>
+                    </div>
+                </section>
             </div>
             <div className={styles.heroPicker}>
                 <div className={styles.heroPickerHeader}>

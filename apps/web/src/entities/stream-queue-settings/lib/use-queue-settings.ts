@@ -25,6 +25,11 @@ export const useQueueSettings = () => {
                             ...value.visibility,
                         },
                         favoriteHeroIds: value.favoriteHeroIds ?? [],
+                        webcamImageUrl: value.webcamImageUrl ?? null,
+                        channelGoal: {
+                            ...DEFAULT_QUEUE_SETTINGS.channelGoal,
+                            ...value.channelGoal,
+                        },
                     });
                 }
             })
@@ -45,6 +50,11 @@ export const useQueueSettings = () => {
                 ...DEFAULT_QUEUE_SETTINGS,
                 ...saved,
                 favoriteHeroIds: saved.favoriteHeroIds ?? [],
+                webcamImageUrl: saved.webcamImageUrl ?? null,
+                channelGoal: {
+                    ...DEFAULT_QUEUE_SETTINGS.channelGoal,
+                    ...saved.channelGoal,
+                },
             };
             setSettings(normalized);
             return normalized;

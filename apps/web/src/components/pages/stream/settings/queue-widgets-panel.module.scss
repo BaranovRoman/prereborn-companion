@@ -44,6 +44,68 @@
     box-shadow: inset 0 0 0 1px #2a3031;
 }
 
+.queueOptions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin-top: 14px;
+}
+
+.optionCard {
+    display: grid;
+    align-content: start;
+    gap: 12px;
+    min-width: 0;
+    padding: 14px;
+    border: 1px solid #070909;
+    background:
+        linear-gradient(135deg, rgba(123, 53, 50, .1), transparent 45%),
+        #0d1112;
+    box-shadow: inset 0 0 0 1px #2a3031;
+}
+
+.optionCard > div:first-child {
+    display: grid;
+    gap: 4px;
+}
+
+.optionCard strong {
+    color: #cbc7be;
+    font-family: var(--font-title);
+    font-size: 14px;
+    font-weight: 400;
+}
+
+.optionCard span {
+    color: var(--ui-text-soft);
+    font-size: 12px;
+}
+
+.webcamPreview {
+    width: 100%;
+    max-height: 190px;
+    border: 1px solid #3b4242;
+    object-fit: cover;
+}
+
+.optionActions,
+.goalEditor {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.goalEditor > :global(.ant-select) {
+    min-width: 180px;
+}
+
+.goalEditor > :global(.ant-input),
+.goalEditor > :global(.ant-input-number) {
+    min-width: 150px;
+    flex: 1 1 150px;
+}
+
 .heroPicker {
     margin-top: 14px;
     padding-top: 14px;
@@ -218,6 +280,10 @@
 }
 
 @media (max-width: 720px) {
+    .queueOptions {
+        grid-template-columns: 1fr;
+    }
+
     .heroPickerHeader {
         align-items: stretch;
         flex-direction: column;

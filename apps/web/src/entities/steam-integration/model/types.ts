@@ -13,6 +13,11 @@ export interface SteamIntegrationStatus {
     connectedAt?: string;
     lastSyncedAt?: string | null;
     lastSyncStatus?: DotaSyncStatus | null;
+    profile?: {
+        displayName: string;
+        avatarUrl: string | null;
+        profileUrl: string | null;
+    } | null;
 }
 
 export interface DotaSyncResult {

@@ -340,11 +340,6 @@
         0 8px 20px rgba(0, 0, 0, .48);
 }
 
-.hiddenSlot {
-    visibility: hidden;
-    pointer-events: none;
-}
-
 .twitchAvatarImage {
     width: 52px;
     height: 52px;
@@ -472,6 +467,13 @@
     gap: 10px;
 }
 
+.dashboard[data-top-count="0"] { grid-template-rows: minmax(0, 1fr); }
+.dashboard[data-top-count="1"] > .panel { grid-column: 1 / -1; }
+.dashboard[data-top-count="1"] > .leftMain,
+.dashboard[data-top-count="1"] > .rightMain { grid-row: 2; }
+.dashboard[data-top-count="0"] > .leftMain,
+.dashboard[data-top-count="0"] > .rightMain { grid-row: 1; }
+
 .panel {
     min-height: 0;
     overflow: hidden;
@@ -532,7 +534,14 @@
     box-shadow: inset 0 0 0 4px #0c0f10;
 }
 
-.avatar { width: 66px; height: 66px; font-size: 19px; }
+.avatar,
+.avatarImage { width: 66px; height: 66px; }
+.avatar { font-size: 19px; }
+.avatarImage {
+    border: 1px solid #4a5151;
+    box-shadow: inset 0 0 0 4px #0c0f10;
+    object-fit: cover;
+}
 .playerIdentity { display: flex; flex-direction: column; gap: 4px; }
 .playerIdentity strong { color: #d5d1c9; font-family: var(--font-title); font-size: 24px; font-weight: 400; letter-spacing: .1em; }
 .playerIdentity > span:last-child { color: #91938e; font-size: 12px; }
@@ -585,12 +594,20 @@
     gap: 10px;
 }
 
+.leftMain[data-featured="false"] { grid-template-columns: 1fr; }
+.leftMain[data-featured="false"] .sideStack { background: transparent; }
+
 .sideStack {
     min-height: 0;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 10px;
     background: #080b0c;
+}
+
+.sideStack[data-widget-count="1"] > .panel {
+    width: min(100%, 620px);
+    align-self: start;
 }
 
 .recentGames {
@@ -811,6 +828,8 @@
     letter-spacing: .2em;
 }
 .webcam small { margin-top: 6px; color: #5f6461; font-family: var(--font-ui); font-size: 8px; letter-spacing: .15em; }
+.webcam[data-has-image="true"] { overflow: hidden; background: #080a0b; }
+.webcam img { width: 100%; height: 100%; display: block; object-fit: cover; }
 
 .favoriteList {
     display: grid;
@@ -890,7 +909,8 @@
 .gameHeroImage { width: 30px; height: 30px; }
 
 .favoriteCaption {
-    display: flex;
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
     min-height: 39px;
     flex-direction: column;
     align-items: center;
@@ -918,6 +938,7 @@
     justify-content: flex-start;
     padding: 0 10px 7px;
 }
+.attributeIcon { width: 14px; height: 14px; object-fit: contain; }
 
 .gamesList::after {
     content: "MATCH ARCHIVE // SESSION RECORD";
@@ -935,7 +956,7 @@
     z-index: 1;
     flex: 0 0 46px;
     display: grid;
-    grid-template-columns: 36px 1fr 24px 38px;
+    grid-template-columns: 52px minmax(110px, 1fr) 58px 48px 94px;
     align-items: center;
     gap: 7px;
     border-bottom: 1px solid #2a3030;
@@ -943,8 +964,11 @@
 .gameMark { width: 30px; height: 30px; font-size: 10px; }
 .gameRow div { display: flex; flex-direction: column; }
 .gameRow em { color: #9eb17f; font-size: 10px; font-style: normal; }
-.gameRow em[data-result="L"] { color: #bd655e; }
+.gameRow em[data-result="DEFEAT"],
+.gameRow em[data-result="ABANDON"] { color: #bd655e; }
 .gameRow > strong { color: #918f89; font-family: var(--font-title); font-size: 10px; font-weight: 400; text-align: right; }
+.gameRow > strong[data-positive="true"] { color: #9eb17f; }
+.gameRow time { color: #747976; font-size: 9px; text-align: right; }
 .panelEmpty {
     height: 100%;
     display: grid;
@@ -958,7 +982,7 @@
 .rightMain {
     min-height: 0;
     display: grid;
-    grid-template-rows: minmax(0, 1fr) 166px;
+    grid-template-rows: minmax(0, 1fr);
     gap: 10px;
 }
 

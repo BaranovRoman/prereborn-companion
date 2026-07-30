@@ -13,11 +13,24 @@ export const queueWidgetIdSchema = z.enum([
 ]);
 
 const visibilitySchema = z.record(queueWidgetIdSchema, z.boolean());
+const channelGoalSchema = z.object({
+    type: z.enum(["none", "rating", "custom"]),
+    label: z.string().trim().max(48),
+    startValue: z.number().finite(),
+    targetValue: z.number().finite(),
+});
 
 export const queueSettingsSchema = z.object({
     version: z.literal(1),
     visibility: visibilitySchema,
     favoriteHeroIds: z.array(z.number().int().positive()).max(3).default([]),
+    webcamImageUrl: z.string().max(512).nullable().default(null),
+    channelGoal: channelGoalSchema.default({
+        type: "none",
+        label: "",
+        startValue: 0,
+        targetValue: 0,
+    }),
 });
 
 export type QueueSettings = z.infer<typeof queueSettingsSchema>;
@@ -32,9 +45,16 @@ export const DEFAULT_QUEUE_SETTINGS: QueueSettings = {
         favoriteHeroes: true,
         recentGames: true,
         twitchChat: true,
-        systemStatus: true,
+        systemStatus: false,
     },
     favoriteHeroIds: [],
+    webcamImageUrl: null,
+    channelGoal: {
+        type: "none",
+        label: "",
+        startValue: 0,
+        targetValue: 0,
+    },
 };
 
 export class InvalidQueueSettingsError extends Error {}
@@ -43,6 +63,8 @@ const queueSettingsInputSchema = z.object({
     version: z.literal(1).optional(),
     visibility: z.record(z.string(), z.boolean()).optional(),
     favoriteHeroIds: z.array(z.number().int().positive()).max(3).optional(),
+    webcamImageUrl: z.string().max(512).nullable().optional(),
+    channelGoal: channelGoalSchema.optional(),
 });
 
 export const getQueueSettings = async (streamUserId: string): Promise<QueueSettings> => {
@@ -71,6 +93,12 @@ export const saveQueueSettings = async (
         },
         favoriteHeroIds:
             parsed.data.favoriteHeroIds ?? current.favoriteHeroIds,
+        webcamImageUrl:
+            parsed.data.webcamImageUrl === undefined
+                ? current.webcamImageUrl
+                : parsed.data.webcamImageUrl,
+        channelGoal:
+            parsed.data.channelGoal ?? current.channelGoal,
     });
     await pool.query(
         `INSERT INTO stream_queue_settings (stream_user_id, settings)

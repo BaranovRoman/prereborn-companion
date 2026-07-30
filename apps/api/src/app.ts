@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import path from "path";
 import { streamAuthRouter } from "./routes/stream/auth.js";
 import { streamAccountRouter } from "./routes/stream/account.js";
 import { streamOverlayRouter } from "./routes/stream/overlay.js";
@@ -15,6 +16,7 @@ import { pool } from "./db/client.js";
 export const app = express();
 app.set("trust proxy", 1);
 app.use(requestId, securityHeaders, cors(corsOptions), express.json({ limit: "1mb" }), requestLogger);
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 app.use("/api/stream/auth", streamAuthRouter);
 app.use("/api/stream/account", streamAccountRouter);
 app.use("/api/stream/overlay", streamOverlayRouter);
@@ -29,4 +31,3 @@ app.get("/api/health", async (_req, res) => {
   }
 });
 app.use(notFoundHandler, errorHandler);
-

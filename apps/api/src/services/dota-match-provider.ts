@@ -28,8 +28,19 @@ export type DotaMatchProviderResult =
     | { status: "rate_limited" }
     | { status: "unavailable" };
 
+export interface DotaPlayerProfile {
+    displayName: string;
+    avatarUrl: string | null;
+    profileUrl: string | null;
+}
+
+export type DotaPlayerProfileResult =
+    | { status: "ok"; profile: DotaPlayerProfile }
+    | { status: "not_found" | "rate_limited" | "unavailable" };
+
 export interface DotaMatchProvider {
     getRecentMatches(accountId: number): Promise<DotaMatchProviderResult>;
+    getPlayerProfile(accountId: number): Promise<DotaPlayerProfileResult>;
 }
 
 const OPENDOTA_BASE_URL = "https://api.opendota.com/api";
@@ -58,6 +69,21 @@ const isOpenDotaMatch = (value: unknown): value is OpenDotaRecentMatch => {
         typeof match.hero_id === "number" &&
         typeof match.start_time === "number"
     );
+};
+
+const parseOpenDotaProfile = (value: unknown): DotaPlayerProfile | null => {
+    if (!value || typeof value !== "object") return null;
+    const profile = (value as Record<string, unknown>).profile;
+    if (!profile || typeof profile !== "object") return null;
+    const data = profile as Record<string, unknown>;
+    if (typeof data.personaname !== "string" || !data.personaname.trim()) {
+        return null;
+    }
+    return {
+        displayName: data.personaname.trim(),
+        avatarUrl: typeof data.avatarfull === "string" ? data.avatarfull : null,
+        profileUrl: typeof data.profileurl === "string" ? data.profileurl : null,
+    };
 };
 
 // player_slot < 128 - игрок на стороне Radiant (0-127), иначе Dire (128-255).
@@ -109,6 +135,30 @@ export const openDotaMatchProvider: DotaMatchProvider = {
                 }));
 
             return { status: "ok", matches };
+        } catch {
+            return { status: "unavailable" };
+        } finally {
+            clearTimeout(timeout);
+        }
+    },
+    async getPlayerProfile(accountId: number): Promise<DotaPlayerProfileResult> {
+        const url = new URL(`${OPENDOTA_BASE_URL}/players/${accountId}`);
+        if (env.openDotaApiKey) {
+            url.searchParams.set("api_key", env.openDotaApiKey);
+        }
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        try {
+            const response = await fetch(url, { signal: controller.signal });
+            if (response.status === 404) return { status: "not_found" };
+            if (response.status === 429) return { status: "rate_limited" };
+            if (!response.ok) return { status: "unavailable" };
+            const raw = await response.text();
+            if (raw.length > MAX_RESPONSE_BYTES) return { status: "unavailable" };
+            const profile = parseOpenDotaProfile(JSON.parse(raw) as unknown);
+            return profile
+                ? { status: "ok", profile }
+                : { status: "not_found" };
         } catch {
             return { status: "unavailable" };
         } finally {
