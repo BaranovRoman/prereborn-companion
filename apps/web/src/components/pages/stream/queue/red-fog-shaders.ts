@@ -110,6 +110,112 @@ float fbmMicro(vec2 p) {
     return clamp(value, 0.0, 1.0);
 }
 
+vec2 emberLayer(
+    vec2 uv,
+    float time,
+    float scale,
+    float riseSpeed,
+    float occupancy,
+    float layerSeed
+) {
+    float aspect = uResolution.x / uResolution.y;
+    vec2 emberSpace = vec2((uv.x - 0.5) * aspect, uv.y);
+
+    float windPhase =
+        emberSpace.y * 7.0 +
+        time * (0.26 + riseSpeed * 0.18) +
+        layerSeed;
+    emberSpace.x +=
+        sin(windPhase) * 0.011 +
+        sin(windPhase * 0.47 + 1.9) * 0.006;
+
+    vec2 gridPosition = emberSpace * scale;
+    gridPosition.y -= time * riseSpeed;
+    vec2 cell = floor(gridPosition);
+    vec2 localPosition = fract(gridPosition);
+
+    float presence = hash21(
+        cell + vec2(layerSeed, layerSeed * 1.73)
+    );
+    float presenceMask = smoothstep(
+        1.0 - occupancy,
+        1.0 - occupancy * 0.32,
+        presence
+    );
+
+    vec2 anchor = vec2(
+        0.24 +
+            hash21(cell + vec2(layerSeed * 2.31, 19.17)) * 0.52,
+        0.34 +
+            hash21(cell + vec2(41.73, layerSeed * 0.83)) * 0.40
+    );
+    vec2 delta = localPosition - anchor;
+
+    float shapeSeed = hash21(
+        cell + vec2(layerSeed * 0.41, 73.91)
+    );
+    float tailLength = mix(0.13, 0.31, shapeSeed);
+    float tailProgress = clamp(-delta.y / tailLength, 0.0, 1.0);
+    float tailCurve =
+        sin(cell.y * 0.73 + layerSeed) *
+        0.032 *
+        tailProgress *
+        tailProgress;
+    float tailWidth = mix(0.034, 0.010, tailProgress);
+    float tailBand =
+        smoothstep(-tailLength, -tailLength * 0.72, delta.y) *
+        (1.0 - smoothstep(-0.006, 0.026, delta.y));
+    float trail =
+        (1.0 - smoothstep(
+            tailWidth,
+            tailWidth + 0.018,
+            abs(delta.x - tailCurve)
+        )) *
+        tailBand *
+        pow(1.0 - tailProgress, 0.72);
+
+    float headStretch = mix(0.82, 1.28, shapeSeed);
+    vec2 headPosition = vec2(
+        delta.x * 1.32,
+        delta.y * headStretch
+    );
+    float headDistance = length(headPosition);
+    float core = 1.0 - smoothstep(0.016, 0.055, headDistance);
+    float aura = exp(
+        -104.0 *
+        dot(
+            vec2(delta.x * 1.48, delta.y * 0.88),
+            vec2(delta.x * 1.48, delta.y * 0.88)
+        )
+    );
+
+    float altitudeFade =
+        smoothstep(0.015, 0.105, uv.y) *
+        (1.0 - smoothstep(0.66, 0.98, uv.y));
+    float sourceBias = mix(
+        1.0,
+        0.28,
+        smoothstep(0.16, 0.90, uv.y)
+    );
+    float flicker =
+        0.80 +
+        0.20 *
+        sin(
+            time * mix(4.2, 7.6, shapeSeed) +
+            presence * 19.0
+        );
+    float visibility =
+        presenceMask *
+        altitudeFade *
+        sourceBias *
+        flicker;
+
+    return vec2(
+        (aura * 0.30 + trail * 0.58) * visibility,
+        core * visibility
+    );
+}
+
 void main() {
     vec2 uv = gl_FragCoord.xy / uResolution;
     vec2 p = (gl_FragCoord.xy - 0.5 * uResolution) / uResolution.y;
@@ -358,6 +464,43 @@ void main() {
         color,
         clamp(0.70 * redIntensity, 0.0, 1.0)
     );
+
+    vec2 embers = emberLayer(
+        uv,
+        time,
+        10.0,
+        0.44,
+        0.072,
+        17.1
+    );
+    embers +=
+        emberLayer(
+            uv,
+            time,
+            14.0,
+            0.62,
+            0.050,
+            83.4
+        ) *
+        mix(0.58, 1.0, uQuality);
+    embers +=
+        emberLayer(
+            uv,
+            time,
+            7.5,
+            0.29,
+            0.068,
+            147.2
+        ) *
+        uQuality *
+        0.78;
+
+    color +=
+        vec3(1.24, 0.16, 0.022) *
+        min(embers.x, 1.35);
+    color +=
+        vec3(1.42, 0.54, 0.12) *
+        min(embers.y, 1.0);
 
     outColor = vec4(color, 1.0);
 }
