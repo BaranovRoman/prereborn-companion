@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { fetchOverlayData } from "../api/overlay-client";
 import type { OverlayData } from "../model/types";
 
-const POLL_INTERVAL_MS = 5000;
+const POLL_INTERVAL_MS = 1500;
 
 // Следующий опрос планируется только после того, как предыдущий fetch
 // полностью завершился (setTimeout, а не setInterval) - параллельные

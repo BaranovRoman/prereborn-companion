@@ -70,6 +70,36 @@ const Panel = ({
     </section>
 );
 
+const PreloadedVideo = ({
+    src,
+    poster,
+    className,
+}: {
+    src: string;
+    poster: string;
+    className: string;
+}) => {
+    const [ready, setReady] = useState(false);
+
+    return (
+        <video
+            className={className}
+            src={src}
+            poster={poster}
+            preload="auto"
+            autoPlay
+            loop
+            muted
+            playsInline
+            onCanPlay={() => setReady(true)}
+            style={{
+                opacity: ready ? 1 : 0,
+                transition: "opacity 180ms ease",
+            }}
+        />
+    );
+};
+
 interface QueueDataProps {
     email: string | null;
     gameMode: "ranked" | "unranked" | null;
@@ -78,7 +108,6 @@ interface QueueDataProps {
     losses: number;
     matches: StreamMatch[];
     companionOnline: boolean;
-    companionPayload: unknown | null;
     steamConnected: boolean;
     steamId: string | undefined;
     steamSyncStatus: string | null | undefined;
@@ -102,17 +131,11 @@ const MANTLE_PLACEHOLDER: GsiItem = {
     imageUrl: "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/mantle.png",
 };
 
-const getMatchItems = (payload: unknown): Array<GsiItem | null> => {
-    if (!payload || typeof payload !== "object") return [];
-    const items = (payload as Record<string, unknown>).items;
-    if (!items || typeof items !== "object") return [];
-
-    const slots = items as Record<string, unknown>;
+const getMatchItems = (inventory: Array<string | null> | undefined): Array<GsiItem | null> => {
+    if (!inventory) return [];
     return Array.from({ length: INVENTORY_SLOT_COUNT }, (_, index) => {
-        const value = slots[`slot${index}`];
-        if (!value || typeof value !== "object") return null;
-        const name = (value as Record<string, unknown>).name;
-        if (typeof name !== "string" || !name.startsWith("item_") || name === "item_empty") return null;
+        const name = inventory[index];
+        if (!name || !name.startsWith("item_") || name === "item_empty") return null;
         const assetName = name.slice("item_".length);
         return {
             name,
@@ -155,10 +178,10 @@ const PlayerProfile = ({
     );
 };
 
-const FeaturedMatch = ({ matches, companionPayload }: QueueDataProps) => {
+const FeaturedMatch = ({ matches }: QueueDataProps) => {
     const match = matches[0];
     const hero = match ? getHeroById(match.heroId) : undefined;
-    const recordedItems = getMatchItems(companionPayload);
+    const recordedItems = getMatchItems(match?.inventory);
     const matchItems = recordedItems.some(Boolean)
         ? recordedItems
         : Array.from({ length: INVENTORY_SLOT_COUNT }, () => MANTLE_PLACEHOLDER);
@@ -180,14 +203,10 @@ const FeaturedMatch = ({ matches, companionPayload }: QueueDataProps) => {
         <Panel title="Last match // Featured hero" className={styles.featuredMatch}>
             <div className={styles.heroArt} aria-label={hero?.localizedName ?? "No match data"}>
                 {hero ? (
-                    <video
+                    <PreloadedVideo
                         className={styles.featuredHeroImage}
                         src={hero.videoUrl}
                         poster={hero.imageUrl}
-                        autoPlay
-                        loop
-                        muted
-                        playsInline
                     />
                 ) : (
                     <>
@@ -200,7 +219,7 @@ const FeaturedMatch = ({ matches, companionPayload }: QueueDataProps) => {
             <div className={styles.heroDetails}>
                 <span className={styles.overline}>
                     {match
-                        ? `MATCH ${match.id} // ${match.gameMode.toUpperCase()} // ${formatDate(match.endedAt)}`
+                        ? `MATCH ${match.dotaMatchId ?? "UNKNOWN"} // ${match.gameMode.toUpperCase()} // ${formatDate(match.endedAt)}`
                         : "MATCH DATA // WAITING"}
                 </span>
                 <div className={styles.heroNameRow}>
@@ -277,13 +296,10 @@ const FavoriteHeroes = ({
                         <div key={heroId} className={styles.favorite}>
                             <div className={styles.favoritePortrait}>
                                 {hero ? (
-                                    <video
+                                    <PreloadedVideo
                                         src={hero.videoUrl}
                                         poster={hero.imageUrl}
-                                        autoPlay
-                                        loop
-                                        muted
-                                        playsInline
+                                        className=""
                                     />
                                 ) : (
                                     <span>?</span>
@@ -457,11 +473,10 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
         losses: activeOverlay?.losses ?? 0,
         matches: realMatches,
         companionOnline: activeOverlay?.companion.isOnline ?? false,
-        companionPayload: activeOverlay?.companion.payload ?? null,
-        steamConnected: steam.status?.connected ?? false,
+        steamConnected: publicData?.steam.connected ?? steam.status?.connected ?? false,
         steamId: steam.status?.steamId64,
         steamSyncStatus: steam.status?.lastSyncStatus,
-        steamProfile: steam.status?.profile,
+        steamProfile: publicData?.steam.profile ?? steam.status?.profile,
         twitch: twitch.status,
         webcamImageUrl: activeSettings.webcamImageUrl,
         channelGoal: activeSettings.channelGoal,

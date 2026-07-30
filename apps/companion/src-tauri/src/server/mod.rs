@@ -70,6 +70,7 @@ fn handle_request(app: &AppHandle, mut request: tiny_http::Request) {
                 if let Some(parsed) = result.parsed {
                     inner.last_gsi_payload = Some(parsed);
                     inner.dirty = true;
+                    inner.payload_version = inner.payload_version.wrapping_add(1);
                 }
             }
 

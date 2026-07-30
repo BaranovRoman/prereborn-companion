@@ -397,6 +397,7 @@ export const createTables = async (): Promise<void> => {
         await client.query(`
       ALTER TABLE stream_matches ADD COLUMN IF NOT EXISTS player_team VARCHAR(10);
       ALTER TABLE stream_matches ADD COLUMN IF NOT EXISTS interrupted_at TIMESTAMP;
+      ALTER TABLE stream_matches ADD COLUMN IF NOT EXISTS inventory JSONB NOT NULL DEFAULT '[]'::jsonb;
     `);
 
         // finalize_reason(40) СЂРµР°Р»СЊРЅРѕ РїРµСЂРµРїРѕР»РЅСЏР»СЃСЏ: СЃРѕСЃС‚Р°РІРЅС‹Рµ РїСЂРёС‡РёРЅС‹ РІРёРґР°

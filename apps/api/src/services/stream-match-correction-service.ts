@@ -62,6 +62,7 @@ interface MatchRow {
     kills: number;
     deaths: number;
     assists: number;
+    inventory: unknown;
     result: MatchResult | null;
     rating_before: number | null;
     rating_delta: number | null;

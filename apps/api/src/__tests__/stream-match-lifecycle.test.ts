@@ -61,12 +61,14 @@ interface RawMatchRow {
     rating_after: number | null;
     finalized_at: Date | null;
     interrupted_at: Date | null;
+    inventory: Array<string | null>;
 }
 
 const getMatchRows = async (streamUserId: string): Promise<RawMatchRow[]> => {
     const result = await pool.query<RawMatchRow>(
         `SELECT id, match_id, match_key, stream_session_id, hero_id, player_team, result, state,
-                is_ranked, mode_source, confidence, rating_before, rating_delta, rating_after, finalized_at, interrupted_at
+                is_ranked, mode_source, confidence, rating_before, rating_delta, rating_after, finalized_at, interrupted_at,
+                inventory
          FROM stream_matches WHERE stream_user_id = $1 ORDER BY id ASC`,
         [streamUserId]
     );
@@ -115,19 +117,38 @@ describe("stream match lifecycle", () => {
         await processGsiPayloadForMatch(streamUserId, heroSelectionTick(1, "700000001"));
         await setSessionRating(streamUserId, 5000);
 
-        await processGsiPayloadForMatch(streamUserId, postGameTick(1, "win", { matchId: "700000001" }));
+        const finalInventory = [
+            "item_tranquil_boots",
+            "item_cyclone",
+            null,
+            "item_force_staff",
+        ];
+        await processGsiPayloadForMatch(
+            streamUserId,
+            postGameTick(1, "win", {
+                matchId: "700000001",
+                inventory: finalInventory,
+            })
+        );
         let rows = await getMatchRows(streamUserId);
         expect(rows).toHaveLength(1);
         expect(rows[0].state).toBe("post_game_pending");
         expect(rows[0].confidence).toBe("probable");
 
-        await processGsiPayloadForMatch(streamUserId, postGameTick(1, "win", { matchId: "700000001" }));
+        await processGsiPayloadForMatch(
+            streamUserId,
+            postGameTick(1, "win", {
+                matchId: "700000001",
+                inventory: finalInventory,
+            })
+        );
         rows = await getMatchRows(streamUserId);
         expect(rows).toHaveLength(1);
         expect(rows[0].state).toBe("finalized");
         expect(rows[0].confidence).toBe("confirmed");
         expect(rows[0].is_ranked).toBe(true);
         expect(rows[0].rating_delta).toBe(25);
+        expect(rows[0].inventory.slice(0, 4)).toEqual(finalInventory);
         expect(rows[0].rating_after).toBe(5025);
 
         const session = await getActiveSession(streamUserId);

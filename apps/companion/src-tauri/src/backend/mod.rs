@@ -5,7 +5,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::state::{AppState, COMPANION_VERSION, DEFAULT_BACKEND_URL};
 use crate::storage;
 
-const SEND_LOOP_INTERVAL: Duration = Duration::from_secs(1);
+const SEND_LOOP_INTERVAL: Duration = Duration::from_millis(500);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Loads a persisted companion token (if any) and starts the ~1/s background
@@ -29,13 +29,18 @@ pub fn init(app: AppHandle) {
 /// is what keeps Dota's multiple-updates-per-second GSI stream from turning
 /// into a flood of outbound requests.
 fn try_send_pending(app: &AppHandle) {
-    let (should_send, payload, token) = {
+    let (should_send, payload, token, payload_version) = {
         let state = app.state::<AppState>();
         let inner = state.0.lock().unwrap();
         if !inner.dirty || inner.companion_token.is_none() {
-            (false, None, None)
+            (false, None, None, 0)
         } else {
-            (true, inner.last_gsi_payload.clone(), inner.companion_token.clone())
+            (
+                true,
+                inner.last_gsi_payload.clone(),
+                inner.companion_token.clone(),
+                inner.payload_version,
+            )
         }
     };
 
@@ -49,7 +54,9 @@ fn try_send_pending(app: &AppHandle) {
         if result.is_ok() {
             let state = app.state::<AppState>();
             let mut inner = state.0.lock().unwrap();
-            inner.dirty = false;
+            if inner.payload_version == payload_version {
+                inner.dirty = false;
+            }
         }
     }
 }

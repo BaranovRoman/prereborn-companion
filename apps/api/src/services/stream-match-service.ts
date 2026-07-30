@@ -36,6 +36,7 @@ export interface StreamMatch {
     kills: number;
     deaths: number;
     assists: number;
+    inventory: Array<string | null>;
     result: MatchResult | null;
     ratingBefore: number | null;
     ratingDelta: number | null;
@@ -66,6 +67,7 @@ interface StreamMatchRow {
     kills: number;
     deaths: number;
     assists: number;
+    inventory: unknown;
     result: MatchResult | null;
     rating_before: number | null;
     rating_delta: number | null;
@@ -88,7 +90,7 @@ interface StreamMatchRow {
 }
 
 export const MATCH_COLUMNS =
-    "id, match_id, match_key, stream_session_id, hero_id, kills, deaths, assists, result, " +
+    "id, match_id, match_key, stream_session_id, hero_id, kills, deaths, assists, inventory, result, " +
     "rating_before, rating_delta, rating_after, result_source, rating_source, game_mode, " +
     "state, is_ranked, is_party, mode_source, outcome_source, confidence, post_game_detected_at, " +
     "started_at, ended_at, finalized_at, finalize_reason, corrected_at";
@@ -103,6 +105,11 @@ export const toStreamMatch = (row: StreamMatchRow): StreamMatch => ({
     kills: row.kills,
     deaths: row.deaths,
     assists: row.assists,
+    inventory: Array.isArray(row.inventory)
+        ? row.inventory
+              .slice(0, 9)
+              .map((item) => (typeof item === "string" ? item : null))
+        : [],
     result: row.result,
     ratingBefore: row.rating_before,
     ratingDelta: row.rating_delta,
@@ -211,6 +218,15 @@ const asString = (value: unknown): string | null =>
 const asNumber = (value: unknown): number | null =>
     typeof value === "number" && Number.isFinite(value) ? value : null;
 
+const extractInventory = (value: unknown): Array<string | null> => {
+    const items = asRecord(value);
+    return Array.from({ length: 9 }, (_, index) => {
+        const slot = items ? asRecord(items[`slot${index}`]) : null;
+        const name = slot ? asString(slot.name) : null;
+        return name && name.startsWith("item_") ? name : null;
+    });
+};
+
 const RATING_DEFAULT_STEP = 25;
 
 const isUniqueViolation = (error: unknown): boolean =>
@@ -313,7 +329,8 @@ const markInterrupted = async (matchRowId: number): Promise<void> => {
 const resumeMatch = async (
     matchRowId: number,
     matchId: string | null,
-    heroId: number
+    heroId: number,
+    inventory: Array<string | null>
 ): Promise<boolean> => {
     try {
         await pool.query(
@@ -321,9 +338,10 @@ const resumeMatch = async (
              SET state = CASE WHEN state = 'interrupted' THEN 'in_progress' ELSE state END,
                  interrupted_at = NULL,
                  match_id = COALESCE(match_id, $2),
-                 hero_id = $3
+                 hero_id = $3,
+                 inventory = $4::jsonb
              WHERE id = $1`,
-            [matchRowId, matchId, heroId]
+            [matchRowId, matchId, heroId, JSON.stringify(inventory)]
         );
         return true;
     } catch (error) {
@@ -340,6 +358,7 @@ const createMatch = async (params: {
     kills: number;
     deaths: number;
     assists: number;
+    inventory: Array<string | null>;
     startedAt: Date;
 }): Promise<void> => {
     const session = await getOrCreateActiveSession(params.streamUserId);
@@ -360,8 +379,8 @@ const createMatch = async (params: {
         await pool.query(
             `INSERT INTO stream_matches
                (stream_user_id, match_id, match_key, stream_session_id, hero_id, player_team,
-                kills, deaths, assists, state, confidence, is_ranked, mode_source, game_mode, started_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'in_progress', 'uncertain', $10, $11, $12, $13)
+                kills, deaths, assists, inventory, state, confidence, is_ranked, mode_source, game_mode, started_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, 'in_progress', 'uncertain', $11, $12, $13, $14)
              ON CONFLICT (stream_user_id, match_key) DO NOTHING`,
             [
                 params.streamUserId,
@@ -373,6 +392,7 @@ const createMatch = async (params: {
                 params.kills,
                 params.deaths,
                 params.assists,
+                JSON.stringify(params.inventory),
                 isRanked,
                 modeSource,
                 gameMode,
@@ -695,6 +715,7 @@ export const processGsiPayloadForMatch = async (
         const kills = asNumber(player!.kills) ?? 0;
         const deaths = asNumber(player!.deaths) ?? 0;
         const assists = asNumber(player!.assists) ?? 0;
+        const inventory = extractInventory(payload!.items);
 
         let active = await findActiveMatch(streamUserId);
 
@@ -739,7 +760,7 @@ export const processGsiPayloadForMatch = async (
                 await markNeedsReview(active.id, "superseded_by_new_match");
                 active = null;
             } else {
-                const resumed = await resumeMatch(active.id, matchId, heroId);
+                const resumed = await resumeMatch(active.id, matchId, heroId, inventory);
                 if (!resumed) {
                     await markNeedsReview(active.id, "match_id_conflict");
                     active = null;
@@ -775,6 +796,7 @@ export const processGsiPayloadForMatch = async (
                 kills,
                 deaths,
                 assists,
+                inventory,
                 startedAt: new Date(),
             });
             active = await findActiveMatch(streamUserId);

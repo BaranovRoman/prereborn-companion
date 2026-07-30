@@ -95,7 +95,7 @@ jobs:
             printf 'BACKEND_URL=http://127.0.0.1:5102\n'
             printf 'NEXT_PUBLIC_API_URL=/api\n'
             printf 'NEXT_PUBLIC_SITE_URL=https://prereborn.ru\n'
-            printf 'NEXT_PUBLIC_DOTA_COMPANION_DOWNLOAD_URL=https://github.com/BaranovRoman/prereborn-companion/releases/download/prereborn-v0.3.0/PreReborn.Companion_0.3.0_x64-setup.exe\n'
+            printf 'NEXT_PUBLIC_DOTA_COMPANION_DOWNLOAD_URL=https://github.com/BaranovRoman/prereborn-companion/releases/download/prereborn-v0.3.1/PreReborn.Companion_0.3.1_x64-setup.exe\n'
           } | \
             ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
               'umask 077; cat > /var/www/www-root/data/www/prereborn.ru/.env'

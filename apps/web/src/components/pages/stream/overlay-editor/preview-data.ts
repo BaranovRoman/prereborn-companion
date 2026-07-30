@@ -21,6 +21,8 @@ const minutesAgo = (minutes: number) =>
 export const PREVIEW_MATCHES: StreamMatch[] = [
     {
         id: "preview-1",
+        dotaMatchId: "8920415764",
+        inventory: [],
         heroId: 14,
         kills: 12,
         deaths: 6,
@@ -34,6 +36,8 @@ export const PREVIEW_MATCHES: StreamMatch[] = [
     },
     {
         id: "preview-2",
+        dotaMatchId: "8920415763",
+        inventory: [],
         heroId: 9,
         kills: 4,
         deaths: 9,
@@ -47,6 +51,8 @@ export const PREVIEW_MATCHES: StreamMatch[] = [
     },
     {
         id: "preview-3",
+        dotaMatchId: "8920415762",
+        inventory: [],
         heroId: 1,
         kills: 20,
         deaths: 2,
@@ -60,6 +66,8 @@ export const PREVIEW_MATCHES: StreamMatch[] = [
     },
     {
         id: "preview-4",
+        dotaMatchId: "8920415761",
+        inventory: [],
         heroId: 8,
         kills: 9,
         deaths: 5,
@@ -73,6 +81,8 @@ export const PREVIEW_MATCHES: StreamMatch[] = [
     },
     {
         id: "preview-5",
+        dotaMatchId: "8920415760",
+        inventory: [],
         heroId: 7,
         kills: 3,
         deaths: 8,
@@ -86,6 +96,8 @@ export const PREVIEW_MATCHES: StreamMatch[] = [
     },
     {
         id: "preview-6",
+        dotaMatchId: "8920415759",
+        inventory: [],
         heroId: 5,
         kills: 2,
         deaths: 3,
@@ -99,6 +111,8 @@ export const PREVIEW_MATCHES: StreamMatch[] = [
     },
     {
         id: "preview-7",
+        dotaMatchId: "8920415758",
+        inventory: [],
         heroId: 13,
         kills: 7,
         deaths: 7,
@@ -112,6 +126,8 @@ export const PREVIEW_MATCHES: StreamMatch[] = [
     },
     {
         id: "preview-8",
+        dotaMatchId: "8920415757",
+        inventory: [],
         heroId: 2,
         kills: 15,
         deaths: 4,

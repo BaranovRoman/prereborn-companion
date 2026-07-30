@@ -58,10 +58,12 @@ export type MatchState = "finalized" | "needs_review";
 
 export interface StreamMatch {
     id: string;
+    dotaMatchId: string | null;
     heroId: number;
     kills: number;
     deaths: number;
     assists: number;
+    inventory: Array<string | null>;
     // null - только у needs_review-матчей (см. AccountStreamMatch): спорный
     // исход, который GSI не смог уверенно определить, ещё не разрешён.
     result: MatchResult | null;
@@ -127,6 +129,14 @@ export interface OverlayData {
     // в stream-match-service.ts) - пусто, пока не завершился ни один матч.
     matches: StreamMatch[];
     companion: OverlayCompanionState;
+    steam: {
+        connected: boolean;
+        profile: {
+            displayName: string;
+            avatarUrl: string | null;
+            profileUrl: string | null;
+        } | null;
+    };
     // Раскладка виджетов - приходит в том же payload'е, что и остальные
     // данные (см. задачу: не заводить отдельный поллинг под layout).
     layout: OverlayLayout;

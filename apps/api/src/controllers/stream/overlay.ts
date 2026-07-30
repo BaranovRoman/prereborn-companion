@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
     findStreamUserIdByPublicToken,
     getStreamUserGameMode,
+    getSteamLink,
 } from "../../services/stream-user-service.js";
 import { getOrCreateActiveSession } from "../../services/stream-session-service.js";
 import { syncRecentMatches } from "../../services/dota-sync-service.js";
@@ -17,6 +18,7 @@ import {
     isCompanionOnline,
 } from "../../services/stream-companion-service.js";
 import { logger } from "../../utils/logger.js";
+import { getCachedSteamProfile } from "../../services/steam-profile-cache-service.js";
 
 const publicTokenSchema = z.string().uuid();
 
@@ -42,6 +44,10 @@ export const getOverlayController = async (req: Request, res: Response) => {
         const session = await getOrCreateActiveSession(streamUserId);
         const gameMode = await getStreamUserGameMode(streamUserId);
         const companionState = await getCompanionState(streamUserId);
+        const steamLink = await getSteamLink(streamUserId);
+        const steamProfile = steamLink
+            ? await getCachedSteamProfile(steamLink.dotaAccountId)
+            : null;
         // Последние завершённые матчи, распознанные из GSI (см.
         // services/stream-match-service.ts) - id/hero_id/K-D-A/result/endedAt
         // only, без внутреннего streamUserId/сырого GSI payload матча.
@@ -93,10 +99,12 @@ export const getOverlayController = async (req: Request, res: Response) => {
             gameMode,
             matches: matches.map((match) => ({
                 id: match.id,
+                dotaMatchId: match.matchId,
                 heroId: match.heroId,
                 kills: match.kills,
                 deaths: match.deaths,
                 assists: match.assists,
+                inventory: match.inventory,
                 result: match.result,
                 ratingBefore: match.ratingBefore,
                 ratingDelta: match.ratingDelta,
@@ -109,6 +117,10 @@ export const getOverlayController = async (req: Request, res: Response) => {
                 receivedAt: companionState?.receivedAt ?? null,
                 companionVersion: companionState?.companionVersion ?? null,
                 payload: companionState?.payload ?? null,
+            },
+            steam: {
+                connected: steamLink !== null,
+                profile: steamProfile,
             },
             layout,
             queueSettings,

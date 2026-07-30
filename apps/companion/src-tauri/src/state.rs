@@ -67,6 +67,10 @@ pub struct InnerState {
     // Resend всегда шлёт last_gsi_payload, даже если dirty=false).
     pub last_gsi_payload: Option<serde_json::Value>,
     pub dirty: bool,
+    // Monotonic generation of last_gsi_payload. The sender records the
+    // generation it started sending and only clears dirty if no newer GSI
+    // payload arrived while the HTTP request was in flight.
+    pub payload_version: u64,
 }
 
 pub struct AppState(pub Mutex<InnerState>);

@@ -20,6 +20,7 @@ export interface GsiFixtureOptions {
     kills?: number;
     deaths?: number;
     assists?: number;
+    inventory?: Array<string | null>;
 }
 
 export const buildGsiPayload = (opts: GsiFixtureOptions): Record<string, unknown> => ({
@@ -40,6 +41,12 @@ export const buildGsiPayload = (opts: GsiFixtureOptions): Record<string, unknown
     hero: {
         id: opts.heroId ?? 1,
     },
+    items: Object.fromEntries(
+        (opts.inventory ?? []).map((name, index) => [
+            `slot${index}`,
+            { name: name ?? "empty" },
+        ])
+    ),
 });
 
 export const heroSelectionTick = (
@@ -72,7 +79,7 @@ export const preGameTick = (
 
 export const inProgressTick = (
     heroId: number,
-    opts: { matchId?: string | null; teamName?: FixtureTeam; kills?: number; deaths?: number; assists?: number } = {}
+    opts: { matchId?: string | null; teamName?: FixtureTeam; kills?: number; deaths?: number; assists?: number; inventory?: Array<string | null> } = {}
 ) =>
     buildGsiPayload({
         gameState: "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS",
@@ -82,12 +89,13 @@ export const inProgressTick = (
         kills: opts.kills,
         deaths: opts.deaths,
         assists: opts.assists,
+        inventory: opts.inventory,
     });
 
 export const postGameTick = (
     heroId: number,
     result: "win" | "loss",
-    opts: { matchId?: string | null; teamName?: FixtureTeam; kills?: number; deaths?: number; assists?: number } = {}
+    opts: { matchId?: string | null; teamName?: FixtureTeam; kills?: number; deaths?: number; assists?: number; inventory?: Array<string | null> } = {}
 ) => {
     const teamName = opts.teamName ?? "radiant";
     const winTeam: FixtureTeam = result === "win" ? teamName : teamName === "radiant" ? "dire" : "radiant";
@@ -100,6 +108,7 @@ export const postGameTick = (
         kills: opts.kills ?? 5,
         deaths: opts.deaths ?? 3,
         assists: opts.assists ?? 7,
+        inventory: opts.inventory,
     });
 };
 
