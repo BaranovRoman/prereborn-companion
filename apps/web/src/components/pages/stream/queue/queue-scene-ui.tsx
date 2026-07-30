@@ -60,7 +60,7 @@ const Panel = ({
     className?: string;
     children: React.ReactNode;
 }) => (
-    <section className={`${styles.panel} ${className}`}>
+    <section className={`${styles.panel} ${className}`} aria-label={title}>
         <div className={styles.panelTitle}>
             <span>{title}</span>
         </div>
@@ -92,6 +92,7 @@ interface GsiItem {
 }
 
 const INVENTORY_SLOT_COUNT = 9;
+const MAIN_INVENTORY_SLOT_COUNT = 6;
 const MANTLE_PLACEHOLDER: GsiItem = {
     name: "item_mantle",
     displayName: "mantle of intelligence",
@@ -156,6 +157,19 @@ const FeaturedMatch = ({ matches, companionPayload }: QueueDataProps) => {
     const matchItems = recordedItems.some(Boolean)
         ? recordedItems
         : Array.from({ length: INVENTORY_SLOT_COUNT }, () => MANTLE_PLACEHOLDER);
+    const mainItems = matchItems.slice(0, MAIN_INVENTORY_SLOT_COUNT);
+    const backpackItems = matchItems.slice(MAIN_INVENTORY_SLOT_COUNT);
+
+    const renderItem = (item: GsiItem | null, index: number) => (
+        <span
+            key={index}
+            className={styles.item}
+            data-empty={item ? undefined : "true"}
+            title={item?.displayName}
+        >
+            {item ? <img src={item.imageUrl} alt={item.displayName} /> : null}
+        </span>
+    );
 
     return (
         <Panel title="Last match // Featured hero" className={styles.featuredMatch}>
@@ -203,17 +217,15 @@ const FeaturedMatch = ({ matches, companionPayload }: QueueDataProps) => {
                         </b>
                     </div>
                 </div>
-                <div className={styles.items} aria-label="Last recorded inventory">
-                    {matchItems.map((item, index) => (
-                        <span
-                            key={index}
-                            className={styles.item}
-                            data-empty={item ? undefined : "true"}
-                            title={item?.displayName}
-                        >
-                            {item ? <img src={item.imageUrl} alt={item.displayName} /> : null}
-                        </span>
-                    ))}
+                <div className={styles.inventory} aria-label="Last recorded inventory">
+                    <div className={styles.items} aria-label="Main inventory">
+                        {mainItems.map(renderItem)}
+                    </div>
+                    <div className={styles.backpackItems} aria-label="Backpack">
+                        {backpackItems.map((item, index) =>
+                            renderItem(item, index + MAIN_INVENTORY_SLOT_COUNT)
+                        )}
+                    </div>
                 </div>
             </div>
         </Panel>

@@ -62,6 +62,45 @@ test.describe("queue anti-stream-sniping scene", () => {
         });
     });
 
+    test("compact desktop layout fits 1440x783 and keeps inventory groups distinct", async ({
+        page,
+    }) => {
+        await page.setViewportSize({ width: 1440, height: 783 });
+        await page.goto("/stream/queue?quality=low&forceFallback=1");
+
+        for (const title of [
+            "Last match // Featured hero",
+            "Live capture",
+            "Favorite heroes",
+            "Recent games",
+            "Twitch chat",
+            "System // Live status",
+        ]) {
+            const panel = page.getByRole("region", { name: title });
+            await expect(panel).toBeVisible();
+            const bounds = await panel.boundingBox();
+            expect(bounds).not.toBeNull();
+            expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(783);
+        }
+
+        await expect(
+            page.getByLabel("Main inventory").locator("span")
+        ).toHaveCount(6);
+        await expect(page.getByLabel("Backpack").locator("span")).toHaveCount(3);
+
+        for (const testId of [
+            "queue-tree-far",
+            "queue-tree-distant-silhouette",
+            "queue-tree-middle",
+            "queue-tree-near",
+        ]) {
+            await expect(page.getByTestId(testId).locator("img")).toHaveAttribute(
+                "draggable",
+                "false"
+            );
+        }
+    });
+
     test("forceFallback keeps content and debug information visible", async ({
         page,
     }) => {

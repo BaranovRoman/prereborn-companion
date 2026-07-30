@@ -30,6 +30,7 @@ export const QueueTreeLayers = () => (
                 src="/generated/chatgpt/trees-2.png"
                 alt=""
                 fill
+                draggable={false}
                 priority
                 sizes="78vw"
             />
@@ -46,6 +47,7 @@ export const QueueTreeLayers = () => (
                     src={src}
                     alt=""
                     fill
+                    draggable={false}
                     priority
                     sizes="100vw"
                 />
