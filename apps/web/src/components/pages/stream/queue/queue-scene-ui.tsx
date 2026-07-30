@@ -484,12 +484,10 @@ const DonationTop = ({ donationAlerts }: QueueDataProps) => {
                                 />
                                 <p>
                                     <strong>{leader.username}</strong>
-                                    <small>{rankLabel}</small>
+                                    <small>
+                                        {new Intl.NumberFormat("ru-RU").format(leader.amount)} {leader.currency}
+                                    </small>
                                 </p>
-                                <b>
-                                    {new Intl.NumberFormat("ru-RU").format(leader.amount)}
-                                    <em>{leader.currency}</em>
-                                </b>
                             </div>
                         );
                     })}
