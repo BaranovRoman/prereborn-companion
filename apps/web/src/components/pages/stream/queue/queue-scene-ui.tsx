@@ -195,11 +195,13 @@ const PlayerProfile = ({
     return (
         <Panel title="Player record" className={styles.playerProfile}>
             <div className={styles.profileBody}>
-                {steamProfile?.avatarUrl ? (
-                    <img className={styles.avatarImage} src={steamProfile.avatarUrl} alt="" />
-                ) : (
-                    <div className={styles.avatar}>{initials}</div>
-                )}
+                <div className={styles.profileAvatarFrame}>
+                    {steamProfile?.avatarUrl ? (
+                        <img className={styles.avatarImage} src={steamProfile.avatarUrl} alt="" />
+                    ) : (
+                        <div className={styles.avatar}>{initials}</div>
+                    )}
+                </div>
                 <div className={styles.playerIdentity}>
                     <span className={styles.overline}>STEAM PLAYER</span>
                     <strong>{accountName.toUpperCase()}</strong>
