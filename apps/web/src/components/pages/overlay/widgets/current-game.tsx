@@ -65,7 +65,7 @@ export const CurrentGame = ({ lastHeroId }: CurrentGameProps) => {
                 >
                     <HeroVideo
                         key={hero.id}
-                        src={hero.videoUrl}
+                        src={hero.favoriteVideoUrl}
                         poster={hero.imageUrl}
                         title={hero.localizedName}
                     />

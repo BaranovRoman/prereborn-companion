@@ -6,5 +6,7 @@ export interface DotaHero {
     localizedName: string;
     imageUrl: string;
     videoUrl: string;
+    featuredVideoUrl: string;
+    favoriteVideoUrl: string;
     attribute: DotaHeroAttribute;
 }

@@ -218,7 +218,7 @@ const FeaturedMatch = ({ matches }: QueueDataProps) => {
                 {hero ? (
                     <PreloadedVideo
                         className={styles.featuredHeroImage}
-                        src={hero.videoUrl}
+                        src={hero.featuredVideoUrl}
                         poster={hero.imageUrl}
                     />
                 ) : (
@@ -310,15 +310,13 @@ const FavoriteHeroes = ({
                             <div className={styles.favoritePortrait}>
                                 {hero ? (
                                     <PreloadedVideo
-                                        src={hero.videoUrl}
+                                        src={hero.favoriteVideoUrl}
                                         poster={hero.imageUrl}
                                         className=""
                                     />
                                 ) : (
                                     <span>?</span>
                                 )}
-                            </div>
-                            <div className={styles.favoriteCaption}>
                                 {hero && (
                                     <img
                                         className={styles.attributeIcon}
@@ -326,6 +324,8 @@ const FavoriteHeroes = ({
                                         alt=""
                                     />
                                 )}
+                            </div>
+                            <div className={styles.favoriteCaption}>
                                 <b>{hero?.localizedName ?? `Hero ${heroId}`}</b>
                             </div>
                         </div>

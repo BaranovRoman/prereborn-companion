@@ -153,5 +153,7 @@ export const DOTA_HEROES: DotaHero[] = RAW_HEROES.map((hero) => ({
     ...hero,
     imageUrl: buildHeroImageUrl(hero.name),
     videoUrl: `/vendor/valve/video/heroes/${hero.name}.webm`,
+    featuredVideoUrl: `/vendor/valve/video/heroes-featured/${hero.name}.webm`,
+    favoriteVideoUrl: `/vendor/valve/video/heroes-favorite/${hero.name}.webm`,
     attribute: getHeroAttribute(hero.id),
 }));

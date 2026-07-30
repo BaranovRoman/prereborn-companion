@@ -910,7 +910,7 @@
 }
 
 .favoritePortrait video,
-.favoritePortrait img {
+.favoritePortrait .videoPosterLayer {
     position: absolute;
     inset: 0;
     width: 100%;
@@ -944,19 +944,17 @@
 }
 
 .gameHeroImage {
+    width: 46px;
+    aspect-ratio: 225 / 127;
     border: 1px solid #444a49;
     object-fit: cover;
     filter: saturate(.82) brightness(.86) contrast(1.04);
 }
-.gameHeroImage { width: 30px; height: 30px; }
 
 .favoriteCaption {
     display: grid;
-    grid-template-columns: 16px minmax(0, 1fr);
+    place-items: center;
     min-height: 39px;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
     padding: 3px;
     text-align: center;
 }
@@ -980,7 +978,19 @@
     justify-content: flex-start;
     padding: 0 10px 7px;
 }
-.attributeIcon { width: 14px; height: 14px; object-fit: contain; }
+.attributeIcon {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    z-index: 3;
+    width: 20px;
+    height: 20px;
+    padding: 3px;
+    border: 1px solid rgba(131, 142, 139, .55);
+    background: rgba(7, 10, 11, .8);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, .7);
+    object-fit: contain;
+}
 
 .gamesList::after {
     content: "MATCH ARCHIVE // SESSION RECORD";
@@ -1207,7 +1217,11 @@
         flex-basis: 38px;
     }
 
-    .gameHeroImage,
+    .gameHeroImage {
+        width: 38px;
+        height: auto;
+    }
+
     .gameMark {
         width: 23px;
         height: 23px;
