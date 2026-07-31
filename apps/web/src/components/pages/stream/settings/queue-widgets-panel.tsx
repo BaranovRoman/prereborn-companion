@@ -96,6 +96,24 @@ export const QueueWidgetsPanel = ({
         return () => window.clearTimeout(timeout);
     }, [heroQuery]);
 
+    useEffect(() => {
+        if (activeWidget !== "favoriteHeroes") return;
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.metaKey || event.ctrlKey || event.altKey) return;
+            if (event.key === "Backspace") {
+                event.preventDefault();
+                setHeroQuery((value) => value.slice(0, -1));
+                return;
+            }
+            if (/^\p{L}$/u.test(event.key)) {
+                event.preventDefault();
+                setHeroQuery((value) => `${value}${event.key}`.slice(0, 32));
+            }
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [activeWidget]);
+
     const openWidget = (id: ConfigurableWidgetId) => {
         setWidgetDraft(structuredClone(settings.widgets));
         setGoalDraft(settings.channelGoal);
@@ -201,7 +219,7 @@ export const QueueWidgetsPanel = ({
                 cancelText="Отмена"
                 confirmLoading={savingWidget}
                 destroyOnHidden
-                width={activeWidget === "favoriteHeroes" ? 1100 : 720}
+                width={activeWidget === "favoriteHeroes" ? "min(1500px, 96vw)" : 720}
             >
                 {activeWidget && widgetDraft && (
                     <div className={styles.widgetModal}>
@@ -374,14 +392,14 @@ export const QueueWidgetsPanel = ({
                                     </div>
                                     <div className={styles.heroPickerTools}>
                                         <span className={styles.selectionCount}>{settings.favoriteHeroIds.length} / 3</span>
-                                        <Input
-                                            allowClear
-                                            value={heroQuery}
-                                            placeholder="Имя или прозвище героя"
-                                            onChange={(event) => setHeroQuery(event.target.value)}
-                                        />
+                                        <span className={styles.keyboardHint}>Начните печатать для поиска</span>
                                     </div>
                                 </div>
+                                {heroQuery && (
+                                    <div className={styles.heroSearchOverlay} aria-live="polite">
+                                        {heroQuery.toLocaleUpperCase()}
+                                    </div>
+                                )}
                                 <div className={styles.attributeGrid} data-searching={Boolean(heroQuery.trim())}>
                                     {ATTRIBUTES.map((attribute) => (
                                         <section key={attribute.id} className={styles.attributeColumn} data-attribute={attribute.id}>

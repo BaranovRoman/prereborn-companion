@@ -149,7 +149,13 @@
     display: flex;
     gap: 10px;
     align-items: center;
-    width: min(340px, 100%);
+}
+
+.keyboardHint {
+    color: #747a76 !important;
+    font-size: 11px !important;
+    letter-spacing: .06em;
+    text-transform: uppercase;
 }
 
 .selectionCount {
@@ -162,7 +168,30 @@
 .attributeGrid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
+    gap: 18px;
+}
+
+.heroSearchOverlay {
+    position: fixed;
+    top: 14vh;
+    left: 50%;
+    z-index: 1200;
+    max-width: 88vw;
+    padding: 12px 28px 16px;
+    overflow: hidden;
+    border: 1px solid rgba(192, 107, 99, .72);
+    background: rgba(7, 10, 11, .88);
+    box-shadow: 0 10px 50px rgba(0, 0, 0, .72), 0 0 28px rgba(176, 83, 76, .28);
+    color: #eee8df;
+    font-family: var(--font-title);
+    font-size: clamp(42px, 7vw, 104px);
+    line-height: .95;
+    letter-spacing: .08em;
+    pointer-events: none;
+    text-overflow: ellipsis;
+    text-shadow: 0 2px 18px rgba(192, 107, 99, .5);
+    transform: translateX(-50%);
+    white-space: nowrap;
 }
 
 .attributeGrid[data-searching="true"] .heroTile:not([data-search-match="true"]):not([data-selected="true"]) {
@@ -203,7 +232,7 @@
 .heroGrid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 4px;
+    gap: 7px;
 }
 
 .heroTile {
@@ -234,7 +263,7 @@
         overflow: hidden;
         color: white;
         font-family: var(--font-ui);
-        font-size: 9px;
+        font-size: 11px;
         line-height: 1;
         text-overflow: ellipsis;
         text-shadow: 0 1px 3px black;
