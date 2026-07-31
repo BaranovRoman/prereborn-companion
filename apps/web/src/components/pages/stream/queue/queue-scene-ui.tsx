@@ -440,8 +440,8 @@ const StreamProfile = ({
     );
 };
 
-const TwitchChat = ({ twitch, title, limit }: QueueDataProps & { title: string; limit: number }) => {
-    const messages = (twitch?.chat.messages ?? []).slice(-limit);
+const TwitchChat = ({ twitch, title }: QueueDataProps & { title: string }) => {
+    const messages = twitch?.chat.messages ?? [];
     return (
         <Panel title={title} className={styles.chatPanel}>
             {twitch?.connected ? (
@@ -704,7 +704,6 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
                     <TwitchChat
                         {...data}
                         title={widgetSettings.titles.twitchChat}
-                        limit={widgetSettings.chatMessagesLimit}
                     />
                     <DonationTop
                         {...data}

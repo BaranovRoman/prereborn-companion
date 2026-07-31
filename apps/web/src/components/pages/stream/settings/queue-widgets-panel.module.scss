@@ -117,9 +117,7 @@
 }
 
 .heroPicker {
-    margin-top: 14px;
-    padding-top: 14px;
-    border-top: 1px solid #343a3b;
+    min-width: 0;
 }
 
 .heroPickerHeader {
@@ -165,6 +163,18 @@
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px;
+}
+
+.attributeGrid[data-searching="true"] .heroTile:not([data-search-match="true"]):not([data-selected="true"]) {
+    opacity: .13;
+    filter: grayscale(1) brightness(.35);
+}
+
+.attributeGrid[data-searching="true"] .heroTile[data-search-match="true"] {
+    border-color: #c06b63;
+    opacity: 1;
+    filter: none;
+    box-shadow: inset 0 0 0 1px #d17a71, 0 0 14px rgba(176, 83, 76, .55);
 }
 
 .attributeColumn {

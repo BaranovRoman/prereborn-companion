@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button, Checkbox, Input, InputNumber, Modal, Select, Upload, message } from "antd";
 import { DOTA_HEROES } from "@/entities/dota-hero/model/heroes";
 import type { DotaHeroAttribute } from "@/entities/dota-hero/model/attributes";
@@ -14,18 +14,23 @@ import type {
 import { queueWebcamImageApi } from "@/entities/stream-queue-settings/api/queue-webcam-image";
 import styles from "./queue-widgets-panel.module.scss";
 
-type ConfigurableWidgetId = keyof QueueWidgetSettings["titles"];
+type ConfigurableWidgetId = "streamProfile" | "webcam" | "favoriteHeroes" | "friends";
 
 const WIDGETS: Array<{ id: ConfigurableWidgetId; label: string; description: string }> = [
-    { id: "playerProfile", label: "Профиль и статистика", description: "Карточка профиля игрока." },
     { id: "streamProfile", label: "Канал и трансляция", description: "Цель трансляции." },
-    { id: "featuredMatch", label: "Последний матч", description: "Карточка последнего матча." },
     { id: "webcam", label: "Область веб-камеры", description: "Резервное изображение для области камеры." },
     { id: "favoriteHeroes", label: "Любимые герои", description: "Выбор до трёх героев." },
-    { id: "recentGames", label: "Последние игры", description: "Количество отображаемых матчей." },
-    { id: "twitchChat", label: "Twitch-чат", description: "Количество сообщений." },
     { id: "friends", label: "Friends и соцсети", description: "Аудитория канала и ссылки на соцсети." },
 ];
+
+const HERO_ALIASES: Record<string, string[]> = {
+    hoodwink: ["белка", "худвинк"],
+    pudge: ["пудж", "бутчер", "пиджак"],
+    techies: ["течка", "минер", "минёр", "течис"],
+};
+
+const normalizeHeroQuery = (value: string) =>
+    value.trim().toLocaleLowerCase().replaceAll("ё", "е");
 
 const ATTRIBUTES: Array<{
     id: DotaHeroAttribute;
@@ -71,17 +76,30 @@ export const QueueWidgetsPanel = ({
     const [widgetDraft, setWidgetDraft] = useState<QueueWidgetSettings | null>(null);
     const [savingWidget, setSavingWidget] = useState(false);
 
-    const filteredHeroes = useMemo(() => {
-        const query = heroQuery.trim().toLocaleLowerCase();
-        return query
-            ? DOTA_HEROES.filter((hero) =>
-                  hero.localizedName.toLocaleLowerCase().includes(query)
-              )
-            : DOTA_HEROES;
+    const matchingHeroIds = useMemo(() => {
+        const query = normalizeHeroQuery(heroQuery);
+        if (!query) return new Set<number>();
+        return new Set(
+            DOTA_HEROES.filter((hero) => {
+                const name = normalizeHeroQuery(hero.localizedName);
+                const aliases = HERO_ALIASES[name] ?? [];
+                return [name, ...aliases.map(normalizeHeroQuery)].some((term) =>
+                    term.includes(query)
+                );
+            }).map((hero) => hero.id)
+        );
+    }, [heroQuery]);
+
+    useEffect(() => {
+        if (!heroQuery) return;
+        const timeout = window.setTimeout(() => setHeroQuery(""), 3_000);
+        return () => window.clearTimeout(timeout);
     }, [heroQuery]);
 
     const openWidget = (id: ConfigurableWidgetId) => {
         setWidgetDraft(structuredClone(settings.widgets));
+        setGoalDraft(settings.channelGoal);
+        setHeroQuery("");
         setActiveWidget(id);
     };
 
@@ -178,42 +196,15 @@ export const QueueWidgetsPanel = ({
                 title={WIDGETS.find((widget) => widget.id === activeWidget)?.label}
                 open={Boolean(activeWidget && widgetDraft)}
                 onCancel={() => setActiveWidget(null)}
-                onOk={() => activeWidget === "webcam" ? setActiveWidget(null) : void saveWidget()}
-                okText={activeWidget === "webcam" ? "Готово" : "Сохранить"}
+                onOk={() => activeWidget === "friends" ? void saveWidget() : setActiveWidget(null)}
+                okText={activeWidget === "friends" ? "Сохранить" : "Готово"}
                 cancelText="Отмена"
                 confirmLoading={savingWidget}
                 destroyOnHidden
+                width={activeWidget === "favoriteHeroes" ? 1100 : 720}
             >
                 {activeWidget && widgetDraft && (
                     <div className={styles.widgetModal}>
-                        {activeWidget === "recentGames" && (
-                            <label>
-                                <span>Количество матчей</span>
-                                <InputNumber
-                                    min={1}
-                                    max={5}
-                                    value={widgetDraft.recentGamesLimit}
-                                    onChange={(value) => setWidgetDraft({
-                                        ...widgetDraft,
-                                        recentGamesLimit: Number(value ?? 5),
-                                    })}
-                                />
-                            </label>
-                        )}
-                        {activeWidget === "twitchChat" && (
-                            <label>
-                                <span>Сообщений в чате</span>
-                                <InputNumber
-                                    min={3}
-                                    max={30}
-                                    value={widgetDraft.chatMessagesLimit}
-                                    onChange={(value) => setWidgetDraft({
-                                        ...widgetDraft,
-                                        chatMessagesLimit: Number(value ?? 12),
-                                    })}
-                                />
-                            </label>
-                        )}
                         {activeWidget === "friends" && (
                             <div className={styles.friendsEditor}>
                                 <strong>Разделы аудитории</strong>
@@ -328,154 +319,106 @@ export const QueueWidgetsPanel = ({
                                 </div>
                             </div>
                         )}
-                        {activeWidget === "favoriteHeroes" && <p>Состав героев настраивается ниже в каталоге героев.</p>}
-                        {activeWidget === "streamProfile" && <p>Цель канала настраивается ниже в разделе трансляции.</p>}
-                        {(activeWidget === "playerProfile" || activeWidget === "featuredMatch") && (
-                            <p>У этого виджета нет дополнительных настроек.</p>
+                        {activeWidget === "streamProfile" && (
+                            <div className={styles.goalEditor}>
+                                <p>Twitch заполняет данные канала. Цель можно связать с рейтингом или указать вручную.</p>
+                                <Select
+                                    value={goalDraft.type}
+                                    options={[
+                                        { value: "none", label: "Без цели" },
+                                        { value: "rating", label: "Цель по рейтингу" },
+                                        { value: "custom", label: "Своя цель" },
+                                    ]}
+                                    onChange={(type: QueueChannelGoal["type"]) => {
+                                        const startValue = type === "rating" ? currentRating ?? 0 : goalDraft.startValue;
+                                        setGoalDraft({
+                                            ...goalDraft,
+                                            type,
+                                            startValue,
+                                            targetValue: type === "rating" ? startValue + 300 : goalDraft.targetValue,
+                                            label: type === "rating" ? "RATING GOAL" : goalDraft.label,
+                                        });
+                                    }}
+                                />
+                                {goalDraft.type !== "none" && (
+                                    <>
+                                        <Input
+                                            value={goalDraft.label}
+                                            maxLength={48}
+                                            placeholder="Название цели"
+                                            onChange={(event) => setGoalDraft({ ...goalDraft, label: event.target.value })}
+                                        />
+                                        <InputNumber
+                                            value={goalDraft.startValue}
+                                            placeholder="Старт"
+                                            onChange={(value) => setGoalDraft({ ...goalDraft, startValue: Number(value ?? 0) })}
+                                        />
+                                        <InputNumber
+                                            value={goalDraft.targetValue}
+                                            placeholder="Цель"
+                                            onChange={(value) => setGoalDraft({ ...goalDraft, targetValue: Number(value ?? 0) })}
+                                        />
+                                    </>
+                                )}
+                                <Button type="primary" loading={savingGoal} onClick={() => void saveGoal()}>
+                                    Сохранить цель
+                                </Button>
+                            </div>
+                        )}
+                        {activeWidget === "favoriteHeroes" && (
+                            <div className={styles.heroPicker}>
+                                <div className={styles.heroPickerHeader}>
+                                    <div>
+                                        <strong>Герои в Favorite Heroes</strong>
+                                        <span>Выберите до трёх. Пустой список — автоматически по истории матчей.</span>
+                                    </div>
+                                    <div className={styles.heroPickerTools}>
+                                        <span className={styles.selectionCount}>{settings.favoriteHeroIds.length} / 3</span>
+                                        <Input
+                                            allowClear
+                                            value={heroQuery}
+                                            placeholder="Имя или прозвище героя"
+                                            onChange={(event) => setHeroQuery(event.target.value)}
+                                        />
+                                    </div>
+                                </div>
+                                <div className={styles.attributeGrid} data-searching={Boolean(heroQuery.trim())}>
+                                    {ATTRIBUTES.map((attribute) => (
+                                        <section key={attribute.id} className={styles.attributeColumn} data-attribute={attribute.id}>
+                                            <h3><img src={attribute.iconUrl} alt="" aria-hidden="true" />{attribute.label}</h3>
+                                            <div className={styles.heroGrid}>
+                                                {DOTA_HEROES
+                                                    .filter((hero) => hero.attribute === attribute.id)
+                                                    .sort((a, b) => a.localizedName.localeCompare(b.localizedName))
+                                                    .map((hero) => {
+                                                        const selected = settings.favoriteHeroIds.includes(hero.id);
+                                                        const disabled = loading || (!selected && settings.favoriteHeroIds.length >= 3);
+                                                        return (
+                                                            <button
+                                                                key={hero.id}
+                                                                type="button"
+                                                                className={styles.heroTile}
+                                                                data-selected={selected}
+                                                                data-search-match={matchingHeroIds.has(hero.id)}
+                                                                disabled={disabled}
+                                                                title={hero.localizedName}
+                                                                onClick={() => void toggleFavoriteHero(hero.id)}
+                                                            >
+                                                                <img src={hero.imageUrl} alt="" />
+                                                                <span>{hero.localizedName}</span>
+                                                                <b aria-hidden="true">✓</b>
+                                                            </button>
+                                                        );
+                                                    })}
+                                            </div>
+                                        </section>
+                                    ))}
+                                </div>
+                            </div>
                         )}
                     </div>
                 )}
             </Modal>
-            <div className={styles.queueOptions}>
-                <section className={styles.optionCard}>
-                    <div>
-                        <strong>Цель канала и трансляции</strong>
-                        <span>Twitch заполняет данные канала. Цель можно связать с рейтингом или указать вручную.</span>
-                    </div>
-                    <div className={styles.goalEditor}>
-                        <Select
-                            value={goalDraft.type}
-                            options={[
-                                { value: "none", label: "Без цели" },
-                                { value: "rating", label: "Цель по рейтингу" },
-                                { value: "custom", label: "Своя цель" },
-                            ]}
-                            onChange={(type: QueueChannelGoal["type"]) => {
-                                const startValue =
-                                    type === "rating"
-                                        ? currentRating ?? 0
-                                        : goalDraft.startValue;
-                                setGoalDraft({
-                                    ...goalDraft,
-                                    type,
-                                    startValue,
-                                    targetValue:
-                                        type === "rating"
-                                            ? startValue + 300
-                                            : goalDraft.targetValue,
-                                    label:
-                                        type === "rating"
-                                            ? "RATING GOAL"
-                                            : goalDraft.label,
-                                });
-                            }}
-                        />
-                        {goalDraft.type !== "none" && (
-                            <>
-                                <Input
-                                    value={goalDraft.label}
-                                    maxLength={48}
-                                    placeholder="Название цели"
-                                    onChange={(event) =>
-                                        setGoalDraft({
-                                            ...goalDraft,
-                                            label: event.target.value,
-                                        })
-                                    }
-                                />
-                                <InputNumber
-                                    value={goalDraft.startValue}
-                                    placeholder="Старт"
-                                    onChange={(value) =>
-                                        setGoalDraft({
-                                            ...goalDraft,
-                                            startValue: Number(value ?? 0),
-                                        })
-                                    }
-                                />
-                                <InputNumber
-                                    value={goalDraft.targetValue}
-                                    placeholder="Цель"
-                                    onChange={(value) =>
-                                        setGoalDraft({
-                                            ...goalDraft,
-                                            targetValue: Number(value ?? 0),
-                                        })
-                                    }
-                                />
-                            </>
-                        )}
-                        <Button
-                            type="primary"
-                            loading={savingGoal}
-                            onClick={() => void saveGoal()}
-                        >
-                            Сохранить цель
-                        </Button>
-                    </div>
-                </section>
-            </div>
-            <div className={styles.heroPicker}>
-                <div className={styles.heroPickerHeader}>
-                    <div>
-                    <strong>Герои в Favorite Heroes</strong>
-                    <span>Выберите до трёх. Пустой список — автоматически по истории матчей.</span>
-                    </div>
-                    <div className={styles.heroPickerTools}>
-                        <span className={styles.selectionCount}>
-                            {settings.favoriteHeroIds.length} / 3
-                        </span>
-                        <Input
-                            allowClear
-                            value={heroQuery}
-                            placeholder="Поиск героя"
-                            onChange={(event) => setHeroQuery(event.target.value)}
-                        />
-                    </div>
-                </div>
-                <div className={styles.attributeGrid}>
-                    {ATTRIBUTES.map((attribute) => {
-                        const heroes = filteredHeroes
-                            .filter((hero) => hero.attribute === attribute.id)
-                            .sort((a, b) => a.localizedName.localeCompare(b.localizedName));
-                        return (
-                            <section
-                                key={attribute.id}
-                                className={styles.attributeColumn}
-                                data-attribute={attribute.id}
-                            >
-                                <h3>
-                                    <img src={attribute.iconUrl} alt="" aria-hidden="true" />
-                                    {attribute.label}
-                                </h3>
-                                <div className={styles.heroGrid}>
-                                    {heroes.map((hero) => {
-                                        const selected = settings.favoriteHeroIds.includes(hero.id);
-                                        const disabled =
-                                            loading ||
-                                            (!selected && settings.favoriteHeroIds.length >= 3);
-                                        return (
-                                            <button
-                                                key={hero.id}
-                                                type="button"
-                                                className={styles.heroTile}
-                                                data-selected={selected}
-                                                disabled={disabled}
-                                                title={hero.localizedName}
-                                                onClick={() => void toggleFavoriteHero(hero.id)}
-                                            >
-                                                <img src={hero.imageUrl} alt="" />
-                                                <span>{hero.localizedName}</span>
-                                                <b aria-hidden="true">✓</b>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </section>
-                        );
-                    })}
-                </div>
-            </div>
         </section>
     );
 };
