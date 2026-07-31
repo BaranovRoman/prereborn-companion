@@ -30,6 +30,18 @@ interface TwitchSubscriber {
     receivedAt: string;
 }
 
+interface TwitchFollower {
+    id: string;
+    name: string;
+    followedAt: string;
+}
+
+interface TwitchAudience {
+    subscribers: TwitchSubscriber[];
+    followers: TwitchFollower[];
+    expiresAt: number;
+}
+
 interface TwitchChatConnection {
     socket: WebSocket;
     connected: boolean;
@@ -39,6 +51,7 @@ interface TwitchChatConnection {
 const chatConnections = new Map<string, TwitchChatConnection>();
 const chatMessages = new Map<string, TwitchChatMessage[]>();
 const recentSubscribers = new Map<string, TwitchSubscriber[]>();
+const audienceCache = new Map<string, TwitchAudience>();
 
 export const getTwitchConfig = () => {
     if (
@@ -286,6 +299,70 @@ const ensureTwitchChat = async (streamUserId: string, login: string) => {
     socket.on("error", () => socket.close());
 };
 
+const getTwitchAudience = async (streamUserId: string, broadcasterId: string) => {
+    const cached = audienceCache.get(streamUserId);
+    if (cached && cached.expiresAt > Date.now()) return cached;
+    const config = getTwitchConfig();
+    const token = await getTwitchUserToken(streamUserId);
+    if (!config || !token) {
+        return {
+            subscribers: recentSubscribers.get(streamUserId) ?? [],
+            followers: [],
+            expiresAt: Date.now() + 15_000,
+        };
+    }
+
+    const [subscriptionsResponse, followersResponse] = await Promise.all([
+        fetch(
+            `https://api.twitch.tv/helix/subscriptions?broadcaster_id=${encodeURIComponent(broadcasterId)}&first=6`,
+            { headers: { Authorization: `Bearer ${token}`, "Client-Id": config.clientId } }
+        ),
+        fetch(
+            `https://api.twitch.tv/helix/channels/followers?broadcaster_id=${encodeURIComponent(broadcasterId)}&first=6`,
+            { headers: { Authorization: `Bearer ${token}`, "Client-Id": config.clientId } }
+        ),
+    ]).catch(() => [null, null] as const);
+
+    const subscriptionData = subscriptionsResponse?.ok
+        ? await subscriptionsResponse.json() as {
+            data: Array<{
+                user_id: string;
+                user_name: string;
+                tier: string;
+                is_gift: boolean;
+            }>;
+        }
+        : { data: [] };
+    const followerData = followersResponse?.ok
+        ? await followersResponse.json() as {
+            data: Array<{
+                user_id: string;
+                user_name: string;
+                followed_at: string;
+            }>;
+        }
+        : { data: [] };
+
+    const audience: TwitchAudience = {
+        subscribers: subscriptionData.data.map((subscriber) => ({
+            id: subscriber.user_id,
+            name: subscriber.user_name,
+            tier: subscriber.tier,
+            isGift: subscriber.is_gift,
+            receivedAt: new Date().toISOString(),
+        })),
+        followers: followerData.data.map((follower) => ({
+            id: follower.user_id,
+            name: follower.user_name,
+            followedAt: follower.followed_at,
+        })),
+        expiresAt: Date.now() + 60_000,
+    };
+    audienceCache.set(streamUserId, audience);
+    recentSubscribers.set(streamUserId, audience.subscribers);
+    return audience;
+};
+
 const getAppToken = async () => {
     const config = getTwitchConfig();
     if (!config) return null;
@@ -318,10 +395,12 @@ export const getTwitchStatus = async (streamUserId: string) => {
             configured: Boolean(getTwitchConfig()),
             chat: { connected: false, messages: [] },
             recentSubscribers: [],
+            recentFollowers: [],
         };
     }
 
     void ensureTwitchChat(streamUserId, link.login);
+    const audience = await getTwitchAudience(streamUserId, link.twitch_user_id);
 
     let live: null | { title: string; viewerCount: number; gameName: string } = null;
     const config = getTwitchConfig();
@@ -353,7 +432,8 @@ export const getTwitchStatus = async (streamUserId: string) => {
             connected: chatConnections.get(streamUserId)?.connected ?? false,
             messages: chatMessages.get(streamUserId) ?? [],
         },
-        recentSubscribers: recentSubscribers.get(streamUserId) ?? [],
+        recentSubscribers: audience.subscribers,
+        recentFollowers: audience.followers,
     };
 };
 
@@ -361,5 +441,6 @@ export const disconnectTwitch = async (streamUserId: string) => {
     stopTwitchChat(streamUserId);
     chatMessages.delete(streamUserId);
     recentSubscribers.delete(streamUserId);
+    audienceCache.delete(streamUserId);
     await pool.query("DELETE FROM stream_twitch_links WHERE stream_user_id = $1", [streamUserId]);
 };

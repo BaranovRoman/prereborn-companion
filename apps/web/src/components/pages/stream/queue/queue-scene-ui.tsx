@@ -474,60 +474,74 @@ const TwitchChat = ({ twitch }: QueueDataProps) => {
 };
 
 const DonationTop = ({ donationAlerts, twitch }: QueueDataProps) => {
-    const leaders = (donationAlerts?.topDonors ?? []).slice(0, 9);
-    const subscribers = twitch?.recentSubscribers ?? [];
+    const leaders = (donationAlerts?.topDonors ?? []).slice(0, 3);
+    const subscribers = (twitch?.recentSubscribers ?? []).slice(0, 3);
+    const followers = (twitch?.recentFollowers ?? []).slice(0, 3);
     return (
-        <Panel title="Top supporters" className={styles.donationPanel}>
-            <div className={styles.supportersBody}>
-                {leaders.length ? (
-                    <div className={styles.donationTop}>
-                    {leaders.map((leader) => {
-                        const rank = getDonationRank(leader.amount);
-                        const rankLabel = rank.stars
-                            ? `${rank.name} ${"★".repeat(rank.stars)}`
-                            : rank.name;
-                        const medalFile = rank.tier === 8
-                            ? "immortal.png"
-                            : `${rank.name.toLowerCase()}-${rank.stars}.png`;
-                        return (
-                            <div
-                                key={`${leader.username}-${leader.currency}`}
-                                className={styles.donationFriend}
-                                title={`${rankLabel}: от ${rank.min.toLocaleString("ru-RU")} ${leader.currency}`}
-                            >
-                                <Image
-                                    src={`/vendor/valve/rank-medals/${medalFile}`}
-                                    alt={`${rankLabel} medal`}
-                                    width={58}
-                                    height={58}
-                                />
+        <Panel title="Friends" className={styles.donationPanel}>
+            <div className={styles.friendsBody}>
+                <section className={styles.friendSection}>
+                    <h3>Donaters</h3>
+                    <div className={styles.friendGrid}>
+                        {leaders.length ? leaders.map((leader) => {
+                            const rank = getDonationRank(leader.amount);
+                            const rankLabel = rank.stars
+                                ? `${rank.name} ${"★".repeat(rank.stars)}`
+                                : rank.name;
+                            const medalFile = rank.tier === 8
+                                ? "immortal.png"
+                                : `${rank.name.toLowerCase()}-${rank.stars}.png`;
+                            return (
+                                <div
+                                    key={`${leader.username}-${leader.currency}`}
+                                    className={styles.friendEntry}
+                                    title={`${rankLabel}: от ${rank.min.toLocaleString("ru-RU")} ${leader.currency}`}
+                                >
+                                    <Image
+                                        src={`/vendor/valve/rank-medals/${medalFile}`}
+                                        alt={`${rankLabel} medal`}
+                                        width={42}
+                                        height={42}
+                                    />
+                                    <p>
+                                        <strong>{leader.username}</strong>
+                                        <small>
+                                            {new Intl.NumberFormat("ru-RU").format(leader.amount)} {leader.currency}
+                                        </small>
+                                    </p>
+                                </div>
+                            );
+                        }) : <em>{donationAlerts?.connected ? "No donations yet" : "Connect DonationAlerts"}</em>}
+                    </div>
+                </section>
+                <section className={styles.friendSection}>
+                    <h3>Subscribers</h3>
+                    <div className={styles.friendGrid}>
+                        {subscribers.length ? subscribers.map((subscriber) => (
+                            <div key={subscriber.id} className={styles.friendEntry}>
+                                <i>{subscriber.isGift ? "G" : "S"}</i>
                                 <p>
-                                    <strong>{leader.username}</strong>
-                                    <small>
-                                        {new Intl.NumberFormat("ru-RU").format(leader.amount)} {leader.currency}
-                                    </small>
+                                    <strong>{subscriber.name}</strong>
+                                    <small>Tier {subscriber.tier.slice(0, 1)} subscriber</small>
                                 </p>
                             </div>
-                        );
-                    })}
+                        )) : <em>No paid subscribers</em>}
                     </div>
-                ) : (
-                    <div className={styles.donationEmpty}>
-                        {donationAlerts?.connected ? "NO DONATIONS YET" : "CONNECT DONATIONALERTS"}
+                </section>
+                <section className={styles.friendSection}>
+                    <h3>Followers</h3>
+                    <div className={styles.friendGrid}>
+                        {followers.length ? followers.map((follower) => (
+                            <div key={follower.id} className={styles.friendEntry}>
+                                <i>F</i>
+                                <p>
+                                    <strong>{follower.name}</strong>
+                                    <small>Followed the channel</small>
+                                </p>
+                            </div>
+                        )) : <em>No recent followers</em>}
                     </div>
-                )}
-                <div className={styles.subscriberBlock}>
-                    <span className={styles.subscriberTitle}>LATEST SUBSCRIBERS</span>
-                    <div className={styles.subscriberList}>
-                        {subscribers.length ? subscribers.map((subscriber) => (
-                            <span key={subscriber.id} className={styles.subscriber}>
-                                <i>{subscriber.isGift ? "G" : "S"}</i>
-                                <b>{subscriber.name}</b>
-                                <small>T{subscriber.tier.slice(0, 1)}</small>
-                            </span>
-                        )) : <em>Waiting for Twitch subscriptions</em>}
-                    </div>
-                </div>
+                </section>
             </div>
         </Panel>
     );

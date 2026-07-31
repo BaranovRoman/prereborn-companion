@@ -28,4 +28,9 @@ export interface TwitchIntegrationStatus {
         isGift: boolean;
         receivedAt: string;
     }>;
+    recentFollowers: Array<{
+        id: string;
+        name: string;
+        followedAt: string;
+    }>;
 }
