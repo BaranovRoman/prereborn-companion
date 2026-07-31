@@ -487,9 +487,36 @@ const DonationTop = ({ donationAlerts, twitch }: QueueDataProps) => {
             "/vendor/valve/avatars/drow_ranger.png",
             "/vendor/valve/avatars/earthshaker.png",
             "/vendor/valve/avatars/juggernaut.png",
+            "/vendor/valve/avatars/lina.png",
+            "/vendor/valve/avatars/lion.png",
+            "/vendor/valve/avatars/mirana.png",
+            "/vendor/valve/avatars/morphling.png",
+            "/vendor/valve/avatars/nevermore.png",
+            "/vendor/valve/avatars/phantom_lancer.png",
+            "/vendor/valve/avatars/puck.png",
+            "/vendor/valve/avatars/pudge.png",
+            "/vendor/valve/avatars/razor.png",
+            "/vendor/valve/avatars/sand_king.png",
+            "/vendor/valve/avatars/sniper.png",
+            "/vendor/valve/avatars/storm_spirit.png",
+            "/vendor/valve/avatars/sven.png",
+            "/vendor/valve/avatars/tiny.png",
+            "/vendor/valve/avatars/vengefulspirit.png",
+            "/vendor/valve/avatars/windrunner.png",
+            "/vendor/valve/avatars/witch_doctor.png",
+            "/vendor/valve/avatars/zuus.png",
+            "/vendor/valve/avatars/riki.png",
+            "/vendor/valve/avatars/queenofpain.png",
+            "/vendor/valve/avatars/slark.png",
+            "/vendor/valve/avatars/tusk.png",
+            "/vendor/valve/avatars/rubick.png",
+            "/vendor/valve/avatars/invoker.png",
         ];
-        const hash = Array.from(id).reduce((total, character) => total + character.charCodeAt(0), 0);
-        return avatars[hash % avatars.length];
+        const hash = Array.from(id).reduce(
+            (total, character) => Math.imul(total ^ character.charCodeAt(0), 16_777_619),
+            2_166_136_261
+        );
+        return avatars[(hash >>> 0) % avatars.length];
     };
     return (
         <Panel title="Friends" className={styles.donationPanel}>
