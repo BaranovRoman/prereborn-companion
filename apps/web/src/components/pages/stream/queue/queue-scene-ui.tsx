@@ -475,15 +475,29 @@ const TwitchChat = ({ twitch }: QueueDataProps) => {
 
 const DonationTop = ({ donationAlerts, twitch }: QueueDataProps) => {
     const leaders = (donationAlerts?.topDonors ?? []).slice(0, 3);
-    const subscribers = (twitch?.recentSubscribers ?? []).slice(0, 3);
-    const followers = (twitch?.recentFollowers ?? []).slice(0, 3);
+    const subscribers = twitch?.recentSubscribers ?? [];
+    const followers = twitch?.recentFollowers ?? [];
+    const avatarFor = (id: string) => {
+        const avatars = [
+            "/vendor/valve/avatars/antimage.png",
+            "/vendor/valve/avatars/axe.png",
+            "/vendor/valve/avatars/bane.png",
+            "/vendor/valve/avatars/bloodseeker.png",
+            "/vendor/valve/avatars/crystal_maiden.png",
+            "/vendor/valve/avatars/drow_ranger.png",
+            "/vendor/valve/avatars/earthshaker.png",
+            "/vendor/valve/avatars/juggernaut.png",
+        ];
+        const hash = Array.from(id).reduce((total, character) => total + character.charCodeAt(0), 0);
+        return avatars[hash % avatars.length];
+    };
     return (
         <Panel title="Friends" className={styles.donationPanel}>
             <div className={styles.friendsBody}>
-                <section className={styles.friendSection}>
+                {leaders.length > 0 && <section className={styles.friendSection}>
                     <h3>Donaters</h3>
                     <div className={styles.friendGrid}>
-                        {leaders.length ? leaders.map((leader) => {
+                        {leaders.map((leader) => {
                             const rank = getDonationRank(leader.amount);
                             const rankLabel = rank.stars
                                 ? `${rank.name} ${"★".repeat(rank.stars)}`
@@ -511,37 +525,53 @@ const DonationTop = ({ donationAlerts, twitch }: QueueDataProps) => {
                                     </p>
                                 </div>
                             );
-                        }) : <em>{donationAlerts?.connected ? "No donations yet" : "Connect DonationAlerts"}</em>}
+                        })}
                     </div>
-                </section>
-                <section className={styles.friendSection}>
+                </section>}
+                {subscribers.length > 0 && <section className={styles.friendSection}>
                     <h3>Subscribers</h3>
                     <div className={styles.friendGrid}>
-                        {subscribers.length ? subscribers.map((subscriber) => (
+                        {subscribers.map((subscriber) => (
                             <div key={subscriber.id} className={styles.friendEntry}>
-                                <i>{subscriber.isGift ? "G" : "S"}</i>
+                                <span className={styles.friendAvatarFrame}>
+                                    <Image
+                                        className={styles.friendAvatar}
+                                        src={avatarFor(subscriber.id)}
+                                        alt=""
+                                        width={42}
+                                        height={42}
+                                    />
+                                </span>
                                 <p>
                                     <strong>{subscriber.name}</strong>
                                     <small>Tier {subscriber.tier.slice(0, 1)} subscriber</small>
                                 </p>
                             </div>
-                        )) : <em>No paid subscribers</em>}
+                        ))}
                     </div>
-                </section>
-                <section className={styles.friendSection}>
-                    <h3>Followers</h3>
+                </section>}
+                {followers.length > 0 && <section className={styles.friendSection}>
+                    <h3>Recent followers</h3>
                     <div className={styles.friendGrid}>
-                        {followers.length ? followers.map((follower) => (
+                        {followers.map((follower) => (
                             <div key={follower.id} className={styles.friendEntry}>
-                                <i>F</i>
+                                <span className={styles.friendAvatarFrame}>
+                                    <Image
+                                        className={styles.friendAvatar}
+                                        src={avatarFor(follower.id)}
+                                        alt=""
+                                        width={42}
+                                        height={42}
+                                    />
+                                </span>
                                 <p>
                                     <strong>{follower.name}</strong>
                                     <small>Followed the channel</small>
                                 </p>
                             </div>
-                        )) : <em>No recent followers</em>}
+                        ))}
                     </div>
-                </section>
+                </section>}
             </div>
         </Panel>
     );

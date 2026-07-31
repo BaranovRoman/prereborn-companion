@@ -314,11 +314,11 @@ const getTwitchAudience = async (streamUserId: string, broadcasterId: string) =>
 
     const [subscriptionsResponse, followersResponse] = await Promise.all([
         fetch(
-            `https://api.twitch.tv/helix/subscriptions?broadcaster_id=${encodeURIComponent(broadcasterId)}&first=6`,
+            `https://api.twitch.tv/helix/subscriptions?broadcaster_id=${encodeURIComponent(broadcasterId)}&first=100`,
             { headers: { Authorization: `Bearer ${token}`, "Client-Id": config.clientId } }
         ),
         fetch(
-            `https://api.twitch.tv/helix/channels/followers?broadcaster_id=${encodeURIComponent(broadcasterId)}&first=6`,
+            `https://api.twitch.tv/helix/channels/followers?broadcaster_id=${encodeURIComponent(broadcasterId)}&first=100`,
             { headers: { Authorization: `Bearer ${token}`, "Client-Id": config.clientId } }
         ),
     ]).catch(() => [null, null] as const);
