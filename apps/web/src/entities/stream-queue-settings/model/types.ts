@@ -15,13 +15,71 @@ export interface QueueChannelGoal {
     targetValue: number;
 }
 
+export type QueueSocialPlatform =
+    | "twitch"
+    | "youtube"
+    | "telegram"
+    | "discord"
+    | "vk"
+    | "x";
+
+export interface QueueSocialLink {
+    id: string;
+    platform: QueueSocialPlatform;
+    label: string;
+    url: string;
+}
+
+export interface QueueWidgetSettings {
+    titles: {
+        playerProfile: string;
+        streamProfile: string;
+        featuredMatch: string;
+        webcam: string;
+        favoriteHeroes: string;
+        recentGames: string;
+        twitchChat: string;
+        friends: string;
+    };
+    recentGamesLimit: number;
+    chatMessagesLimit: number;
+    friends: {
+        showDonaters: boolean;
+        showSubscribers: boolean;
+        showFollowers: boolean;
+        socialLinks: QueueSocialLink[];
+    };
+}
+
 export interface QueueSettings {
     version: 1;
     visibility: Record<QueueWidgetId, boolean>;
     favoriteHeroIds: number[];
     webcamImageUrl: string | null;
     channelGoal: QueueChannelGoal;
+    widgets: QueueWidgetSettings;
 }
+
+export const DEFAULT_QUEUE_WIDGET_SETTINGS: QueueWidgetSettings = {
+    titles: {
+        playerProfile: "Player profile",
+        streamProfile: "Channel transmission",
+        featuredMatch: "Last match",
+        webcam: "Live capture",
+        favoriteHeroes: "Favorite heroes",
+        recentGames: "Recent games",
+        twitchChat: "Twitch chat",
+        friends: "Friends",
+    },
+    recentGamesLimit: 5,
+    chatMessagesLimit: 12,
+    friends: {
+        showDonaters: true,
+        showSubscribers: true,
+        showFollowers: true,
+        socialLinks: [],
+    },
+};
 
 export const DEFAULT_QUEUE_SETTINGS: QueueSettings = {
     version: 1,
@@ -43,4 +101,5 @@ export const DEFAULT_QUEUE_SETTINGS: QueueSettings = {
         startValue: 0,
         targetValue: 0,
     },
+    widgets: DEFAULT_QUEUE_WIDGET_SETTINGS,
 };

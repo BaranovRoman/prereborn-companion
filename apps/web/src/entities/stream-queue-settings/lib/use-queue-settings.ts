@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { streamQueueSettingsApi } from "../api/stream-queue-settings";
 import {
     DEFAULT_QUEUE_SETTINGS,
+    DEFAULT_QUEUE_WIDGET_SETTINGS,
     type QueueSettings,
 } from "../model/types";
 
@@ -30,6 +31,19 @@ export const useQueueSettings = () => {
                             ...DEFAULT_QUEUE_SETTINGS.channelGoal,
                             ...value.channelGoal,
                         },
+                        widgets: {
+                            ...DEFAULT_QUEUE_WIDGET_SETTINGS,
+                            ...value.widgets,
+                            titles: {
+                                ...DEFAULT_QUEUE_WIDGET_SETTINGS.titles,
+                                ...value.widgets?.titles,
+                            },
+                            friends: {
+                                ...DEFAULT_QUEUE_WIDGET_SETTINGS.friends,
+                                ...value.widgets?.friends,
+                                socialLinks: value.widgets?.friends?.socialLinks ?? [],
+                            },
+                        },
                     });
                 }
             })
@@ -54,6 +68,19 @@ export const useQueueSettings = () => {
                 channelGoal: {
                     ...DEFAULT_QUEUE_SETTINGS.channelGoal,
                     ...saved.channelGoal,
+                },
+                widgets: {
+                    ...DEFAULT_QUEUE_WIDGET_SETTINGS,
+                    ...saved.widgets,
+                    titles: {
+                        ...DEFAULT_QUEUE_WIDGET_SETTINGS.titles,
+                        ...saved.widgets?.titles,
+                    },
+                    friends: {
+                        ...DEFAULT_QUEUE_WIDGET_SETTINGS.friends,
+                        ...saved.widgets?.friends,
+                        socialLinks: saved.widgets?.friends?.socialLinks ?? [],
+                    },
                 },
             };
             setSettings(normalized);

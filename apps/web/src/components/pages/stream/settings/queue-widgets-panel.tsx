@@ -2,25 +2,29 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { Button, Input, InputNumber, Select, Switch, Upload, message } from "antd";
+import { Button, Checkbox, Input, InputNumber, Modal, Select, Upload, message } from "antd";
 import { DOTA_HEROES } from "@/entities/dota-hero/model/heroes";
 import type { DotaHeroAttribute } from "@/entities/dota-hero/model/attributes";
 import { useQueueSettings } from "@/entities/stream-queue-settings/lib/use-queue-settings";
 import type {
     QueueChannelGoal,
-    QueueWidgetId,
+    QueueSocialPlatform,
+    QueueWidgetSettings,
 } from "@/entities/stream-queue-settings/model/types";
 import { queueWebcamImageApi } from "@/entities/stream-queue-settings/api/queue-webcam-image";
 import styles from "./queue-widgets-panel.module.scss";
 
-const WIDGETS: Array<{ id: QueueWidgetId; label: string }> = [
-    { id: "playerProfile", label: "Профиль и статистика" },
-    { id: "streamProfile", label: "Канал и трансляция" },
-    { id: "featuredMatch", label: "Последний матч" },
-    { id: "webcam", label: "Область веб-камеры" },
-    { id: "favoriteHeroes", label: "Любимые герои" },
-    { id: "recentGames", label: "Последние игры" },
-    { id: "twitchChat", label: "Чат и топ донатеров" },
+type ConfigurableWidgetId = keyof QueueWidgetSettings["titles"];
+
+const WIDGETS: Array<{ id: ConfigurableWidgetId; label: string; description: string }> = [
+    { id: "playerProfile", label: "Профиль и статистика", description: "Название блока профиля игрока." },
+    { id: "streamProfile", label: "Канал и трансляция", description: "Название и цель трансляции." },
+    { id: "featuredMatch", label: "Последний матч", description: "Заголовок карточки последнего матча." },
+    { id: "webcam", label: "Область веб-камеры", description: "Название и резервное изображение." },
+    { id: "favoriteHeroes", label: "Любимые герои", description: "Название и выбор до трёх героев." },
+    { id: "recentGames", label: "Последние игры", description: "Название и количество матчей." },
+    { id: "twitchChat", label: "Twitch-чат", description: "Название и число сообщений." },
+    { id: "friends", label: "Friends и соцсети", description: "Аудитория канала и ссылки на соцсети." },
 ];
 
 const ATTRIBUTES: Array<{
@@ -63,6 +67,9 @@ export const QueueWidgetsPanel = ({
     const goalDraft = goalDraftOverride ?? settings.channelGoal;
     const [savingGoal, setSavingGoal] = useState(false);
     const [uploadingImage, setUploadingImage] = useState(false);
+    const [activeWidget, setActiveWidget] = useState<ConfigurableWidgetId | null>(null);
+    const [widgetDraft, setWidgetDraft] = useState<QueueWidgetSettings | null>(null);
+    const [savingWidget, setSavingWidget] = useState(false);
 
     const filteredHeroes = useMemo(() => {
         const query = heroQuery.trim().toLocaleLowerCase();
@@ -73,14 +80,22 @@ export const QueueWidgetsPanel = ({
             : DOTA_HEROES;
     }, [heroQuery]);
 
-    const toggle = async (id: QueueWidgetId, visible: boolean) => {
+    const openWidget = (id: ConfigurableWidgetId) => {
+        setWidgetDraft(structuredClone(settings.widgets));
+        setActiveWidget(id);
+    };
+
+    const saveWidget = async () => {
+        if (!widgetDraft) return;
+        setSavingWidget(true);
         try {
-            await save({
-                ...settings,
-                visibility: { ...settings.visibility, [id]: visible },
-            });
+            await save({ ...settings, widgets: widgetDraft });
+            setActiveWidget(null);
+            messageApi.success("Настройки виджета сохранены");
         } catch {
-            messageApi.error("Не удалось сохранить настройки queue");
+            messageApi.error("Не удалось сохранить настройки виджета");
+        } finally {
+            setSavingWidget(false);
         }
     };
 
@@ -150,17 +165,155 @@ export const QueueWidgetsPanel = ({
                 <Link href="/stream/queue"><Button>Открыть Queue</Button></Link>
             </div>
             <div className={styles.grid} aria-busy={loading}>
-                {WIDGETS.map(({ id, label }) => (
-                    <label key={id} className={styles.row}>
-                        <span>{label}</span>
-                        <Switch
-                            checked={settings.visibility[id]}
-                            disabled={loading}
-                            onChange={(checked) => void toggle(id, checked)}
-                        />
-                    </label>
+                {WIDGETS.map(({ id, label, description }) => (
+                    <div key={id} className={styles.row}>
+                        <span><strong>{label}</strong><small>{description}</small></span>
+                        <Button disabled={loading} onClick={() => openWidget(id)}>
+                            Настроить
+                        </Button>
+                    </div>
                 ))}
             </div>
+            <Modal
+                title={WIDGETS.find((widget) => widget.id === activeWidget)?.label}
+                open={Boolean(activeWidget && widgetDraft)}
+                onCancel={() => setActiveWidget(null)}
+                onOk={() => void saveWidget()}
+                okText="Сохранить"
+                cancelText="Отмена"
+                confirmLoading={savingWidget}
+                destroyOnHidden
+            >
+                {activeWidget && widgetDraft && (
+                    <div className={styles.widgetModal}>
+                        <label>
+                            <span>Заголовок виджета</span>
+                            <Input
+                                value={widgetDraft.titles[activeWidget]}
+                                maxLength={48}
+                                onChange={(event) => setWidgetDraft({
+                                    ...widgetDraft,
+                                    titles: {
+                                        ...widgetDraft.titles,
+                                        [activeWidget]: event.target.value,
+                                    },
+                                })}
+                            />
+                        </label>
+                        {activeWidget === "recentGames" && (
+                            <label>
+                                <span>Количество матчей</span>
+                                <InputNumber
+                                    min={1}
+                                    max={5}
+                                    value={widgetDraft.recentGamesLimit}
+                                    onChange={(value) => setWidgetDraft({
+                                        ...widgetDraft,
+                                        recentGamesLimit: Number(value ?? 5),
+                                    })}
+                                />
+                            </label>
+                        )}
+                        {activeWidget === "twitchChat" && (
+                            <label>
+                                <span>Сообщений в чате</span>
+                                <InputNumber
+                                    min={3}
+                                    max={30}
+                                    value={widgetDraft.chatMessagesLimit}
+                                    onChange={(value) => setWidgetDraft({
+                                        ...widgetDraft,
+                                        chatMessagesLimit: Number(value ?? 12),
+                                    })}
+                                />
+                            </label>
+                        )}
+                        {activeWidget === "friends" && (
+                            <div className={styles.friendsEditor}>
+                                <strong>Разделы аудитории</strong>
+                                {([
+                                    ["showDonaters", "Топ донатеров"],
+                                    ["showSubscribers", "Подписчики"],
+                                    ["showFollowers", "Новые фолловеры"],
+                                ] as const).map(([key, label]) => (
+                                    <Checkbox
+                                        key={key}
+                                        checked={widgetDraft.friends[key]}
+                                        onChange={(event) => setWidgetDraft({
+                                            ...widgetDraft,
+                                            friends: { ...widgetDraft.friends, [key]: event.target.checked },
+                                        })}
+                                    >
+                                        {label}
+                                    </Checkbox>
+                                ))}
+                                <strong>Социальные сети</strong>
+                                {widgetDraft.friends.socialLinks.map((social, index) => (
+                                    <div className={styles.socialRow} key={social.id}>
+                                        <Select
+                                            value={social.platform}
+                                            options={["twitch", "youtube", "telegram", "discord", "vk", "x"].map((value) => ({ value, label: value.toUpperCase() }))}
+                                            onChange={(platform: QueueSocialPlatform) => {
+                                                const socialLinks = [...widgetDraft.friends.socialLinks];
+                                                socialLinks[index] = { ...social, platform };
+                                                setWidgetDraft({ ...widgetDraft, friends: { ...widgetDraft.friends, socialLinks } });
+                                            }}
+                                        />
+                                        <Input
+                                            value={social.label}
+                                            placeholder="@username"
+                                            onChange={(event) => {
+                                                const socialLinks = [...widgetDraft.friends.socialLinks];
+                                                socialLinks[index] = { ...social, label: event.target.value };
+                                                setWidgetDraft({ ...widgetDraft, friends: { ...widgetDraft.friends, socialLinks } });
+                                            }}
+                                        />
+                                        <Input
+                                            value={social.url}
+                                            placeholder="https://"
+                                            onChange={(event) => {
+                                                const socialLinks = [...widgetDraft.friends.socialLinks];
+                                                socialLinks[index] = { ...social, url: event.target.value };
+                                                setWidgetDraft({ ...widgetDraft, friends: { ...widgetDraft.friends, socialLinks } });
+                                            }}
+                                        />
+                                        <Button
+                                            danger
+                                            onClick={() => setWidgetDraft({
+                                                ...widgetDraft,
+                                                friends: {
+                                                    ...widgetDraft.friends,
+                                                    socialLinks: widgetDraft.friends.socialLinks.filter((_, itemIndex) => itemIndex !== index),
+                                                },
+                                            })}
+                                        >
+                                            Удалить
+                                        </Button>
+                                    </div>
+                                ))}
+                                <Button
+                                    disabled={widgetDraft.friends.socialLinks.length >= 8}
+                                    onClick={() => setWidgetDraft({
+                                        ...widgetDraft,
+                                        friends: {
+                                            ...widgetDraft.friends,
+                                            socialLinks: [
+                                                ...widgetDraft.friends.socialLinks,
+                                                { id: crypto.randomUUID(), platform: "twitch", label: "", url: "" },
+                                            ],
+                                        },
+                                    })}
+                                >
+                                    Добавить соцсеть
+                                </Button>
+                            </div>
+                        )}
+                        {activeWidget === "webcam" && <p>Резервное изображение настраивается ниже в разделе камеры.</p>}
+                        {activeWidget === "favoriteHeroes" && <p>Состав героев настраивается ниже в каталоге героев.</p>}
+                        {activeWidget === "streamProfile" && <p>Цель канала настраивается ниже в разделе трансляции.</p>}
+                    </div>
+                )}
+            </Modal>
             <div className={styles.queueOptions}>
                 <section className={styles.optionCard}>
                     <div>

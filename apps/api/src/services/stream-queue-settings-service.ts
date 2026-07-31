@@ -19,6 +19,32 @@ const channelGoalSchema = z.object({
     startValue: z.number().finite(),
     targetValue: z.number().finite(),
 });
+const socialLinkSchema = z.object({
+    id: z.string().min(1).max(64),
+    platform: z.enum(["twitch", "youtube", "telegram", "discord", "vk", "x"]),
+    label: z.string().trim().min(1).max(32),
+    url: z.string().url().max(512),
+});
+const widgetSettingsSchema = z.object({
+    titles: z.object({
+        playerProfile: z.string().trim().min(1).max(48),
+        streamProfile: z.string().trim().min(1).max(48),
+        featuredMatch: z.string().trim().min(1).max(48),
+        webcam: z.string().trim().min(1).max(48),
+        favoriteHeroes: z.string().trim().min(1).max(48),
+        recentGames: z.string().trim().min(1).max(48),
+        twitchChat: z.string().trim().min(1).max(48),
+        friends: z.string().trim().min(1).max(48),
+    }),
+    recentGamesLimit: z.number().int().min(1).max(5),
+    chatMessagesLimit: z.number().int().min(3).max(30),
+    friends: z.object({
+        showDonaters: z.boolean(),
+        showSubscribers: z.boolean(),
+        showFollowers: z.boolean(),
+        socialLinks: z.array(socialLinkSchema).max(8),
+    }),
+});
 
 export const queueSettingsSchema = z.object({
     version: z.literal(1),
@@ -30,6 +56,26 @@ export const queueSettingsSchema = z.object({
         label: "",
         startValue: 0,
         targetValue: 0,
+    }),
+    widgets: widgetSettingsSchema.default({
+        titles: {
+            playerProfile: "Player profile",
+            streamProfile: "Channel transmission",
+            featuredMatch: "Last match",
+            webcam: "Live capture",
+            favoriteHeroes: "Favorite heroes",
+            recentGames: "Recent games",
+            twitchChat: "Twitch chat",
+            friends: "Friends",
+        },
+        recentGamesLimit: 5,
+        chatMessagesLimit: 12,
+        friends: {
+            showDonaters: true,
+            showSubscribers: true,
+            showFollowers: true,
+            socialLinks: [],
+        },
     }),
 });
 
@@ -55,6 +101,26 @@ export const DEFAULT_QUEUE_SETTINGS: QueueSettings = {
         startValue: 0,
         targetValue: 0,
     },
+    widgets: {
+        titles: {
+            playerProfile: "Player profile",
+            streamProfile: "Channel transmission",
+            featuredMatch: "Last match",
+            webcam: "Live capture",
+            favoriteHeroes: "Favorite heroes",
+            recentGames: "Recent games",
+            twitchChat: "Twitch chat",
+            friends: "Friends",
+        },
+        recentGamesLimit: 5,
+        chatMessagesLimit: 12,
+        friends: {
+            showDonaters: true,
+            showSubscribers: true,
+            showFollowers: true,
+            socialLinks: [],
+        },
+    },
 };
 
 export class InvalidQueueSettingsError extends Error {}
@@ -65,6 +131,7 @@ const queueSettingsInputSchema = z.object({
     favoriteHeroIds: z.array(z.number().int().positive()).max(3).optional(),
     webcamImageUrl: z.string().max(512).nullable().optional(),
     channelGoal: channelGoalSchema.optional(),
+    widgets: widgetSettingsSchema.optional(),
 });
 
 export const getQueueSettings = async (streamUserId: string): Promise<QueueSettings> => {
@@ -99,6 +166,7 @@ export const saveQueueSettings = async (
                 : parsed.data.webcamImageUrl,
         channelGoal:
             parsed.data.channelGoal ?? current.channelGoal,
+        widgets: parsed.data.widgets ?? current.widgets,
     });
     await pool.query(
         `INSERT INTO stream_queue_settings (stream_user_id, settings)

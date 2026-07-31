@@ -14,7 +14,7 @@ import { useDonationAlertsIntegration } from "@/entities/donation-alerts-integra
 import type { DonationAlertsIntegrationStatus } from "@/entities/donation-alerts-integration/model/types";
 import type { TwitchIntegrationStatus } from "@/entities/twitch-integration/model/types";
 import type { SteamIntegrationStatus } from "@/entities/steam-integration/model/types";
-import type { QueueChannelGoal } from "@/entities/stream-queue-settings/model/types";
+import type { QueueChannelGoal, QueueWidgetSettings } from "@/entities/stream-queue-settings/model/types";
 import styles from "./queue-scene.module.scss";
 
 const EMPTY_VALUE = "—";
@@ -176,14 +176,15 @@ const PlayerProfile = ({
     wins,
     losses,
     steamProfile,
-}: QueueDataProps) => {
+    title,
+}: QueueDataProps & { title: string }) => {
     const accountName = steamProfile?.displayName || "STREAMER";
     const initials = accountName.slice(0, 2).toUpperCase();
     const total = wins + losses;
     const winRate = total ? Math.round((wins / total) * 100) : 0;
 
     return (
-        <Panel title="Player record" className={styles.playerProfile}>
+        <Panel title={title} className={styles.playerProfile}>
             <div className={styles.profileBody}>
                 <div className={styles.profileBrand}>
                     <span>
@@ -212,7 +213,7 @@ const PlayerProfile = ({
     );
 };
 
-const FeaturedMatch = ({ matches }: QueueDataProps) => {
+const FeaturedMatch = ({ matches, title }: QueueDataProps & { title: string }) => {
     const match = matches[0];
     const hero = match ? getHeroById(match.heroId) : undefined;
     const recordedItems = getMatchItems(match?.inventory);
@@ -234,7 +235,7 @@ const FeaturedMatch = ({ matches }: QueueDataProps) => {
     );
 
     return (
-        <Panel title="Last match" className={styles.featuredMatch}>
+        <Panel title={title} className={styles.featuredMatch}>
             <div
                 className={styles.heroArt}
                 data-empty={hero ? undefined : "true"}
@@ -294,8 +295,8 @@ const FeaturedMatch = ({ matches }: QueueDataProps) => {
     );
 };
 
-const WebcamSlot = ({ webcamImageUrl }: QueueDataProps) => (
-    <Panel title="Live capture" className={styles.webcamPanel}>
+const WebcamSlot = ({ webcamImageUrl, title }: QueueDataProps & { title: string }) => (
+    <Panel title={title} className={styles.webcamPanel}>
         <div
             className={styles.webcam}
             data-testid="webcam-slot"
@@ -313,7 +314,8 @@ const WebcamSlot = ({ webcamImageUrl }: QueueDataProps) => (
 const FavoriteHeroes = ({
     matches,
     selectedHeroIds,
-}: QueueDataProps & { selectedHeroIds: number[] }) => {
+    title,
+}: QueueDataProps & { selectedHeroIds: number[]; title: string }) => {
     const allMatchCounts = matches.reduce((counts, match) => {
         counts.set(match.heroId, (counts.get(match.heroId) ?? 0) + 1);
         return counts;
@@ -326,7 +328,7 @@ const FavoriteHeroes = ({
         : automaticFavorites;
 
     return (
-        <Panel title="Favorite heroes" className={styles.favorites}>
+        <Panel title={title} className={styles.favorites}>
             <div className={styles.favoriteList}>
                 {favorites.length ? favorites.map(([heroId]) => {
                     const hero = getHeroById(heroId);
@@ -362,10 +364,10 @@ const FavoriteHeroes = ({
     );
 };
 
-const RecentGames = ({ matches }: QueueDataProps) => (
-    <Panel title="Recent games" className={styles.recentGames}>
+const RecentGames = ({ matches, title, limit }: QueueDataProps & { title: string; limit: number }) => (
+    <Panel title={title} className={styles.recentGames}>
         <div className={styles.gamesList}>
-            {matches.length ? matches.slice(0, 5).map((match) => {
+            {matches.length ? matches.slice(0, limit).map((match) => {
                 const hero = getHeroById(match.heroId);
                 const result = resultLabel(match);
                 return (
@@ -397,11 +399,12 @@ const StreamProfile = ({
     twitch,
     channelGoal,
     rating,
-}: QueueDataProps) => {
+    title,
+}: QueueDataProps & { title: string }) => {
     const accountName = twitch?.login ? `t.tv/${twitch.login}` : email?.split("@")[0] || "stream account";
     const initials = accountName.slice(0, 2).toUpperCase();
     return (
-        <Panel title="Channel transmission" className={styles.streamProfile}>
+        <Panel title={title} className={styles.streamProfile}>
             <div className={styles.streamProfileBody}>
                 <span className={styles.twitchAvatarFrame}>
                     {twitch?.profileImageUrl ? (
@@ -437,10 +440,10 @@ const StreamProfile = ({
     );
 };
 
-const TwitchChat = ({ twitch }: QueueDataProps) => {
-    const messages = twitch?.chat.messages ?? [];
+const TwitchChat = ({ twitch, title, limit }: QueueDataProps & { title: string; limit: number }) => {
+    const messages = (twitch?.chat.messages ?? []).slice(-limit);
     return (
-        <Panel title="Twitch chat" className={styles.chatPanel}>
+        <Panel title={title} className={styles.chatPanel}>
             {twitch?.connected ? (
                 <div className={styles.chatBody} aria-live="polite">
                     <div className={styles.chatStatus} data-connected={twitch.chat.connected}>
@@ -473,7 +476,10 @@ const TwitchChat = ({ twitch }: QueueDataProps) => {
     );
 };
 
-const DonationTop = ({ donationAlerts, twitch }: QueueDataProps) => {
+const DonationTop = ({ donationAlerts, twitch, title, settings }: QueueDataProps & {
+    title: string;
+    settings: QueueWidgetSettings["friends"];
+}) => {
     const leaders = (donationAlerts?.topDonors ?? []).slice(0, 3);
     const subscribers = twitch?.recentSubscribers ?? [];
     const followers = twitch?.recentFollowers ?? [];
@@ -519,9 +525,9 @@ const DonationTop = ({ donationAlerts, twitch }: QueueDataProps) => {
         return avatars[(hash >>> 0) % avatars.length];
     };
     return (
-        <Panel title="Friends" className={styles.donationPanel}>
+        <Panel title={title} className={styles.donationPanel}>
             <div className={styles.friendsBody}>
-                {leaders.length > 0 && <section className={styles.friendSection}>
+                {settings.showDonaters && leaders.length > 0 && <section className={styles.friendSection}>
                     <h3>Donaters</h3>
                     <div className={styles.friendGrid}>
                         {leaders.map((leader) => {
@@ -555,7 +561,7 @@ const DonationTop = ({ donationAlerts, twitch }: QueueDataProps) => {
                         })}
                     </div>
                 </section>}
-                {subscribers.length > 0 && <section className={styles.friendSection}>
+                {settings.showSubscribers && subscribers.length > 0 && <section className={styles.friendSection}>
                     <h3>Subscribers</h3>
                     <div className={styles.friendGrid}>
                         {subscribers.map((subscriber) => (
@@ -577,7 +583,7 @@ const DonationTop = ({ donationAlerts, twitch }: QueueDataProps) => {
                         ))}
                     </div>
                 </section>}
-                {followers.length > 0 && <section className={styles.friendSection}>
+                {settings.showFollowers && followers.length > 0 && <section className={styles.friendSection}>
                     <h3>Recent followers</h3>
                     <div className={styles.friendGrid}>
                         {followers.map((follower) => (
@@ -599,6 +605,19 @@ const DonationTop = ({ donationAlerts, twitch }: QueueDataProps) => {
                         ))}
                     </div>
                 </section>}
+                {settings.socialLinks.length > 0 && (
+                    <section className={`${styles.friendSection} ${styles.socialSection}`}>
+                        <h3>Socials</h3>
+                        <div className={styles.socialLinks}>
+                            {settings.socialLinks.map((social) => (
+                                <a key={social.id} href={social.url} target="_blank" rel="noreferrer">
+                                    <b>{social.platform === "x" ? "X" : social.platform.slice(0, 2).toUpperCase()}</b>
+                                    <span>{social.label}</span>
+                                </a>
+                            ))}
+                        </div>
+                    </section>
+                )}
             </div>
         </Panel>
     );
@@ -658,31 +677,41 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
         webcamImageUrl: activeSettings.webcamImageUrl,
         channelGoal: activeSettings.channelGoal,
     };
-    const visibility = activeSettings.visibility;
-    const topCount = Number(visibility.playerProfile) + Number(visibility.streamProfile);
-    const sideCount = Number(visibility.webcam) + Number(visibility.favoriteHeroes) + Number(visibility.recentGames);
+    const widgetSettings = activeSettings.widgets;
 
     return (
         <div className={styles.interface}>
-            <div className={styles.dashboard} data-top-count={topCount}>
-                {visibility.playerProfile && <PlayerProfile {...data} />}
-                {visibility.streamProfile && <StreamProfile {...data} />}
-                {(visibility.featuredMatch || sideCount > 0) && <div className={styles.leftMain} data-featured={visibility.featuredMatch}>
-                    {visibility.featuredMatch && <FeaturedMatch {...data} />}
-                    {sideCount > 0 && <div className={styles.sideStack} data-widget-count={sideCount}>
-                        {visibility.webcam && <WebcamSlot {...data} />}
-                        {visibility.favoriteHeroes && (
-                            <FavoriteHeroes {...data} selectedHeroIds={activeSettings.favoriteHeroIds} />
-                        )}
-                        {visibility.recentGames && <RecentGames {...data} />}
-                    </div>}
-                </div>}
-                {visibility.twitchChat && (
-                    <div className={styles.rightMain}>
-                        <TwitchChat {...data} />
-                        <DonationTop {...data} />
+            <div className={styles.dashboard} data-top-count={2}>
+                <PlayerProfile {...data} title={widgetSettings.titles.playerProfile} />
+                <StreamProfile {...data} title={widgetSettings.titles.streamProfile} />
+                <div className={styles.leftMain} data-featured="true">
+                    <FeaturedMatch {...data} title={widgetSettings.titles.featuredMatch} />
+                    <div className={styles.sideStack} data-widget-count={3}>
+                        <WebcamSlot {...data} title={widgetSettings.titles.webcam} />
+                        <FavoriteHeroes
+                            {...data}
+                            title={widgetSettings.titles.favoriteHeroes}
+                            selectedHeroIds={activeSettings.favoriteHeroIds}
+                        />
+                        <RecentGames
+                            {...data}
+                            title={widgetSettings.titles.recentGames}
+                            limit={widgetSettings.recentGamesLimit}
+                        />
                     </div>
-                )}
+                </div>
+                <div className={styles.rightMain}>
+                    <TwitchChat
+                        {...data}
+                        title={widgetSettings.titles.twitchChat}
+                        limit={widgetSettings.chatMessagesLimit}
+                    />
+                    <DonationTop
+                        {...data}
+                        title={widgetSettings.titles.friends}
+                        settings={widgetSettings.friends}
+                    />
+                </div>
             </div>
         </div>
     );

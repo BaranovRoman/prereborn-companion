@@ -308,8 +308,29 @@
     border-bottom: 1px solid #242a2b;
     color: var(--ui-text-soft);
     font-size: 14px;
-    cursor: pointer;
+    cursor: default;
     transition: color 120ms ease, background 120ms ease;
+}
+.row > span {
+    display: grid;
+    gap: 3px;
+}
+.row > span strong { color: #d0cbc3; font-weight: 500; }
+.row > span small { color: var(--ui-text-soft); font-size: 12px; }
+.widgetModal {
+    display: grid;
+    gap: 18px;
+    padding-top: 8px;
+}
+.widgetModal > label {
+    display: grid;
+    gap: 7px;
+}
+.friendsEditor { display: grid; gap: 10px; }
+.socialRow {
+    display: grid;
+    grid-template-columns: 110px 1fr 1.4fr auto;
+    gap: 8px;
 }
 .row:nth-child(odd) { border-right: 1px solid #242a2b; }
 .row:nth-last-child(-n + 2) { border-bottom: 0; }
