@@ -161,12 +161,6 @@ interface GsiItem {
 
 const INVENTORY_SLOT_COUNT = 9;
 const MAIN_INVENTORY_SLOT_COUNT = 6;
-const MANTLE_PLACEHOLDER: GsiItem = {
-    name: "item_mantle",
-    displayName: "mantle of intelligence",
-    imageUrl: "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/mantle.png",
-};
-
 const getMatchItems = (inventory: Array<string | null> | undefined): Array<GsiItem | null> => {
     if (!inventory) return [];
     return Array.from({ length: INVENTORY_SLOT_COUNT }, (_, index) => {
@@ -228,7 +222,7 @@ const FeaturedMatch = ({ matches }: QueueDataProps) => {
     const recordedItems = getMatchItems(match?.inventory);
     const matchItems = recordedItems.some(Boolean)
         ? recordedItems
-        : Array.from({ length: INVENTORY_SLOT_COUNT }, () => MANTLE_PLACEHOLDER);
+        : Array.from<GsiItem | null>({ length: INVENTORY_SLOT_COUNT }).fill(null);
     const mainItems = matchItems.slice(0, MAIN_INVENTORY_SLOT_COUNT);
     const backpackItems = matchItems.slice(MAIN_INVENTORY_SLOT_COUNT);
 
@@ -244,18 +238,23 @@ const FeaturedMatch = ({ matches }: QueueDataProps) => {
     );
 
     return (
-        <Panel title="Last match // Featured hero" className={styles.featuredMatch}>
-            <div className={styles.heroArt} aria-label={hero?.localizedName ?? "No match data"}>
+        <Panel title="Last match" className={styles.featuredMatch}>
+            <div
+                className={styles.heroArt}
+                data-empty={hero ? undefined : "true"}
+                aria-label={hero?.localizedName ?? "No completed matches"}
+            >
                 {hero ? (
                     <PreloadedVideo
                         className={styles.featuredHeroImage}
                         src={hero.featuredVideoUrl}
                     />
                 ) : (
-                    <>
-                        <span className={styles.heroSigil}>?</span>
-                        <span className={styles.heroSilhouette} />
-                    </>
+                    <div className={styles.emptyMatchHero}>
+                        <Image src="/logo-new.png" width={156} height={156} alt="" />
+                        <span>Match history is empty</span>
+                        <small>Your latest completed match will appear here</small>
+                    </div>
                 )}
                 <span className={styles.heroMist} />
             </div>
