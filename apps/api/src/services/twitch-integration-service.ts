@@ -1,9 +1,7 @@
 import crypto from "crypto";
 import WebSocket from "ws";
-import type { DatabaseError } from "pg";
 import { env } from "../config/env.js";
 import { pool } from "../db/client.js";
-import { logger } from "../utils/logger.js";
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 const CHAT_MESSAGE_LIMIT = 40;
@@ -131,43 +129,32 @@ export const saveTwitchLink = async (
     user: { id: string; login: string; display_name: string; profile_image_url: string },
     token: TwitchToken
 ) => {
-    try {
-        await pool.query(
-            `INSERT INTO stream_twitch_links
-               (stream_user_id, twitch_user_id, login, display_name, profile_image_url,
-                access_token, refresh_token, token_expires_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-             ON CONFLICT (stream_user_id) DO UPDATE SET
-               twitch_user_id = EXCLUDED.twitch_user_id,
-               login = EXCLUDED.login,
-               display_name = EXCLUDED.display_name,
-               profile_image_url = EXCLUDED.profile_image_url,
-               access_token = EXCLUDED.access_token,
-               refresh_token = EXCLUDED.refresh_token,
-               token_expires_at = EXCLUDED.token_expires_at,
-               updated_at = CURRENT_TIMESTAMP`,
-            [
-                streamUserId,
-                user.id,
-                user.login,
-                user.display_name,
-                user.profile_image_url,
-                token.access_token,
-                token.refresh_token ?? null,
-                new Date(Date.now() + token.expires_in * 1000),
-            ]
-        );
-        stopTwitchChat(streamUserId);
-    } catch (error) {
-        const databaseError = error as DatabaseError;
-        if (
-            databaseError.code === "23505" &&
-            databaseError.constraint === "stream_twitch_links_twitch_user_id_key"
-        ) {
-            throw new TwitchAccountAlreadyLinkedError();
-        }
-        throw error;
-    }
+    await pool.query(
+        `INSERT INTO stream_twitch_links
+           (stream_user_id, twitch_user_id, login, display_name, profile_image_url,
+            access_token, refresh_token, token_expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (stream_user_id) DO UPDATE SET
+           twitch_user_id = EXCLUDED.twitch_user_id,
+           login = EXCLUDED.login,
+           display_name = EXCLUDED.display_name,
+           profile_image_url = EXCLUDED.profile_image_url,
+           access_token = EXCLUDED.access_token,
+           refresh_token = EXCLUDED.refresh_token,
+           token_expires_at = EXCLUDED.token_expires_at,
+           updated_at = CURRENT_TIMESTAMP`,
+        [
+            streamUserId,
+            user.id,
+            user.login,
+            user.display_name,
+            user.profile_image_url,
+            token.access_token,
+            token.refresh_token ?? null,
+            new Date(Date.now() + token.expires_in * 1000),
+        ]
+    );
+    stopTwitchChat(streamUserId);
 };
 
 const parseIrcTags = (raw: string) =>
@@ -376,13 +363,6 @@ const getTwitchAudience = async (streamUserId: string, broadcasterId: string) =>
     return audience;
 };
 
-export class TwitchAccountAlreadyLinkedError extends Error {
-    constructor() {
-        super("Twitch account is already linked to another stream user");
-        this.name = "TwitchAccountAlreadyLinkedError";
-    }
-}
-
 const getAppToken = async () => {
     const config = getTwitchConfig();
     if (!config) return null;
@@ -423,31 +403,22 @@ export const getTwitchStatus = async (streamUserId: string) => {
     const audience = await getTwitchAudience(streamUserId, link.twitch_user_id);
 
     let live: null | { title: string; viewerCount: number; gameName: string } = null;
-    let liveStatusAvailable = true;
     const config = getTwitchConfig();
-    try {
-        const token = await getAppToken();
-        if (config && token) {
-            const streams = await twitchFetch<{
-                data: Array<{ title: string; viewer_count: number; game_name: string }>;
-            }>(
-                `https://api.twitch.tv/helix/streams?user_id=${encodeURIComponent(link.twitch_user_id)}`,
-                token,
-                config.clientId
-            );
-            const stream = streams.data[0];
-            if (stream) live = {
-                title: stream.title,
-                viewerCount: stream.viewer_count,
-                gameName: stream.game_name,
-            };
-        }
-    } catch (error) {
-        liveStatusAvailable = false;
-        logger.warn("Twitch live status is temporarily unavailable", {
-            streamUserId,
-            message: error instanceof Error ? error.message : String(error),
-        });
+    const token = await getAppToken();
+    if (config && token) {
+        const streams = await twitchFetch<{
+            data: Array<{ title: string; viewer_count: number; game_name: string }>;
+        }>(
+            `https://api.twitch.tv/helix/streams?user_id=${encodeURIComponent(link.twitch_user_id)}`,
+            token,
+            config.clientId
+        );
+        const stream = streams.data[0];
+        if (stream) live = {
+            title: stream.title,
+            viewerCount: stream.viewer_count,
+            gameName: stream.game_name,
+        };
     }
     return {
         connected: true,
@@ -463,7 +434,6 @@ export const getTwitchStatus = async (streamUserId: string) => {
         },
         recentSubscribers: audience.subscribers,
         recentFollowers: audience.followers,
-        liveStatusAvailable,
     };
 };
 

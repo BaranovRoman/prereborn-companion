@@ -36,15 +36,6 @@ const STEAM_ERROR_MESSAGES: Record<string, string> = {
     internal: "Не удалось привязать Steam. Попробуйте ещё раз.",
 };
 
-const TWITCH_ERROR_MESSAGES: Record<string, string> = {
-    access_denied: "Подключение Twitch отменено.",
-    invalid_callback: "Twitch вернул некорректный ответ. Попробуйте ещё раз.",
-    invalid_state: "Истекло время подключения Twitch. Попробуйте ещё раз.",
-    already_linked: "Этот Twitch-канал уже подключён к другому профилю.",
-    oauth_error: "Twitch отклонил подключение. Попробуйте ещё раз.",
-    internal: "Не удалось подключить Twitch. Попробуйте ещё раз.",
-};
-
 export const StreamSettingsPage = () => {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -125,10 +116,7 @@ export const StreamSettingsPage = () => {
             messageApi.success("Twitch подключён");
             void twitchIntegration.refresh();
         } else {
-            const reason = searchParams.get("reason") ?? "";
-            messageApi.error(
-                TWITCH_ERROR_MESSAGES[reason] ?? "Не удалось подключить Twitch"
-            );
+            messageApi.error("Не удалось подключить Twitch");
         }
         router.replace("/stream");
         // eslint-disable-next-line react-hooks/exhaustive-deps

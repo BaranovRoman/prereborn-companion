@@ -5,7 +5,6 @@ export interface TwitchIntegrationStatus {
     displayName?: string;
     profileImageUrl?: string | null;
     connectedAt?: string;
-    liveStatusAvailable?: boolean;
     live?: {
         title: string;
         viewerCount: number;

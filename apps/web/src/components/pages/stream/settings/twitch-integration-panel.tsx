@@ -39,9 +39,7 @@ export const TwitchIntegrationPanel = ({
                         Канал {status.displayName || status.login} подключён
                     </div>
                     <div className={styles.metaLine}>
-                        {status.liveStatusAvailable === false
-                            ? "Статус эфира временно недоступен"
-                            : status.live
+                        {status.live
                             ? `В эфире · ${status.live.viewerCount} зрителей · ${status.live.gameName}`
                             : "Сейчас не в эфире"}
                     </div>
