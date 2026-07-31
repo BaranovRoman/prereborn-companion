@@ -79,7 +79,7 @@ test.describe("queue anti-stream-sniping scene", () => {
         await page.goto("/stream/queue?quality=low&forceFallback=1");
 
         for (const title of [
-            "Last match // Featured hero",
+            "Last match",
             "Live capture",
             "Favorite heroes",
             "Recent games",
