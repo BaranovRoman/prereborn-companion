@@ -1304,6 +1304,12 @@
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     background:
+        linear-gradient(90deg,
+            transparent 0 32.7%,
+            #0a0f0d 32.7% 33.7%,
+            transparent 33.7% 66.3%,
+            #0a0f0d 66.3% 67.3%,
+            transparent 67.3% 100%),
         linear-gradient(180deg, rgba(255, 255, 255, .018), transparent),
         #18241f;
 }
@@ -1325,8 +1331,6 @@
     align-items: center;
     gap: 9px;
     padding: 6px 12px;
-    border-right: 1px solid #080d0c;
-    border-bottom: 1px solid #080d0c;
 }
 .friendEntry img {
     width: 42px;
