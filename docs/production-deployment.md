@@ -53,6 +53,10 @@ In repository settings, create the `production` environment. Add:
 - `OPENDOTA_API_KEY`: optional OpenDota key
 - `TWITCH_CLIENT_ID`: optional Twitch application ID
 - `TWITCH_CLIENT_SECRET`: optional Twitch application secret
+- `TWITCH_REDIRECT_URI`: exact OAuth callback registered in the Twitch developer console,
+  for example `https://example.com/api/stream/integrations/twitch/callback`
+- `TWITCH_FRONTEND_ORIGIN`: public web origin to return to after OAuth,
+  for example `https://example.com`
 
 Generate the JWT value locally:
 

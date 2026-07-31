@@ -12,8 +12,9 @@ public API, deployment, and compatibility cutover are prepared.
 
 Implemented areas include local GSI capture, companion-token authentication,
 stream sessions and match history, public OBS overlays, overlay layout editing,
-Steam/OpenDota integration, and the static queue scene. Twitch chat, goals, and
-supporter data shown in the queue-scene mock are not live integrations.
+Steam/OpenDota integration, Twitch channel OAuth with live status and embedded
+chat, and the queue scene. Goals and supporter data shown in the queue-scene
+mock are not live integrations.
 
 ## Architecture
 

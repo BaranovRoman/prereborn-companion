@@ -17,13 +17,13 @@ import styles from "./queue-widgets-panel.module.scss";
 type ConfigurableWidgetId = keyof QueueWidgetSettings["titles"];
 
 const WIDGETS: Array<{ id: ConfigurableWidgetId; label: string; description: string }> = [
-    { id: "playerProfile", label: "Профиль и статистика", description: "Название блока профиля игрока." },
-    { id: "streamProfile", label: "Канал и трансляция", description: "Название и цель трансляции." },
-    { id: "featuredMatch", label: "Последний матч", description: "Заголовок карточки последнего матча." },
-    { id: "webcam", label: "Область веб-камеры", description: "Название и резервное изображение." },
-    { id: "favoriteHeroes", label: "Любимые герои", description: "Название и выбор до трёх героев." },
-    { id: "recentGames", label: "Последние игры", description: "Название и количество матчей." },
-    { id: "twitchChat", label: "Twitch-чат", description: "Название и число сообщений." },
+    { id: "playerProfile", label: "Профиль и статистика", description: "Карточка профиля игрока." },
+    { id: "streamProfile", label: "Канал и трансляция", description: "Цель трансляции." },
+    { id: "featuredMatch", label: "Последний матч", description: "Карточка последнего матча." },
+    { id: "webcam", label: "Область веб-камеры", description: "Резервное изображение для области камеры." },
+    { id: "favoriteHeroes", label: "Любимые герои", description: "Выбор до трёх героев." },
+    { id: "recentGames", label: "Последние игры", description: "Количество отображаемых матчей." },
+    { id: "twitchChat", label: "Twitch-чат", description: "Количество сообщений." },
     { id: "friends", label: "Friends и соцсети", description: "Аудитория канала и ссылки на соцсети." },
 ];
 
@@ -178,28 +178,14 @@ export const QueueWidgetsPanel = ({
                 title={WIDGETS.find((widget) => widget.id === activeWidget)?.label}
                 open={Boolean(activeWidget && widgetDraft)}
                 onCancel={() => setActiveWidget(null)}
-                onOk={() => void saveWidget()}
-                okText="Сохранить"
+                onOk={() => activeWidget === "webcam" ? setActiveWidget(null) : void saveWidget()}
+                okText={activeWidget === "webcam" ? "Готово" : "Сохранить"}
                 cancelText="Отмена"
                 confirmLoading={savingWidget}
                 destroyOnHidden
             >
                 {activeWidget && widgetDraft && (
                     <div className={styles.widgetModal}>
-                        <label>
-                            <span>Заголовок виджета</span>
-                            <Input
-                                value={widgetDraft.titles[activeWidget]}
-                                maxLength={48}
-                                onChange={(event) => setWidgetDraft({
-                                    ...widgetDraft,
-                                    titles: {
-                                        ...widgetDraft.titles,
-                                        [activeWidget]: event.target.value,
-                                    },
-                                })}
-                            />
-                        </label>
                         {activeWidget === "recentGames" && (
                             <label>
                                 <span>Количество матчей</span>
@@ -308,48 +294,49 @@ export const QueueWidgetsPanel = ({
                                 </Button>
                             </div>
                         )}
-                        {activeWidget === "webcam" && <p>Резервное изображение настраивается ниже в разделе камеры.</p>}
+                        {activeWidget === "webcam" && (
+                            <div className={styles.webcamEditor}>
+                                <p>Фотография или заставка, если видеосигнал не используется.</p>
+                                {settings.webcamImageUrl && (
+                                    <img
+                                        className={styles.webcamPreview}
+                                        src={settings.webcamImageUrl}
+                                        alt="Предпросмотр области веб-камеры"
+                                    />
+                                )}
+                                <div className={styles.optionActions}>
+                                    <Upload
+                                        accept="image/jpeg,image/png,image/webp"
+                                        showUploadList={false}
+                                        beforeUpload={(file) => {
+                                            void uploadWebcamImage(file);
+                                            return false;
+                                        }}
+                                    >
+                                        <Button loading={uploadingImage}>Выбрать изображение</Button>
+                                    </Upload>
+                                    {settings.webcamImageUrl && (
+                                        <Button
+                                            danger
+                                            type="text"
+                                            loading={uploadingImage}
+                                            onClick={() => void removeWebcamImage()}
+                                        >
+                                            Удалить
+                                        </Button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                         {activeWidget === "favoriteHeroes" && <p>Состав героев настраивается ниже в каталоге героев.</p>}
                         {activeWidget === "streamProfile" && <p>Цель канала настраивается ниже в разделе трансляции.</p>}
+                        {(activeWidget === "playerProfile" || activeWidget === "featuredMatch") && (
+                            <p>У этого виджета нет дополнительных настроек.</p>
+                        )}
                     </div>
                 )}
             </Modal>
             <div className={styles.queueOptions}>
-                <section className={styles.optionCard}>
-                    <div>
-                        <strong>Изображение области веб-камеры</strong>
-                        <span>Фотография или заставка, если видеосигнал не используется.</span>
-                    </div>
-                    {settings.webcamImageUrl && (
-                        <img
-                            className={styles.webcamPreview}
-                            src={settings.webcamImageUrl}
-                            alt="Предпросмотр области веб-камеры"
-                        />
-                    )}
-                    <div className={styles.optionActions}>
-                        <Upload
-                            accept="image/jpeg,image/png,image/webp"
-                            showUploadList={false}
-                            beforeUpload={(file) => {
-                                void uploadWebcamImage(file);
-                                return false;
-                            }}
-                        >
-                            <Button loading={uploadingImage}>Выбрать изображение</Button>
-                        </Upload>
-                        {settings.webcamImageUrl && (
-                            <Button
-                                danger
-                                type="text"
-                                loading={uploadingImage}
-                                onClick={() => void removeWebcamImage()}
-                            >
-                                Удалить
-                            </Button>
-                        )}
-                    </div>
-                </section>
                 <section className={styles.optionCard}>
                     <div>
                         <strong>Цель канала и трансляции</strong>
