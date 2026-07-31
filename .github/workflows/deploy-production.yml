@@ -80,6 +80,14 @@ jobs:
             echo "PRODUCTION_STREAM_JWT_SECRET is empty"
             exit 1
           }
+          test -n "$TWITCH_CLIENT_ID" || {
+            echo "TWITCH_CLIENT_ID is empty"
+            exit 1
+          }
+          test -n "$TWITCH_CLIENT_SECRET" || {
+            echo "TWITCH_CLIENT_SECRET is empty"
+            exit 1
+          }
           test -n "$DONATION_ALERTS_CLIENT_ID" || {
             echo "DONATION_ALERTS_CLIENT_ID is empty"
             exit 1

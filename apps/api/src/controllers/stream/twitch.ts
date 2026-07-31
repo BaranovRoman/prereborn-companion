@@ -30,6 +30,7 @@ export const connectTwitchController = async (req: Request, res: Response) => {
     url.searchParams.set("redirect_uri", config.redirectUri);
     url.searchParams.set("response_type", "code");
     url.searchParams.set("state", state);
+    url.searchParams.set("scope", "chat:read");
     url.searchParams.set("force_verify", "true");
     res.json({ redirectUrl: url.toString() });
 };
@@ -52,7 +53,7 @@ export const twitchCallbackController = async (req: Request, res: Response) => {
         if (!streamUserId) return redirect("error", "invalid_state");
         const token = await exchangeTwitchCode(parsed.data.code);
         const user = await getTwitchUser(token.access_token);
-        await saveTwitchLink(streamUserId, user);
+        await saveTwitchLink(streamUserId, user, token);
         redirect("connected");
     } catch (error) {
         logger.error("Twitch callback error", { message: error instanceof Error ? error.message : String(error) });

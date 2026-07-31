@@ -19,6 +19,7 @@ import {
 } from "../../services/stream-companion-service.js";
 import { logger } from "../../utils/logger.js";
 import { getCachedSteamProfile } from "../../services/steam-profile-cache-service.js";
+import { getTwitchStatus } from "../../services/twitch-integration-service.js";
 
 const publicTokenSchema = z.string().uuid();
 
@@ -57,9 +58,10 @@ export const getOverlayController = async (req: Request, res: Response) => {
         // Раскладка виджетов - редко меняется, но отдаётся вместе с
         // остальным payload'ом одного и того же поллинга (см. задачу, п.12):
         // отдельный опрос под layout не нужен.
-        const [layout, queueSettings] = await Promise.all([
+        const [layout, queueSettings, twitch] = await Promise.all([
             getOverlayLayout(streamUserId),
             getQueueSettings(streamUserId),
+            getTwitchStatus(streamUserId),
         ]);
 
         // Суммарное изменение рейтинга за текущую сессию (см. задачу: рядом
@@ -122,6 +124,7 @@ export const getOverlayController = async (req: Request, res: Response) => {
                 connected: steamLink !== null,
                 profile: steamProfile,
             },
+            twitch,
             layout,
             queueSettings,
         });

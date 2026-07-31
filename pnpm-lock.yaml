@@ -46,6 +46,9 @@ importers:
       sharp:
         specifier: ^0.34.5
         version: 0.34.5
+      ws:
+        specifier: 8.21.1
+        version: 8.21.1
       zod:
         specifier: ^3.22.4
         version: 3.25.76

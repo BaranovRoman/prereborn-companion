@@ -425,9 +425,15 @@ export const createTables = async (): Promise<void> => {
         login VARCHAR(64) NOT NULL,
         display_name VARCHAR(128) NOT NULL,
         profile_image_url TEXT,
+        access_token TEXT,
+        refresh_token TEXT,
+        token_expires_at TIMESTAMP,
         connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      ALTER TABLE stream_twitch_links ADD COLUMN IF NOT EXISTS access_token TEXT;
+      ALTER TABLE stream_twitch_links ADD COLUMN IF NOT EXISTS refresh_token TEXT;
+      ALTER TABLE stream_twitch_links ADD COLUMN IF NOT EXISTS token_expires_at TIMESTAMP;
       CREATE TABLE IF NOT EXISTS stream_twitch_connect_states (
         state VARCHAR(128) PRIMARY KEY,
         stream_user_id INTEGER NOT NULL REFERENCES stream_users(id) ON DELETE CASCADE,

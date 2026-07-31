@@ -45,6 +45,10 @@ HEALTH_RESPONSE="$(curl --fail --silent --show-error \
   --retry 10 --retry-delay 2 --retry-connrefused \
   http://127.0.0.1:5102/api/health)"
 printf '%s\n' "$HEALTH_RESPONSE"
+grep -q '"twitchConfigured":true' <<<"$HEALTH_RESPONSE" || {
+  echo "Twitch credentials did not reach prereborn-api"
+  exit 1
+}
 grep -q '"donationAlertsConfigured":true' <<<"$HEALTH_RESPONSE" || {
   echo "DonationAlerts credentials did not reach prereborn-api"
   exit 1

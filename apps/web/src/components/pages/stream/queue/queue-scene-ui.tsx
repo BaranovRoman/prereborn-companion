@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { getHeroById } from "@/entities/dota-hero/lib/search";
 import { useAccountMatches } from "@/entities/stream-session/lib/use-account-matches";
 import { useOverlayPolling } from "@/entities/stream-session/lib/use-overlay-polling";
@@ -36,10 +36,6 @@ const DONATION_RANKS = [
 
 const getDonationRank = (amount: number) =>
     DONATION_RANKS.find((rank) => amount >= rank.min) ?? DONATION_RANKS.at(-1)!;
-
-const subscribeToHostname = () => () => {};
-const getHostname = () => window.location.hostname;
-const getServerHostname = () => "";
 
 const formatRating = (rating: number | null | undefined) =>
     rating === null || rating === undefined
@@ -402,14 +398,16 @@ const StreamProfile = ({
     channelGoal,
     rating,
 }: QueueDataProps) => {
-    const accountName = twitch?.displayName || twitch?.login || email?.split("@")[0] || "stream account";
+    const accountName = twitch?.login ? `t.tv/${twitch.login}` : email?.split("@")[0] || "stream account";
     const initials = accountName.slice(0, 2).toUpperCase();
     return (
         <Panel title="Channel transmission" className={styles.streamProfile}>
             <div className={styles.streamProfileBody}>
-                {twitch?.profileImageUrl ? (
-                    <img className={styles.twitchAvatarImage} src={twitch.profileImageUrl} alt="" />
-                ) : <span className={styles.twitchAvatar}>{initials}</span>}
+                <span className={styles.twitchAvatarFrame}>
+                    {twitch?.profileImageUrl ? (
+                        <img className={styles.twitchAvatarImage} src={twitch.profileImageUrl} alt="" />
+                    ) : <span className={styles.twitchAvatar}>{initials}</span>}
+                </span>
                 <div>
                     <strong>{accountName}</strong>
                     {twitch?.live?.title && <small>{twitch.live.title}</small>}
@@ -440,15 +438,30 @@ const StreamProfile = ({
 };
 
 const TwitchChat = ({ twitch }: QueueDataProps) => {
-    const parent = useSyncExternalStore(subscribeToHostname, getHostname, getServerHostname);
+    const messages = twitch?.chat.messages ?? [];
     return (
         <Panel title="Twitch chat" className={styles.chatPanel}>
-            {twitch?.connected && twitch.login && parent ? (
-                <iframe
-                    className={styles.twitchChatEmbed}
-                    src={`https://www.twitch.tv/embed/${encodeURIComponent(twitch.login)}/chat?parent=${encodeURIComponent(parent)}&darkpopout`}
-                    title={`Twitch chat — ${twitch.displayName || twitch.login}`}
-                />
+            {twitch?.connected ? (
+                <div className={styles.chatBody} aria-live="polite">
+                    <div className={styles.chatStatus} data-connected={twitch.chat.connected}>
+                        <i />
+                        {twitch.chat.connected ? "LIVE CHAT" : "CONNECTING"}
+                    </div>
+                    <div className={styles.chatMessages}>
+                        {messages.length ? messages.map((message) => (
+                            <p key={message.id}>
+                                <span style={message.color ? { color: message.color } : undefined}>
+                                    {message.author}
+                                </span>
+                                <b>:</b> {message.text}
+                            </p>
+                        )) : (
+                            <div className={styles.chatWaiting}>
+                                Messages will appear here when chat becomes active
+                            </div>
+                        )}
+                    </div>
+                </div>
             ) : (
                 <div className={`${styles.chatBody} ${styles.chatUnavailable}`}>
                     <i aria-hidden="true">T</i>
@@ -460,12 +473,14 @@ const TwitchChat = ({ twitch }: QueueDataProps) => {
     );
 };
 
-const DonationTop = ({ donationAlerts }: QueueDataProps) => {
+const DonationTop = ({ donationAlerts, twitch }: QueueDataProps) => {
     const leaders = (donationAlerts?.topDonors ?? []).slice(0, 9);
+    const subscribers = twitch?.recentSubscribers ?? [];
     return (
         <Panel title="Top supporters" className={styles.donationPanel}>
-            {leaders.length ? (
-                <div className={styles.donationTop}>
+            <div className={styles.supportersBody}>
+                {leaders.length ? (
+                    <div className={styles.donationTop}>
                     {leaders.map((leader) => {
                         const rank = getDonationRank(leader.amount);
                         const rankLabel = rank.stars
@@ -495,12 +510,25 @@ const DonationTop = ({ donationAlerts }: QueueDataProps) => {
                             </div>
                         );
                     })}
+                    </div>
+                ) : (
+                    <div className={styles.donationEmpty}>
+                        {donationAlerts?.connected ? "NO DONATIONS YET" : "CONNECT DONATIONALERTS"}
+                    </div>
+                )}
+                <div className={styles.subscriberBlock}>
+                    <span className={styles.subscriberTitle}>LATEST SUBSCRIBERS</span>
+                    <div className={styles.subscriberList}>
+                        {subscribers.length ? subscribers.map((subscriber) => (
+                            <span key={subscriber.id} className={styles.subscriber}>
+                                <i>{subscriber.isGift ? "G" : "S"}</i>
+                                <b>{subscriber.name}</b>
+                                <small>T{subscriber.tier.slice(0, 1)}</small>
+                            </span>
+                        )) : <em>Waiting for Twitch subscriptions</em>}
+                    </div>
                 </div>
-            ) : (
-                <div className={styles.donationEmpty}>
-                    {donationAlerts?.connected ? "NO DONATIONS YET" : "CONNECT DONATIONALERTS"}
-                </div>
-            )}
+            </div>
         </Panel>
     );
 };
@@ -554,7 +582,7 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
         steamId: steam.status?.steamId64,
         steamSyncStatus: steam.status?.lastSyncStatus,
         steamProfile: publicData?.steam.profile ?? steam.status?.profile,
-        twitch: twitch.status,
+        twitch: activeOverlay?.twitch ?? twitch.status,
         donationAlerts: donationAlerts.status,
         webcamImageUrl: activeSettings.webcamImageUrl,
         channelGoal: activeSettings.channelGoal,
