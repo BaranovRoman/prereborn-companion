@@ -11,7 +11,7 @@ import { RecentMatches } from "./widgets/recent-matches";
 import { CompanionStatus } from "./widgets/companion-status";
 import { DebugPanel } from "./debug-panel";
 import { QueueScene } from "@/components/pages/stream/queue/queue-scene";
-import { isGameInProgress } from "./lib/is-game-in-progress";
+import { getBroadcastScene } from "./lib/get-broadcast-scene";
 
 interface OverlayPageProps {
     publicToken: string;
@@ -44,9 +44,9 @@ export const OverlayPage = ({
     }
 
     const layout = data.layout ?? DEFAULT_OVERLAY_LAYOUT;
-    const showGameOverlay = isGameInProgress(data.companion.payload);
+    const activeScene = getBroadcastScene(data.companion.payload);
 
-    if (!showGameOverlay) {
+    if (activeScene === "betweenMatches") {
         return (
             <>
                 <QueueScene
@@ -61,13 +61,15 @@ export const OverlayPage = ({
         );
     }
 
+    const widgets = layout.scenes[activeScene].widgets;
+
     return (
         <>
             <OverlayCanvas mode="live" aspectRatio={layout.aspectRatio}>
                 {({ sceneWidth, sceneHeight }) => (
                     <>
                         <AnchoredWidget
-                            layout={layout.widgets.session}
+                            layout={widgets.session}
                             sceneWidth={sceneWidth}
                             sceneHeight={sceneHeight}
                         >
@@ -81,7 +83,7 @@ export const OverlayPage = ({
                         </AnchoredWidget>
 
                         <AnchoredWidget
-                            layout={layout.widgets.currentGame}
+                            layout={widgets.currentGame}
                             sceneWidth={sceneWidth}
                             sceneHeight={sceneHeight}
                         >
@@ -89,19 +91,19 @@ export const OverlayPage = ({
                         </AnchoredWidget>
 
                         <AnchoredWidget
-                            layout={layout.widgets.recentMatches}
+                            layout={widgets.recentMatches}
                             sceneWidth={sceneWidth}
                             sceneHeight={sceneHeight}
                         >
                             <RecentMatches
                                 matches={data.matches}
-                                settings={layout.widgets.recentMatches.recentMatches}
-                                anchor={layout.widgets.recentMatches.anchor}
+                                settings={widgets.recentMatches.recentMatches}
+                                anchor={widgets.recentMatches.anchor}
                             />
                         </AnchoredWidget>
 
                         <AnchoredWidget
-                            layout={layout.widgets.companionStatus}
+                            layout={widgets.companionStatus}
                             sceneWidth={sceneWidth}
                             sceneHeight={sceneHeight}
                         >

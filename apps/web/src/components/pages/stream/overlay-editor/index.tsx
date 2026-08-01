@@ -19,6 +19,7 @@ import {
     type OverlayAspectRatio,
     type OverlayAspectRatioPreset,
     type OverlayLayout,
+    type ConfigurableBroadcastSceneId,
     type OverlayWidgetId,
     type OverlayWidgetLayout,
     type RecentMatchesSettings,
@@ -170,6 +171,8 @@ export const OverlayEditorPage = () => {
     const router = useRouter();
     const { user: sessionUser, loading } = useStreamSession();
     const [layout, setLayout] = useState<OverlayLayout>(DEFAULT_OVERLAY_LAYOUT);
+    const [selectedScene, setSelectedScene] =
+        useState<ConfigurableBroadcastSceneId>("gameplay");
     const [layoutLoading, setLayoutLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [showSafeArea, setShowSafeArea] = useState(true);
@@ -218,6 +221,7 @@ export const OverlayEditorPage = () => {
     }, []);
 
     const dirty = JSON.stringify(layout) !== JSON.stringify(lastSavedRef.current);
+    const activeSceneLayout = layout.scenes[selectedScene];
     const sceneDimensions = computeSceneDimensions(layout.aspectRatio);
 
     const referenceBackgroundImage: ReferenceBackgroundImage | null =
@@ -238,44 +242,61 @@ export const OverlayEditorPage = () => {
               )
             : null;
 
-    const updateSession = (patch: Partial<OverlayWidgetLayout>) =>
+    const updateSceneWidgets = (
+        updater: (widgets: typeof activeSceneLayout.widgets) => typeof activeSceneLayout.widgets
+    ) =>
         setLayout((c) => ({
             ...c,
-            widgets: { ...c.widgets, session: { ...c.widgets.session, ...patch } },
+            scenes: {
+                ...c.scenes,
+                [selectedScene]: {
+                    ...c.scenes[selectedScene],
+                    widgets: updater(c.scenes[selectedScene].widgets),
+                },
+            },
+        }));
+    const updateSession = (patch: Partial<OverlayWidgetLayout>) =>
+        updateSceneWidgets((widgets) => ({
+            ...widgets,
+            session: { ...widgets.session, ...patch },
         }));
     const updateCurrentGame = (patch: Partial<OverlayWidgetLayout>) =>
-        setLayout((c) => ({
-            ...c,
-            widgets: {
-                ...c.widgets,
-                currentGame: { ...c.widgets.currentGame, ...patch },
-            },
+        updateSceneWidgets((widgets) => ({
+            ...widgets,
+            currentGame: { ...widgets.currentGame, ...patch },
         }));
     const updateCompanionStatus = (patch: Partial<OverlayWidgetLayout>) =>
-        setLayout((c) => ({
-            ...c,
-            widgets: {
-                ...c.widgets,
-                companionStatus: { ...c.widgets.companionStatus, ...patch },
-            },
+        updateSceneWidgets((widgets) => ({
+            ...widgets,
+            companionStatus: { ...widgets.companionStatus, ...patch },
         }));
     const updateRecentMatches = (patch: Partial<OverlayWidgetLayout>) =>
-        setLayout((c) => ({
-            ...c,
-            widgets: {
-                ...c.widgets,
-                recentMatches: { ...c.widgets.recentMatches, ...patch },
-            },
+        updateSceneWidgets((widgets) => ({
+            ...widgets,
+            recentMatches: { ...widgets.recentMatches, ...patch },
         }));
     const updateRecentMatchesSettings = (patch: Partial<RecentMatchesSettings>) =>
+        updateSceneWidgets((widgets) => ({
+            ...widgets,
+                recentMatches: {
+                    ...widgets.recentMatches,
+                    recentMatches: {
+                        ...widgets.recentMatches.recentMatches,
+                        ...patch,
+                    },
+                },
+        }));
+    const updateCameraZone = (
+        patch: Partial<typeof activeSceneLayout.cameraZone>
+    ) =>
         setLayout((c) => ({
             ...c,
-            widgets: {
-                ...c.widgets,
-                recentMatches: {
-                    ...c.widgets.recentMatches,
-                    recentMatches: {
-                        ...c.widgets.recentMatches.recentMatches,
+            scenes: {
+                ...c.scenes,
+                [selectedScene]: {
+                    ...c.scenes[selectedScene],
+                    cameraZone: {
+                        ...c.scenes[selectedScene].cameraZone,
                         ...patch,
                     },
                 },
@@ -319,7 +340,7 @@ export const OverlayEditorPage = () => {
     // и есть нужный край (если anchor="bottom-right", это уже правый нижний
     // угол) - измерять размер виджета для этого не нужно.
     const snapToSafeArea = (id: OverlayWidgetId) => {
-        const widget = layout.widgets[id];
+        const widget = activeSceneLayout.widgets[id];
         const { x, y } = splitAnchor(widget.anchor);
         const xVw =
             x === "center" ? widget.xVw : x === "left" ? SAFE_AREA_PERCENT : 100 - SAFE_AREA_PERCENT;
@@ -347,20 +368,23 @@ export const OverlayEditorPage = () => {
 
         setLayout((c) => ({
             ...c,
-            widgets: {
-                session: { ...c.widgets.session, ...adjust(c.widgets.session) },
+            scenes: {
+                ...c.scenes,
+                [selectedScene]: { ...c.scenes[selectedScene], widgets: {
+                session: { ...c.scenes[selectedScene].widgets.session, ...adjust(c.scenes[selectedScene].widgets.session) },
                 currentGame: {
-                    ...c.widgets.currentGame,
-                    ...adjust(c.widgets.currentGame),
+                    ...c.scenes[selectedScene].widgets.currentGame,
+                    ...adjust(c.scenes[selectedScene].widgets.currentGame),
                 },
                 recentMatches: {
-                    ...c.widgets.recentMatches,
-                    ...adjust(c.widgets.recentMatches),
+                    ...c.scenes[selectedScene].widgets.recentMatches,
+                    ...adjust(c.scenes[selectedScene].widgets.recentMatches),
                 },
                 companionStatus: {
-                    ...c.widgets.companionStatus,
-                    ...adjust(c.widgets.companionStatus),
+                    ...c.scenes[selectedScene].widgets.companionStatus,
+                    ...adjust(c.scenes[selectedScene].widgets.companionStatus),
                 },
+                }},
             },
         }));
     };
@@ -370,7 +394,10 @@ export const OverlayEditorPage = () => {
         if (!preset) return;
         // Пресеты задают только widgets - текущий выбранный aspectRatio
         // сохраняется (см. задачу, п.8: "presets работают на всех форматах").
-        setLayout((c) => ({ ...preset.layout, aspectRatio: c.aspectRatio }));
+        setLayout((c) => ({
+            ...c,
+            scenes: { ...c.scenes, [selectedScene]: preset.layout },
+        }));
     };
 
     // Смена aspect ratio - позиции остаются процентами сцены (см. задачу,
@@ -390,15 +417,15 @@ export const OverlayEditorPage = () => {
         setLayout((c) => ({
             ...c,
             aspectRatio,
-            widgets: {
-                session: normalize(c.widgets.session, "session"),
-                currentGame: normalize(c.widgets.currentGame, "currentGame"),
+            scenes: { ...c.scenes, [selectedScene]: { ...c.scenes[selectedScene], widgets: {
+                session: normalize(c.scenes[selectedScene].widgets.session, "session"),
+                currentGame: normalize(c.scenes[selectedScene].widgets.currentGame, "currentGame"),
                 recentMatches: {
-                    ...normalize(c.widgets.recentMatches, "recentMatches"),
-                    recentMatches: c.widgets.recentMatches.recentMatches,
+                    ...normalize(c.scenes[selectedScene].widgets.recentMatches, "recentMatches"),
+                    recentMatches: c.scenes[selectedScene].widgets.recentMatches.recentMatches,
                 },
-                companionStatus: normalize(c.widgets.companionStatus, "companionStatus"),
-            },
+                companionStatus: normalize(c.scenes[selectedScene].widgets.companionStatus, "companionStatus"),
+            }}},
         }));
     };
 
@@ -437,7 +464,7 @@ export const OverlayEditorPage = () => {
         return <div className={styles.loading}>Загрузка…</div>;
     }
 
-    const recentMatchesSettings = layout.widgets.recentMatches.recentMatches;
+    const recentMatchesSettings = activeSceneLayout.widgets.recentMatches.recentMatches;
 
     const otherBoundsFor = (id: OverlayWidgetId): WidgetBounds[] =>
         OVERLAY_WIDGET_IDS.filter((otherId) => otherId !== id)
@@ -463,7 +490,7 @@ export const OverlayEditorPage = () => {
                     <RecentMatches
                         matches={PREVIEW_MATCHES}
                         settings={recentMatchesSettings}
-                        anchor={layout.widgets.recentMatches.anchor}
+                        anchor={activeSceneLayout.widgets.recentMatches.anchor}
                     />
                 );
             case "companionStatus":
@@ -472,7 +499,7 @@ export const OverlayEditorPage = () => {
     };
 
     const collapseItems: CollapseProps["items"] = OVERLAY_WIDGET_IDS.map((id) => {
-        const widget = layout.widgets[id];
+        const widget = activeSceneLayout.widgets[id];
         return {
             key: id,
             label: (
@@ -572,6 +599,25 @@ export const OverlayEditorPage = () => {
                 <div className={styles.header}>
                     <h1 className={styles.title}>Раскладка оверлея</h1>
                     <Link href="/stream">← Назад в настройки</Link>
+                </div>
+                <Segmented
+                    className={styles.sceneTabs}
+                    value={selectedScene}
+                    options={[
+                        { label: "Драфт", value: "draft" },
+                        { label: "Игра", value: "gameplay" },
+                    ]}
+                    onChange={(value) =>
+                        setSelectedScene(value as ConfigurableBroadcastSceneId)
+                    }
+                />
+                <div className={styles.betweenMatchesNote}>
+                    <strong>Между матчами</strong>
+                    <span>
+                        До и после игры показывается текущий полноэкранный экран ожидания.
+                        Его содержимое настраивается на дашборде.
+                    </span>
+                    <Link href="/stream">Настроить экран</Link>
                 </div>
                 <div className={styles.hint}>
                     Перетаскивайте блоки внутри превью - масштаб и пропорции
@@ -707,6 +753,45 @@ export const OverlayEditorPage = () => {
                     )}
                 </div>
 
+                <div className={styles.cameraSection}>
+                    <div className={styles.cameraSectionHeader}>
+                        <div>
+                            <div className={styles.sectionTitle}>Камера в OBS</div>
+                            <div className={styles.cameraHint}>
+                                Только ориентир в редакторе: камера остаётся отдельным
+                                источником OBS и не выводится нашим оверлеем.
+                            </div>
+                        </div>
+                        <Switch
+                            checked={activeSceneLayout.cameraZone.enabled}
+                            onChange={(enabled) => updateCameraZone({ enabled })}
+                        />
+                    </div>
+                    {activeSceneLayout.cameraZone.enabled && (
+                        <div className={styles.cameraFields}>
+                            {([
+                                ["xPercent", "X"],
+                                ["yPercent", "Y"],
+                                ["widthPercent", "Ширина"],
+                                ["heightPercent", "Высота"],
+                            ] as const).map(([field, label]) => (
+                                <label key={field}>
+                                    <span>{label}, %</span>
+                                    <InputNumber
+                                        min={field.includes("width") || field.includes("height") ? 1 : 0}
+                                        max={100}
+                                        value={activeSceneLayout.cameraZone[field]}
+                                        onChange={(value) =>
+                                            value !== null &&
+                                            updateCameraZone({ [field]: value })
+                                        }
+                                    />
+                                </label>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
                 <div className={styles.sceneTools}>
                     <Switch checked={showSafeArea} onChange={setShowSafeArea} />
                     Показывать безопасную область
@@ -721,10 +806,23 @@ export const OverlayEditorPage = () => {
                     >
                         {({ sceneScale, sceneWidth, sceneHeight }) => (
                             <>
+                                {activeSceneLayout.cameraZone.enabled && (
+                                    <div
+                                        className={styles.cameraZone}
+                                        style={{
+                                            left: `${activeSceneLayout.cameraZone.xPercent}%`,
+                                            top: `${activeSceneLayout.cameraZone.yPercent}%`,
+                                            width: `${activeSceneLayout.cameraZone.widthPercent}%`,
+                                            height: `${activeSceneLayout.cameraZone.heightPercent}%`,
+                                        }}
+                                    >
+                                        <span>Камера в OBS</span>
+                                    </div>
+                                )}
                                 {OVERLAY_WIDGET_IDS.map((id) => (
                                     <AnchoredWidget
                                         key={id}
-                                        layout={layout.widgets[id]}
+                                        layout={activeSceneLayout.widgets[id]}
                                         sceneWidth={sceneWidth}
                                         sceneHeight={sceneHeight}
                                         interactive={{

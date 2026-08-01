@@ -93,8 +93,27 @@ export interface OverlayLayoutWidgets {
     companionStatus: OverlayWidgetLayout;
 }
 
-export type OverlayLayout = {
-    version: 1;
+export const BROADCAST_SCENE_IDS = ["betweenMatches", "draft", "gameplay"] as const;
+export type BroadcastSceneId = (typeof BROADCAST_SCENE_IDS)[number];
+export type ConfigurableBroadcastSceneId = Exclude<BroadcastSceneId, "betweenMatches">;
+
+// Camera is owned and positioned by OBS. This rectangle is editor-only and
+// lets the streamer reserve the same part of the canvas in our layouts.
+export interface CameraZone {
+    enabled: boolean;
+    xPercent: number;
+    yPercent: number;
+    widthPercent: number;
+    heightPercent: number;
+}
+
+export interface OverlaySceneLayout {
     widgets: OverlayLayoutWidgets;
+    cameraZone: CameraZone;
+}
+
+export type OverlayLayout = {
+    version: 2;
+    scenes: Record<ConfigurableBroadcastSceneId, OverlaySceneLayout>;
     aspectRatio: OverlayAspectRatio;
 };

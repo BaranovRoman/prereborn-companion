@@ -23,6 +23,7 @@ import { IntegrationsCard } from "./integrations-card";
 import { QueueWidgetsPanel } from "./queue-widgets-panel";
 import { useTwitchIntegration } from "@/entities/twitch-integration/lib/use-twitch-integration";
 import { useDonationAlertsIntegration } from "@/entities/donation-alerts-integration/lib/use-donation-alerts-integration";
+import { getBroadcastScene } from "@/components/pages/overlay/lib/get-broadcast-scene";
 import styles from "./index.module.scss";
 
 // Человеко-понятные причины ошибки привязки Steam - reason приходит от
@@ -179,6 +180,12 @@ export const StreamSettingsPage = () => {
     ];
 
     const recentMatches = overlayData?.matches ?? [];
+    const broadcastScene = getBroadcastScene(overlayData?.companion.payload);
+    const broadcastSceneLabel = {
+        betweenMatches: "Между матчами",
+        draft: "Драфт",
+        gameplay: "Игра",
+    }[broadcastScene];
     const lastMatch = matches?.[0] ?? null;
     const handleMatchCorrection = (updated: Parameters<typeof handleMatchUpdated>[0]) => {
         void handleMatchUpdated(updated);
@@ -257,6 +264,19 @@ export const StreamSettingsPage = () => {
             </header>
 
             <div className={styles.grid}>
+                <div className={styles.broadcastBar}>
+                    <div>
+                        <span className={styles.broadcastEyebrow}>Сейчас в эфире</span>
+                        <strong>{broadcastSceneLabel}</strong>
+                    </div>
+                    <div className={styles.broadcastAutomation}>
+                        <span className={styles.statusDotOn} />
+                        Автопереключение по данным Dota
+                    </div>
+                    <Link href="/stream/overlay-editor">
+                        <Button type="primary">Оформление трансляции</Button>
+                    </Link>
+                </div>
                 <div className={styles.dashboardColumn}>
                     <StreamSessionPanel
                         steamConnected={steamIntegration.status?.connected ?? false}
@@ -287,7 +307,7 @@ export const StreamSettingsPage = () => {
                     )}
 
                     <div className={styles.section}>
-                        <h2 className={styles.sectionTitle}>Оверлей</h2>
+                        <h2 className={styles.sectionTitle}>Подключение OBS</h2>
                         <div className={styles.overlayState}>
                             {overlayData
                                 ? `Данные обновлены ${new Date(overlayData.updatedAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}`
@@ -306,7 +326,7 @@ export const StreamSettingsPage = () => {
                         <div className={styles.overlayActions}>
                             <Button onClick={handleCopy}>Скопировать OBS URL</Button>
                             <Link href="/stream/overlay-editor">
-                                <Button type="default">Настроить расположение виджетов</Button>
+                                <Button type="default">Настроить сцены</Button>
                             </Link>
                         </div>
 

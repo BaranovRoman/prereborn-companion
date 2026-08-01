@@ -92,9 +92,25 @@ export interface OverlayLayoutWidgets {
     companionStatus: OverlayWidgetLayout;
 }
 
-export type OverlayLayout = {
-    version: 1;
+export interface CameraZone {
+    enabled: boolean;
+    xPercent: number;
+    yPercent: number;
+    widthPercent: number;
+    heightPercent: number;
+}
+
+export interface OverlaySceneLayout {
     widgets: OverlayLayoutWidgets;
+    cameraZone: CameraZone;
+}
+
+export type OverlayLayout = {
+    version: 2;
+    scenes: {
+        draft: OverlaySceneLayout;
+        gameplay: OverlaySceneLayout;
+    };
     aspectRatio: OverlayAspectRatio;
 };
 
@@ -105,9 +121,7 @@ export type OverlayLayout = {
 // смысл, который xVw/yVh уже имели ДО появления anchors: намеренно не
 // переезжаем на более "красивые" bottom-* дефолты, чтобы не переизобретать
 // сегодняшний внешний вид заодно с этой задачей.
-export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
-    version: 1,
-    widgets: {
+const defaultGameplayWidgets: OverlayLayoutWidgets = {
         session: { xVw: 3, yVh: 4, scale: 1, visible: true, anchor: "top-left" },
         currentGame: {
             xVw: 3,
@@ -134,6 +148,40 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
             scale: 1,
             visible: true,
             anchor: "top-left",
+        },
+};
+
+export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
+    version: 2,
+    scenes: {
+        gameplay: {
+            widgets: defaultGameplayWidgets,
+            cameraZone: {
+                enabled: true,
+                xPercent: 76,
+                yPercent: 66,
+                widthPercent: 21,
+                heightPercent: 28,
+            },
+        },
+        draft: {
+            widgets: {
+                ...defaultGameplayWidgets,
+                currentGame: { ...defaultGameplayWidgets.currentGame, visible: false },
+                recentMatches: {
+                    ...defaultGameplayWidgets.recentMatches,
+                    xVw: 3,
+                    yVh: 70,
+                    recentMatches: { ...defaultGameplayWidgets.recentMatches.recentMatches },
+                },
+            },
+            cameraZone: {
+                enabled: true,
+                xPercent: 3,
+                yPercent: 66,
+                widthPercent: 21,
+                heightPercent: 28,
+            },
         },
     },
     aspectRatio: DEFAULT_OVERLAY_ASPECT_RATIO,
@@ -204,8 +252,9 @@ const buildRecentMatchesWidgetSchema = (fallback: RecentMatchesWidgetLayout) =>
         .catch(fallback);
 
 const layoutBodySchema = z.object({
-    version: z.literal(1).optional(),
-    widgets: z.record(z.string(), z.unknown()),
+    version: z.number().optional(),
+    widgets: z.record(z.string(), z.unknown()).optional(),
+    scenes: z.record(z.string(), z.unknown()).optional(),
     aspectRatio: z.unknown().optional(),
 });
 
@@ -241,33 +290,72 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
         throw new InvalidOverlayLayoutError("Invalid overlay layout shape");
     }
 
-    const defaults = DEFAULT_OVERLAY_LAYOUT.widgets;
-    const raw = parsed.data.widgets;
+    const normalizeWidgets = (
+        inputWidgets: unknown,
+        defaults: OverlayLayoutWidgets
+    ): OverlayLayoutWidgets => {
+        const raw =
+            typeof inputWidgets === "object" && inputWidgets !== null
+                ? (inputWidgets as Record<string, unknown>)
+                : {};
 
-    const session = clampWidget(
-        buildWidgetSchema(defaults.session).parse(raw.session)
-    );
-    const currentGame = clampWidget(
-        buildWidgetSchema(defaults.currentGame).parse(raw.currentGame)
-    );
-    const companionStatus = clampWidget(
-        buildWidgetSchema(defaults.companionStatus).parse(raw.companionStatus)
-    );
-    const recentMatchesParsed = buildRecentMatchesWidgetSchema(
-        defaults.recentMatches
-    ).parse(raw.recentMatches);
-    const recentMatches: RecentMatchesWidgetLayout = {
-        ...clampWidget(recentMatchesParsed),
-        recentMatches: recentMatchesParsed.recentMatches,
+        const recentMatchesParsed = buildRecentMatchesWidgetSchema(
+            defaults.recentMatches
+        ).parse(raw.recentMatches);
+        return {
+            session: clampWidget(buildWidgetSchema(defaults.session).parse(raw.session)),
+            currentGame: clampWidget(
+                buildWidgetSchema(defaults.currentGame).parse(raw.currentGame)
+            ),
+            companionStatus: clampWidget(
+                buildWidgetSchema(defaults.companionStatus).parse(raw.companionStatus)
+            ),
+            recentMatches: {
+                ...clampWidget(recentMatchesParsed),
+                recentMatches: recentMatchesParsed.recentMatches,
+            },
+        };
     };
 
+    const cameraZoneSchema = (fallback: CameraZone) =>
+        z.object({
+            enabled: z.boolean().catch(fallback.enabled),
+            xPercent: z.number().min(0).max(100).catch(fallback.xPercent),
+            yPercent: z.number().min(0).max(100).catch(fallback.yPercent),
+            widthPercent: z.number().min(1).max(100).catch(fallback.widthPercent),
+            heightPercent: z.number().min(1).max(100).catch(fallback.heightPercent),
+        }).catch(fallback);
+
+    const rawScenes = parsed.data.scenes ?? {};
+    const rawGameplay = rawScenes.gameplay as Record<string, unknown> | undefined;
+    const rawDraft = rawScenes.draft as Record<string, unknown> | undefined;
+    // v1 stored a single widgets collection. Preserve it as the gameplay scene.
+    const legacyWidgets = parsed.data.widgets;
+    const gameplayDefaults = DEFAULT_OVERLAY_LAYOUT.scenes.gameplay;
+    const draftDefaults = DEFAULT_OVERLAY_LAYOUT.scenes.draft;
     const aspectRatio = buildAspectRatioSchema(
         DEFAULT_OVERLAY_ASPECT_RATIO
     ).parse(parsed.data.aspectRatio);
 
     return {
-        version: 1,
-        widgets: { session, currentGame, recentMatches, companionStatus },
+        version: 2,
+        scenes: {
+            gameplay: {
+                widgets: normalizeWidgets(
+                    rawGameplay?.widgets ?? legacyWidgets,
+                    gameplayDefaults.widgets
+                ),
+                cameraZone: cameraZoneSchema(gameplayDefaults.cameraZone).parse(
+                    rawGameplay?.cameraZone
+                ),
+            },
+            draft: {
+                widgets: normalizeWidgets(rawDraft?.widgets, draftDefaults.widgets),
+                cameraZone: cameraZoneSchema(draftDefaults.cameraZone).parse(
+                    rawDraft?.cameraZone
+                ),
+            },
+        },
         aspectRatio,
     };
 };

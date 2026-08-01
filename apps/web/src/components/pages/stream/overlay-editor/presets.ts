@@ -1,11 +1,10 @@
-import type { OverlayLayout } from "@/entities/stream-overlay-layout/model/types";
-import { DEFAULT_OVERLAY_ASPECT_RATIO } from "@/entities/stream-overlay-layout/model/default-layout";
+import type { OverlaySceneLayout } from "@/entities/stream-overlay-layout/model/types";
 
 export interface OverlayLayoutPreset {
     id: string;
     label: string;
     description: string;
-    layout: OverlayLayout;
+    layout: OverlaySceneLayout;
 }
 
 // Готовые раскладки (см. задачу, п.5) - применяются целиком в draft
@@ -18,8 +17,6 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
         label: "Classic",
         description: "История и герой слева, рейтинг и статус справа сверху",
         layout: {
-            version: 1,
-            aspectRatio: DEFAULT_OVERLAY_ASPECT_RATIO,
             widgets: {
                 recentMatches: {
                     xVw: 3,
@@ -55,6 +52,7 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                     anchor: "top-right",
                 },
             },
+            cameraZone: { enabled: true, xPercent: 76, yPercent: 66, widthPercent: 21, heightPercent: 28 },
         },
     },
     {
@@ -62,8 +60,6 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
         label: "Bottom",
         description: "Всё внизу экрана - привычно для 16:9 трансляций",
         layout: {
-            version: 1,
-            aspectRatio: DEFAULT_OVERLAY_ASPECT_RATIO,
             widgets: {
                 recentMatches: {
                     xVw: 3,
@@ -99,6 +95,7 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                     anchor: "top-right",
                 },
             },
+            cameraZone: { enabled: true, xPercent: 76, yPercent: 66, widthPercent: 21, heightPercent: 28 },
         },
     },
     {
@@ -106,8 +103,6 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
         label: "Compact",
         description: "Всё компактной группой в одном углу, поменьше масштаб",
         layout: {
-            version: 1,
-            aspectRatio: DEFAULT_OVERLAY_ASPECT_RATIO,
             widgets: {
                 session: {
                     xVw: 3,
@@ -143,6 +138,7 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                     anchor: "top-left",
                 },
             },
+            cameraZone: { enabled: true, xPercent: 76, yPercent: 66, widthPercent: 21, heightPercent: 28 },
         },
     },
     {
@@ -150,8 +146,6 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
         label: "Clean",
         description: "Только рейтинг и W/L, остальное скрыто",
         layout: {
-            version: 1,
-            aspectRatio: DEFAULT_OVERLAY_ASPECT_RATIO,
             widgets: {
                 session: {
                     xVw: 3,
@@ -187,6 +181,7 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                     anchor: "top-left",
                 },
             },
+            cameraZone: { enabled: true, xPercent: 76, yPercent: 66, widthPercent: 21, heightPercent: 28 },
         },
     },
 ];

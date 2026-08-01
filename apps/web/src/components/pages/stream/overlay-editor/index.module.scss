@@ -60,6 +60,89 @@
     line-height: 1.65;
 }
 
+.sceneTabs {
+    margin-bottom: 16px;
+}
+
+.betweenMatchesNote,
+.cameraSection {
+    padding: 15px 16px;
+    margin-bottom: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(5, 5, 6, 0.32);
+}
+
+.betweenMatchesNote {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: #918784;
+    font-size: 12px;
+}
+
+.betweenMatchesNote strong {
+    color: #d0c4bf;
+}
+
+.betweenMatchesNote span {
+    flex: 1;
+}
+
+.betweenMatchesNote a {
+    color: #c9956f;
+}
+
+.cameraSectionHeader,
+.cameraFields {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.cameraSectionHeader {
+    justify-content: space-between;
+}
+
+.cameraSectionHeader .sectionTitle {
+    margin-bottom: 4px;
+}
+
+.cameraHint {
+    color: #918784;
+    font-size: 12px;
+}
+
+.cameraFields {
+    margin-top: 14px;
+    flex-wrap: wrap;
+}
+
+.cameraFields label {
+    display: grid;
+    gap: 5px;
+    color: #918784;
+    font-size: 11px;
+}
+
+.cameraZone {
+    position: absolute;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    border: 3px dashed rgba(221, 153, 82, 0.92);
+    background:
+        repeating-linear-gradient(
+            135deg,
+            rgba(221, 153, 82, 0.2) 0 16px,
+            rgba(10, 10, 10, 0.35) 16px 32px
+        );
+    color: #ffe0b3;
+    font-size: 24px;
+    font-weight: 600;
+    text-shadow: 0 2px 5px #000;
+    pointer-events: none;
+}
+
 .presetsSection {
     padding: 17px 18px;
     margin-bottom: 12px;

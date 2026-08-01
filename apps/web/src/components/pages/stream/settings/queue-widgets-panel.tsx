@@ -190,10 +190,10 @@ export const QueueWidgetsPanel = ({
             {contextHolder}
             <div className={styles.header}>
                 <div>
-                    <h2>Виджеты Queue</h2>
-                    <p>Управляйте блоками экрана поиска матча. Настройки сохраняются в аккаунте.</p>
+                    <h2>Экран между матчами</h2>
+                    <p>Один экран для ожидания игры и обновлённых результатов после матча.</p>
                 </div>
-                <Link href="/stream/queue"><Button>Открыть Queue</Button></Link>
+                <Link href="/stream/queue"><Button>Открыть экран</Button></Link>
             </div>
             <div className={styles.grid} aria-busy={loading}>
                 {WIDGETS.map(({ id, label, description }) => (

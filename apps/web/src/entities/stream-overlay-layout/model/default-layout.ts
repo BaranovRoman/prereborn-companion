@@ -12,9 +12,7 @@ export const DEFAULT_OVERLAY_ASPECT_RATIO: OverlayAspectRatio = {
 // редакторе. Раскладка воспроизводит сегодняшний вид (всё в левом верхнем
 // углу, anchor "top-left" везде), companionStatus - новый виджет, которого
 // раньше в HUD не было.
-export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
-    version: 1,
-    widgets: {
+const gameplayWidgets: OverlayLayout["scenes"]["gameplay"]["widgets"] = {
         session: { xVw: 3, yVh: 4, scale: 1, visible: true, anchor: "top-left" },
         currentGame: {
             xVw: 3,
@@ -41,6 +39,40 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
             scale: 1,
             visible: true,
             anchor: "top-left",
+        },
+};
+
+export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
+    version: 2,
+    scenes: {
+        gameplay: {
+            widgets: gameplayWidgets,
+            cameraZone: {
+                enabled: true,
+                xPercent: 76,
+                yPercent: 66,
+                widthPercent: 21,
+                heightPercent: 28,
+            },
+        },
+        draft: {
+            widgets: {
+                ...gameplayWidgets,
+                currentGame: { ...gameplayWidgets.currentGame, visible: false },
+                recentMatches: {
+                    ...gameplayWidgets.recentMatches,
+                    xVw: 3,
+                    yVh: 70,
+                    recentMatches: { ...gameplayWidgets.recentMatches.recentMatches },
+                },
+            },
+            cameraZone: {
+                enabled: true,
+                xPercent: 3,
+                yPercent: 66,
+                widthPercent: 21,
+                heightPercent: 28,
+            },
         },
     },
     aspectRatio: DEFAULT_OVERLAY_ASPECT_RATIO,
