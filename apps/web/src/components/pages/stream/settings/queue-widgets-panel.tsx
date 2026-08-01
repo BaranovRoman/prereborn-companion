@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Button, Checkbox, Input, InputNumber, Modal, Select, Upload, message } from "antd";
 import { DOTA_HEROES } from "@/entities/dota-hero/model/heroes";
+import { DOTA_HERO_ALIASES } from "@/entities/dota-hero/model/aliases";
 import type { DotaHeroAttribute } from "@/entities/dota-hero/model/attributes";
 import { useQueueSettings } from "@/entities/stream-queue-settings/lib/use-queue-settings";
 import type {
@@ -22,12 +23,6 @@ const WIDGETS: Array<{ id: ConfigurableWidgetId; label: string; description: str
     { id: "favoriteHeroes", label: "Любимые герои", description: "Выбор до трёх героев." },
     { id: "friends", label: "Friends и соцсети", description: "Аудитория канала и ссылки на соцсети." },
 ];
-
-const HERO_ALIASES: Record<string, string[]> = {
-    hoodwink: ["белка", "худвинк"],
-    pudge: ["пудж", "бутчер", "пиджак"],
-    techies: ["течка", "минер", "минёр", "течис"],
-};
 
 const normalizeHeroQuery = (value: string) =>
     value.trim().toLocaleLowerCase().replaceAll("ё", "е");
@@ -81,9 +76,9 @@ export const QueueWidgetsPanel = ({
         if (!query) return new Set<number>();
         return new Set(
             DOTA_HEROES.filter((hero) => {
-                const name = normalizeHeroQuery(hero.localizedName);
-                const aliases = HERO_ALIASES[name] ?? [];
-                return [name, ...aliases.map(normalizeHeroQuery)].some((term) =>
+                const names = [hero.name, hero.localizedName].map(normalizeHeroQuery);
+                const aliases = DOTA_HERO_ALIASES[hero.name] ?? [];
+                return [...names, ...aliases.map(normalizeHeroQuery)].some((term) =>
                     term.includes(query)
                 );
             }).map((hero) => hero.id)
@@ -219,7 +214,8 @@ export const QueueWidgetsPanel = ({
                 cancelText="Отмена"
                 confirmLoading={savingWidget}
                 destroyOnHidden
-                width={activeWidget === "favoriteHeroes" ? "min(1500px, 96vw)" : 720}
+                className={activeWidget === "favoriteHeroes" ? styles.heroModal : undefined}
+                width={activeWidget === "favoriteHeroes" ? "min(1800px, 97vw)" : 720}
             >
                 {activeWidget && widgetDraft && (
                     <div className={styles.widgetModal}>
