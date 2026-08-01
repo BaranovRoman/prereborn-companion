@@ -1583,6 +1583,82 @@
 .supporterGrid small { color: #696f6b; font-size: 8px; letter-spacing: .1em; }
 .supporterGrid > div[data-active="true"] small { color: #829276; }
 
+@media (max-width: 1600px) {
+    .interface {
+        inset: 14px 18px 12px;
+    }
+
+    .dashboard {
+        grid-template-columns: minmax(0, 1.12fr) minmax(0, .88fr);
+        grid-template-rows: 100px minmax(0, 1fr);
+        gap: 8px;
+    }
+
+    .leftMain {
+        grid-template-columns: minmax(0, .98fr) minmax(330px, 1.02fr);
+        gap: 6px;
+        padding: 6px;
+    }
+
+    .sideStack,
+    .rightMain {
+        gap: 8px;
+    }
+
+    .profileBody {
+        grid-template-columns: 60px minmax(150px, 1fr) minmax(250px, 34%) minmax(180px, 24%);
+        gap: 10px;
+        padding-inline: 14px;
+    }
+
+    .profileAvatarFrame {
+        width: 54px;
+        height: 54px;
+    }
+
+    .playerIdentity strong {
+        font-size: 21px;
+    }
+
+    .profileStats {
+        height: 60px;
+    }
+
+    .profileBrand {
+        gap: 9px;
+        padding-left: 14px;
+    }
+
+    .profileBrand > img {
+        width: 54px;
+        height: 54px;
+        flex-basis: 54px;
+    }
+
+    .streamProfileBody {
+        grid-template-columns: 54px minmax(0, 1fr) auto;
+        padding-inline: 13px;
+    }
+
+    .twitchAvatarFrame,
+    .twitchAvatar {
+        width: 46px;
+        height: 46px;
+    }
+
+    .friendEntry {
+        grid-template-columns: 36px minmax(0, 1fr);
+        gap: 7px;
+        padding-inline: 9px;
+    }
+
+    .friendEntry img,
+    .friendAvatarFrame {
+        width: 36px;
+        height: 36px;
+    }
+}
+
 @media (max-height: 860px) {
     .interface {
         inset: 20px 28px 16px;
@@ -1597,7 +1673,7 @@
     }
 
     .dashboard {
-        grid-template-rows: 104px minmax(0, 1fr);
+        grid-template-rows: 96px minmax(0, 1fr);
     }
 
     .webcamPanel,
@@ -1655,6 +1731,22 @@
     .gameMark {
         width: 23px;
         height: 23px;
+    }
+}
+
+@media (max-width: 1600px) and (max-height: 860px) {
+    .interface {
+        inset: 14px 18px 12px;
+    }
+
+    .dashboard,
+    .rightMain {
+        gap: 8px;
+    }
+
+    .leftMain,
+    .sideStack {
+        gap: 6px;
     }
 }
 

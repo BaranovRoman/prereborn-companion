@@ -93,6 +93,12 @@ test.describe("queue anti-stream-sniping scene", () => {
             expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(783);
         }
 
+        const featuredBounds = await page
+            .getByRole("region", { name: "Last match" })
+            .boundingBox();
+        expect(featuredBounds).not.toBeNull();
+        expect(featuredBounds!.width).toBeGreaterThanOrEqual(360);
+
         await expect(
             page.getByLabel("Main inventory").locator("span")
         ).toHaveCount(6);
