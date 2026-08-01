@@ -2,6 +2,7 @@
 
 import { useOverlayPolling } from "@/entities/stream-session/lib/use-overlay-polling";
 import { DEFAULT_OVERLAY_LAYOUT } from "@/entities/stream-overlay-layout/model/default-layout";
+import { normalizeOverlayLayout } from "@/entities/stream-overlay-layout/model/normalize-layout";
 import type { OverlayData } from "@/entities/stream-session/model/types";
 import { OverlayCanvas } from "./overlay-canvas";
 import { AnchoredWidget } from "./anchored-widget";
@@ -43,7 +44,7 @@ export const OverlayPage = ({
         return <div style={{ position: "fixed", inset: 0, background: "transparent" }} />;
     }
 
-    const layout = data.layout ?? DEFAULT_OVERLAY_LAYOUT;
+    const layout = normalizeOverlayLayout(data.layout ?? DEFAULT_OVERLAY_LAYOUT);
     const activeScene = getBroadcastScene(data.companion.payload);
 
     if (activeScene === "betweenMatches") {

@@ -9,6 +9,7 @@ import { useStreamSession } from "@/entities/stream-user/lib/use-stream-session"
 import { usePageReady } from "@/shared/ui/route-transition/usePageReady";
 import { streamOverlayLayoutApi } from "@/entities/stream-overlay-layout/api/stream-overlay-layout";
 import { DEFAULT_OVERLAY_LAYOUT } from "@/entities/stream-overlay-layout/model/default-layout";
+import { normalizeOverlayLayout } from "@/entities/stream-overlay-layout/model/normalize-layout";
 import {
     OVERLAY_ASPECT_RATIO_PRESETS,
     OVERLAY_WIDGET_IDS,
@@ -40,6 +41,7 @@ import { CompanionStatus } from "@/components/pages/overlay/widgets/companion-st
 import { AnchorGrid } from "./anchor-grid";
 import { OVERLAY_LAYOUT_PRESETS } from "./presets";
 import { useReferenceBackground } from "./use-reference-background";
+import { CameraZoneEditor } from "./camera-zone-editor";
 import {
     PREVIEW_SESSION,
     PREVIEW_LAST_HERO_ID,
@@ -205,8 +207,9 @@ export const OverlayEditorPage = () => {
             .get()
             .then((loaded) => {
                 if (!cancelled) {
-                    setLayout(loaded);
-                    lastSavedRef.current = loaded;
+                    const normalized = normalizeOverlayLayout(loaded);
+                    setLayout(normalized);
+                    lastSavedRef.current = normalized;
                 }
             })
             .catch(() => {
@@ -770,16 +773,16 @@ export const OverlayEditorPage = () => {
                     {activeSceneLayout.cameraZone.enabled && (
                         <div className={styles.cameraFields}>
                             {([
-                                ["xPercent", "X"],
-                                ["yPercent", "Y"],
-                                ["widthPercent", "Ширина"],
-                                ["heightPercent", "Высота"],
+                                ["x", "X"],
+                                ["y", "Y"],
+                                ["width", "Ширина"],
+                                ["height", "Высота"],
                             ] as const).map(([field, label]) => (
                                 <label key={field}>
-                                    <span>{label}, %</span>
+                                    <span>{label}, px</span>
                                     <InputNumber
-                                        min={field.includes("width") || field.includes("height") ? 1 : 0}
-                                        max={100}
+                                        min={field === "width" || field === "height" ? 80 : 0}
+                                        max={field === "x" || field === "width" ? sceneDimensions.width : sceneDimensions.height}
                                         value={activeSceneLayout.cameraZone[field]}
                                         onChange={(value) =>
                                             value !== null &&
@@ -807,17 +810,13 @@ export const OverlayEditorPage = () => {
                         {({ sceneScale, sceneWidth, sceneHeight }) => (
                             <>
                                 {activeSceneLayout.cameraZone.enabled && (
-                                    <div
-                                        className={styles.cameraZone}
-                                        style={{
-                                            left: `${activeSceneLayout.cameraZone.xPercent}%`,
-                                            top: `${activeSceneLayout.cameraZone.yPercent}%`,
-                                            width: `${activeSceneLayout.cameraZone.widthPercent}%`,
-                                            height: `${activeSceneLayout.cameraZone.heightPercent}%`,
-                                        }}
-                                    >
-                                        <span>Камера в OBS</span>
-                                    </div>
+                                    <CameraZoneEditor
+                                        zone={activeSceneLayout.cameraZone}
+                                        sceneScale={sceneScale}
+                                        sceneWidth={sceneWidth}
+                                        sceneHeight={sceneHeight}
+                                        onChange={updateCameraZone}
+                                    />
                                 )}
                                 {OVERLAY_WIDGET_IDS.map((id) => (
                                     <AnchoredWidget

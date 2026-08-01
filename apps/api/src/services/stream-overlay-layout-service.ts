@@ -94,10 +94,10 @@ export interface OverlayLayoutWidgets {
 
 export interface CameraZone {
     enabled: boolean;
-    xPercent: number;
-    yPercent: number;
-    widthPercent: number;
-    heightPercent: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
 }
 
 export interface OverlaySceneLayout {
@@ -158,10 +158,10 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
             widgets: defaultGameplayWidgets,
             cameraZone: {
                 enabled: true,
-                xPercent: 76,
-                yPercent: 66,
-                widthPercent: 21,
-                heightPercent: 28,
+                x: 1460,
+                y: 713,
+                width: 400,
+                height: 300,
             },
         },
         draft: {
@@ -177,10 +177,10 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
             },
             cameraZone: {
                 enabled: true,
-                xPercent: 3,
-                yPercent: 66,
-                widthPercent: 21,
-                heightPercent: 28,
+                x: 60,
+                y: 713,
+                width: 400,
+                height: 300,
             },
         },
     },
@@ -317,14 +317,29 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
         };
     };
 
-    const cameraZoneSchema = (fallback: CameraZone) =>
-        z.object({
-            enabled: z.boolean().catch(fallback.enabled),
-            xPercent: z.number().min(0).max(100).catch(fallback.xPercent),
-            yPercent: z.number().min(0).max(100).catch(fallback.yPercent),
-            widthPercent: z.number().min(1).max(100).catch(fallback.widthPercent),
-            heightPercent: z.number().min(1).max(100).catch(fallback.heightPercent),
-        }).catch(fallback);
+    const normalizeCameraZone = (
+        value: unknown,
+        fallback: CameraZone
+    ): CameraZone => {
+        if (typeof value !== "object" || value === null) return fallback;
+        const raw = value as Record<string, unknown>;
+        const fromPercent = (key: string, size: number): number | undefined =>
+            typeof raw[key] === "number" ? (raw[key] as number) * size / 100 : undefined;
+        const number = (key: string, legacyKey: string, fallbackValue: number) =>
+            typeof raw[key] === "number"
+                ? (raw[key] as number)
+                : fromPercent(legacyKey, key === "x" || key === "width" ? 1920 : 1080)
+                    ?? fallbackValue;
+        const width = clamp(number("width", "widthPercent", fallback.width), 80, 1920);
+        const height = clamp(number("height", "heightPercent", fallback.height), 80, 1080);
+        return {
+            enabled: typeof raw.enabled === "boolean" ? raw.enabled : fallback.enabled,
+            x: clamp(number("x", "xPercent", fallback.x), 0, 1920 - width),
+            y: clamp(number("y", "yPercent", fallback.y), 0, 1080 - height),
+            width,
+            height,
+        };
+    };
 
     const rawScenes = parsed.data.scenes ?? {};
     const rawGameplay = rawScenes.gameplay as Record<string, unknown> | undefined;
@@ -345,14 +360,16 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
                     rawGameplay?.widgets ?? legacyWidgets,
                     gameplayDefaults.widgets
                 ),
-                cameraZone: cameraZoneSchema(gameplayDefaults.cameraZone).parse(
-                    rawGameplay?.cameraZone
+                cameraZone: normalizeCameraZone(
+                    rawGameplay?.cameraZone,
+                    gameplayDefaults.cameraZone
                 ),
             },
             draft: {
                 widgets: normalizeWidgets(rawDraft?.widgets, draftDefaults.widgets),
-                cameraZone: cameraZoneSchema(draftDefaults.cameraZone).parse(
-                    rawDraft?.cameraZone
+                cameraZone: normalizeCameraZone(
+                    rawDraft?.cameraZone,
+                    draftDefaults.cameraZone
                 ),
             },
         },

@@ -52,7 +52,7 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                     anchor: "top-right",
                 },
             },
-            cameraZone: { enabled: true, xPercent: 76, yPercent: 66, widthPercent: 21, heightPercent: 28 },
+            cameraZone: { enabled: true, x: 1460, y: 713, width: 400, height: 300 },
         },
     },
     {
@@ -95,7 +95,7 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                     anchor: "top-right",
                 },
             },
-            cameraZone: { enabled: true, xPercent: 76, yPercent: 66, widthPercent: 21, heightPercent: 28 },
+            cameraZone: { enabled: true, x: 1460, y: 713, width: 400, height: 300 },
         },
     },
     {
@@ -138,7 +138,7 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                     anchor: "top-left",
                 },
             },
-            cameraZone: { enabled: true, xPercent: 76, yPercent: 66, widthPercent: 21, heightPercent: 28 },
+            cameraZone: { enabled: true, x: 1460, y: 713, width: 400, height: 300 },
         },
     },
     {
@@ -181,7 +181,7 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                     anchor: "top-left",
                 },
             },
-            cameraZone: { enabled: true, xPercent: 76, yPercent: 66, widthPercent: 21, heightPercent: 28 },
+            cameraZone: { enabled: true, x: 1460, y: 713, width: 400, height: 300 },
         },
     },
 ];

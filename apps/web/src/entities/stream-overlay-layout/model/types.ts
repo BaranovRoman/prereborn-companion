@@ -101,10 +101,10 @@ export type ConfigurableBroadcastSceneId = Exclude<BroadcastSceneId, "betweenMat
 // lets the streamer reserve the same part of the canvas in our layouts.
 export interface CameraZone {
     enabled: boolean;
-    xPercent: number;
-    yPercent: number;
-    widthPercent: number;
-    heightPercent: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
 }
 
 export interface OverlaySceneLayout {

@@ -127,8 +127,11 @@
 .cameraZone {
     position: absolute;
     z-index: 2;
-    display: grid;
+    display: flex;
+    flex-direction: column;
     place-items: center;
+    align-items: center;
+    justify-content: center;
     border: 3px dashed rgba(221, 153, 82, 0.92);
     background:
         repeating-linear-gradient(
@@ -140,7 +143,31 @@
     font-size: 24px;
     font-weight: 600;
     text-shadow: 0 2px 5px #000;
-    pointer-events: none;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+}
+
+.cameraZone:active {
+    cursor: grabbing;
+}
+
+.cameraZone small {
+    margin-top: 8px;
+    font-size: 18px;
+    font-weight: 400;
+}
+
+.cameraResizeHandle {
+    position: absolute;
+    right: -7px;
+    bottom: -7px;
+    width: 24px;
+    height: 24px;
+    border: 2px solid #ffe0b3;
+    background: #b36e31;
+    cursor: nwse-resize;
+    touch-action: none;
 }
 
 .presetsSection {
