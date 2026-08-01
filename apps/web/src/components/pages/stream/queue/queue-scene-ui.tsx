@@ -483,6 +483,12 @@ const DonationTop = ({ donationAlerts, twitch, title, settings }: QueueDataProps
     const leaders = (donationAlerts?.topDonors ?? []).slice(0, 3);
     const subscribers = twitch?.recentSubscribers ?? [];
     const followers = twitch?.recentFollowers ?? [];
+    const visibleSectionCount = [
+        settings.showDonaters && leaders.length > 0,
+        settings.showSubscribers && subscribers.length > 0,
+        settings.showFollowers && followers.length > 0,
+        settings.socialLinks.length > 0,
+    ].filter(Boolean).length;
     const avatarFor = (id: string) => {
         const avatars = [
             "/vendor/valve/avatars/antimage.png",
@@ -526,7 +532,10 @@ const DonationTop = ({ donationAlerts, twitch, title, settings }: QueueDataProps
     };
     return (
         <Panel title={title} className={styles.donationPanel}>
-            <div className={styles.friendsBody}>
+            <div
+                className={styles.friendsBody}
+                data-section-count={visibleSectionCount}
+            >
                 {settings.showDonaters && leaders.length > 0 && <section className={styles.friendSection}>
                     <h3>Donaters</h3>
                     <div className={styles.friendGrid}>
