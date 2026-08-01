@@ -1,6 +1,14 @@
 "use client";
 
 import Image from "next/image";
+import {
+    DiscordFilled,
+    GlobalOutlined,
+    SendOutlined,
+    TwitchOutlined,
+    XOutlined,
+    YoutubeFilled,
+} from "@ant-design/icons";
 import { useEffect, useState } from "react";
 import { getHeroById } from "@/entities/dota-hero/lib/search";
 import { useAccountMatches } from "@/entities/stream-session/lib/use-account-matches";
@@ -15,6 +23,7 @@ import type { DonationAlertsIntegrationStatus } from "@/entities/donation-alerts
 import type { TwitchIntegrationStatus } from "@/entities/twitch-integration/model/types";
 import type { SteamIntegrationStatus } from "@/entities/steam-integration/model/types";
 import type { QueueChannelGoal, QueueWidgetSettings } from "@/entities/stream-queue-settings/model/types";
+import type { QueueSocialPlatform } from "@/entities/stream-queue-settings/model/types";
 import styles from "./queue-scene.module.scss";
 
 const EMPTY_VALUE = "—";
@@ -36,6 +45,16 @@ const DONATION_RANKS = [
 
 const getDonationRank = (amount: number) =>
     DONATION_RANKS.find((rank) => amount >= rank.min) ?? DONATION_RANKS.at(-1)!;
+
+const SocialPlatformIcon = ({ platform }: { platform: QueueSocialPlatform }) => {
+    if (platform === "twitch") return <TwitchOutlined />;
+    if (platform === "youtube") return <YoutubeFilled />;
+    if (platform === "telegram") return <SendOutlined />;
+    if (platform === "discord") return <DiscordFilled />;
+    if (platform === "x") return <XOutlined />;
+    if (platform === "vk") return <span>VK</span>;
+    return <GlobalOutlined />;
+};
 
 const formatRating = (rating: number | null | undefined) =>
     rating === null || rating === undefined
@@ -483,12 +502,6 @@ const DonationTop = ({ donationAlerts, twitch, title, settings }: QueueDataProps
     const leaders = (donationAlerts?.topDonors ?? []).slice(0, 3);
     const subscribers = twitch?.recentSubscribers ?? [];
     const followers = twitch?.recentFollowers ?? [];
-    const visibleSectionCount = [
-        settings.showDonaters && leaders.length > 0,
-        settings.showSubscribers && subscribers.length > 0,
-        settings.showFollowers && followers.length > 0,
-        settings.socialLinks.length > 0,
-    ].filter(Boolean).length;
     const avatarFor = (id: string) => {
         const avatars = [
             "/vendor/valve/avatars/antimage.png",
@@ -532,10 +545,7 @@ const DonationTop = ({ donationAlerts, twitch, title, settings }: QueueDataProps
     };
     return (
         <Panel title={title} className={styles.donationPanel}>
-            <div
-                className={styles.friendsBody}
-                data-section-count={visibleSectionCount}
-            >
+            <div className={styles.friendsBody}>
                 {settings.showDonaters && leaders.length > 0 && <section className={styles.friendSection}>
                     <h3>Donaters</h3>
                     <div className={styles.friendGrid}>
@@ -619,9 +629,21 @@ const DonationTop = ({ donationAlerts, twitch, title, settings }: QueueDataProps
                         <h3>Socials</h3>
                         <div className={styles.socialLinks}>
                             {settings.socialLinks.map((social) => (
-                                <a key={social.id} href={social.url} target="_blank" rel="noreferrer">
-                                    <b>{social.platform === "x" ? "X" : social.platform.slice(0, 2).toUpperCase()}</b>
-                                    <span>{social.label}</span>
+                                <a
+                                    key={social.id}
+                                    className={`${styles.friendEntry} ${styles.socialEntry}`}
+                                    data-platform={social.platform}
+                                    href={social.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                >
+                                    <span className={styles.socialIconFrame}>
+                                        <SocialPlatformIcon platform={social.platform} />
+                                    </span>
+                                    <p>
+                                        <strong>{social.label}</strong>
+                                        <small>{social.platform.toUpperCase()}</small>
+                                    </p>
                                 </a>
                             ))}
                         </div>

@@ -1416,39 +1416,58 @@
 
 .socialLinks {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 5px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    background: linear-gradient(180deg, rgba(255, 255, 255, .018), transparent);
 }
 
-.socialLinks a {
-    display: flex;
-    min-width: 0;
-    align-items: center;
-    gap: 7px;
-    padding: 6px 8px;
-    border: 1px solid rgba(125, 139, 135, .22);
-    background: rgba(16, 21, 21, .76);
-    color: #b9beb8;
+.socialEntry {
+    color: inherit;
     text-decoration: none;
 }
 
-.socialLinks a b {
+.socialIconFrame {
+    position: relative;
+    width: 42px;
+    height: 42px;
     display: grid;
-    width: 22px;
-    height: 22px;
-    flex: 0 0 22px;
+    flex: 0 0 42px;
+    overflow: hidden;
     place-items: center;
+    border: 2px solid #080b0a;
     background: #722f2d;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .2);
     color: #f2eae3;
-    font-size: 9px;
+    font-size: 21px;
 }
 
-.socialLinks a span {
-    overflow: hidden;
-    font-size: 10px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+.socialIconFrame::after {
+    content: "";
+    position: absolute;
+    z-index: 2;
+    top: -18%;
+    right: -9%;
+    width: 112%;
+    height: 72%;
+    background: linear-gradient(
+        209deg,
+        transparent 18%,
+        rgba(255, 255, 255, .08) 32%,
+        rgba(255, 255, 255, .68) 48%,
+        rgba(255, 255, 255, .20) 62%,
+        transparent 78%
+    );
+    mix-blend-mode: screen;
+    pointer-events: none;
+    transform: skewX(160deg);
+    transform-origin: center;
 }
+
+.socialEntry[data-platform="twitch"] .socialIconFrame { background: #6441a5; }
+.socialEntry[data-platform="youtube"] .socialIconFrame { background: #a82d2d; }
+.socialEntry[data-platform="telegram"] .socialIconFrame { background: #277da2; }
+.socialEntry[data-platform="discord"] .socialIconFrame { background: #5865a8; }
+.socialEntry[data-platform="vk"] .socialIconFrame { background: #2875a8; font-size: 12px; font-weight: 700; }
+.socialEntry[data-platform="x"] .socialIconFrame { background: #171a1b; }
 .chatBody {
     min-height: 0;
     display: grid;
@@ -1783,57 +1802,42 @@
         width: 32px;
     }
 
-    .friendsBody[data-section-count="1"] {
-        display: grid;
-        grid-template-rows: minmax(0, 1fr);
-    }
-
-    .friendsBody[data-section-count="2"] {
-        display: grid;
-        grid-template-rows: repeat(2, minmax(0, 1fr));
-    }
-
-    .friendsBody[data-section-count="3"] {
-        display: grid;
-        grid-template-rows: repeat(3, minmax(0, 1fr));
-    }
-
-    .friendsBody[data-section-count="4"] {
-        display: grid;
-        grid-template-rows: repeat(4, minmax(0, 1fr));
-    }
-
-    .friendsBody[data-section-count] {
+    .friendsBody {
+        display: flex;
+        flex-direction: column;
         overflow: hidden;
     }
 
-    .friendsBody[data-section-count] .friendSection {
-        min-height: 0;
+    .friendsBody .friendSection {
+        min-height: 68px;
         display: grid;
+        flex: 0 1 auto;
         grid-template-rows: 24px minmax(0, 1fr);
         overflow: hidden;
     }
 
-    .friendsBody[data-section-count] .friendSection h3 {
+    .friendsBody .friendSection h3 {
         height: 24px;
     }
 
-    .friendsBody[data-section-count] .friendGrid {
+    .friendsBody .friendGrid,
+    .friendsBody .socialLinks {
         min-height: 0;
         align-content: start;
         grid-auto-rows: 44px;
         overflow: hidden;
     }
 
-    .friendsBody[data-section-count] .friendEntry {
+    .friendsBody .friendEntry {
         min-height: 44px;
         padding-block: 4px;
     }
 
-    .friendsBody[data-section-count] .socialLinks {
-        min-height: 0;
-        align-content: start;
-        overflow: hidden;
+    .friendsBody .socialIconFrame {
+        width: 36px;
+        height: 36px;
+        flex-basis: 36px;
+        font-size: 18px;
     }
 }
 
