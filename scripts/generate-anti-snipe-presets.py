@@ -44,12 +44,12 @@ def extract_ward_icon() -> Image.Image:
             if a > 100 and g > 165 and r < 125 and b < 125:
                 mask.putpixel((x, y), 255)
 
-    scale = 2
+    scale = 1
     mask = mask.resize((mask.width * scale, mask.height * scale), Image.Resampling.NEAREST)
-    outline = mask.filter(ImageFilter.MaxFilter(5))
+    outline = mask.filter(ImageFilter.MaxFilter(3))
     icon = Image.new("RGBA", outline.size, (0, 0, 0, 0))
     icon.paste((5, 13, 8, 220), mask=outline)
-    icon.paste((72, 255, 42, 255), mask=mask)
+    icon.paste((92, 210, 78, 235), mask=mask)
     return icon
 
 
@@ -77,11 +77,11 @@ def make_layout(seed: int, count: int, opacity: int, filename: str) -> None:
 
 
 def main() -> None:
-    make_layout(74101, 52, 255, "dota-7.40-fake-wards-dense-a.png")
-    make_layout(74102, 52, 255, "dota-7.40-fake-wards-dense-b.png")
-    make_layout(74103, 52, 255, "dota-7.40-fake-wards-dense-c.png")
-    make_layout(74111, 44, 230, "dota-7.40-fake-wards-balanced-a.png")
-    make_layout(74112, 44, 230, "dota-7.40-fake-wards-balanced-b.png")
+    make_layout(74101, 22, 245, "dota-7.40-fake-wards-dense-a.png")
+    make_layout(74102, 22, 245, "dota-7.40-fake-wards-dense-b.png")
+    make_layout(74103, 22, 245, "dota-7.40-fake-wards-dense-c.png")
+    make_layout(74111, 14, 215, "dota-7.40-fake-wards-balanced-a.png")
+    make_layout(74112, 14, 215, "dota-7.40-fake-wards-balanced-b.png")
 
 
 if __name__ == "__main__":

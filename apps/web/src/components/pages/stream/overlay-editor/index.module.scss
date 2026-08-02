@@ -9,7 +9,7 @@
 
 .card {
     width: 100%;
-    max-width: 1120px;
+    max-width: 1480px;
     padding: 18px;
     border: 1px solid rgba(177, 80, 76, 0.28);
     border-radius: 2px;
@@ -269,6 +269,33 @@
     padding: 0 12px 11px;
 }
 
+.editorGrid {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+    grid-template-areas: "preview settings";
+    align-items: start;
+    gap: 12px;
+}
+
+.previewColumn {
+    grid-area: preview;
+    min-width: 0;
+}
+
+.settingsColumn {
+    grid-area: settings;
+    min-width: 0;
+}
+
+.settingsColumn .presetsSection,
+.settingsColumn .cameraSection {
+    margin-bottom: 8px;
+}
+
+.settingsColumn .controls {
+    margin-bottom: 0;
+}
+
 .cameraSection .widgetBody {
     flex-flow: row wrap;
     align-items: end;
@@ -278,6 +305,15 @@
 
 .cameraSection .cameraFields {
     margin-top: 0;
+}
+
+@media (max-width: 980px) {
+    .editorGrid {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "settings"
+            "preview";
+    }
 }
 
 .sceneWrapper {

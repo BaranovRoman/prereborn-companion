@@ -77,7 +77,6 @@ const DIRECTION_OPTIONS = [
     { label: "Старые сверху", value: "oldest-first" as const },
 ];
 
-const PADDING_OPTIONS = [16, 24, 32, 48];
 const CORNER_OPTIONS = [
     { label: "↖", value: "top-left" },
     { label: "↗", value: "top-right" },
@@ -394,46 +393,6 @@ export const OverlayEditorPage = () => {
         updaters[id]({ xVw, yVh });
     };
 
-    // Быстрый инструмент "Применить отступ к краям" (см. задачу, п.9) -
-    // разово переставляет виджеты, закреплённые у внешних краёв, на единый
-    // отступ. Не постоянная настройка - обычный draft-патч, требует Save.
-    const applyEdgePadding = (paddingPx: number) => {
-        const paddingXPercent = (paddingPx / sceneDimensions.width) * 100;
-        const paddingYPercent = (paddingPx / sceneDimensions.height) * 100;
-
-        const adjust = (widget: OverlayWidgetLayout): Partial<OverlayWidgetLayout> => {
-            const { x, y } = splitAnchor(widget.anchor);
-            const patch: Partial<OverlayWidgetLayout> = {};
-            if (x === "left") patch.xVw = paddingXPercent;
-            else if (x === "right") patch.xVw = 100 - paddingXPercent;
-            if (y === "top") patch.yVh = paddingYPercent;
-            else if (y === "bottom") patch.yVh = 100 - paddingYPercent;
-            return patch;
-        };
-
-        setLayout((c) => ({
-            ...c,
-            scenes: {
-                ...c.scenes,
-                [selectedScene]: { ...c.scenes[selectedScene], widgets: {
-                session: { ...c.scenes[selectedScene].widgets.session, ...adjust(c.scenes[selectedScene].widgets.session) },
-                currentGame: {
-                    ...c.scenes[selectedScene].widgets.currentGame,
-                    ...adjust(c.scenes[selectedScene].widgets.currentGame),
-                },
-                recentMatches: {
-                    ...c.scenes[selectedScene].widgets.recentMatches,
-                    ...adjust(c.scenes[selectedScene].widgets.recentMatches),
-                },
-                companionStatus: {
-                    ...c.scenes[selectedScene].widgets.companionStatus,
-                    ...adjust(c.scenes[selectedScene].widgets.companionStatus),
-                },
-                }},
-            },
-        }));
-    };
-
     const applyPreset = (presetId: string) => {
         const preset = OVERLAY_LAYOUT_PRESETS.find((p) => p.id === presetId);
         if (!preset) return;
@@ -717,7 +676,10 @@ export const OverlayEditorPage = () => {
                         </div>
                     )}
                 </div>
+                </details>
 
+                <div className={styles.editorGrid}>
+                <aside className={styles.settingsColumn}>
                 <div className={styles.presetsSection}>
                     <div className={styles.sectionTitle}>Фон для примерки</div>
                     <div className={styles.hint}>
@@ -846,8 +808,6 @@ export const OverlayEditorPage = () => {
                         </div>
                     )}
                     </div>
-                </details>
-
                 <div className={styles.cameraSection}>
                     <div className={styles.cameraSectionHeader}>
                         <div>
@@ -872,6 +832,12 @@ export const OverlayEditorPage = () => {
                     )}
                 </div>
 
+                <div className={styles.controls}>
+                    <Collapse items={collapseItems} defaultActiveKey={[]} />
+                </div>
+                </aside>
+
+                <div className={styles.previewColumn}>
                 <div className={styles.sceneTools}>
                     <Switch checked={showSafeArea} onChange={setShowSafeArea} />
                     Показывать безопасную область
@@ -961,24 +927,7 @@ export const OverlayEditorPage = () => {
                     Безопасная область помогает не прижимать элементы к краям
                     трансляции - это лишь рекомендация, не жёсткое ограничение.
                 </div>
-
-                <div className={styles.paddingSection}>
-                    <span className={styles.paddingLabel}>Отступ от края:</span>
-                    <div className={styles.paddingButtons}>
-                        {PADDING_OPTIONS.map((padding) => (
-                            <Button
-                                key={padding}
-                                size="small"
-                                onClick={() => applyEdgePadding(padding)}
-                            >
-                                {padding}
-                            </Button>
-                        ))}
-                    </div>
                 </div>
-
-                <div className={styles.controls}>
-                    <Collapse items={collapseItems} defaultActiveKey={[]} />
                 </div>
 
                 <div className={styles.actions}>
