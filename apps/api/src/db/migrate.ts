@@ -157,6 +157,7 @@ export const createTables = async (): Promise<void> => {
         await client.query(`
       ALTER TABLE stream_users ADD COLUMN IF NOT EXISTS companion_token_hash VARCHAR(64);
       ALTER TABLE stream_users ADD COLUMN IF NOT EXISTS companion_token_created_at TIMESTAMP;
+      ALTER TABLE stream_users ADD COLUMN IF NOT EXISTS companion_last_seen_at TIMESTAMP;
     `);
         await client.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_stream_users_companion_token_hash

@@ -71,6 +71,30 @@ export const upsertCompanionState = async (
              updated_at = CURRENT_TIMESTAMP`,
         [streamUserId, JSON.stringify(sanitized), companionVersion]
     );
+    await touchCompanionPresence(streamUserId);
+};
+
+// Presence is independent from Dota GSI. Companion polls the command endpoint
+// while it is running, including in the menu or when Dota is closed.
+export const touchCompanionPresence = async (streamUserId: string): Promise<void> => {
+    await pool.query(
+        `UPDATE stream_users
+         SET companion_last_seen_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+           AND (companion_last_seen_at IS NULL
+                OR companion_last_seen_at < CURRENT_TIMESTAMP - INTERVAL '5 seconds')`,
+        [streamUserId]
+    );
+};
+
+export const getCompanionLastSeenAt = async (
+    streamUserId: string
+): Promise<string | null> => {
+    const result = await pool.query<{ companion_last_seen_at: Date | null }>(
+        "SELECT companion_last_seen_at FROM stream_users WHERE id = $1",
+        [streamUserId]
+    );
+    return result.rows[0]?.companion_last_seen_at?.toISOString() ?? null;
 };
 
 export const getCompanionState = async (

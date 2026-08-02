@@ -4,6 +4,7 @@ import {
     enqueueObsSceneCommand,
     takeObsSceneCommand,
 } from "../../services/obs-scene-command-service.js";
+import { touchCompanionPresence } from "../../services/stream-companion-service.js";
 
 const sceneSchema = z.object({
     scene: z.enum(["betweenMatches", "draft", "gameplay"]),
@@ -21,10 +22,11 @@ export const postObsTestSceneController = (req: Request, res: Response) => {
     res.status(202).json(command);
 };
 
-export const getCompanionObsCommandController = (
+export const getCompanionObsCommandController = async (
     req: Request,
     res: Response
 ) => {
+    await touchCompanionPresence(req.streamUserId as string);
     const command = takeObsSceneCommand(req.streamUserId as string);
     if (!command) return res.status(204).send();
     res.json(command);

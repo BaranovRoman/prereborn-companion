@@ -15,6 +15,7 @@ import { getOverlayLayout } from "../../services/stream-overlay-layout-service.j
 import { getQueueSettings } from "../../services/stream-queue-settings-service.js";
 import {
     getCompanionState,
+    getCompanionLastSeenAt,
     isCompanionOnline,
 } from "../../services/stream-companion-service.js";
 import { logger } from "../../utils/logger.js";
@@ -44,7 +45,10 @@ export const getOverlayController = async (req: Request, res: Response) => {
 
         const session = await getOrCreateActiveSession(streamUserId);
         const gameMode = await getStreamUserGameMode(streamUserId);
-        const companionState = await getCompanionState(streamUserId);
+        const [companionState, companionLastSeenAt] = await Promise.all([
+            getCompanionState(streamUserId),
+            getCompanionLastSeenAt(streamUserId),
+        ]);
         const steamLink = await getSteamLink(streamUserId);
         const steamProfile = steamLink
             ? await getCachedSteamProfile(steamLink.dotaAccountId)
@@ -115,7 +119,7 @@ export const getOverlayController = async (req: Request, res: Response) => {
                 endedAt: match.endedAt,
             })),
             companion: {
-                isOnline: isCompanionOnline(companionState?.receivedAt ?? null),
+                isOnline: isCompanionOnline(companionLastSeenAt),
                 receivedAt: companionState?.receivedAt ?? null,
                 companionVersion: companionState?.companionVersion ?? null,
                 payload: companionState?.payload ?? null,
