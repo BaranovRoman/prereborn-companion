@@ -2,6 +2,7 @@
 
 import { useRef, type PointerEvent } from "react";
 import type { CameraZone } from "@/entities/stream-overlay-layout/model/types";
+import { anchorFraction } from "@/entities/stream-overlay-layout/lib/anchor";
 import styles from "./index.module.scss";
 
 interface CameraZoneEditorProps {
@@ -31,12 +32,9 @@ export const CameraZoneEditor = ({
     onChange,
 }: CameraZoneEditorProps) => {
     const gesture = useRef<Gesture | null>(null);
-    const anchoredLeft = zone.anchor.endsWith("right")
-        ? sceneWidth - zone.width - zone.x
-        : zone.x;
-    const anchoredTop = zone.anchor.startsWith("bottom")
-        ? sceneHeight - zone.height - zone.y
-        : zone.y;
+    const fraction = anchorFraction(zone.anchor);
+    const anchoredLeft = zone.x - fraction.x * zone.width;
+    const anchoredTop = zone.y - fraction.y * zone.height;
 
     const start = (
         event: PointerEvent<HTMLDivElement>,
@@ -61,21 +59,19 @@ export const CameraZoneEditor = ({
         const dy = (event.clientY - active.clientY) / sceneScale;
 
         if (active.mode === "move") {
-            const xDirection = active.zone.anchor.endsWith("right") ? -1 : 1;
-            const yDirection = active.zone.anchor.startsWith("bottom") ? -1 : 1;
             onChange({
-                x: Math.round(clamp(active.zone.x + dx * xDirection, 0, sceneWidth - active.zone.width)),
-                y: Math.round(clamp(active.zone.y + dy * yDirection, 0, sceneHeight - active.zone.height)),
+                x: Math.round(clamp(active.zone.x + dx, 0, sceneWidth)),
+                y: Math.round(clamp(active.zone.y + dy, 0, sceneHeight)),
             });
             return;
         }
 
         onChange({
             width: Math.round(
-                clamp(active.zone.width + dx, 80, sceneWidth - active.zone.x)
+                clamp(active.zone.width + dx, 80, sceneWidth)
             ),
             height: Math.round(
-                clamp(active.zone.height + dy, 80, sceneHeight - active.zone.y)
+                clamp(active.zone.height + dy, 80, sceneHeight)
             ),
         });
     };

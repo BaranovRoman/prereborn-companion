@@ -41,7 +41,7 @@ const normalizeWidgets = (
     return result;
 };
 
-const normalizeCameraZone = (value: unknown, fallback: CameraZone): CameraZone => {
+const normalizeCameraZone = (value: unknown, fallback: CameraZone, layoutVersion: number): CameraZone => {
     const raw = asRecord(value);
     if (!raw) return { ...fallback };
     const legacy = (key: string, size: number) =>
@@ -53,11 +53,20 @@ const normalizeCameraZone = (value: unknown, fallback: CameraZone): CameraZone =
                 ?? fallback[key];
     const width = Math.min(Math.max(number("width", "widthPercent"), 80), 1920);
     const height = Math.min(Math.max(number("height", "heightPercent"), 80), 1080);
+    const anchor = typeof raw.anchor === "string" ? raw.anchor as CameraZone["anchor"] : "top-left";
+    let x = Math.min(Math.max(number("x", "xPercent"), 0), 1920);
+    let y = Math.min(Math.max(number("y", "yPercent"), 0), 1080);
+    // v2 stored distances from the selected edge. v3 follows OBS: X/Y are
+    // coordinates of the selected alignment point from the scene's top-left.
+    if (layoutVersion < 3 && typeof raw.anchor === "string") {
+        if (anchor.endsWith("right")) x = 1920 - x;
+        if (anchor.startsWith("bottom")) y = 1080 - y;
+    }
     return {
         enabled: typeof raw.enabled === "boolean" ? raw.enabled : fallback.enabled,
-        anchor: typeof raw.anchor === "string" ? raw.anchor as CameraZone["anchor"] : "top-left",
-        x: Math.min(Math.max(number("x", "xPercent"), 0), 1920 - width),
-        y: Math.min(Math.max(number("y", "yPercent"), 0), 1080 - height),
+        anchor,
+        x,
+        y,
         width,
         height,
     };
@@ -79,12 +88,13 @@ const normalizeMinimapCover = (value: unknown, fallback: MinimapCoverSettings): 
 const normalizeScene = (
     value: unknown,
     fallback: OverlaySceneLayout,
+    layoutVersion: number,
     legacyWidgets?: unknown
 ): OverlaySceneLayout => {
     const raw = asRecord(value);
     return {
         widgets: normalizeWidgets(raw?.widgets ?? legacyWidgets, fallback.widgets),
-        cameraZone: normalizeCameraZone(raw?.cameraZone, fallback.cameraZone),
+        cameraZone: normalizeCameraZone(raw?.cameraZone, fallback.cameraZone, layoutVersion),
         minimapCover: normalizeMinimapCover(raw?.minimapCover, fallback.minimapCover),
     };
 };
@@ -96,9 +106,10 @@ export const normalizeOverlayLayout = (value: unknown): OverlayLayout => {
     const scenes = asRecord(raw?.scenes);
     const aspectRatio = asRecord(raw?.aspectRatio);
     const fallback = DEFAULT_OVERLAY_LAYOUT;
+    const layoutVersion = typeof raw?.version === "number" ? raw.version : 1;
 
     return {
-        version: 2,
+        version: 3,
         aspectRatio:
             aspectRatio &&
             typeof aspectRatio.widthRatio === "number" &&
@@ -116,9 +127,10 @@ export const normalizeOverlayLayout = (value: unknown): OverlayLayout => {
             gameplay: normalizeScene(
                 scenes?.gameplay,
                 fallback.scenes.gameplay,
+                layoutVersion,
                 raw?.widgets
             ),
-            draft: normalizeScene(scenes?.draft, fallback.scenes.draft),
+            draft: normalizeScene(scenes?.draft, fallback.scenes.draft, layoutVersion),
         },
     };
 };

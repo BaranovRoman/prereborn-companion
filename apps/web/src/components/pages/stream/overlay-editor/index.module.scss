@@ -3,14 +3,14 @@
     width: 100%;
     display: flex;
     justify-content: center;
-    padding: 34px 24px 56px;
+    padding: 18px 20px 32px;
     color: #d8d1cc;
 }
 
 .card {
     width: 100%;
     max-width: 1120px;
-    padding: 26px;
+    padding: 18px;
     border: 1px solid rgba(177, 80, 76, 0.28);
     border-radius: 2px;
     background:
@@ -25,8 +25,8 @@
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    padding-bottom: 18px;
-    margin-bottom: 20px;
+    padding-bottom: 12px;
+    margin-bottom: 12px;
     border-bottom: 1px solid rgba(177, 80, 76, 0.22);
 }
 
@@ -54,20 +54,20 @@
 
 .hint {
     max-width: 850px;
-    margin-bottom: 20px;
+    margin-bottom: 10px;
     color: #8f8582;
     font-size: 13px;
-    line-height: 1.65;
+    line-height: 1.45;
 }
 
 .sceneTabs {
-    margin-bottom: 16px;
+    margin-bottom: 10px;
 }
 
 .betweenMatchesNote,
 .cameraSection {
-    padding: 15px 16px;
-    margin-bottom: 12px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
     border: 1px solid rgba(255, 255, 255, 0.07);
     background: rgba(5, 5, 6, 0.32);
 }
@@ -113,7 +113,7 @@
 }
 
 .cameraFields {
-    margin-top: 14px;
+    margin-top: 8px;
     flex-wrap: wrap;
 }
 
@@ -171,14 +171,14 @@
 }
 
 .presetsSection {
-    padding: 17px 18px;
-    margin-bottom: 12px;
+    padding: 11px 12px;
+    margin-bottom: 8px;
     border: 1px solid rgba(255, 255, 255, 0.07);
     background: rgba(5, 5, 6, 0.32);
 }
 
 .sectionTitle {
-    margin-bottom: 12px;
+    margin-bottom: 7px;
     color: #b8aaa5;
     font-family: Georgia, "Times New Roman", serif;
     font-size: 12px;
@@ -238,13 +238,46 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 13px 16px;
-    margin: 18px 0 10px;
+    padding: 9px 12px;
+    margin: 8px 0;
     border: 1px solid rgba(255, 255, 255, 0.07);
     background: rgba(5, 5, 6, 0.42);
     color: #a59a96;
     font-size: 12px;
     letter-spacing: 0.025em;
+}
+
+.advancedSection {
+    margin-bottom: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(5, 5, 6, 0.32);
+}
+
+.advancedSection summary {
+    padding: 9px 12px;
+    color: #918784;
+    font-size: 11px;
+    cursor: pointer;
+    text-transform: uppercase;
+}
+
+.advancedSectionBody {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 0 12px 11px;
+}
+
+.cameraSection .widgetBody {
+    flex-flow: row wrap;
+    align-items: end;
+    gap: 10px 18px;
+    margin-top: 8px;
+}
+
+.cameraSection .cameraFields {
+    margin-top: 0;
 }
 
 .sceneWrapper {

@@ -104,7 +104,7 @@ export type OverlayCorner = (typeof OVERLAY_CORNERS)[number];
 // lets the streamer reserve the same part of the canvas in our layouts.
 export interface CameraZone {
     enabled: boolean;
-    anchor: OverlayCorner;
+    anchor: OverlayAnchor;
     x: number;
     y: number;
     width: number;
@@ -130,7 +130,7 @@ export interface OverlaySceneLayout {
 }
 
 export type OverlayLayout = {
-    version: 2;
+    version: 3;
     scenes: Record<ConfigurableBroadcastSceneId, OverlaySceneLayout>;
     aspectRatio: OverlayAspectRatio;
 };

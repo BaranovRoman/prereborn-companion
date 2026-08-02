@@ -96,7 +96,7 @@ export interface OverlayLayoutWidgets {
 
 export interface CameraZone {
     enabled: boolean;
-    anchor: OverlayCorner;
+    anchor: OverlayAnchor;
     x: number;
     y: number;
     width: number;
@@ -121,7 +121,7 @@ export interface OverlaySceneLayout {
 }
 
 export type OverlayLayout = {
-    version: 2;
+    version: 3;
     scenes: {
         draft: OverlaySceneLayout;
         gameplay: OverlaySceneLayout;
@@ -167,15 +167,15 @@ const defaultGameplayWidgets: OverlayLayoutWidgets = {
 };
 
 export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
-    version: 2,
+    version: 3,
     scenes: {
         gameplay: {
             widgets: defaultGameplayWidgets,
             cameraZone: {
                 enabled: true,
                 anchor: "bottom-right",
-                x: 60,
-                y: 67,
+                x: 1860,
+                y: 1013,
                 width: 400,
                 height: 300,
             },
@@ -196,7 +196,7 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
                 enabled: true,
                 anchor: "bottom-left",
                 x: 60,
-                y: 67,
+                y: 1013,
                 width: 400,
                 height: 300,
             },
@@ -338,7 +338,8 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
 
     const normalizeCameraZone = (
         value: unknown,
-        fallback: CameraZone
+        fallback: CameraZone,
+        layoutVersion: number
     ): CameraZone => {
         if (typeof value !== "object" || value === null) return fallback;
         const raw = value as Record<string, unknown>;
@@ -351,13 +352,20 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
                     ?? fallbackValue;
         const width = clamp(number("width", "widthPercent", fallback.width), 80, 1920);
         const height = clamp(number("height", "heightPercent", fallback.height), 80, 1080);
+        const anchor = OVERLAY_ANCHORS.includes(raw.anchor as OverlayAnchor)
+            ? raw.anchor as OverlayAnchor
+            : "top-left";
+        let x = clamp(number("x", "xPercent", fallback.x), 0, 1920);
+        let y = clamp(number("y", "yPercent", fallback.y), 0, 1080);
+        if (layoutVersion < 3 && typeof raw.anchor === "string") {
+            if (anchor.endsWith("right")) x = 1920 - x;
+            if (anchor.startsWith("bottom")) y = 1080 - y;
+        }
         return {
             enabled: typeof raw.enabled === "boolean" ? raw.enabled : fallback.enabled,
-            anchor: OVERLAY_CORNERS.includes(raw.anchor as OverlayCorner)
-                ? raw.anchor as OverlayCorner
-                : "top-left",
-            x: clamp(number("x", "xPercent", fallback.x), 0, 1920 - width),
-            y: clamp(number("y", "yPercent", fallback.y), 0, 1080 - height),
+            anchor,
+            x,
+            y,
             width,
             height,
         };
@@ -384,6 +392,7 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
     };
 
     const rawScenes = parsed.data.scenes ?? {};
+    const layoutVersion = typeof parsed.data.version === "number" ? parsed.data.version : 1;
     const rawGameplay = rawScenes.gameplay as Record<string, unknown> | undefined;
     const rawDraft = rawScenes.draft as Record<string, unknown> | undefined;
     // v1 stored a single widgets collection. Preserve it as the gameplay scene.
@@ -395,7 +404,7 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
     ).parse(parsed.data.aspectRatio);
 
     return {
-        version: 2,
+        version: 3,
         scenes: {
             gameplay: {
                 widgets: normalizeWidgets(
@@ -404,7 +413,8 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
                 ),
                 cameraZone: normalizeCameraZone(
                     rawGameplay?.cameraZone,
-                    gameplayDefaults.cameraZone
+                    gameplayDefaults.cameraZone,
+                    layoutVersion
                 ),
                 minimapCover: normalizeMinimapCover(rawGameplay?.minimapCover, gameplayDefaults.minimapCover),
             },
@@ -412,7 +422,8 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
                 widgets: normalizeWidgets(rawDraft?.widgets, draftDefaults.widgets),
                 cameraZone: normalizeCameraZone(
                     rawDraft?.cameraZone,
-                    draftDefaults.cameraZone
+                    draftDefaults.cameraZone,
+                    layoutVersion
                 ),
                 minimapCover: normalizeMinimapCover(rawDraft?.minimapCover, draftDefaults.minimapCover),
             },

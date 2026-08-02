@@ -337,20 +337,14 @@ export const OverlayEditorPage = () => {
         }));
     const changeCameraAnchor = (anchor: typeof activeSceneLayout.cameraZone.anchor) => {
         const zone = activeSceneLayout.cameraZone;
-        const left = zone.anchor.endsWith("right")
-            ? sceneDimensions.width - zone.width - zone.x
-            : zone.x;
-        const top = zone.anchor.startsWith("bottom")
-            ? sceneDimensions.height - zone.height - zone.y
-            : zone.y;
+        const oldFraction = anchorFraction(zone.anchor);
+        const newFraction = anchorFraction(anchor);
+        const left = zone.x - oldFraction.x * zone.width;
+        const top = zone.y - oldFraction.y * zone.height;
         updateCameraZone({
             anchor,
-            x: anchor.endsWith("right")
-                ? sceneDimensions.width - zone.width - left
-                : left,
-            y: anchor.startsWith("bottom")
-                ? sceneDimensions.height - zone.height - top
-                : top,
+            x: left + newFraction.x * zone.width,
+            y: top + newFraction.y * zone.height,
         });
     };
 
@@ -689,8 +683,9 @@ export const OverlayEditorPage = () => {
                     </div>
                 )}
 
-                <div className={styles.presetsSection}>
-                    <div className={styles.sectionTitle}>Пропорции сцены</div>
+                <details className={styles.advancedSection}>
+                    <summary>Дополнительно: пропорции сцены</summary>
+                    <div className={styles.advancedSectionBody}>
                     <Segmented
                         value={layout.aspectRatio.preset}
                         options={ASPECT_RATIO_OPTIONS}
@@ -821,17 +816,16 @@ export const OverlayEditorPage = () => {
                     {activeSceneLayout.cameraZone.enabled && (
                         <div className={styles.widgetBody}>
                             <label>
-                                <span>Угол привязки</span>
-                                <Segmented
-                                    options={[...CORNER_OPTIONS]}
+                                <span>Точка выравнивания</span>
+                                <AnchorGrid
                                     value={activeSceneLayout.cameraZone.anchor}
                                     onChange={changeCameraAnchor}
                                 />
                             </label>
                             <div className={styles.cameraFields}>
                             {([
-                                ["x", "Отступ X"],
-                                ["y", "Отступ Y"],
+                                ["x", "Позиция X"],
+                                ["y", "Позиция Y"],
                                 ["width", "Ширина"],
                                 ["height", "Высота"],
                             ] as const).map(([field, label]) => (
@@ -851,7 +845,8 @@ export const OverlayEditorPage = () => {
                             </div>
                         </div>
                     )}
-                </div>
+                    </div>
+                </details>
 
                 <div className={styles.cameraSection}>
                     <div className={styles.cameraSectionHeader}>

@@ -43,15 +43,15 @@ const gameplayWidgets: OverlayLayout["scenes"]["gameplay"]["widgets"] = {
 };
 
 export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
-    version: 2,
+    version: 3,
     scenes: {
         gameplay: {
             widgets: gameplayWidgets,
             cameraZone: {
                 enabled: true,
                 anchor: "bottom-right",
-                x: 60,
-                y: 67,
+                x: 1860,
+                y: 1013,
                 width: 400,
                 height: 300,
             },
@@ -72,7 +72,7 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
                 enabled: true,
                 anchor: "bottom-left",
                 x: 60,
-                y: 67,
+                y: 1013,
                 width: 400,
                 height: 300,
             },

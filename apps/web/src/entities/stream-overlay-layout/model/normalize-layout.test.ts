@@ -17,7 +17,7 @@ describe("normalizeOverlayLayout", () => {
             aspectRatio: { preset: "16:9", widthRatio: 16, heightRatio: 9 },
         });
 
-        expect(layout.version).toBe(2);
+        expect(layout.version).toBe(3);
         expect(layout.scenes.gameplay.widgets.session.xVw).toBe(42);
         expect(layout.scenes.draft.widgets.session.visible).toBe(true);
     });
@@ -51,5 +51,28 @@ describe("normalizeOverlayLayout", () => {
         const layout = normalizeOverlayLayout(null);
         expect(layout.scenes.gameplay.widgets.session.visible).toBe(true);
         expect(layout.scenes.draft.cameraZone.width).toBeGreaterThan(0);
+    });
+
+    it("migrates v2 edge offsets to OBS alignment-point coordinates", () => {
+        const layout = normalizeOverlayLayout({
+            version: 2,
+            scenes: {
+                gameplay: {
+                    cameraZone: {
+                        enabled: true,
+                        anchor: "bottom-right",
+                        x: 60,
+                        y: 67,
+                        width: 400,
+                        height: 300,
+                    },
+                },
+            },
+        });
+        expect(layout.scenes.gameplay.cameraZone).toMatchObject({
+            anchor: "bottom-right",
+            x: 1860,
+            y: 1013,
+        });
     });
 });
