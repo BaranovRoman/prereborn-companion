@@ -246,6 +246,52 @@ button:disabled {
   color: #b06a00;
 }
 
+.obs-panel__hint,
+.obs-panel__status,
+.obs-panel__message,
+.obs-panel__error {
+  font-size: 0.85em;
+  color: #666;
+}
+
+.obs-panel__error {
+  color: #b00020;
+}
+
+.obs-panel__toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.obs-panel__connection,
+.obs-panel__mapping {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.obs-panel__connection {
+  grid-template-columns: 1fr 100px 1fr;
+}
+
+.obs-panel label:not(.obs-panel__toggle) {
+  display: grid;
+  gap: 4px;
+  color: #777;
+  font-size: 0.8em;
+}
+
+.obs-panel input:not([type="checkbox"]) {
+  min-width: 0;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 0.55em 0.7em;
+  color: inherit;
+  background: #fff;
+}
+
 .diagnostics-panel__export-path {
   font-size: 0.8em;
   color: #555;
@@ -283,6 +329,11 @@ button:disabled {
     color: #f6f6f6;
     background-color: #0f0f0f98;
     border-color: #444;
+  }
+
+  .obs-panel input:not([type="checkbox"]) {
+    border-color: #444;
+    background: #111;
   }
 
   .check-item {

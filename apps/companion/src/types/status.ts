@@ -36,4 +36,18 @@ export interface StatusSnapshot {
   backend_connected: boolean;
   backend_last_sent_at: string | null;
   backend_last_error: string | null;
+  obs_config: ObsConfig;
+  obs_connected: boolean;
+  obs_active_scene: "betweenMatches" | "draft" | "gameplay" | null;
+  obs_last_error: string | null;
+}
+
+export interface ObsConfig {
+  enabled: boolean;
+  host: string;
+  port: number;
+  password: string;
+  between_matches_scene: string;
+  draft_scene: string;
+  gameplay_scene: string;
 }

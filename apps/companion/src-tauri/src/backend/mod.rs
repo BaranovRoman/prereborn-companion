@@ -16,6 +16,11 @@ pub fn init(app: AppHandle) {
         let mut inner = state.0.lock().unwrap();
         inner.companion_token = Some(token);
     }
+    {
+        let state = app.state::<AppState>();
+        let mut inner = state.0.lock().unwrap();
+        inner.obs_config = storage::load_obs_config(&app);
+    }
 
     let app_for_loop = app.clone();
     std::thread::spawn(move || loop {

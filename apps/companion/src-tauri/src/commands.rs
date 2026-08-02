@@ -6,6 +6,7 @@ use tauri_plugin_opener::OpenerExt;
 use crate::backend;
 use crate::diagnostics::{self, DiagnosticsStatusSnapshot};
 use crate::gsi::{config, finder};
+use crate::obs::{self, ObsConfig};
 use crate::state::{AppState, StatusSnapshot};
 use crate::storage;
 
@@ -145,6 +146,87 @@ pub fn resend_current_state(
 ) -> Result<StatusSnapshot, String> {
     backend::resend_now(&app)?;
     Ok(state.snapshot())
+}
+
+#[tauri::command]
+pub fn save_obs_config(
+    app: AppHandle,
+    state: State<AppState>,
+    mut config: ObsConfig,
+) -> Result<StatusSnapshot, String> {
+    config.host = config.host.trim().to_string();
+    config.between_matches_scene = config.between_matches_scene.trim().to_string();
+    config.draft_scene = config.draft_scene.trim().to_string();
+    config.gameplay_scene = config.gameplay_scene.trim().to_string();
+    if config.host.is_empty() {
+        return Err("Укажите адрес OBS WebSocket.".into());
+    }
+    {
+        let inner = state.0.lock().unwrap();
+        if config.password.is_empty() {
+            config.password = inner.obs_config.password.clone();
+        }
+    }
+    storage::save_obs_config(&app, &config).map_err(|e| e.to_string())?;
+    {
+        let mut inner = state.0.lock().unwrap();
+        inner.obs_config = config;
+        inner.obs_connected = false;
+        inner.obs_active_scene = None;
+        inner.obs_switch_pending = None;
+        inner.obs_last_error = None;
+    }
+    storage::append_rolling_log(&app, "OBS scene switching settings saved locally.");
+    Ok(state.snapshot())
+}
+
+#[tauri::command]
+pub fn test_obs_connection(
+    app: AppHandle,
+    state: State<AppState>,
+) -> Result<Vec<String>, String> {
+    let config = state.0.lock().unwrap().obs_config.clone();
+    match obs::test_connection(&config) {
+        Ok(scenes) => {
+            let expected = [
+                &config.between_matches_scene,
+                &config.draft_scene,
+                &config.gameplay_scene,
+            ];
+            let missing: Vec<&str> = expected
+                .into_iter()
+                .filter(|name| !scenes.contains(*name))
+                .map(String::as_str)
+                .collect();
+            if !missing.is_empty() {
+                let error = format!(
+                    "OBS подключён, но не найдены сцены: {}",
+                    missing.join(", ")
+                );
+                let mut inner = state.0.lock().unwrap();
+                inner.obs_connected = false;
+                inner.obs_last_error = Some(error.clone());
+                return Err(error);
+            }
+            let mut inner = state.0.lock().unwrap();
+            inner.obs_connected = true;
+            inner.obs_last_error = None;
+            drop(inner);
+            storage::append_rolling_log(
+                &app,
+                &format!("OBS WebSocket connected; {} scenes found.", scenes.len()),
+            );
+            Ok(scenes)
+        }
+        Err(error) => {
+            let mut inner = state.0.lock().unwrap();
+            inner.obs_connected = false;
+            inner.obs_last_error = Some(error.clone());
+            drop(inner);
+            storage::append_rolling_log(&app, &format!("OBS WebSocket error: {error}"));
+            Err(error)
+        }
+    }
 }
 
 // Diagnostic-mode GSI capture - see src-tauri/src/diagnostics/mod.rs. Off by

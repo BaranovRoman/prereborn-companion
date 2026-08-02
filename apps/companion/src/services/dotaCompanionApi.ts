@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { DiagnosticsStatusSnapshot, StatusSnapshot } from "../types/status";
+import type { DiagnosticsStatusSnapshot, ObsConfig, StatusSnapshot } from "../types/status";
 
 export const getStatus = () => invoke<StatusSnapshot>("get_status");
 export const findDota = () => invoke<StatusSnapshot>("find_dota");
@@ -12,6 +12,10 @@ export const saveCompanionToken = (token: string) =>
   invoke<StatusSnapshot>("save_companion_token", { token });
 export const resendCurrentState = () =>
   invoke<StatusSnapshot>("resend_current_state");
+export const saveObsConfig = (config: ObsConfig) =>
+  invoke<StatusSnapshot>("save_obs_config", { config });
+export const testObsConnection = () =>
+  invoke<string[]>("test_obs_connection");
 
 // Diagnostic-mode GSI capture - off by default, see src-tauri/src/diagnostics.
 export const diagnosticsGetStatus = () =>

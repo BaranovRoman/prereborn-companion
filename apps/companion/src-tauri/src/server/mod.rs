@@ -1,6 +1,7 @@
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::diagnostics;
+use crate::obs;
 use crate::state::{AppState, LastEvent, GSI_PORT};
 use crate::storage;
 
@@ -58,6 +59,9 @@ fn handle_request(app: &AppHandle, mut request: tiny_http::Request) {
                 summary: result.summary.clone(),
                 payload_file: result.file_path.to_string_lossy().to_string(),
             };
+            if let Some(parsed) = result.parsed.as_ref() {
+                obs::handle_gsi(app, parsed);
+            }
 
             {
                 let state = app.state::<AppState>();

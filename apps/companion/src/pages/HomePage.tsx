@@ -12,6 +12,7 @@ import { useGsiEvents } from "../hooks/useGsiEvents";
 import { useDiagnostics } from "../hooks/useDiagnostics";
 import * as dotaCompanionApi from "../services/dotaCompanionApi";
 import type { StatusSnapshot } from "../types/status";
+import { ObsScenePanel } from "../components/ObsScenePanel";
 
 export function HomePage() {
   const { status, setStatus, refresh } = useStatus();
@@ -31,6 +32,14 @@ export function HomePage() {
   // failure) - see src-tauri/src/backend/mod.rs::apply_result.
   useEffect(() => {
     const unlistenPromise = listen("backend-status", () => refresh());
+    return () => {
+      unlistenPromise.then((unlisten) => unlisten());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const unlistenPromise = listen("obs-status", () => refresh());
     return () => {
       unlistenPromise.then((unlisten) => unlisten());
     };
@@ -95,6 +104,8 @@ export function HomePage() {
         busy={busy}
         onResend={() => run(dotaCompanionApi.resendCurrentState)}
       />
+
+      <ObsScenePanel status={status} onStatus={setStatus} />
 
       {status?.log_dir && <p className="app__log-dir">Логи: {status.log_dir}</p>}
 

@@ -24,6 +24,7 @@ import { QueueWidgetsPanel } from "./queue-widgets-panel";
 import { useTwitchIntegration } from "@/entities/twitch-integration/lib/use-twitch-integration";
 import { useDonationAlertsIntegration } from "@/entities/donation-alerts-integration/lib/use-donation-alerts-integration";
 import { getBroadcastScene } from "@/components/pages/overlay/lib/get-broadcast-scene";
+import { ObsSetupGuide } from "./obs-setup-guide";
 import styles from "./index.module.scss";
 
 // Человеко-понятные причины ошибки привязки Steam - reason приходит от
@@ -329,6 +330,7 @@ export const StreamSettingsPage = () => {
                                 <Button type="default">Настроить сцены</Button>
                             </Link>
                         </div>
+                        <ObsSetupGuide />
 
                         <Collapse
                             className={styles.overlayCollapse}

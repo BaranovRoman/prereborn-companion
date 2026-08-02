@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::sync::Mutex;
+use crate::obs::{BroadcastScene, ObsConfig};
 
 pub const GSI_PORT: u16 = 3665;
 pub const GSI_CONFIG_FILE_NAME: &str = "gamestate_integration_dota_companion.cfg";
@@ -43,6 +44,10 @@ pub struct StatusSnapshot {
     pub backend_connected: bool,
     pub backend_last_sent_at: Option<String>,
     pub backend_last_error: Option<String>,
+    pub obs_config: ObsConfig,
+    pub obs_connected: bool,
+    pub obs_active_scene: Option<BroadcastScene>,
+    pub obs_last_error: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -71,6 +76,11 @@ pub struct InnerState {
     // generation it started sending and only clears dirty if no newer GSI
     // payload arrived while the HTTP request was in flight.
     pub payload_version: u64,
+    pub obs_config: ObsConfig,
+    pub obs_connected: bool,
+    pub obs_active_scene: Option<BroadcastScene>,
+    pub obs_switch_pending: Option<BroadcastScene>,
+    pub obs_last_error: Option<String>,
 }
 
 pub struct AppState(pub Mutex<InnerState>);
@@ -98,6 +108,14 @@ impl AppState {
             backend_connected: inner.backend_connected,
             backend_last_sent_at: inner.backend_last_sent_at.clone(),
             backend_last_error: inner.backend_last_error.clone(),
+            obs_config: {
+                let mut config = inner.obs_config.clone();
+                config.password.clear();
+                config
+            },
+            obs_connected: inner.obs_connected,
+            obs_active_scene: inner.obs_active_scene,
+            obs_last_error: inner.obs_last_error.clone(),
         }
     }
 }

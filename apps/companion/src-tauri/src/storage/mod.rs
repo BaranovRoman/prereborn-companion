@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use chrono::Local;
 use tauri::{AppHandle, Manager};
+use crate::obs::ObsConfig;
 
 static REQUEST_SEQ: AtomicU32 = AtomicU32::new(0);
 
@@ -51,6 +52,28 @@ pub fn load_companion_token(app: &AppHandle) -> Option<String> {
         .get("companion_token")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
+}
+
+fn obs_config_path(app: &AppHandle) -> PathBuf {
+    app.path()
+        .app_data_dir()
+        .expect("app_data_dir must resolve")
+        .join("obs-config.json")
+}
+
+pub fn save_obs_config(app: &AppHandle, config: &ObsConfig) -> std::io::Result<()> {
+    let path = obs_config_path(app);
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    fs::write(path, serde_json::to_string_pretty(config)?)
+}
+
+pub fn load_obs_config(app: &AppHandle) -> ObsConfig {
+    fs::read_to_string(obs_config_path(app))
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
 }
 
 pub fn init(app: &AppHandle) -> std::io::Result<()> {
