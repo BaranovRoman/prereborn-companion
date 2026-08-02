@@ -1,4 +1,4 @@
-import { OVERLAY_BASE_WIDTH, type OverlayAspectRatio } from "../model/types";
+import type { OverlayAspectRatio } from "../model/types";
 
 export interface SceneDimensions {
     width: number;
@@ -14,8 +14,6 @@ export interface SceneDimensions {
 export const computeSceneDimensions = (
     aspectRatio: OverlayAspectRatio
 ): SceneDimensions => ({
-    width: OVERLAY_BASE_WIDTH,
-    height: Math.round(
-        (OVERLAY_BASE_WIDTH * aspectRatio.heightRatio) / aspectRatio.widthRatio
-    ),
+    width: aspectRatio.width,
+    height: aspectRatio.height,
 });

@@ -64,12 +64,16 @@ export interface OverlayAspectRatio {
     preset: OverlayAspectRatioPreset;
     widthRatio: number;
     heightRatio: number;
+    width: number;
+    height: number;
 }
 
 export const DEFAULT_OVERLAY_ASPECT_RATIO: OverlayAspectRatio = {
     preset: "16:9",
     widthRatio: 16,
     heightRatio: 9,
+    width: 1920,
+    height: 1080,
 };
 
 // growDirection раньше было отдельным пользовательским полем - теперь
@@ -103,7 +107,7 @@ export interface CameraZone {
     height: number;
 }
 
-export const MINIMAP_COVER_PRESETS = ["balanced-a", "balanced-b", "dense-a", "dense-b", "dense-c"] as const;
+export const MINIMAP_COVER_PRESETS = ["clean", "random-a", "random-b", "random-dense", "interactive"] as const;
 export type MinimapCoverPreset = (typeof MINIMAP_COVER_PRESETS)[number];
 export interface MinimapCoverSettings {
     enabled: boolean;
@@ -179,7 +183,7 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
                 width: 400,
                 height: 300,
             },
-            minimapCover: { enabled: true, preset: "balanced-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
+            minimapCover: { enabled: true, preset: "random-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
         },
         draft: {
             widgets: {
@@ -200,7 +204,7 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
                 width: 400,
                 height: 300,
             },
-            minimapCover: { enabled: false, preset: "balanced-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
+            minimapCover: { enabled: false, preset: "random-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
         },
     },
     aspectRatio: DEFAULT_OVERLAY_ASPECT_RATIO,
@@ -289,6 +293,8 @@ const buildAspectRatioSchema = (fallback: OverlayAspectRatio) =>
             preset: aspectRatioPresetEnum.catch(fallback.preset),
             widthRatio: ratioPartSchema.catch(fallback.widthRatio),
             heightRatio: ratioPartSchema.catch(fallback.heightRatio),
+            width: z.number().int().min(640).max(7680).catch(fallback.width),
+            height: z.number().int().min(360).max(4320).catch(fallback.height),
         })
         .catch(fallback);
 
@@ -377,11 +383,18 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
     ): MinimapCoverSettings => {
         if (typeof value !== "object" || value === null) return fallback;
         const raw = value as Record<string, unknown>;
+        const legacyPresets: Record<string, MinimapCoverPreset> = {
+            "balanced-a": "random-a", "balanced-b": "random-b",
+            "dense-a": "random-dense", "dense-b": "random-dense", "dense-c": "random-dense",
+        };
+        const preset = typeof raw.preset === "string" && legacyPresets[raw.preset]
+            ? legacyPresets[raw.preset]
+            : MINIMAP_COVER_PRESETS.includes(raw.preset as MinimapCoverPreset)
+                ? raw.preset as MinimapCoverPreset
+                : fallback.preset;
         return {
             enabled: typeof raw.enabled === "boolean" ? raw.enabled : fallback.enabled,
-            preset: MINIMAP_COVER_PRESETS.includes(raw.preset as MinimapCoverPreset)
-                ? raw.preset as MinimapCoverPreset
-                : fallback.preset,
+            preset,
             anchor: OVERLAY_CORNERS.includes(raw.anchor as OverlayCorner)
                 ? raw.anchor as OverlayCorner
                 : fallback.anchor,

@@ -75,9 +75,16 @@ const normalizeCameraZone = (value: unknown, fallback: CameraZone, layoutVersion
 const normalizeMinimapCover = (value: unknown, fallback: MinimapCoverSettings): MinimapCoverSettings => {
     const raw = asRecord(value);
     if (!raw) return { ...fallback };
+    const legacyPresets: Record<string, MinimapCoverSettings["preset"]> = {
+        "balanced-a": "random-a", "balanced-b": "random-b",
+        "dense-a": "random-dense", "dense-b": "random-dense", "dense-c": "random-dense",
+    };
+    const preset = typeof raw.preset === "string"
+        ? legacyPresets[raw.preset] ?? (["clean", "random-a", "random-b", "random-dense", "interactive"].includes(raw.preset) ? raw.preset as MinimapCoverSettings["preset"] : fallback.preset)
+        : fallback.preset;
     return {
         enabled: typeof raw.enabled === "boolean" ? raw.enabled : fallback.enabled,
-        preset: typeof raw.preset === "string" ? raw.preset as MinimapCoverSettings["preset"] : fallback.preset,
+        preset,
         anchor: typeof raw.anchor === "string" ? raw.anchor as MinimapCoverSettings["anchor"] : fallback.anchor,
         x: typeof raw.x === "number" ? raw.x : fallback.x,
         y: typeof raw.y === "number" ? raw.y : fallback.y,
@@ -121,6 +128,8 @@ export const normalizeOverlayLayout = (value: unknown): OverlayLayout => {
                               : fallback.aspectRatio.preset,
                       widthRatio: aspectRatio.widthRatio,
                       heightRatio: aspectRatio.heightRatio,
+                      width: typeof aspectRatio.width === "number" ? aspectRatio.width : fallback.aspectRatio.width,
+                      height: typeof aspectRatio.height === "number" ? aspectRatio.height : fallback.aspectRatio.height,
                   }
                 : { ...fallback.aspectRatio },
         scenes: {

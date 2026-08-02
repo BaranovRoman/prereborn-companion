@@ -4,6 +4,8 @@ export const DEFAULT_OVERLAY_ASPECT_RATIO: OverlayAspectRatio = {
     preset: "16:9",
     widthRatio: 16,
     heightRatio: 9,
+    width: 1920,
+    height: 1080,
 };
 
 // Зеркало backend-константы (services/stream-overlay-layout-service.ts) -
@@ -55,7 +57,7 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
                 width: 400,
                 height: 300,
             },
-            minimapCover: { enabled: true, preset: "balanced-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
+            minimapCover: { enabled: true, preset: "random-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
         },
         draft: {
             widgets: {
@@ -76,7 +78,7 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
                 width: 400,
                 height: 300,
             },
-            minimapCover: { enabled: false, preset: "balanced-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
+            minimapCover: { enabled: false, preset: "random-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
         },
     },
     aspectRatio: DEFAULT_OVERLAY_ASPECT_RATIO,

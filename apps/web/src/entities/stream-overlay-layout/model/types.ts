@@ -35,6 +35,8 @@ export interface OverlayAspectRatio {
     preset: OverlayAspectRatioPreset;
     widthRatio: number;
     heightRatio: number;
+    width: number;
+    height: number;
 }
 
 // Отступ safe area от каждого края сцены, в процентах соответствующей оси -
@@ -111,7 +113,7 @@ export interface CameraZone {
     height: number;
 }
 
-export const MINIMAP_COVER_PRESETS = ["balanced-a", "balanced-b", "dense-a", "dense-b", "dense-c"] as const;
+export const MINIMAP_COVER_PRESETS = ["clean", "random-a", "random-b", "random-dense", "interactive"] as const;
 export type MinimapCoverPreset = (typeof MINIMAP_COVER_PRESETS)[number];
 
 export interface MinimapCoverSettings {

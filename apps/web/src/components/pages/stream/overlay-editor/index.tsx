@@ -84,11 +84,11 @@ const CORNER_OPTIONS = [
     { label: "↘", value: "bottom-right" },
 ] as const;
 const MINIMAP_PRESET_OPTIONS = [
-    { label: "Balanced A", value: "balanced-a" },
-    { label: "Balanced B", value: "balanced-b" },
-    { label: "Dense A", value: "dense-a" },
-    { label: "Dense B", value: "dense-b" },
-    { label: "Dense C", value: "dense-c" },
+    { label: "Чистая", value: "clean" },
+    { label: "Случайная A", value: "random-a" },
+    { label: "Случайная B", value: "random-b" },
+    { label: "Плотная", value: "random-dense" },
+    { label: "Интерактив", value: "interactive" },
 ] as const;
 
 // Готовые пары ratio для всех пресетов кроме "custom" - выбор пресета в UI
@@ -438,13 +438,17 @@ export const OverlayEditorPage = () => {
             applyAspectRatio({ ...layout.aspectRatio, preset });
             return;
         }
-        applyAspectRatio({ preset, ...ASPECT_RATIO_PRESET_VALUES[preset] });
+        applyAspectRatio({ ...layout.aspectRatio, preset, ...ASPECT_RATIO_PRESET_VALUES[preset] });
     };
 
     const handleCustomRatioChange = (
         field: "widthRatio" | "heightRatio",
         value: number
     ) => {
+        applyAspectRatio({ ...layout.aspectRatio, [field]: value });
+    };
+
+    const handleResolutionChange = (field: "width" | "height", value: number) => {
         applyAspectRatio({ ...layout.aspectRatio, [field]: value });
     };
 
@@ -675,6 +679,16 @@ export const OverlayEditorPage = () => {
                             />
                         </div>
                     )}
+                    <div className={styles.settingsRow}>
+                        <label>
+                            <span>Ширина OBS, px</span>
+                            <InputNumber min={640} max={7680} precision={0} value={layout.aspectRatio.width} onChange={(value) => value !== null && handleResolutionChange("width", value)} />
+                        </label>
+                        <label>
+                            <span>Высота OBS, px</span>
+                            <InputNumber min={360} max={4320} precision={0} value={layout.aspectRatio.height} onChange={(value) => value !== null && handleResolutionChange("height", value)} />
+                        </label>
+                    </div>
                 </div>
                 </details>
 
