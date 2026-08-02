@@ -28,6 +28,8 @@ export const OVERLAY_ANCHORS = [
 ] as const;
 
 export type OverlayAnchor = (typeof OVERLAY_ANCHORS)[number];
+export const OVERLAY_CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
+export type OverlayCorner = (typeof OVERLAY_CORNERS)[number];
 
 export interface OverlayWidgetLayout {
     xVw: number;
@@ -94,15 +96,28 @@ export interface OverlayLayoutWidgets {
 
 export interface CameraZone {
     enabled: boolean;
+    anchor: OverlayCorner;
     x: number;
     y: number;
     width: number;
     height: number;
 }
 
+export const MINIMAP_COVER_PRESETS = ["balanced-a", "balanced-b", "dense-a", "dense-b", "dense-c"] as const;
+export type MinimapCoverPreset = (typeof MINIMAP_COVER_PRESETS)[number];
+export interface MinimapCoverSettings {
+    enabled: boolean;
+    preset: MinimapCoverPreset;
+    anchor: OverlayCorner;
+    x: number;
+    y: number;
+    size: number;
+}
+
 export interface OverlaySceneLayout {
     widgets: OverlayLayoutWidgets;
     cameraZone: CameraZone;
+    minimapCover: MinimapCoverSettings;
 }
 
 export type OverlayLayout = {
@@ -158,11 +173,13 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
             widgets: defaultGameplayWidgets,
             cameraZone: {
                 enabled: true,
-                x: 1460,
-                y: 713,
+                anchor: "bottom-right",
+                x: 60,
+                y: 67,
                 width: 400,
                 height: 300,
             },
+            minimapCover: { enabled: true, preset: "balanced-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
         },
         draft: {
             widgets: {
@@ -177,11 +194,13 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
             },
             cameraZone: {
                 enabled: true,
+                anchor: "bottom-left",
                 x: 60,
-                y: 713,
+                y: 67,
                 width: 400,
                 height: 300,
             },
+            minimapCover: { enabled: false, preset: "balanced-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
         },
     },
     aspectRatio: DEFAULT_OVERLAY_ASPECT_RATIO,
@@ -334,10 +353,33 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
         const height = clamp(number("height", "heightPercent", fallback.height), 80, 1080);
         return {
             enabled: typeof raw.enabled === "boolean" ? raw.enabled : fallback.enabled,
+            anchor: OVERLAY_CORNERS.includes(raw.anchor as OverlayCorner)
+                ? raw.anchor as OverlayCorner
+                : "top-left",
             x: clamp(number("x", "xPercent", fallback.x), 0, 1920 - width),
             y: clamp(number("y", "yPercent", fallback.y), 0, 1080 - height),
             width,
             height,
+        };
+    };
+
+    const normalizeMinimapCover = (
+        value: unknown,
+        fallback: MinimapCoverSettings
+    ): MinimapCoverSettings => {
+        if (typeof value !== "object" || value === null) return fallback;
+        const raw = value as Record<string, unknown>;
+        return {
+            enabled: typeof raw.enabled === "boolean" ? raw.enabled : fallback.enabled,
+            preset: MINIMAP_COVER_PRESETS.includes(raw.preset as MinimapCoverPreset)
+                ? raw.preset as MinimapCoverPreset
+                : fallback.preset,
+            anchor: OVERLAY_CORNERS.includes(raw.anchor as OverlayCorner)
+                ? raw.anchor as OverlayCorner
+                : fallback.anchor,
+            x: clamp(typeof raw.x === "number" ? raw.x : fallback.x, 0, 1920),
+            y: clamp(typeof raw.y === "number" ? raw.y : fallback.y, 0, 1080),
+            size: clamp(typeof raw.size === "number" ? raw.size : fallback.size, 120, 600),
         };
     };
 
@@ -364,6 +406,7 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
                     rawGameplay?.cameraZone,
                     gameplayDefaults.cameraZone
                 ),
+                minimapCover: normalizeMinimapCover(rawGameplay?.minimapCover, gameplayDefaults.minimapCover),
             },
             draft: {
                 widgets: normalizeWidgets(rawDraft?.widgets, draftDefaults.widgets),
@@ -371,6 +414,7 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
                     rawDraft?.cameraZone,
                     draftDefaults.cameraZone
                 ),
+                minimapCover: normalizeMinimapCover(rawDraft?.minimapCover, draftDefaults.minimapCover),
             },
         },
         aspectRatio,

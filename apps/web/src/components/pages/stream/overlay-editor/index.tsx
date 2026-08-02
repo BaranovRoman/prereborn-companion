@@ -78,6 +78,19 @@ const DIRECTION_OPTIONS = [
 ];
 
 const PADDING_OPTIONS = [16, 24, 32, 48];
+const CORNER_OPTIONS = [
+    { label: "↖", value: "top-left" },
+    { label: "↗", value: "top-right" },
+    { label: "↙", value: "bottom-left" },
+    { label: "↘", value: "bottom-right" },
+] as const;
+const MINIMAP_PRESET_OPTIONS = [
+    { label: "Balanced A", value: "balanced-a" },
+    { label: "Balanced B", value: "balanced-b" },
+    { label: "Dense A", value: "dense-a" },
+    { label: "Dense B", value: "dense-b" },
+    { label: "Dense C", value: "dense-c" },
+] as const;
 
 // Готовые пары ratio для всех пресетов кроме "custom" - выбор пресета в UI
 // сразу подставляет числа, "custom" оставляет то, что пользователь ввёл сам.
@@ -306,6 +319,40 @@ export const OverlayEditorPage = () => {
                 },
             },
         }));
+    const updateMinimapCover = (
+        patch: Partial<typeof activeSceneLayout.minimapCover>
+    ) =>
+        setLayout((c) => ({
+            ...c,
+            scenes: {
+                ...c.scenes,
+                [selectedScene]: {
+                    ...c.scenes[selectedScene],
+                    minimapCover: {
+                        ...c.scenes[selectedScene].minimapCover,
+                        ...patch,
+                    },
+                },
+            },
+        }));
+    const changeCameraAnchor = (anchor: typeof activeSceneLayout.cameraZone.anchor) => {
+        const zone = activeSceneLayout.cameraZone;
+        const left = zone.anchor.endsWith("right")
+            ? sceneDimensions.width - zone.width - zone.x
+            : zone.x;
+        const top = zone.anchor.startsWith("bottom")
+            ? sceneDimensions.height - zone.height - zone.y
+            : zone.y;
+        updateCameraZone({
+            anchor,
+            x: anchor.endsWith("right")
+                ? sceneDimensions.width - zone.width - left
+                : left,
+            y: anchor.startsWith("bottom")
+                ? sceneDimensions.height - zone.height - top
+                : top,
+        });
+    };
 
     const updaters: Record<
         OverlayWidgetId,
@@ -772,10 +819,19 @@ export const OverlayEditorPage = () => {
                         />
                     </div>
                     {activeSceneLayout.cameraZone.enabled && (
-                        <div className={styles.cameraFields}>
+                        <div className={styles.widgetBody}>
+                            <label>
+                                <span>Угол привязки</span>
+                                <Segmented
+                                    options={[...CORNER_OPTIONS]}
+                                    value={activeSceneLayout.cameraZone.anchor}
+                                    onChange={changeCameraAnchor}
+                                />
+                            </label>
+                            <div className={styles.cameraFields}>
                             {([
-                                ["x", "X"],
-                                ["y", "Y"],
+                                ["x", "Отступ X"],
+                                ["y", "Отступ Y"],
                                 ["width", "Ширина"],
                                 ["height", "Высота"],
                             ] as const).map(([field, label]) => (
@@ -792,6 +848,31 @@ export const OverlayEditorPage = () => {
                                     />
                                 </label>
                             ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <div className={styles.cameraSection}>
+                    <div className={styles.cameraSectionHeader}>
+                        <div>
+                            <div className={styles.sectionTitle}>Перекрытие миникарты</div>
+                            <div className={styles.cameraHint}>Настраивается отдельно для каждой сцены.</div>
+                        </div>
+                        <Switch checked={activeSceneLayout.minimapCover.enabled} onChange={(enabled) => updateMinimapCover({ enabled })} />
+                    </div>
+                    {activeSceneLayout.minimapCover.enabled && (
+                        <div className={styles.widgetBody}>
+                            <label><span>Вариант</span><Segmented options={[...MINIMAP_PRESET_OPTIONS]} value={activeSceneLayout.minimapCover.preset} onChange={(preset) => updateMinimapCover({ preset })} /></label>
+                            <label><span>Угол привязки</span><Segmented options={[...CORNER_OPTIONS]} value={activeSceneLayout.minimapCover.anchor} onChange={(anchor) => updateMinimapCover({ anchor })} /></label>
+                            <div className={styles.cameraFields}>
+                                {([ ["x", "Отступ X"], ["y", "Отступ Y"], ["size", "Размер"] ] as const).map(([field, label]) => (
+                                    <label key={field}>
+                                        <span>{label}, px</span>
+                                        <InputNumber min={0} max={field === "size" ? 600 : 1920} value={activeSceneLayout.minimapCover[field]} onChange={(value) => value !== null && updateMinimapCover({ [field]: value })} />
+                                    </label>
+                                ))}
+                            </div>
                         </div>
                     )}
                 </div>
@@ -806,7 +887,7 @@ export const OverlayEditorPage = () => {
                         mode="preview"
                         aspectRatio={layout.aspectRatio}
                         showSafeArea={showSafeArea}
-                        showMinimapCover={selectedScene === "gameplay"}
+                        minimapCover={activeSceneLayout.minimapCover}
                         referenceBackground={referenceBackgroundImage}
                     >
                         {({ sceneScale, sceneWidth, sceneHeight }) => (

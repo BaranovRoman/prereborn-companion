@@ -171,6 +171,7 @@ interface GsiItem {
     name: string;
     displayName: string;
     imageUrl: string;
+    fallbackImageUrl?: string;
 }
 
 const INVENTORY_SLOT_COUNT = 9;
@@ -184,7 +185,12 @@ const getMatchItems = (inventory: Array<string | null> | undefined): Array<GsiIt
         return {
             name,
             displayName: assetName.replaceAll("_", " "),
-            imageUrl: `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/${assetName.startsWith("recipe_") ? "recipe" : assetName}.png`,
+            imageUrl: assetName.startsWith("recipe_")
+                ? `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/items/${assetName}_lg.png`
+                : `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/${assetName}.png`,
+            fallbackImageUrl: assetName.startsWith("recipe_")
+                ? "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/recipe.png"
+                : undefined,
         };
     });
 };
@@ -248,7 +254,17 @@ const FeaturedMatch = ({ matches, title }: QueueDataProps & { title: string }) =
             data-empty={item ? undefined : "true"}
             title={item?.displayName}
         >
-            {item ? <img src={item.imageUrl} alt={item.displayName} /> : null}
+            {item ? (
+                <img
+                    src={item.imageUrl}
+                    alt={item.displayName}
+                    onError={(event) => {
+                        if (item.fallbackImageUrl && event.currentTarget.src !== item.fallbackImageUrl) {
+                            event.currentTarget.src = item.fallbackImageUrl;
+                        }
+                    }}
+                />
+            ) : null}
         </span>
     );
 

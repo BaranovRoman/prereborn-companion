@@ -97,19 +97,36 @@ export const BROADCAST_SCENE_IDS = ["betweenMatches", "draft", "gameplay"] as co
 export type BroadcastSceneId = (typeof BROADCAST_SCENE_IDS)[number];
 export type ConfigurableBroadcastSceneId = Exclude<BroadcastSceneId, "betweenMatches">;
 
+export const OVERLAY_CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
+export type OverlayCorner = (typeof OVERLAY_CORNERS)[number];
+
 // Camera is owned and positioned by OBS. This rectangle is editor-only and
 // lets the streamer reserve the same part of the canvas in our layouts.
 export interface CameraZone {
     enabled: boolean;
+    anchor: OverlayCorner;
     x: number;
     y: number;
     width: number;
     height: number;
 }
 
+export const MINIMAP_COVER_PRESETS = ["balanced-a", "balanced-b", "dense-a", "dense-b", "dense-c"] as const;
+export type MinimapCoverPreset = (typeof MINIMAP_COVER_PRESETS)[number];
+
+export interface MinimapCoverSettings {
+    enabled: boolean;
+    preset: MinimapCoverPreset;
+    anchor: OverlayCorner;
+    x: number;
+    y: number;
+    size: number;
+}
+
 export interface OverlaySceneLayout {
     widgets: OverlayLayoutWidgets;
     cameraZone: CameraZone;
+    minimapCover: MinimapCoverSettings;
 }
 
 export type OverlayLayout = {

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
     SAFE_AREA_PERCENT,
     type OverlayAspectRatio,
+    type MinimapCoverSettings,
 } from "@/entities/stream-overlay-layout/model/types";
 import { computeSceneDimensions } from "@/entities/stream-overlay-layout/lib/scene-dimensions";
 import { GameUiReferenceLayer, type ReferenceBackgroundImage } from "./game-ui-reference-layer";
@@ -35,7 +36,7 @@ interface OverlayCanvasProps {
     // Только editor передаёt true - см. задачу п.9 ("не рендерится в live
     // overlay").
     showSafeArea?: boolean;
-    showMinimapCover?: boolean;
+    minimapCover?: MinimapCoverSettings;
     // "Фон для примерки" (см. задачу) - только editor читает его из
     // IndexedDB и передаёт сюда; live overlay (/overlay/:token) этот проп
     // никогда не передаёт, а GameUiReferenceLayer вдобавок сам игнорирует
@@ -59,7 +60,7 @@ export const OverlayCanvas = ({
     mode,
     aspectRatio,
     showSafeArea = false,
-    showMinimapCover = false,
+    minimapCover,
     referenceBackground = null,
     children,
 }: OverlayCanvasProps) => {
@@ -130,7 +131,7 @@ export const OverlayCanvas = ({
                 <AntiSnipeLayer
                     sceneWidth={sceneWidth}
                     sceneHeight={sceneHeight}
-                    showMinimap={showMinimapCover}
+                    settings={minimapCover}
                 />
                 {children({ sceneScale, sceneWidth, sceneHeight })}
             </div>

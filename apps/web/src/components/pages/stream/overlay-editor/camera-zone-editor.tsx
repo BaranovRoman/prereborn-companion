@@ -31,6 +31,12 @@ export const CameraZoneEditor = ({
     onChange,
 }: CameraZoneEditorProps) => {
     const gesture = useRef<Gesture | null>(null);
+    const anchoredLeft = zone.anchor.endsWith("right")
+        ? sceneWidth - zone.width - zone.x
+        : zone.x;
+    const anchoredTop = zone.anchor.startsWith("bottom")
+        ? sceneHeight - zone.height - zone.y
+        : zone.y;
 
     const start = (
         event: PointerEvent<HTMLDivElement>,
@@ -55,9 +61,11 @@ export const CameraZoneEditor = ({
         const dy = (event.clientY - active.clientY) / sceneScale;
 
         if (active.mode === "move") {
+            const xDirection = active.zone.anchor.endsWith("right") ? -1 : 1;
+            const yDirection = active.zone.anchor.startsWith("bottom") ? -1 : 1;
             onChange({
-                x: Math.round(clamp(active.zone.x + dx, 0, sceneWidth - active.zone.width)),
-                y: Math.round(clamp(active.zone.y + dy, 0, sceneHeight - active.zone.height)),
+                x: Math.round(clamp(active.zone.x + dx * xDirection, 0, sceneWidth - active.zone.width)),
+                y: Math.round(clamp(active.zone.y + dy * yDirection, 0, sceneHeight - active.zone.height)),
             });
             return;
         }
@@ -80,8 +88,8 @@ export const CameraZoneEditor = ({
         <div
             className={styles.cameraZone}
             style={{
-                left: zone.x,
-                top: zone.y,
+                left: anchoredLeft,
+                top: anchoredTop,
                 width: zone.width,
                 height: zone.height,
             }}

@@ -39,6 +39,7 @@ describe("normalizeOverlayLayout", () => {
 
         expect(layout.scenes.gameplay.cameraZone).toEqual({
             enabled: true,
+            anchor: "top-left",
             x: 960,
             y: 540,
             width: 480,

@@ -49,11 +49,13 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
             widgets: gameplayWidgets,
             cameraZone: {
                 enabled: true,
-                x: 1460,
-                y: 713,
+                anchor: "bottom-right",
+                x: 60,
+                y: 67,
                 width: 400,
                 height: 300,
             },
+            minimapCover: { enabled: true, preset: "balanced-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
         },
         draft: {
             widgets: {
@@ -68,11 +70,13 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
             },
             cameraZone: {
                 enabled: true,
+                anchor: "bottom-left",
                 x: 60,
-                y: 713,
+                y: 67,
                 width: 400,
                 height: 300,
             },
+            minimapCover: { enabled: false, preset: "balanced-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
         },
     },
     aspectRatio: DEFAULT_OVERLAY_ASPECT_RATIO,

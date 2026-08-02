@@ -1,6 +1,7 @@
 import { DEFAULT_OVERLAY_LAYOUT } from "./default-layout";
 import type {
     CameraZone,
+    MinimapCoverSettings,
     OverlayLayout,
     OverlayLayoutWidgets,
     OverlaySceneLayout,
@@ -45,7 +46,7 @@ const normalizeCameraZone = (value: unknown, fallback: CameraZone): CameraZone =
     if (!raw) return { ...fallback };
     const legacy = (key: string, size: number) =>
         typeof raw[key] === "number" ? raw[key] * size / 100 : undefined;
-    const number = (key: keyof Omit<CameraZone, "enabled">, legacyKey: string) =>
+    const number = (key: "x" | "y" | "width" | "height", legacyKey: string): number =>
         typeof raw[key] === "number"
             ? raw[key]
             : legacy(legacyKey, key === "x" || key === "width" ? 1920 : 1080)
@@ -54,10 +55,24 @@ const normalizeCameraZone = (value: unknown, fallback: CameraZone): CameraZone =
     const height = Math.min(Math.max(number("height", "heightPercent"), 80), 1080);
     return {
         enabled: typeof raw.enabled === "boolean" ? raw.enabled : fallback.enabled,
+        anchor: typeof raw.anchor === "string" ? raw.anchor as CameraZone["anchor"] : "top-left",
         x: Math.min(Math.max(number("x", "xPercent"), 0), 1920 - width),
         y: Math.min(Math.max(number("y", "yPercent"), 0), 1080 - height),
         width,
         height,
+    };
+};
+
+const normalizeMinimapCover = (value: unknown, fallback: MinimapCoverSettings): MinimapCoverSettings => {
+    const raw = asRecord(value);
+    if (!raw) return { ...fallback };
+    return {
+        enabled: typeof raw.enabled === "boolean" ? raw.enabled : fallback.enabled,
+        preset: typeof raw.preset === "string" ? raw.preset as MinimapCoverSettings["preset"] : fallback.preset,
+        anchor: typeof raw.anchor === "string" ? raw.anchor as MinimapCoverSettings["anchor"] : fallback.anchor,
+        x: typeof raw.x === "number" ? raw.x : fallback.x,
+        y: typeof raw.y === "number" ? raw.y : fallback.y,
+        size: typeof raw.size === "number" ? Math.min(Math.max(raw.size, 120), 600) : fallback.size,
     };
 };
 
@@ -70,6 +85,7 @@ const normalizeScene = (
     return {
         widgets: normalizeWidgets(raw?.widgets ?? legacyWidgets, fallback.widgets),
         cameraZone: normalizeCameraZone(raw?.cameraZone, fallback.cameraZone),
+        minimapCover: normalizeMinimapCover(raw?.minimapCover, fallback.minimapCover),
     };
 };
 

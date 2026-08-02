@@ -52,7 +52,8 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                     anchor: "top-right",
                 },
             },
-            cameraZone: { enabled: true, x: 1460, y: 713, width: 400, height: 300 },
+            cameraZone: { enabled: true, anchor: "bottom-right", x: 60, y: 67, width: 400, height: 300 },
+            minimapCover: { enabled: true, preset: "balanced-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
         },
     },
     {
@@ -95,7 +96,8 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                     anchor: "top-right",
                 },
             },
-            cameraZone: { enabled: true, x: 1460, y: 713, width: 400, height: 300 },
+            cameraZone: { enabled: true, anchor: "bottom-right", x: 60, y: 67, width: 400, height: 300 },
+            minimapCover: { enabled: true, preset: "balanced-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
         },
     },
     {
@@ -138,7 +140,8 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                     anchor: "top-left",
                 },
             },
-            cameraZone: { enabled: true, x: 1460, y: 713, width: 400, height: 300 },
+            cameraZone: { enabled: true, anchor: "bottom-right", x: 60, y: 67, width: 400, height: 300 },
+            minimapCover: { enabled: true, preset: "balanced-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
         },
     },
     {
@@ -181,7 +184,8 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                     anchor: "top-left",
                 },
             },
-            cameraZone: { enabled: true, x: 1460, y: 713, width: 400, height: 300 },
+            cameraZone: { enabled: true, anchor: "bottom-right", x: 60, y: 67, width: 400, height: 300 },
+            minimapCover: { enabled: true, preset: "balanced-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
         },
     },
 ];

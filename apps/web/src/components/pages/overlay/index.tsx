@@ -69,7 +69,7 @@ export const OverlayPage = ({
             <OverlayCanvas
                 mode="live"
                 aspectRatio={layout.aspectRatio}
-                showMinimapCover={activeScene === "gameplay"}
+                minimapCover={layout.scenes[activeScene].minimapCover}
             >
                 {({ sceneWidth, sceneHeight }) => (
                     <>
