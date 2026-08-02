@@ -45,8 +45,8 @@ const FEATURE_CANDIDATES: &[FeatureCandidate] = &[
     FeatureCandidate { path: "map.clock_time", description: "можно показывать игровые часы", notable_if_absent: false },
     FeatureCandidate { path: "map.daytime", description: "можно показывать день/ночь", notable_if_absent: false },
     FeatureCandidate {
-        path: "map.roshan_state",
-        description: "можно отслеживать состояние Рошана",
+        path: "events[].event_type",
+        description: "можно отслеживать события матча, включая roshan_killed и aegis_picked_up; массив скользящий, события требуют дедупликации по содержимому",
         notable_if_absent: true,
     },
     FeatureCandidate { path: "hero.id", description: "можно показывать выбранного героя", notable_if_absent: false },
@@ -63,6 +63,16 @@ const FEATURE_CANDIDATES: &[FeatureCandidate] = &[
     FeatureCandidate {
         path: "hero.respawn_seconds",
         description: "можно показывать таймер возрождения",
+        notable_if_absent: false,
+    },
+    FeatureCandidate {
+        path: "hero.buyback_cooldown",
+        description: "можно определить байбек локального героя; ненулевое значение — игровое время доступности следующего байбека, а не оставшиеся секунды",
+        notable_if_absent: false,
+    },
+    FeatureCandidate {
+        path: "hero.buyback_cost",
+        description: "можно показывать текущую стоимость байбека локального героя",
         notable_if_absent: false,
     },
     FeatureCandidate {
@@ -273,7 +283,11 @@ mod tests {
     fn confirms_candidates_present_in_the_catalog() {
         let catalog = catalog_from(json!({
             "map": { "matchid": "1", "win_team": "radiant", "game_state": "POST_GAME" },
-            "hero": { "id": 1 }
+            "hero": { "id": 1, "buyback_cooldown": 2666, "buyback_cost": 852 },
+            "events": [
+                { "event_type": "roshan_killed", "game_time": 1684 },
+                { "event_type": "aegis_picked_up", "game_time": 1684 }
+            ]
         }));
         let fields: Vec<&FieldInfo> = catalog.fields.values().collect();
         let summary = analyze(&fields, "s1", "2026-07-25T00:00:00+07:00");
@@ -282,6 +296,10 @@ mod tests {
         assert!(paths.contains(&"map.matchid"));
         assert!(paths.contains(&"map.win_team"));
         assert!(paths.contains(&"hero.id"));
+        assert!(paths.contains(&"events[].event_type"));
+        assert!(paths.contains(&"hero.buyback_cooldown"));
+        assert!(paths.contains(&"hero.buyback_cost"));
+        assert!(!summary.notable_absences.iter().any(|a| a.path == "map.roshan_state"));
     }
 
     #[test]
@@ -294,6 +312,8 @@ mod tests {
         let absent_paths: Vec<&str> = summary.notable_absences.iter().map(|a| a.path.as_str()).collect();
         assert!(absent_paths.contains(&"map.matchid"));
         assert!(absent_paths.contains(&"player.steamid"));
+        assert!(absent_paths.contains(&"events[].event_type"));
+        assert!(!absent_paths.contains(&"map.roshan_state"));
         assert!(!absent_paths.contains(&"map.paused"), "map.paused isn't notable_if_absent");
     }
 
