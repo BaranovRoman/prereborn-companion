@@ -704,7 +704,7 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
         steamSyncStatus: steam.status?.lastSyncStatus,
         steamProfile: publicData?.steam.profile ?? steam.status?.profile,
         twitch: activeOverlay?.twitch ?? twitch.status,
-        donationAlerts: donationAlerts.status,
+        donationAlerts: publicData?.donationAlerts ?? donationAlerts.status,
         webcamImageUrl: activeSettings.webcamImageUrl,
         channelGoal: activeSettings.channelGoal,
     };

@@ -4,6 +4,7 @@ import type {
 } from "@/entities/stream-overlay-layout/model/types";
 import type { QueueSettings } from "@/entities/stream-queue-settings/model/types";
 import type { TwitchIntegrationStatus } from "@/entities/twitch-integration/model/types";
+import type { DonationAlertsIntegrationStatus } from "@/entities/donation-alerts-integration/model/types";
 
 export interface StreamSession {
     id: string;
@@ -78,8 +79,6 @@ export interface StreamMatch {
     // stream-match-service.ts) - смена пользователем текущего режима
     // (entities/stream-user) не меняет отображение уже записанных матчей.
     gameMode: StreamGameMode;
-    // Temporary test-mode override. Normally the scene is derived from GSI.
-    sceneOverride: BroadcastSceneId | null;
     endedAt: string | null;
 }
 
@@ -131,6 +130,8 @@ export interface OverlayData {
     // Текущий режим пользователя (см. entities/stream-user) - управляет тем,
     // показывает ли SessionStats MMR или только W/L.
     gameMode: StreamGameMode;
+    // Temporary test-mode override. Normally the scene is derived from GSI.
+    sceneOverride: BroadcastSceneId | null;
     // Последние завершённые матчи, новые сверху (см. ORDER BY ended_at DESC
     // в stream-match-service.ts) - пусто, пока не завершился ни один матч.
     matches: StreamMatch[];
@@ -144,6 +145,7 @@ export interface OverlayData {
         } | null;
     };
     twitch: TwitchIntegrationStatus;
+    donationAlerts: DonationAlertsIntegrationStatus | null;
     // Раскладка виджетов - приходит в том же payload'е, что и остальные
     // данные (см. задачу: не заводить отдельный поллинг под layout).
     layout: OverlayLayout;

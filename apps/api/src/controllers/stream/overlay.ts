@@ -22,6 +22,7 @@ import { logger } from "../../utils/logger.js";
 import { getCachedSteamProfile } from "../../services/steam-profile-cache-service.js";
 import { getTwitchStatus } from "../../services/twitch-integration-service.js";
 import { getObsSceneOverride } from "../../services/obs-scene-command-service.js";
+import { getDonationAlertsStatus } from "../../services/donation-alerts-integration-service.js";
 
 const publicTokenSchema = z.string().uuid();
 
@@ -64,10 +65,17 @@ export const getOverlayController = async (req: Request, res: Response) => {
         // Раскладка виджетов - редко меняется, но отдаётся вместе с
         // остальным payload'ом одного и того же поллинга (см. задачу, п.12):
         // отдельный опрос под layout не нужен.
-        const [layout, queueSettings, twitch] = await Promise.all([
+        const [layout, queueSettings, twitch, donationAlerts] = await Promise.all([
             getOverlayLayout(streamUserId),
             getQueueSettings(streamUserId),
             getTwitchStatus(streamUserId),
+            getDonationAlertsStatus(streamUserId).catch((error) => {
+                logger.error("DonationAlerts sync from overlay poll failed", {
+                    requestId: req.requestId,
+                    message: error instanceof Error ? error.message : String(error),
+                });
+                return null;
+            }),
         ]);
 
         // Суммарное изменение рейтинга за текущую сессию (см. задачу: рядом
@@ -132,6 +140,7 @@ export const getOverlayController = async (req: Request, res: Response) => {
                 profile: steamProfile,
             },
             twitch,
+            donationAlerts,
             layout,
             queueSettings,
         });
