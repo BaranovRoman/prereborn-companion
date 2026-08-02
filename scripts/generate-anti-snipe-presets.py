@@ -55,9 +55,15 @@ def extract_ward_icon() -> Image.Image:
 
 def make_layout(seed: int, count: int, opacity: int, filename: str) -> None:
     rng = random.Random(seed)
-    base = Image.open(BASE_PATH).convert("RGBA")
-    base.putalpha(opacity)
+    # Keep the live Dota minimap and its HUD frame visible. Replacing it with a
+    # captured map image causes a conspicuous nested square as soon as Valve
+    # changes terrain or the player's HUD scale differs. The preset therefore
+    # contains only decoy ward glyphs on transparency.
+    source = Image.open(BASE_PATH)
+    base = Image.new("RGBA", source.size, (0, 0, 0, 0))
     icon = extract_ward_icon()
+    if opacity < 255:
+        icon.putalpha(icon.getchannel("A").point(lambda alpha: alpha * opacity // 255))
 
     sites = rng.sample(WARD_SITES, count)
     for nx, ny in sites:
