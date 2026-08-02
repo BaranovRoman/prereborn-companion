@@ -36,7 +36,7 @@ impl Default for ObsConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum BroadcastScene {
     BetweenMatches,
@@ -52,7 +52,8 @@ impl BroadcastScene {
         }
         match payload.pointer("/map/game_state").and_then(Value::as_str) {
             Some("DOTA_GAMERULES_STATE_HERO_SELECTION")
-            | Some("DOTA_GAMERULES_STATE_STRATEGY_TIME") => Self::Draft,
+            | Some("DOTA_GAMERULES_STATE_STRATEGY_TIME")
+            | Some("DOTA_GAMERULES_STATE_TEAM_SHOWCASE") => Self::Draft,
             Some("DOTA_GAMERULES_STATE_PRE_GAME")
             | Some("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS") => Self::Gameplay,
             _ => Self::BetweenMatches,
@@ -200,10 +201,18 @@ pub fn switch_scene(config: &ObsConfig, scene: BroadcastScene) -> Result<(), Str
 
 pub fn handle_gsi(app: &AppHandle, payload: &Value) {
     let desired = BroadcastScene::from_gsi(payload);
+    schedule_switch(app, desired, true);
+}
+
+pub fn handle_remote_command(app: &AppHandle, desired: BroadcastScene) {
+    schedule_switch(app, desired, false);
+}
+
+fn schedule_switch(app: &AppHandle, desired: BroadcastScene, require_enabled: bool) {
     let config = {
         let state = app.state::<AppState>();
         let mut inner = state.0.lock().unwrap();
-        if !inner.obs_config.enabled
+        if (require_enabled && !inner.obs_config.enabled)
             || inner.obs_active_scene == Some(desired)
             || inner.obs_switch_pending.is_some()
         {
@@ -257,6 +266,13 @@ mod tests {
         assert_eq!(
             BroadcastScene::from_gsi(&json!({
                 "map": { "game_state": "DOTA_GAMERULES_STATE_HERO_SELECTION" },
+                "player": { "activity": "playing" }
+            })),
+            BroadcastScene::Draft
+        );
+        assert_eq!(
+            BroadcastScene::from_gsi(&json!({
+                "map": { "game_state": "DOTA_GAMERULES_STATE_TEAM_SHOWCASE" },
                 "player": { "activity": "playing" }
             })),
             BroadcastScene::Draft

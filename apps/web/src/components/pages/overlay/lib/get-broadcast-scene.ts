@@ -15,7 +15,8 @@ export const getBroadcastScene = (payload: unknown): BroadcastSceneId => {
 
     if (
         gameState === "DOTA_GAMERULES_STATE_HERO_SELECTION" ||
-        gameState === "DOTA_GAMERULES_STATE_STRATEGY_TIME"
+        gameState === "DOTA_GAMERULES_STATE_STRATEGY_TIME" ||
+        gameState === "DOTA_GAMERULES_STATE_TEAM_SHOWCASE"
     ) {
         return "draft";
     }

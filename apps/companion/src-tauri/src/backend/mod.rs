@@ -1,12 +1,19 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::state::{AppState, COMPANION_VERSION, DEFAULT_BACKEND_URL};
 use crate::storage;
+use crate::obs::{self, BroadcastScene};
 
 const SEND_LOOP_INTERVAL: Duration = Duration::from_millis(500);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const COMMAND_POLL_INTERVAL: Duration = Duration::from_secs(1);
+
+#[derive(serde::Deserialize)]
+struct ObsCommand {
+    scene: BroadcastScene,
+}
 
 /// Loads a persisted companion token (if any) and starts the ~1/s background
 /// sender loop. Called once from `lib.rs::run().setup()`.
@@ -23,10 +30,49 @@ pub fn init(app: AppHandle) {
     }
 
     let app_for_loop = app.clone();
-    std::thread::spawn(move || loop {
+    std::thread::spawn(move || {
+        let mut last_command_poll = Instant::now() - COMMAND_POLL_INTERVAL;
+        loop {
         std::thread::sleep(SEND_LOOP_INTERVAL);
         try_send_pending(&app_for_loop);
+            if last_command_poll.elapsed() >= COMMAND_POLL_INTERVAL {
+                poll_obs_command(&app_for_loop);
+                last_command_poll = Instant::now();
+            }
+        }
     });
+}
+
+fn poll_obs_command(app: &AppHandle) {
+    let token = app
+        .state::<AppState>()
+        .0
+        .lock()
+        .unwrap()
+        .companion_token
+        .clone();
+    let Some(token) = token else { return };
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => return,
+    };
+    let response = match client
+        .get(format!("{DEFAULT_BACKEND_URL}/stream/companion/commands"))
+        .bearer_auth(token)
+        .send()
+    {
+        Ok(response) => response,
+        Err(_) => return,
+    };
+    if response.status() == reqwest::StatusCode::NO_CONTENT {
+        return;
+    }
+    if let Ok(command) = response.json::<ObsCommand>() {
+        obs::handle_remote_command(app, command.scene);
+    }
 }
 
 /// The throttled path: only fires when a new GSI payload arrived since the

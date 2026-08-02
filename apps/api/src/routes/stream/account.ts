@@ -36,6 +36,7 @@ import {
     uploadQueueWebcamImageController,
     uploadQueueWebcamImageMiddleware,
 } from "../../controllers/stream/queue-webcam-image.js";
+import { postObsTestSceneController } from "../../controllers/stream/obs-scene.js";
 
 export const streamAccountRouter = Router();
 
@@ -58,6 +59,7 @@ streamAccountRouter.patch("/me/matches/:matchId", patchMatchController);
 
 streamAccountRouter.get("/me/overlay-layout", getOverlayLayoutController);
 streamAccountRouter.put("/me/overlay-layout", putOverlayLayoutController);
+streamAccountRouter.post("/me/obs-test-scene", postObsTestSceneController);
 streamAccountRouter.get("/me/queue-settings", getQueueSettingsController);
 streamAccountRouter.put("/me/queue-settings", putQueueSettingsController);
 streamAccountRouter.post(

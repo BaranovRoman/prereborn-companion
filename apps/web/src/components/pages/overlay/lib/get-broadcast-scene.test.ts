@@ -10,6 +10,7 @@ describe("getBroadcastScene", () => {
     it.each([
         "DOTA_GAMERULES_STATE_HERO_SELECTION",
         "DOTA_GAMERULES_STATE_STRATEGY_TIME",
+        "DOTA_GAMERULES_STATE_TEAM_SHOWCASE",
     ])("uses draft for %s", (state) => {
         expect(getBroadcastScene(payload(state))).toBe("draft");
     });

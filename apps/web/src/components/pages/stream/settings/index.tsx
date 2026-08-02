@@ -25,6 +25,7 @@ import { useTwitchIntegration } from "@/entities/twitch-integration/lib/use-twit
 import { useDonationAlertsIntegration } from "@/entities/donation-alerts-integration/lib/use-donation-alerts-integration";
 import { getBroadcastScene } from "@/components/pages/overlay/lib/get-broadcast-scene";
 import { ObsSetupGuide } from "./obs-setup-guide";
+import { ObsTestMode } from "./obs-test-mode";
 import styles from "./index.module.scss";
 
 // Человеко-понятные причины ошибки привязки Steam - reason приходит от
@@ -278,6 +279,9 @@ export const StreamSettingsPage = () => {
                         <Button type="primary">Оформление трансляции</Button>
                     </Link>
                 </div>
+                <ObsTestMode
+                    companionOnline={overlayData?.companion.isOnline ?? false}
+                />
                 <div className={styles.dashboardColumn}>
                     <StreamSessionPanel
                         steamConnected={steamIntegration.status?.connected ?? false}

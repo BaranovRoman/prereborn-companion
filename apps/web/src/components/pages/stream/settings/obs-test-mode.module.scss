@@ -1,0 +1,41 @@
+.panel {
+    grid-column: 1 / -1;
+    padding: 14px 18px;
+    display: grid;
+    grid-template-columns: minmax(240px, 1fr) auto;
+    align-items: center;
+    gap: 12px 20px;
+    border: 1px dashed rgba(162, 151, 110, .54);
+    background: rgba(16, 20, 21, .86);
+}
+
+.panel > div:first-child {
+    display: grid;
+    gap: 4px;
+}
+
+.panel strong {
+    color: #d8d4cd;
+}
+
+.panel span,
+.panel small {
+    color: #92958f;
+    font-size: 12px;
+}
+
+.buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.panel small {
+    grid-column: 1 / -1;
+}
+
+@media (max-width: 760px) {
+    .panel {
+        grid-template-columns: 1fr;
+    }
+}
