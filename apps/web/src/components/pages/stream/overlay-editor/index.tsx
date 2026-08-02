@@ -37,7 +37,6 @@ import {
 import { SessionStats } from "@/components/pages/overlay/widgets/session-stats";
 import { CurrentGame } from "@/components/pages/overlay/widgets/current-game";
 import { RecentMatches } from "@/components/pages/overlay/widgets/recent-matches";
-import { CompanionStatus } from "@/components/pages/overlay/widgets/companion-status";
 import { AnchorGrid } from "./anchor-grid";
 import { OVERLAY_LAYOUT_PRESETS } from "./presets";
 import { useReferenceBackground } from "./use-reference-background";
@@ -46,7 +45,6 @@ import {
     PREVIEW_SESSION,
     PREVIEW_LAST_HERO_ID,
     PREVIEW_MATCHES,
-    PREVIEW_COMPANION,
     PREVIEW_GAME_MODE,
 } from "./preview-data";
 import styles from "./index.module.scss";
@@ -63,6 +61,9 @@ const SHOW_PRESETS = false;
 // поле compact в RecentMatchesSettings не трогаем - только прячем из UI,
 // чтобы не показывать управление без видимого эффекта.
 const SHOW_COMPACT_MODE_TOGGLE = false;
+const VISIBLE_OVERLAY_WIDGET_IDS = OVERLAY_WIDGET_IDS.filter(
+    (id) => id !== "companionStatus"
+);
 
 const SCALE_OPTIONS = [
     { label: "75%", value: 0.75 },
@@ -497,11 +498,11 @@ export const OverlayEditorPage = () => {
                     />
                 );
             case "companionStatus":
-                return <CompanionStatus companion={PREVIEW_COMPANION} />;
+                return null;
         }
     };
 
-    const collapseItems: CollapseProps["items"] = OVERLAY_WIDGET_IDS.map((id) => {
+    const collapseItems: CollapseProps["items"] = VISIBLE_OVERLAY_WIDGET_IDS.map((id) => {
         const widget = activeSceneLayout.widgets[id];
         return {
             key: id,
@@ -805,6 +806,7 @@ export const OverlayEditorPage = () => {
                         mode="preview"
                         aspectRatio={layout.aspectRatio}
                         showSafeArea={showSafeArea}
+                        showMinimapCover={selectedScene === "gameplay"}
                         referenceBackground={referenceBackgroundImage}
                     >
                         {({ sceneScale, sceneWidth, sceneHeight }) => (
@@ -818,7 +820,7 @@ export const OverlayEditorPage = () => {
                                         onChange={updateCameraZone}
                                     />
                                 )}
-                                {OVERLAY_WIDGET_IDS.map((id) => (
+                                {VISIBLE_OVERLAY_WIDGET_IDS.map((id) => (
                                     <AnchoredWidget
                                         key={id}
                                         layout={activeSceneLayout.widgets[id]}

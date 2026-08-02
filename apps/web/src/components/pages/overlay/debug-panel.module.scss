@@ -37,12 +37,14 @@
 }
 
 .online {
+    display: none;
     font-size: 11px;
     font-weight: 600;
     color: #4ade80;
 }
 
 .offline {
+    display: none;
     font-size: 11px;
     font-weight: 600;
     color: rgba(255, 255, 255, 0.4);
@@ -56,6 +58,7 @@
 }
 
 .version {
+    display: none;
     color: rgba(255, 255, 255, 0.3);
 }
 

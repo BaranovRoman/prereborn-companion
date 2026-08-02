@@ -35,6 +35,7 @@ interface OverlayCanvasProps {
     // Только editor передаёt true - см. задачу п.9 ("не рендерится в live
     // overlay").
     showSafeArea?: boolean;
+    showMinimapCover?: boolean;
     // "Фон для примерки" (см. задачу) - только editor читает его из
     // IndexedDB и передаёт сюда; live overlay (/overlay/:token) этот проп
     // никогда не передаёт, а GameUiReferenceLayer вдобавок сам игнорирует
@@ -58,6 +59,7 @@ export const OverlayCanvas = ({
     mode,
     aspectRatio,
     showSafeArea = false,
+    showMinimapCover = false,
     referenceBackground = null,
     children,
 }: OverlayCanvasProps) => {
@@ -125,7 +127,11 @@ export const OverlayCanvas = ({
                     mode={mode}
                     referenceImage={referenceBackground}
                 />
-                <AntiSnipeLayer sceneWidth={sceneWidth} sceneHeight={sceneHeight} />
+                <AntiSnipeLayer
+                    sceneWidth={sceneWidth}
+                    sceneHeight={sceneHeight}
+                    showMinimap={showMinimapCover}
+                />
                 {children({ sceneScale, sceneWidth, sceneHeight })}
             </div>
         </div>

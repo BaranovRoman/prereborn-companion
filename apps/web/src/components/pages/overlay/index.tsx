@@ -9,7 +9,6 @@ import { AnchoredWidget } from "./anchored-widget";
 import { SessionStats } from "./widgets/session-stats";
 import { CurrentGame } from "./widgets/current-game";
 import { RecentMatches } from "./widgets/recent-matches";
-import { CompanionStatus } from "./widgets/companion-status";
 import { DebugPanel } from "./debug-panel";
 import { QueueScene } from "@/components/pages/stream/queue/queue-scene";
 import { getBroadcastScene } from "./lib/get-broadcast-scene";
@@ -67,7 +66,11 @@ export const OverlayPage = ({
 
     return (
         <>
-            <OverlayCanvas mode="live" aspectRatio={layout.aspectRatio}>
+            <OverlayCanvas
+                mode="live"
+                aspectRatio={layout.aspectRatio}
+                showMinimapCover={activeScene === "gameplay"}
+            >
                 {({ sceneWidth, sceneHeight }) => (
                     <>
                         <AnchoredWidget
@@ -104,13 +107,6 @@ export const OverlayPage = ({
                             />
                         </AnchoredWidget>
 
-                        <AnchoredWidget
-                            layout={widgets.companionStatus}
-                            sceneWidth={sceneWidth}
-                            sceneHeight={sceneHeight}
-                        >
-                            <CompanionStatus companion={data.companion} />
-                        </AnchoredWidget>
                     </>
                 )}
             </OverlayCanvas>

@@ -157,7 +157,6 @@ interface QueueDataProps {
     wins: number;
     losses: number;
     matches: StreamMatch[];
-    companionOnline: boolean;
     steamConnected: boolean;
     steamId: string | undefined;
     steamSyncStatus: string | null | undefined;
@@ -185,7 +184,7 @@ const getMatchItems = (inventory: Array<string | null> | undefined): Array<GsiIt
         return {
             name,
             displayName: assetName.replaceAll("_", " "),
-            imageUrl: `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/${assetName}.png`,
+            imageUrl: `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/${assetName.startsWith("recipe_") ? "recipe" : assetName}.png`,
         };
     });
 };
@@ -654,32 +653,6 @@ const DonationTop = ({ donationAlerts, twitch, title, settings }: QueueDataProps
     );
 };
 
-const SystemStatus = ({
-    gameMode,
-    companionOnline,
-    steamConnected,
-    matches,
-}: QueueDataProps) => {
-    const statuses = [
-        { mark: "C", name: "Companion", status: companionOnline ? "ONLINE" : "OFFLINE", active: companionOnline },
-        { mark: "S", name: "Steam", status: steamConnected ? "CONNECTED" : "NOT CONNECTED", active: steamConnected },
-        { mark: "M", name: "Mode", status: gameMode?.toUpperCase() ?? "UNKNOWN", active: Boolean(gameMode) },
-        { mark: "G", name: "Games", status: `${matches.length} RECORDED`, active: matches.length > 0 },
-    ];
-    return (
-        <Panel title="System // Live status" className={styles.supporters}>
-            <div className={styles.supporterGrid}>
-                {statuses.map(({ mark, name, status, active }) => (
-                    <div key={name} data-active={active}>
-                        <span>{mark}</span>
-                        <p><b>{name}</b><small>{status}</small></p>
-                    </div>
-                ))}
-            </div>
-        </Panel>
-    );
-};
-
 export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
     const { user } = useStreamSession();
     const { matches } = useAccountMatches();
@@ -698,7 +671,6 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
         wins: activeOverlay?.wins ?? 0,
         losses: activeOverlay?.losses ?? 0,
         matches: realMatches,
-        companionOnline: activeOverlay?.companion.isOnline ?? false,
         steamConnected: publicData?.steam.connected ?? steam.status?.connected ?? false,
         steamId: steam.status?.steamId64,
         steamSyncStatus: steam.status?.lastSyncStatus,

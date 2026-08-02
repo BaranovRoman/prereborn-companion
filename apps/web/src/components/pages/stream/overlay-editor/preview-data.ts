@@ -1,7 +1,4 @@
-import type {
-    OverlayCompanionState,
-    StreamMatch,
-} from "@/entities/stream-session/model/types";
+import type { StreamMatch } from "@/entities/stream-session/model/types";
 
 // Статичные тестовые данные для превью редактора - не бьём в реальный
 // overlay endpoint ради этого (см. задачу: "тестовые/текущие данные"), а
@@ -140,10 +137,3 @@ export const PREVIEW_MATCHES: StreamMatch[] = [
         endedAt: minutesAgo(245),
     },
 ];
-
-export const PREVIEW_COMPANION: OverlayCompanionState = {
-    isOnline: true,
-    receivedAt: new Date().toISOString(),
-    companionVersion: "preview",
-    payload: null,
-};
