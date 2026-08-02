@@ -45,7 +45,8 @@ export const OverlayPage = ({
     }
 
     const layout = normalizeOverlayLayout(data.layout ?? DEFAULT_OVERLAY_LAYOUT);
-    const activeScene = getBroadcastScene(data.companion.payload);
+    const activeScene =
+        data.sceneOverride ?? getBroadcastScene(data.companion.payload);
 
     if (activeScene === "betweenMatches") {
         return (

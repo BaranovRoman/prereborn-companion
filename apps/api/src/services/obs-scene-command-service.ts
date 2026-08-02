@@ -10,6 +10,8 @@ export interface ObsSceneCommand {
 // credentials: the website only sends a logical phase, while Companion keeps
 // the local host/port/password and resolves the real OBS scene name.
 const pendingCommands = new Map<string, ObsSceneCommand>();
+const sceneOverrides = new Map<string, { scene: ObsSceneCommandName; expiresAt: number }>();
+const SCENE_OVERRIDE_TTL_MS = 60_000;
 
 export const enqueueObsSceneCommand = (
     streamUserId: string,
@@ -21,7 +23,23 @@ export const enqueueObsSceneCommand = (
         createdAt: new Date().toISOString(),
     };
     pendingCommands.set(streamUserId, command);
+    sceneOverrides.set(streamUserId, {
+        scene,
+        expiresAt: Date.now() + SCENE_OVERRIDE_TTL_MS,
+    });
     return command;
+};
+
+export const getObsSceneOverride = (
+    streamUserId: string
+): ObsSceneCommandName | null => {
+    const override = sceneOverrides.get(streamUserId);
+    if (!override) return null;
+    if (override.expiresAt <= Date.now()) {
+        sceneOverrides.delete(streamUserId);
+        return null;
+    }
+    return override.scene;
 };
 
 export const takeObsSceneCommand = (

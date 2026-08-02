@@ -182,7 +182,9 @@ export const StreamSettingsPage = () => {
     ];
 
     const recentMatches = overlayData?.matches ?? [];
-    const broadcastScene = getBroadcastScene(overlayData?.companion.payload);
+    const broadcastScene =
+        overlayData?.sceneOverride ??
+        getBroadcastScene(overlayData?.companion.payload);
     const broadcastSceneLabel = {
         betweenMatches: "Между матчами",
         draft: "Драфт",

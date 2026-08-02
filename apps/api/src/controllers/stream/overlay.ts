@@ -21,6 +21,7 @@ import {
 import { logger } from "../../utils/logger.js";
 import { getCachedSteamProfile } from "../../services/steam-profile-cache-service.js";
 import { getTwitchStatus } from "../../services/twitch-integration-service.js";
+import { getObsSceneOverride } from "../../services/obs-scene-command-service.js";
 
 const publicTokenSchema = z.string().uuid();
 
@@ -44,6 +45,7 @@ export const getOverlayController = async (req: Request, res: Response) => {
         }
 
         const session = await getOrCreateActiveSession(streamUserId);
+        const sceneOverride = getObsSceneOverride(streamUserId);
         const gameMode = await getStreamUserGameMode(streamUserId);
         const [companionState, companionLastSeenAt] = await Promise.all([
             getCompanionState(streamUserId),
@@ -103,6 +105,7 @@ export const getOverlayController = async (req: Request, res: Response) => {
             lastHeroId: session.lastHeroId,
             updatedAt: session.updatedAt,
             gameMode,
+            sceneOverride,
             matches: matches.map((match) => ({
                 id: match.id,
                 dotaMatchId: match.matchId,

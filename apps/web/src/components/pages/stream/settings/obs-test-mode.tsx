@@ -34,7 +34,7 @@ export const ObsTestMode = ({ companionOnline }: { companionOnline: boolean }) =
             <div>
                 <strong>Тест сцен OBS</strong>
                 <span>
-                    Временно переключает Program Scene независимо от текущей фазы Dota.
+                Временно переключает Program Scene и сам overlay независимо от текущей фазы Dota. Через минуту overlay снова перейдёт в автоматический режим.
                 </span>
             </div>
             <div className={styles.buttons}>

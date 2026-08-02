@@ -1,4 +1,7 @@
-import type { OverlayLayout } from "@/entities/stream-overlay-layout/model/types";
+import type {
+    BroadcastSceneId,
+    OverlayLayout,
+} from "@/entities/stream-overlay-layout/model/types";
 import type { QueueSettings } from "@/entities/stream-queue-settings/model/types";
 import type { TwitchIntegrationStatus } from "@/entities/twitch-integration/model/types";
 
@@ -75,6 +78,8 @@ export interface StreamMatch {
     // stream-match-service.ts) - смена пользователем текущего режима
     // (entities/stream-user) не меняет отображение уже записанных матчей.
     gameMode: StreamGameMode;
+    // Temporary test-mode override. Normally the scene is derived from GSI.
+    sceneOverride: BroadcastSceneId | null;
     endedAt: string | null;
 }
 
