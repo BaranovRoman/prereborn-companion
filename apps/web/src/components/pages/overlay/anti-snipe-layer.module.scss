@@ -1,18 +1,14 @@
 .minimapCover { position: absolute; z-index: 0; display: block; overflow: hidden; pointer-events: none; user-select: none; background: #15231c; }
 .mapBase { display: block; width: 100%; height: 100%; object-fit: cover; }
+.colorFilters { position: absolute; width: 0; height: 0; }
 .wardLayer { position: absolute; inset: 0; }
 .ward {
     position: absolute; left: var(--x); top: var(--y); width: 5.8%; aspect-ratio: 35 / 27;
     transform: translate(-50%, -50%);
-    background: var(--ward-color);
-    -webkit-mask: var(--ward-icon) center / contain no-repeat;
-    mask: var(--ward-icon) center / contain no-repeat;
-    filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
+    object-fit: contain;
 }
-.observer { --ward-icon: url("/assets/minimap/ward-observer.png"); }
-.sentry { --ward-icon: url("/assets/minimap/ward-sentry.png"); }
-.radiant { --ward-color: #70ff35; }
-.dire { --ward-color: #ff2732; }
+.radiant { filter: url("#ward-radiant") drop-shadow(0 0 1px #000); }
+.dire { filter: url("#ward-dire") drop-shadow(0 0 1px #000); }
 .moving { animation: ward-drift var(--duration) ease-in-out var(--delay) infinite alternate; }
-@keyframes ward-drift { to { translate: var(--dx) var(--dy); rotate: 80deg; } }
+@keyframes ward-drift { to { translate: var(--dx) var(--dy); } }
 @media (prefers-reduced-motion: reduce) { .moving { animation-play-state: paused; } }

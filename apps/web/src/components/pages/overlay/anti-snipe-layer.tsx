@@ -58,12 +58,23 @@ export const AntiSnipeLayer = ({ settings }: AntiSnipeLayerProps) => {
 
     return (
         <div className={styles.minimapCover} aria-hidden="true" style={{ width: settings.size, height: settings.size, ...vertical, ...horizontal }}>
+            <svg className={styles.colorFilters} aria-hidden="true">
+                <filter id="ward-radiant" colorInterpolationFilters="sRGB">
+                    <feColorMatrix values="0.44 0 0 0 0  0 1 0 0 0  0 0 0.21 0 0  0 0 0 1 0" />
+                </filter>
+                <filter id="ward-dire" colorInterpolationFilters="sRGB">
+                    <feColorMatrix values="1 0 0 0 0  0 0.15 0 0 0  0 0 0.2 0 0  0 0 0 1 0" />
+                </filter>
+            </svg>
             <img className={styles.mapBase} src={mapSrc} alt="" draggable={false} />
             <div className={styles.wardLayer}>
                 {createMinimapWards(settings.preset).map((ward) => (
-                    <span
+                    <img
                         key={ward.id}
-                        className={`${styles.ward} ${styles[ward.kind]} ${styles[ward.team]} ${interactive ? styles.moving : ""}`}
+                        className={`${styles.ward} ${styles[ward.team]} ${interactive ? styles.moving : ""}`}
+                        src={`/assets/minimap/ward-${ward.kind}.png`}
+                        alt=""
+                        draggable={false}
                         style={{
                             "--x": `${ward.x}%`, "--y": `${ward.y}%`, "--dx": `${ward.dx}%`, "--dy": `${ward.dy}%`,
                             "--duration": `${ward.duration}s`, "--delay": `${ward.delay}s`,
