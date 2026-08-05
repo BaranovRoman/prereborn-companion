@@ -2,7 +2,7 @@
 .mapBase { display: block; width: 100%; height: 100%; object-fit: cover; }
 .wardLayer { position: absolute; inset: 0; }
 .ward {
-    position: absolute; left: var(--x); top: var(--y); width: 7.4%; aspect-ratio: 35 / 27;
+    position: absolute; left: var(--x); top: var(--y); width: 5.8%; aspect-ratio: 35 / 27;
     transform: translate(-50%, -50%);
     background: var(--ward-color);
     -webkit-mask: var(--ward-icon) center / contain no-repeat;

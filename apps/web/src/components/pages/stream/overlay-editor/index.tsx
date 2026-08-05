@@ -85,7 +85,7 @@ const CORNER_OPTIONS = [
 ] as const;
 const MINIMAP_PRESET_OPTIONS = [
     { label: "Чистая", value: "clean" },
-    { label: "Случайная A", value: "random-a" },
+    { label: "Dotabod", value: "random-a" },
     { label: "Случайная B", value: "random-b" },
     { label: "Плотная", value: "random-dense" },
     { label: "Интерактив", value: "interactive" },

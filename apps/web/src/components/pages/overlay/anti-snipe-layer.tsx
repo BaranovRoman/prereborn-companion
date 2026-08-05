@@ -12,10 +12,11 @@ type Ward = { id: number; x: number; y: number; dx: number; dy: number; team: "r
 
 const counts: Record<MinimapCoverPreset, number> = {
     clean: 0,
-    "random-a": 22,
-    "random-b": 26,
-    "random-dense": 42,
-    interactive: 28,
+    // random-a uses the original Dotabod cover as a complete static image.
+    "random-a": 0,
+    "random-b": 56,
+    "random-dense": 74,
+    interactive: 60,
 };
 
 const seeds: Record<MinimapCoverPreset, number> = {
@@ -38,7 +39,7 @@ export const createMinimapWards = (preset: MinimapCoverPreset): Ward[] => {
         y: 7 + random() * 86,
         dx: (random() - 0.5) * 13,
         dy: (random() - 0.5) * 13,
-        team: random() > 0.48 ? "radiant" : "dire",
+        team: random() > 0.14 ? "radiant" : "dire",
         kind: random() > 0.38 ? "observer" : "sentry",
         duration: 3.8 + random() * 5.2,
         delay: -random() * 7,
@@ -51,10 +52,13 @@ export const AntiSnipeLayer = ({ settings }: AntiSnipeLayerProps) => {
     const vertical = settings.anchor.startsWith("bottom") ? { bottom: settings.y } : { top: settings.y };
     const horizontal = settings.anchor.endsWith("right") ? { right: settings.x } : { left: settings.x };
     const interactive = settings.preset === "interactive";
+    const mapSrc = settings.preset === "random-a"
+        ? "/assets/minimap/dotabod-stream-sniper-cover.png"
+        : "/generated/chatgpt/dota-current-clean-minimap.png";
 
     return (
         <div className={styles.minimapCover} aria-hidden="true" style={{ width: settings.size, height: settings.size, ...vertical, ...horizontal }}>
-            <img className={styles.mapBase} src="/generated/chatgpt/dota-current-clean-minimap.png" alt="" draggable={false} />
+            <img className={styles.mapBase} src={mapSrc} alt="" draggable={false} />
             <div className={styles.wardLayer}>
                 {createMinimapWards(settings.preset).map((ward) => (
                     <span
