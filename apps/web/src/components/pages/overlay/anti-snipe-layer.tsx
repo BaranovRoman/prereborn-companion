@@ -8,7 +8,7 @@ interface AntiSnipeLayerProps {
     settings?: MinimapCoverSettings;
 }
 
-type Ward = { id: number; x: number; y: number; dx: number; dy: number; team: "radiant" | "dire"; duration: number; delay: number };
+type Ward = { id: number; x: number; y: number; dx: number; dy: number; team: "radiant" | "dire"; kind: "observer" | "sentry"; duration: number; delay: number };
 
 const counts: Record<MinimapCoverPreset, number> = {
     clean: 0,
@@ -39,6 +39,7 @@ export const createMinimapWards = (preset: MinimapCoverPreset): Ward[] => {
         dx: (random() - 0.5) * 13,
         dy: (random() - 0.5) * 13,
         team: random() > 0.48 ? "radiant" : "dire",
+        kind: random() > 0.38 ? "observer" : "sentry",
         duration: 3.8 + random() * 5.2,
         delay: -random() * 7,
     }));
@@ -58,7 +59,7 @@ export const AntiSnipeLayer = ({ settings }: AntiSnipeLayerProps) => {
                 {createMinimapWards(settings.preset).map((ward) => (
                     <span
                         key={ward.id}
-                        className={`${styles.ward} ${styles[ward.team]} ${interactive ? styles.moving : ""}`}
+                        className={`${styles.ward} ${styles[ward.kind]} ${styles[ward.team]} ${interactive ? styles.moving : ""}`}
                         style={{
                             "--x": `${ward.x}%`, "--y": `${ward.y}%`, "--dx": `${ward.dx}%`, "--dy": `${ward.dy}%`,
                             "--duration": `${ward.duration}s`, "--delay": `${ward.delay}s`,

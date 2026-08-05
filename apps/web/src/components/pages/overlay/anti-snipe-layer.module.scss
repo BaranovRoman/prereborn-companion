@@ -2,12 +2,17 @@
 .mapBase { display: block; width: 100%; height: 100%; object-fit: cover; }
 .wardLayer { position: absolute; inset: 0; }
 .ward {
-    position: absolute; left: var(--x); top: var(--y); width: 6.3%; height: 3.8%; transform: translate(-50%, -50%) rotate(-12deg);
-    border: 2px solid #080b09; border-radius: 80% 18%; box-shadow: 0 0 3px #000, inset 0 0 0 1px rgba(255,255,255,.55);
+    position: absolute; left: var(--x); top: var(--y); width: 7.4%; aspect-ratio: 35 / 27;
+    transform: translate(-50%, -50%);
+    background: var(--ward-color);
+    -webkit-mask: var(--ward-icon) center / contain no-repeat;
+    mask: var(--ward-icon) center / contain no-repeat;
+    filter: drop-shadow(0 0 1px #000) drop-shadow(0 0 1px #000);
 }
-.ward::after { content: ""; position: absolute; width: 32%; aspect-ratio: 1; left: 34%; top: 8%; border-radius: 50%; background: #111; box-shadow: 0 0 0 1px rgba(255,255,255,.9); }
-.radiant { background: #67f12d; }
-.dire { background: #ff1d27; }
+.observer { --ward-icon: url("/assets/minimap/ward-observer.png"); }
+.sentry { --ward-icon: url("/assets/minimap/ward-sentry.png"); }
+.radiant { --ward-color: #70ff35; }
+.dire { --ward-color: #ff2732; }
 .moving { animation: ward-drift var(--duration) ease-in-out var(--delay) infinite alternate; }
 @keyframes ward-drift { to { translate: var(--dx) var(--dy); rotate: 80deg; } }
 @media (prefers-reduced-motion: reduce) { .moving { animation-play-state: paused; } }
