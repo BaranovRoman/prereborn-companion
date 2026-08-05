@@ -9,6 +9,11 @@
 }
 .radiant { filter: url("#ward-radiant") drop-shadow(0 0 1px #000); }
 .dire { filter: url("#ward-dire") drop-shadow(0 0 1px #000); }
-.moving { animation: ward-drift var(--duration) ease-in-out var(--delay) infinite alternate; }
-@keyframes ward-drift { to { translate: var(--dx) var(--dy); } }
-@media (prefers-reduced-motion: reduce) { .moving { animation-play-state: paused; } }
+.moving {
+    will-change: left, top;
+    animation: ward-drift var(--duration) ease-in-out var(--delay) infinite alternate;
+}
+@keyframes ward-drift {
+    from { left: var(--x); top: var(--y); }
+    to { left: calc(var(--x) + var(--dx)); top: calc(var(--y) + var(--dy)); }
+}
