@@ -10,6 +10,8 @@ playwright-report/
 .env
 .env.*
 !.env.example
+.mcp.json
+.codex/config.toml
 !env.production.example
 uploads/
 /diagnostics/
