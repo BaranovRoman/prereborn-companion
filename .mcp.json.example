@@ -1,0 +1,13 @@
+{
+  "$comment": "Template — copy to .mcp.json (gitignored) and fill in WEEEK_API_TOKEN. Never commit real tokens.",
+  "mcpServers": {
+    "weeek": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/Users/romanbaranov/Sites/weeek-mcp/dist/index.js"],
+      "env": {
+        "WEEEK_API_TOKEN": "REPLACE_WITH_YOUR_WEEEK_API_TOKEN"
+      }
+    }
+  }
+}
