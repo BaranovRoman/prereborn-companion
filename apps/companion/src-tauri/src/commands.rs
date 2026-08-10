@@ -6,7 +6,7 @@ use tauri_plugin_opener::OpenerExt;
 use crate::backend;
 use crate::diagnostics::{self, DiagnosticsStatusSnapshot};
 use crate::gsi::{config, finder};
-use crate::obs::{self, ObsConfig};
+use crate::obs::{self, BroadcastScene, ObsConfig};
 use crate::state::{AppState, StatusSnapshot};
 use crate::storage;
 
@@ -181,10 +181,7 @@ pub fn save_obs_config(
 }
 
 #[tauri::command]
-pub fn test_obs_connection(
-    app: AppHandle,
-    state: State<AppState>,
-) -> Result<Vec<String>, String> {
+pub fn test_obs_connection(app: AppHandle, state: State<AppState>) -> Result<Vec<String>, String> {
     let config = state.0.lock().unwrap().obs_config.clone();
     match obs::test_connection(&config) {
         Ok(scenes) => {
@@ -199,17 +196,16 @@ pub fn test_obs_connection(
                 .map(String::as_str)
                 .collect();
             if !missing.is_empty() {
-                let error = format!(
-                    "OBS подключён, но не найдены сцены: {}",
-                    missing.join(", ")
-                );
+                let error = format!("OBS подключён, но не найдены сцены: {}", missing.join(", "));
                 let mut inner = state.0.lock().unwrap();
                 inner.obs_connected = false;
                 inner.obs_last_error = Some(error.clone());
                 return Err(error);
             }
+            let active_scene = obs::current_scene(&config).unwrap_or(None);
             let mut inner = state.0.lock().unwrap();
             inner.obs_connected = true;
+            inner.obs_active_scene = active_scene;
             inner.obs_last_error = None;
             drop(inner);
             storage::append_rolling_log(
@@ -229,6 +225,70 @@ pub fn test_obs_connection(
     }
 }
 
+#[tauri::command]
+pub fn set_obs_automation(
+    app: AppHandle,
+    state: State<AppState>,
+    enabled: bool,
+) -> Result<StatusSnapshot, String> {
+    let config = {
+        let mut inner = state.0.lock().unwrap();
+        inner.obs_config.enabled = enabled;
+        inner.obs_config.clone()
+    };
+    storage::save_obs_config(&app, &config).map_err(|e| e.to_string())?;
+    storage::append_rolling_log(
+        &app,
+        if enabled {
+            "OBS automation enabled."
+        } else {
+            "OBS automation disabled; manual mode active."
+        },
+    );
+    Ok(state.snapshot())
+}
+
+#[tauri::command]
+pub fn switch_obs_scene(
+    app: AppHandle,
+    state: State<AppState>,
+    scene: BroadcastScene,
+) -> Result<StatusSnapshot, String> {
+    let config = {
+        let mut inner = state.0.lock().unwrap();
+        // Manual selection is a durable override: the next GSI event must not
+        // switch the scene back until the user explicitly enables automation.
+        inner.obs_config.enabled = false;
+        inner.obs_switch_pending = None;
+        inner.obs_config.clone()
+    };
+    storage::save_obs_config(&app, &config).map_err(|e| e.to_string())?;
+    match obs::switch_scene(&config, scene) {
+        Ok(()) => {
+            let mut inner = state.0.lock().unwrap();
+            inner.obs_connected = true;
+            inner.obs_active_scene = Some(scene);
+            inner.obs_last_error = None;
+            drop(inner);
+            storage::append_rolling_log(
+                &app,
+                &format!(
+                    "OBS scene switched manually to {}.",
+                    scene.obs_scene_name(&config)
+                ),
+            );
+            Ok(state.snapshot())
+        }
+        Err(error) => {
+            let mut inner = state.0.lock().unwrap();
+            inner.obs_connected = false;
+            inner.obs_last_error = Some(error.clone());
+            drop(inner);
+            storage::append_rolling_log(&app, &format!("Manual OBS scene switch failed: {error}"));
+            Err(error)
+        }
+    }
+}
 // Diagnostic-mode GSI capture - see src-tauri/src/diagnostics/mod.rs. Off by
 // default, purely additive: none of these touch AppState, the GSI config,
 // or anything the regular (non-diagnostic) UI reads.
@@ -255,7 +315,10 @@ pub fn diagnostics_clear(app: AppHandle) -> Result<DiagnosticsStatusSnapshot, St
 
 #[tauri::command]
 pub fn diagnostics_export(app: AppHandle) -> Result<String, String> {
-    let default_name = format!("gsi-diagnostics-{}.zip", chrono::Local::now().format("%Y-%m-%dT%H-%M-%S"));
+    let default_name = format!(
+        "gsi-diagnostics-{}.zip",
+        chrono::Local::now().format("%Y-%m-%dT%H-%M-%S")
+    );
     let picked = app
         .dialog()
         .file()

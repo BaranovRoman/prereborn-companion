@@ -1,4 +1,5 @@
 use std::net::TcpStream;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
@@ -70,6 +71,8 @@ impl BroadcastScene {
 }
 
 type ObsSocket = WebSocket<MaybeTlsStream<TcpStream>>;
+
+static OBS_SWITCH_LOCK: Mutex<()> = Mutex::new(());
 
 fn read_json(socket: &mut ObsSocket) -> Result<Value, String> {
     loop {
@@ -186,6 +189,9 @@ pub fn test_connection(config: &ObsConfig) -> Result<Vec<String>, String> {
 }
 
 pub fn switch_scene(config: &ObsConfig, scene: BroadcastScene) -> Result<(), String> {
+    // Serialize automatic, remote and local manual requests. If a manual
+    // request arrives while automation is switching, it waits and wins last.
+    let _switch_guard = OBS_SWITCH_LOCK.lock().unwrap();
     let scene_name = scene.obs_scene_name(config);
     if scene_name.trim().is_empty() {
         return Err("Название сцены OBS не задано".into());
@@ -197,6 +203,22 @@ pub fn switch_scene(config: &ObsConfig, scene: BroadcastScene) -> Result<(), Str
         json!({ "sceneName": scene_name }),
     )?;
     Ok(())
+}
+
+pub fn current_scene(config: &ObsConfig) -> Result<Option<BroadcastScene>, String> {
+    let mut socket = open(config)?;
+    let response = request(&mut socket, "GetCurrentProgramScene", json!({}))?;
+    let name = response
+        .pointer("/d/responseData/currentProgramSceneName")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    Ok([
+        BroadcastScene::BetweenMatches,
+        BroadcastScene::Draft,
+        BroadcastScene::Gameplay,
+    ]
+    .into_iter()
+    .find(|scene| scene.obs_scene_name(config) == name))
 }
 
 pub fn handle_gsi(app: &AppHandle, payload: &Value) {

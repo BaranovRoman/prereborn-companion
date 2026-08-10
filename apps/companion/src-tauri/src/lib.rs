@@ -80,10 +80,16 @@ fn try_auto_provision(app: &tauri::AppHandle) {
             inner.gsi_installed = true;
             inner.gsi_config_path = Some(target.to_string_lossy().to_string());
             drop(inner);
-            storage::append_rolling_log(app, &format!("GSI config auto-installed at {}", target.display()));
+            storage::append_rolling_log(
+                app,
+                &format!("GSI config auto-installed at {}", target.display()),
+            );
         }
         Err(e) => {
-            storage::append_rolling_log(app, &format!("GSI auto-install failed, use the Install GSI button: {e}"));
+            storage::append_rolling_log(
+                app,
+                &format!("GSI auto-install failed, use the Install GSI button: {e}"),
+            );
         }
     }
 }
@@ -141,6 +147,8 @@ pub fn run() {
             commands::resend_current_state,
             commands::save_obs_config,
             commands::test_obs_connection,
+            commands::set_obs_automation,
+            commands::switch_obs_scene,
             commands::diagnostics_get_status,
             commands::diagnostics_start,
             commands::diagnostics_stop,

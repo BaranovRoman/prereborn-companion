@@ -16,6 +16,10 @@ export const saveObsConfig = (config: ObsConfig) =>
   invoke<StatusSnapshot>("save_obs_config", { config });
 export const testObsConnection = () =>
   invoke<string[]>("test_obs_connection");
+export const setObsAutomation = (enabled: boolean) =>
+  invoke<StatusSnapshot>("set_obs_automation", { enabled });
+export const switchObsScene = (scene: "betweenMatches" | "draft" | "gameplay") =>
+  invoke<StatusSnapshot>("switch_obs_scene", { scene });
 
 // Diagnostic-mode GSI capture - off by default, see src-tauri/src/diagnostics.
 export const diagnosticsGetStatus = () =>
