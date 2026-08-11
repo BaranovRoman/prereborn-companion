@@ -141,6 +141,7 @@ pub fn run() {
             commands::resend_current_state,
             commands::save_obs_config,
             commands::test_obs_connection,
+            commands::switch_obs_scene,
             commands::diagnostics_get_status,
             commands::diagnostics_start,
             commands::diagnostics_stop,

@@ -6,7 +6,7 @@ use tauri_plugin_opener::OpenerExt;
 use crate::backend;
 use crate::diagnostics::{self, DiagnosticsStatusSnapshot};
 use crate::gsi::{config, finder};
-use crate::obs::{self, ObsConfig};
+use crate::obs::{self, BroadcastScene, ObsConfig};
 use crate::state::{AppState, StatusSnapshot};
 use crate::storage;
 
@@ -224,6 +224,40 @@ pub fn test_obs_connection(
             inner.obs_last_error = Some(error.clone());
             drop(inner);
             storage::append_rolling_log(&app, &format!("OBS WebSocket error: {error}"));
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
+pub fn switch_obs_scene(
+    app: AppHandle,
+    state: State<AppState>,
+    scene: BroadcastScene,
+) -> Result<StatusSnapshot, String> {
+    let config = state.0.lock().unwrap().obs_config.clone();
+    match obs::switch_scene(&config, scene) {
+        Ok(()) => {
+            let mut inner = state.0.lock().unwrap();
+            inner.obs_connected = true;
+            inner.obs_active_scene = Some(scene);
+            inner.obs_last_error = None;
+            drop(inner);
+            storage::append_rolling_log(
+                &app,
+                &format!(
+                    "OBS scene switched manually to {}.",
+                    scene.obs_scene_name(&config)
+                ),
+            );
+            Ok(state.snapshot())
+        }
+        Err(error) => {
+            let mut inner = state.0.lock().unwrap();
+            inner.obs_connected = false;
+            inner.obs_last_error = Some(error.clone());
+            drop(inner);
+            storage::append_rolling_log(&app, &format!("Manual OBS scene switch failed: {error}"));
             Err(error)
         }
     }
