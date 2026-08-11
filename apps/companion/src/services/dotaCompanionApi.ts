@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { DiagnosticsStatusSnapshot, ObsConfig, StatusSnapshot } from "../types/status";
+import type { CompanionMode, DiagnosticsStatusSnapshot, ObsConfig, StatusSnapshot } from "../types/status";
 
 export const getStatus = () => invoke<StatusSnapshot>("get_status");
 export const findDota = () => invoke<StatusSnapshot>("find_dota");
@@ -16,8 +16,8 @@ export const saveObsConfig = (config: ObsConfig) =>
   invoke<StatusSnapshot>("save_obs_config", { config });
 export const testObsConnection = () =>
   invoke<string[]>("test_obs_connection");
-export const setObsAutomation = (enabled: boolean) =>
-  invoke<StatusSnapshot>("set_obs_automation", { enabled });
+export const setCompanionMode = (mode: CompanionMode) =>
+  invoke<StatusSnapshot>("set_companion_mode", { mode });
 export const switchObsScene = (scene: "betweenMatches" | "draft" | "gameplay") =>
   invoke<StatusSnapshot>("switch_obs_scene", { scene });
 

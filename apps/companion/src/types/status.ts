@@ -20,6 +20,8 @@ export interface DiagnosticsStatusSnapshot {
   size_limit_reached: boolean;
 }
 
+export type CompanionMode = "automatic" | "manual";
+
 export interface StatusSnapshot {
   dota_found: boolean;
   dota_path: string | null;
@@ -36,6 +38,7 @@ export interface StatusSnapshot {
   backend_connected: boolean;
   backend_last_sent_at: string | null;
   backend_last_error: string | null;
+  companion_mode: CompanionMode;
   obs_config: ObsConfig;
   obs_connected: boolean;
   obs_active_scene: "betweenMatches" | "draft" | "gameplay" | null;

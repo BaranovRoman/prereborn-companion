@@ -43,6 +43,27 @@ pub enum BroadcastScene {
     Draft,
     Gameplay,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum CompanionMode {
+    Automatic,
+    #[default]
+    Manual,
+}
+
+impl CompanionMode {
+    pub fn from_config(config: &ObsConfig) -> Self {
+        if config.enabled {
+            Self::Automatic
+        } else {
+            Self::Manual
+        }
+    }
+
+    pub fn automation_enabled(self) -> bool {
+        self == Self::Automatic
+    }
+}
 
 impl BroadcastScene {
     pub fn from_gsi(payload: &Value) -> Self {
@@ -276,6 +297,17 @@ fn schedule_switch(app: &AppHandle, desired: BroadcastScene, require_enabled: bo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn companion_mode_maps_to_the_existing_automation_flag() {
+        let mut config = ObsConfig::default();
+        assert_eq!(CompanionMode::from_config(&config), CompanionMode::Manual);
+        assert!(!CompanionMode::Manual.automation_enabled());
+
+        config.enabled = true;
+        assert_eq!(CompanionMode::from_config(&config), CompanionMode::Automatic);
+        assert!(CompanionMode::Automatic.automation_enabled());
+    }
 
     #[test]
     fn maps_gsi_states_to_broadcast_scenes() {

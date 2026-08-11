@@ -12,7 +12,7 @@ import { useDiagnostics } from "../hooks/useDiagnostics";
 import { useGsiEvents } from "../hooks/useGsiEvents";
 import { useStatus } from "../hooks/useStatus";
 import * as api from "../services/dotaCompanionApi";
-import type { StatusSnapshot } from "../types/status";
+import type { CompanionMode, StatusSnapshot } from "../types/status";
 
 type View = "home" | "diagnostics";
 type Scene = "betweenMatches" | "draft" | "gameplay";
@@ -21,6 +21,10 @@ const sceneLabels: Record<Scene, string> = {
   betweenMatches: "Между матчами",
   draft: "Драфт",
   gameplay: "Игра",
+};
+const modes: Record<CompanionMode, { label: string; description: string }> = {
+  automatic: { label: "Автоматический", description: "Сцены меняются по фазе матча" },
+  manual: { label: "Ручной", description: "Сцена остаётся под вашим контролем" },
 };
 
 function StatusCard({ label, value, detail, tone }: {
@@ -70,8 +74,8 @@ export function HomePage() {
     }
   };
 
-  const setAutomaticMode = (enabled: boolean) => {
-    if (status) void run(() => api.setObsAutomation(enabled));
+  const setMode = (mode: CompanionMode) => {
+    if (status) void run(() => api.setCompanionMode(mode));
   };
 
   const latestEvent = history[0] ?? status?.last_event ?? null;
@@ -115,11 +119,20 @@ export function HomePage() {
             <div><span className="section-heading__eyebrow">Управление эфиром</span><h2>Сцены OBS</h2></div>
             <span className={`connection-pill ${status?.obs_connected ? "is-online" : ""}`}>{status?.obs_connected ? "На связи" : "Не подключён"}</span>
           </div>
-          <div className="mode-switch" role="group" aria-label="Режим переключения сцен">
-            <button className={status?.obs_config.enabled ? "is-active" : ""} onClick={() => setAutomaticMode(true)} disabled={busy || !status}>Автоматический</button>
-            <button className={!status?.obs_config.enabled ? "is-active" : ""} onClick={() => setAutomaticMode(false)} disabled={busy || !status}>Ручной</button>
+          <div className="mode-switch" role="group" aria-label="Режим работы Companion">
+            {(Object.keys(modes) as CompanionMode[]).map((mode) => (
+              <button
+                key={mode}
+                className={status?.companion_mode === mode ? "is-active" : ""}
+                onClick={() => setMode(mode)}
+                disabled={busy || !status}
+                aria-pressed={status?.companion_mode === mode}
+              >
+                <strong>{modes[mode].label}</strong>
+                <small>{modes[mode].description}</small>
+              </button>
+            ))}
           </div>
-          <p className="mode-hint">{status?.obs_config.enabled ? "Companion меняет сцену по фазе матча." : "Вы управляете сценой кнопками ниже."}</p>
           <div className="scene-summary"><span>Активная сцена</span><strong>{status?.obs_active_scene ? sceneLabels[status.obs_active_scene] : "Не определена"}</strong></div>
           <div className="scene-actions">
             {(Object.keys(sceneLabels) as Scene[]).map((scene) => (

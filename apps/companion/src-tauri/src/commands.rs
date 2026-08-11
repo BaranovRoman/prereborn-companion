@@ -6,7 +6,7 @@ use tauri_plugin_opener::OpenerExt;
 use crate::backend;
 use crate::diagnostics::{self, DiagnosticsStatusSnapshot};
 use crate::gsi::{config, finder};
-use crate::obs::{self, BroadcastScene, ObsConfig};
+use crate::obs::{self, BroadcastScene, CompanionMode, ObsConfig};
 use crate::state::{AppState, StatusSnapshot};
 use crate::storage;
 
@@ -232,21 +232,20 @@ pub fn test_obs_connection(
 }
 
 #[tauri::command]
-pub fn set_obs_automation(
+pub fn set_companion_mode(
     app: AppHandle,
     state: State<AppState>,
-    enabled: bool,
+    mode: CompanionMode,
 ) -> Result<StatusSnapshot, String> {
     let mut config = state.0.lock().unwrap().obs_config.clone();
-    config.enabled = enabled;
+    config.enabled = mode.automation_enabled();
     storage::save_obs_config(&app, &config).map_err(|e| e.to_string())?;
     state.0.lock().unwrap().obs_config = config;
     storage::append_rolling_log(
         &app,
-        if enabled {
-            "OBS automation enabled."
-        } else {
-            "OBS automation disabled; manual mode active."
+        match mode {
+            CompanionMode::Automatic => "Companion automatic mode enabled.",
+            CompanionMode::Manual => "Companion manual mode enabled.",
         },
     );
     Ok(state.snapshot())
