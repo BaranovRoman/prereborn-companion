@@ -1,6 +1,6 @@
 use serde::Serialize;
 use std::sync::Mutex;
-use crate::obs::{BroadcastScene, ObsConfig};
+use crate::obs::{BroadcastScene, CompanionMode, ObsConfig};
 
 pub const GSI_PORT: u16 = 3665;
 pub const GSI_CONFIG_FILE_NAME: &str = "gamestate_integration_dota_companion.cfg";
@@ -44,6 +44,7 @@ pub struct StatusSnapshot {
     pub backend_connected: bool,
     pub backend_last_sent_at: Option<String>,
     pub backend_last_error: Option<String>,
+    pub companion_mode: CompanionMode,
     pub obs_config: ObsConfig,
     pub obs_connected: bool,
     pub obs_active_scene: Option<BroadcastScene>,
@@ -108,6 +109,7 @@ impl AppState {
             backend_connected: inner.backend_connected,
             backend_last_sent_at: inner.backend_last_sent_at.clone(),
             backend_last_error: inner.backend_last_error.clone(),
+            companion_mode: CompanionMode::from_config(&inner.obs_config),
             obs_config: {
                 let mut config = inner.obs_config.clone();
                 config.password.clear();
