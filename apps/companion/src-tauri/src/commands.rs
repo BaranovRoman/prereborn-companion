@@ -208,8 +208,10 @@ pub fn test_obs_connection(
                 inner.obs_last_error = Some(error.clone());
                 return Err(error);
             }
+            let active_scene = obs::current_scene(&config).unwrap_or(None);
             let mut inner = state.0.lock().unwrap();
             inner.obs_connected = true;
+            inner.obs_active_scene = active_scene;
             inner.obs_last_error = None;
             drop(inner);
             storage::append_rolling_log(
@@ -230,12 +232,41 @@ pub fn test_obs_connection(
 }
 
 #[tauri::command]
+pub fn set_obs_automation(
+    app: AppHandle,
+    state: State<AppState>,
+    enabled: bool,
+) -> Result<StatusSnapshot, String> {
+    let mut config = state.0.lock().unwrap().obs_config.clone();
+    config.enabled = enabled;
+    storage::save_obs_config(&app, &config).map_err(|e| e.to_string())?;
+    state.0.lock().unwrap().obs_config = config;
+    storage::append_rolling_log(
+        &app,
+        if enabled {
+            "OBS automation enabled."
+        } else {
+            "OBS automation disabled; manual mode active."
+        },
+    );
+    Ok(state.snapshot())
+}
+
+#[tauri::command]
 pub fn switch_obs_scene(
     app: AppHandle,
     state: State<AppState>,
     scene: BroadcastScene,
 ) -> Result<StatusSnapshot, String> {
-    let config = state.0.lock().unwrap().obs_config.clone();
+    let config = {
+        let mut inner = state.0.lock().unwrap();
+        // A manual scene choice is a durable override until automation is
+        // explicitly enabled again.
+        inner.obs_config.enabled = false;
+        inner.obs_switch_pending = None;
+        inner.obs_config.clone()
+    };
+    storage::save_obs_config(&app, &config).map_err(|e| e.to_string())?;
     match obs::switch_scene(&config, scene) {
         Ok(()) => {
             let mut inner = state.0.lock().unwrap();
