@@ -45,7 +45,7 @@ const gameplayWidgets: OverlayLayout["scenes"]["gameplay"]["widgets"] = {
 };
 
 export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
-    version: 3,
+    version: 4,
     scenes: {
         gameplay: {
             widgets: gameplayWidgets,
@@ -82,4 +82,5 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
         },
     },
     aspectRatio: DEFAULT_OVERLAY_ASPECT_RATIO,
+    draftProtection: { mode: "cover" },
 };

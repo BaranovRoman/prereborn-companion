@@ -17,9 +17,30 @@ describe("normalizeOverlayLayout", () => {
             aspectRatio: { preset: "16:9", widthRatio: 16, heightRatio: 9 },
         });
 
-        expect(layout.version).toBe(3);
+        expect(layout.version).toBe(4);
         expect(layout.scenes.gameplay.widgets.session.xVw).toBe(42);
         expect(layout.scenes.draft.widgets.session.visible).toBe(true);
+    });
+
+    it("fails closed for old or malformed draft protection settings", () => {
+        expect(normalizeOverlayLayout({ version: 3 }).draftProtection.mode).toBe(
+            "cover"
+        );
+        expect(
+            normalizeOverlayLayout({
+                version: 4,
+                draftProtection: { mode: "unexpected" },
+            }).draftProtection.mode
+        ).toBe("cover");
+    });
+
+    it("preserves an explicit public draft mode", () => {
+        expect(
+            normalizeOverlayLayout({
+                version: 4,
+                draftProtection: { mode: "substitute" },
+            }).draftProtection.mode
+        ).toBe("substitute");
     });
 
     it("migrates percentage camera coordinates to OBS pixels", () => {

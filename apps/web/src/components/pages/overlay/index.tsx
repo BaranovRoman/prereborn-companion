@@ -40,12 +40,21 @@ export const OverlayPage = ({
     const data = useOverlayPolling(publicToken, initialData);
 
     if (!data) {
-        return <div style={{ position: "fixed", inset: 0, background: "transparent" }} />;
+        return (
+            <div
+                aria-label="Overlay data unavailable"
+                style={{ position: "fixed", inset: 0, background: "#070b14" }}
+            />
+        );
     }
 
     const layout = normalizeOverlayLayout(data.layout ?? DEFAULT_OVERLAY_LAYOUT);
+    const derivedScene = getBroadcastScene(data.companion.payload);
     const activeScene =
-        data.sceneOverride ?? getBroadcastScene(data.companion.payload);
+        data.sceneOverride ??
+        (!data.companion.isOnline && layout.draftProtection.mode !== "off"
+            ? "draft"
+            : derivedScene);
 
     if (activeScene === "betweenMatches") {
         return (
@@ -70,6 +79,9 @@ export const OverlayPage = ({
                 mode="live"
                 aspectRatio={layout.aspectRatio}
                 minimapCover={layout.scenes[activeScene].minimapCover}
+                draftProtectionMode={
+                    activeScene === "draft" ? layout.draftProtection.mode : undefined
+                }
             >
                 {({ sceneWidth, sceneHeight }) => (
                     <>

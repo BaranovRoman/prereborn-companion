@@ -116,7 +116,7 @@ export const normalizeOverlayLayout = (value: unknown): OverlayLayout => {
     const layoutVersion = typeof raw?.version === "number" ? raw.version : 1;
 
     return {
-        version: 3,
+        version: 4,
         aspectRatio:
             aspectRatio &&
             typeof aspectRatio.widthRatio === "number" &&
@@ -140,6 +140,13 @@ export const normalizeOverlayLayout = (value: unknown): OverlayLayout => {
                 raw?.widgets
             ),
             draft: normalizeScene(scenes?.draft, fallback.scenes.draft, layoutVersion),
+        },
+        draftProtection: {
+            mode:
+                asRecord(raw?.draftProtection)?.mode === "off" ||
+                asRecord(raw?.draftProtection)?.mode === "substitute"
+                    ? (asRecord(raw?.draftProtection)?.mode as "off" | "substitute")
+                    : "cover",
         },
     };
 };

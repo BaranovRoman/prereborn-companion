@@ -24,6 +24,7 @@ import {
     type OverlayWidgetId,
     type OverlayWidgetLayout,
     type RecentMatchesSettings,
+    type DraftProtectionMode,
 } from "@/entities/stream-overlay-layout/model/types";
 import { computeSceneDimensions } from "@/entities/stream-overlay-layout/lib/scene-dimensions";
 import { anchorFraction, splitAnchor } from "@/entities/stream-overlay-layout/lib/anchor";
@@ -619,6 +620,32 @@ export const OverlayEditorPage = () => {
                         setSelectedScene(value as ConfigurableBroadcastSceneId)
                     }
                 />
+                {selectedScene === "draft" && (
+                    <div className={styles.betweenMatchesNote}>
+                        <strong>Защита драфта</strong>
+                        <Segmented
+                            value={layout.draftProtection.mode}
+                            options={[
+                                { label: "Без защиты", value: "off" },
+                                { label: "Полное перекрытие", value: "cover" },
+                                { label: "Публичный драфт", value: "substitute" },
+                            ]}
+                            onChange={(mode) =>
+                                setLayout((current) => ({
+                                    ...current,
+                                    draftProtection: {
+                                        mode: mode as DraftProtectionMode,
+                                    },
+                                }))
+                            }
+                        />
+                        <span>
+                            Защитные режимы не используют реальные пики и баны. При
+                            неизвестном состоянии overlay остаётся закрытым.
+                        </span>
+                    </div>
+                )}
+
                 <div className={styles.betweenMatchesNote}>
                     <strong>Между матчами</strong>
                     <span>
@@ -863,6 +890,11 @@ export const OverlayEditorPage = () => {
                         aspectRatio={layout.aspectRatio}
                         showSafeArea={showSafeArea}
                         minimapCover={activeSceneLayout.minimapCover}
+                        draftProtectionMode={
+                            selectedScene === "draft"
+                                ? layout.draftProtection.mode
+                                : undefined
+                        }
                         referenceBackground={referenceBackgroundImage}
                     >
                         {({ sceneScale, sceneWidth, sceneHeight }) => (

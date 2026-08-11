@@ -131,8 +131,16 @@ export interface OverlaySceneLayout {
     minimapCover: MinimapCoverSettings;
 }
 
+export const DRAFT_PROTECTION_MODES = ["off", "cover", "substitute"] as const;
+export type DraftProtectionMode = (typeof DRAFT_PROTECTION_MODES)[number];
+
+export interface DraftProtectionSettings {
+    mode: DraftProtectionMode;
+}
+
 export type OverlayLayout = {
-    version: 3;
+    version: 4;
     scenes: Record<ConfigurableBroadcastSceneId, OverlaySceneLayout>;
     aspectRatio: OverlayAspectRatio;
+    draftProtection: DraftProtectionSettings;
 };
