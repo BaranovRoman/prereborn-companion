@@ -124,13 +124,20 @@ export interface OverlaySceneLayout {
     minimapCover: MinimapCoverSettings;
 }
 
+export const DRAFT_PROTECTION_MODES = ["off", "cover", "substitute"] as const;
+export type DraftProtectionMode = (typeof DRAFT_PROTECTION_MODES)[number];
+export interface DraftProtectionSettings {
+    mode: DraftProtectionMode;
+}
+
 export type OverlayLayout = {
-    version: 3;
+    version: 4;
     scenes: {
         draft: OverlaySceneLayout;
         gameplay: OverlaySceneLayout;
     };
     aspectRatio: OverlayAspectRatio;
+    draftProtection: DraftProtectionSettings;
 };
 
 // Раскладка по умолчанию воспроизводит сегодняшний вид (всё сложено в
@@ -171,7 +178,7 @@ const defaultGameplayWidgets: OverlayLayoutWidgets = {
 };
 
 export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
-    version: 3,
+    version: 4,
     scenes: {
         gameplay: {
             widgets: defaultGameplayWidgets,
@@ -208,6 +215,7 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
         },
     },
     aspectRatio: DEFAULT_OVERLAY_ASPECT_RATIO,
+    draftProtection: { mode: "cover" },
 };
 
 export class InvalidOverlayLayoutError extends Error {
@@ -279,6 +287,7 @@ const layoutBodySchema = z.object({
     widgets: z.record(z.string(), z.unknown()).optional(),
     scenes: z.record(z.string(), z.unknown()).optional(),
     aspectRatio: z.unknown().optional(),
+    draftProtection: z.unknown().optional(),
 });
 
 const aspectRatioPresetEnum = z.enum(OVERLAY_ASPECT_RATIO_PRESETS);
@@ -417,7 +426,7 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
     ).parse(parsed.data.aspectRatio);
 
     return {
-        version: 3,
+        version: 4,
         scenes: {
             gameplay: {
                 widgets: normalizeWidgets(
@@ -442,6 +451,14 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
             },
         },
         aspectRatio,
+        draftProtection: {
+            mode: z.enum(DRAFT_PROTECTION_MODES).catch("cover").parse(
+                typeof parsed.data.draftProtection === "object" &&
+                    parsed.data.draftProtection !== null
+                    ? (parsed.data.draftProtection as Record<string, unknown>).mode
+                    : undefined
+            ),
+        },
     };
 };
 

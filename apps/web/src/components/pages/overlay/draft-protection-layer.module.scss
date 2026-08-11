@@ -1,0 +1,110 @@
+.layer {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    overflow: hidden;
+    color: #f8fafc;
+    background:
+        radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.2), transparent 32%),
+        radial-gradient(circle at 80% 80%, rgba(239, 68, 68, 0.16), transparent 34%),
+        #070b14;
+}
+
+.cover {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    gap: 18px;
+    text-align: center;
+    letter-spacing: 0.02em;
+}
+
+.cover strong {
+    font-size: 54px;
+}
+
+.cover > span:last-child {
+    color: #94a3b8;
+    font-size: 24px;
+}
+
+.eyebrow {
+    color: #60a5fa;
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.22em;
+}
+
+.publicDraft {
+    height: 100%;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 42px;
+    padding: 90px 120px;
+}
+
+.heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+    padding-bottom: 22px;
+}
+
+.heading span {
+    color: #60a5fa;
+    font-weight: 800;
+    letter-spacing: 0.2em;
+}
+
+.heading strong {
+    font-size: 30px;
+}
+
+.teams {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 80px;
+}
+
+.teams section:last-child {
+    text-align: right;
+}
+
+.teams h2 {
+    margin: 0 0 20px;
+    font-size: 28px;
+}
+
+.picks {
+    display: grid;
+    gap: 12px;
+}
+
+.pick {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 62px;
+    padding: 0 22px;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    background: rgba(15, 23, 42, 0.88);
+}
+
+.pick span {
+    color: #64748b;
+    font-variant-numeric: tabular-nums;
+}
+
+.pick strong {
+    font-size: 21px;
+}
+
+.publicDraft p {
+    margin: 0;
+    text-align: center;
+    color: #94a3b8;
+}
