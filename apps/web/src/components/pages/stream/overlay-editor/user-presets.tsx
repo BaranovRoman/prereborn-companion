@@ -38,8 +38,12 @@ export const UserPresets = ({ layout, onApply }: {
     }, []);
     const persist = (next: Preset[]) => {
         try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-            setPresets(next);
+            const normalized = next.map((preset) => ({
+                ...preset,
+                layout: normalizeOverlayLayout(preset.layout),
+            }));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+            setPresets(normalized);
             return true;
         } catch {
             messageApi.error("Не удалось сохранить пресет");

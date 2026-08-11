@@ -13,7 +13,7 @@ export const resolveOverlayScene = ({
 }): BroadcastSceneId => {
     if (override) return override;
     if (!companionOnline) {
-        return draftProtectionMode === "off" ? "betweenMatches" : "draft";
+        return draftProtectionMode === "off" ? derived : "draft";
     }
     return derived;
 };

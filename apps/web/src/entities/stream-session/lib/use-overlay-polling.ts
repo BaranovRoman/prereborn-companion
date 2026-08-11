@@ -6,6 +6,13 @@ import type { OverlayData } from "../model/types";
 
 const POLL_INTERVAL_MS = 1500;
 
+export const preserveOverlayDataAsStale = (
+    current: OverlayData | null
+): OverlayData | null => current ? {
+    ...current,
+    companion: { ...current.companion, isOnline: false },
+} : null;
+
 // Следующий опрос планируется только после того, как предыдущий fetch
 // полностью завершился (setTimeout, а не setInterval) - параллельные
 // запросы структурно невозможны, даже если сеть на секунду задержит ответ
@@ -25,7 +32,14 @@ export const useOverlayPolling = (
         const poll = async () => {
             const result = await fetchOverlayData(publicToken);
             if (!cancelled) {
-                if (result) setData(result);
+                if (result) {
+                    setData(result);
+                } else {
+                    // Preserve the last complete payload/layout, but fail closed:
+                    // a failed poll makes freshness unknown and must not leave a
+                    // protected overlay rendering stale gameplay as online.
+                    setData(preserveOverlayDataAsStale);
+                }
                 timeoutId = setTimeout(poll, POLL_INTERVAL_MS);
             }
         };

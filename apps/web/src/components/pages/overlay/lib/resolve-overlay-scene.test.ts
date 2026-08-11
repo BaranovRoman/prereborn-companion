@@ -16,11 +16,11 @@ describe("resolveOverlayScene", () => {
         })).toBe("draft");
     });
 
-    it("uses queue as the safe fallback when draft protection is disabled", () => {
+    it("preserves the derived custom scene when draft protection is disabled", () => {
         expect(resolveOverlayScene({
             override: null, companionOnline: false,
-            derived: "gameplay", draftProtectionMode: "off",
-        })).toBe("betweenMatches");
+            derived: "draft", draftProtectionMode: "off",
+        })).toBe("draft");
     });
 
     it("uses the current safe GSI-derived scene while online", () => {
