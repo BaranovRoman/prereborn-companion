@@ -20,6 +20,8 @@ export interface DiagnosticsStatusSnapshot {
   size_limit_reached: boolean;
 }
 
+export type ConnectionState = "waiting" | "connected" | "recovering" | "unavailable";
+
 export interface StatusSnapshot {
   dota_found: boolean;
   dota_path: string | null;
@@ -27,6 +29,8 @@ export interface StatusSnapshot {
   gsi_installed: boolean;
   gsi_config_path: string | null;
   server_running: boolean;
+  gsi_state: ConnectionState;
+  gsi_last_error: string | null;
   server_port: number;
   request_count: number;
   last_event: LastEvent | null;
@@ -38,6 +42,7 @@ export interface StatusSnapshot {
   backend_last_error: string | null;
   obs_config: ObsConfig;
   obs_connected: boolean;
+  obs_state: ConnectionState;
   obs_active_scene: "betweenMatches" | "draft" | "gameplay" | null;
   obs_last_error: string | null;
 }

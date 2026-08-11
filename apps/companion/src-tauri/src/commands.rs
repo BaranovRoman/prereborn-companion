@@ -177,14 +177,14 @@ pub fn save_obs_config(
         inner.obs_last_error = None;
     }
     storage::append_rolling_log(&app, "OBS scene switching settings saved locally.");
+    if state.0.lock().unwrap().obs_config.enabled {
+        obs::handle_gsi(&app, &serde_json::json!({}));
+    }
     Ok(state.snapshot())
 }
 
 #[tauri::command]
-pub fn test_obs_connection(
-    app: AppHandle,
-    state: State<AppState>,
-) -> Result<Vec<String>, String> {
+pub fn test_obs_connection(app: AppHandle, state: State<AppState>) -> Result<Vec<String>, String> {
     let config = state.0.lock().unwrap().obs_config.clone();
     match obs::test_connection(&config) {
         Ok(scenes) => {
@@ -199,10 +199,7 @@ pub fn test_obs_connection(
                 .map(String::as_str)
                 .collect();
             if !missing.is_empty() {
-                let error = format!(
-                    "OBS подключён, но не найдены сцены: {}",
-                    missing.join(", ")
-                );
+                let error = format!("OBS подключён, но не найдены сцены: {}", missing.join(", "));
                 let mut inner = state.0.lock().unwrap();
                 inner.obs_connected = false;
                 inner.obs_last_error = Some(error.clone());
@@ -211,6 +208,8 @@ pub fn test_obs_connection(
             let mut inner = state.0.lock().unwrap();
             inner.obs_connected = true;
             inner.obs_last_error = None;
+            inner.obs_retry_attempt = 0;
+            inner.obs_retry_at = None;
             drop(inner);
             storage::append_rolling_log(
                 &app,
@@ -289,7 +288,10 @@ pub fn diagnostics_clear(app: AppHandle) -> Result<DiagnosticsStatusSnapshot, St
 
 #[tauri::command]
 pub fn diagnostics_export(app: AppHandle) -> Result<String, String> {
-    let default_name = format!("gsi-diagnostics-{}.zip", chrono::Local::now().format("%Y-%m-%dT%H-%M-%S"));
+    let default_name = format!(
+        "gsi-diagnostics-{}.zip",
+        chrono::Local::now().format("%Y-%m-%dT%H-%M-%S")
+    );
     let picked = app
         .dialog()
         .file()

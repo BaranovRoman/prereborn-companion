@@ -1,6 +1,7 @@
+use crate::obs::{BroadcastScene, ObsConfig};
 use serde::Serialize;
 use std::sync::Mutex;
-use crate::obs::{BroadcastScene, ObsConfig};
+use std::time::Instant;
 
 pub const GSI_PORT: u16 = 3665;
 pub const GSI_CONFIG_FILE_NAME: &str = "gamestate_integration_dota_companion.cfg";
@@ -31,6 +32,8 @@ pub struct StatusSnapshot {
     pub gsi_installed: bool,
     pub gsi_config_path: Option<String>,
     pub server_running: bool,
+    pub gsi_state: ConnectionState,
+    pub gsi_last_error: Option<String>,
     pub server_port: u16,
     pub request_count: u32,
     pub last_event: Option<LastEvent>,
@@ -46,8 +49,19 @@ pub struct StatusSnapshot {
     pub backend_last_error: Option<String>,
     pub obs_config: ObsConfig,
     pub obs_connected: bool,
+    pub obs_state: ConnectionState,
     pub obs_active_scene: Option<BroadcastScene>,
     pub obs_last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ConnectionState {
+    #[default]
+    Waiting,
+    Connected,
+    Recovering,
+    Unavailable,
 }
 
 #[derive(Debug, Default)]
@@ -57,6 +71,8 @@ pub struct InnerState {
     pub gsi_installed: bool,
     pub gsi_config_path: Option<String>,
     pub server_running: bool,
+    pub gsi_last_error: Option<String>,
+    pub gsi_last_received_at: Option<Instant>,
     pub request_count: u32,
     pub last_event: Option<LastEvent>,
     pub log_dir: Option<String>,
@@ -80,6 +96,11 @@ pub struct InnerState {
     pub obs_connected: bool,
     pub obs_active_scene: Option<BroadcastScene>,
     pub obs_switch_pending: Option<BroadcastScene>,
+    pub obs_retry_scene: Option<BroadcastScene>,
+    pub obs_retry_attempt: u32,
+    pub obs_retry_at: Option<Instant>,
+    pub obs_last_checked_at: Option<Instant>,
+    pub obs_check_pending: bool,
     pub obs_last_error: Option<String>,
 }
 
@@ -92,6 +113,31 @@ impl AppState {
 
     pub fn snapshot(&self) -> StatusSnapshot {
         let inner = self.0.lock().unwrap();
+        let gsi_state = if !inner.server_running {
+            if inner.gsi_last_error.is_some() {
+                ConnectionState::Recovering
+            } else {
+                ConnectionState::Unavailable
+            }
+        } else if inner
+            .gsi_last_received_at
+            .is_some_and(|at| at.elapsed().as_secs() <= 10)
+        {
+            ConnectionState::Connected
+        } else if inner.gsi_last_received_at.is_some() {
+            ConnectionState::Recovering
+        } else {
+            ConnectionState::Waiting
+        };
+        let obs_state = if inner.obs_connected {
+            ConnectionState::Connected
+        } else if inner.obs_switch_pending.is_some() || inner.obs_check_pending || inner.obs_retry_at.is_some() {
+            ConnectionState::Recovering
+        } else if inner.obs_config.enabled || inner.obs_last_error.is_some() {
+            ConnectionState::Unavailable
+        } else {
+            ConnectionState::Waiting
+        };
         StatusSnapshot {
             dota_found: inner.dota_path.is_some(),
             dota_path: inner.dota_path.clone(),
@@ -99,6 +145,8 @@ impl AppState {
             gsi_installed: inner.gsi_installed,
             gsi_config_path: inner.gsi_config_path.clone(),
             server_running: inner.server_running,
+            gsi_state,
+            gsi_last_error: inner.gsi_last_error.clone(),
             server_port: GSI_PORT,
             request_count: inner.request_count,
             last_event: inner.last_event.clone(),
@@ -114,6 +162,7 @@ impl AppState {
                 config
             },
             obs_connected: inner.obs_connected,
+            obs_state,
             obs_active_scene: inner.obs_active_scene,
             obs_last_error: inner.obs_last_error.clone(),
         }

@@ -1,5 +1,5 @@
 use std::net::TcpStream;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
@@ -70,6 +70,78 @@ impl BroadcastScene {
 }
 
 type ObsSocket = WebSocket<MaybeTlsStream<TcpStream>>;
+
+const RECOVERY_TICK: Duration = Duration::from_secs(1);
+
+fn retry_delay(attempt: u32) -> Duration {
+    Duration::from_secs(2_u64.saturating_pow(attempt.min(5)).min(30))
+}
+
+pub fn init(app: AppHandle) {
+    {
+        let state = app.state::<AppState>();
+        let mut inner = state.0.lock().unwrap();
+        if inner.obs_config.enabled {
+            inner.obs_retry_scene = Some(BroadcastScene::BetweenMatches);
+            inner.obs_retry_at = Some(Instant::now());
+        }
+    }
+    std::thread::spawn(move || loop {
+        std::thread::sleep(RECOVERY_TICK);
+        retry_pending(&app);
+    });
+}
+
+fn retry_pending(app: &AppHandle) {
+    let (desired, probe_config) = {
+        let state = app.state::<AppState>();
+        let mut inner = state.0.lock().unwrap();
+        if inner.obs_switch_pending.is_some() || inner.obs_check_pending {
+            return;
+        }
+        let retry_scene = if inner.obs_config.enabled {
+            match (inner.obs_retry_scene, inner.obs_retry_at) {
+                (Some(scene), Some(at)) if Instant::now() >= at => Some(scene),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        if let Some(scene) = retry_scene {
+            (Some(scene), None)
+        } else if (inner.obs_connected || inner.obs_last_error.is_some())
+            && inner.obs_last_checked_at.is_none_or(|at| at.elapsed() >= Duration::from_secs(10))
+        {
+            inner.obs_check_pending = true;
+            (None, Some(inner.obs_config.clone()))
+        } else {
+            (None, None)
+        }
+    };
+    if let Some(scene) = desired {
+        schedule_switch(app, scene, true);
+    } else if let Some(config) = probe_config {
+        let result = test_connection(&config);
+        let state = app.state::<AppState>();
+        let mut inner = state.0.lock().unwrap();
+        inner.obs_check_pending = false;
+        inner.obs_last_checked_at = Some(Instant::now());
+        match &result {
+            Ok(_) => { inner.obs_connected = true; inner.obs_last_error = None; }
+            Err(error) => {
+                inner.obs_connected = false;
+                inner.obs_last_error = Some(error.clone());
+                if inner.obs_config.enabled {
+                    inner.obs_retry_scene = Some(inner.obs_active_scene.unwrap_or(BroadcastScene::BetweenMatches));
+                    inner.obs_retry_attempt = inner.obs_retry_attempt.saturating_add(1);
+                    inner.obs_retry_at = Some(Instant::now() + retry_delay(inner.obs_retry_attempt));
+                }
+            }
+        }
+        drop(inner);
+        let _ = app.emit("obs-status", app.state::<AppState>().snapshot());
+    }
+}
 
 fn read_json(socket: &mut ObsSocket) -> Result<Value, String> {
     loop {
@@ -212,13 +284,24 @@ fn schedule_switch(app: &AppHandle, desired: BroadcastScene, require_enabled: bo
     let config = {
         let state = app.state::<AppState>();
         let mut inner = state.0.lock().unwrap();
-        if (require_enabled && !inner.obs_config.enabled)
-            || inner.obs_active_scene == Some(desired)
-            || inner.obs_switch_pending.is_some()
-        {
+        if require_enabled && !inner.obs_config.enabled {
+            return;
+        }
+        inner.obs_retry_scene = Some(desired);
+        if inner.obs_switch_pending.is_some() || inner.obs_check_pending {
+            return;
+        }
+        if inner.obs_active_scene == Some(desired) {
+            inner.obs_retry_scene = None;
+            inner.obs_retry_at = None;
+            inner.obs_retry_attempt = 0;
+            return;
+        }
+        if inner.obs_retry_at.is_some_and(|at| Instant::now() < at) {
             return;
         }
         inner.obs_switch_pending = Some(desired);
+        inner.obs_retry_at = None;
         inner.obs_config.clone()
     };
 
@@ -236,10 +319,24 @@ fn schedule_switch(app: &AppHandle, desired: BroadcastScene, require_enabled: bo
                     inner.obs_connected = true;
                     inner.obs_active_scene = Some(desired);
                     inner.obs_last_error = None;
+                    inner.obs_last_checked_at = Some(Instant::now());
+                    if inner.obs_retry_scene == Some(desired) {
+                        inner.obs_retry_scene = None;
+                        inner.obs_retry_attempt = 0;
+                        inner.obs_retry_at = None;
+                    } else {
+                        inner.obs_retry_at = Some(Instant::now());
+                    }
                 }
                 Err(error) => {
                     inner.obs_connected = false;
                     inner.obs_last_error = Some(error.clone());
+                    if inner.obs_retry_scene.is_none() {
+                        inner.obs_retry_scene = Some(desired);
+                    }
+                    inner.obs_retry_attempt = inner.obs_retry_attempt.saturating_add(1);
+                    inner.obs_retry_at =
+                        Some(Instant::now() + retry_delay(inner.obs_retry_attempt));
                 }
             }
         }
@@ -260,6 +357,14 @@ fn schedule_switch(app: &AppHandle, desired: BroadcastScene, require_enabled: bo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reconnect_backoff_is_bounded() {
+        assert_eq!(retry_delay(0), Duration::from_secs(1));
+        assert_eq!(retry_delay(1), Duration::from_secs(2));
+        assert_eq!(retry_delay(4), Duration::from_secs(16));
+        assert_eq!(retry_delay(20), Duration::from_secs(30));
+    }
 
     #[test]
     fn maps_gsi_states_to_broadcast_scenes() {

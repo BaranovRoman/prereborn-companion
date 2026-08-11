@@ -45,6 +45,7 @@ export function HomePage() {
   const [view, setView] = useState<View>("home");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [setupOpen, setSetupOpen] = useState(() => localStorage.getItem("companion-setup-complete") !== "true");
 
   useEffect(() => {
     if (history.length > 0) refresh();
@@ -52,7 +53,7 @@ export function HomePage() {
   }, [history.length]);
 
   useEffect(() => {
-    const listeners = ["backend-status", "obs-status"].map((event) => listen(event, () => refresh()));
+    const listeners = ["backend-status", "gsi-status", "obs-status"].map((event) => listen(event, () => refresh()));
     return () => listeners.forEach((promise) => void promise.then((unlisten) => unlisten()));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -75,8 +76,24 @@ export function HomePage() {
   };
 
   const latestEvent = history[0] ?? status?.last_event ?? null;
-  const hasGsiSignal = !!latestEvent;
-  const ready = !!(status?.backend_connected && status.server_running && status.gsi_installed && status.obs_connected);
+  const hasGsiSignal = status?.gsi_state === "connected";
+  const ready = !!(status?.backend_connected && status.server_running && status.gsi_installed && hasGsiSignal && status.obs_connected);
+
+  const finishSetup = () => {
+    localStorage.setItem("companion-setup-complete", "true");
+    setSetupOpen(false);
+  };
+
+  const provisionGsi = () => void run(async () => {
+    let next = await api.findDota();
+    if (next.dota_found && !next.gsi_installed) next = await api.installGsi();
+    return next;
+  });
+
+  const checkObs = () => void run(async () => {
+    await api.testObsConnection();
+    return api.getStatus();
+  });
 
   return (
     <main className="app">
@@ -91,20 +108,33 @@ export function HomePage() {
         </nav>
       </header>
 
-      {view === "home" ? <>
+      {view === "home" && setupOpen ? <section className="setup-guide" aria-labelledby="setup-title">
+        <div className="setup-guide__heading">
+          <div><span className="section-heading__eyebrow">Первый запуск</span><h2 id="setup-title">Подготовим Companion к стриму</h2><p>Статусы обновляются автоматически и восстановятся после временного сбоя.</p></div>
+          <button className="button" onClick={() => setSetupOpen(false)}>Продолжить позже</button>
+        </div>
+        {error && <p className="app__error">Ошибка: {error}</p>}
+        <ol className="setup-steps">
+          <li className={status?.server_running ? "is-complete" : ""}><strong>Companion</strong><span>{status?.server_running ? "Локальный сервис работает" : status?.gsi_state === "recovering" ? "Перезапускает локальный сервис" : "Локальный сервис недоступен"}</span><small>{status?.gsi_last_error ?? "Запускается автоматически"}</small></li>
+          <li className={status?.gsi_installed && hasGsiSignal ? "is-complete" : ""}><strong>Dota 2 / GSI</strong><span>{hasGsiSignal ? "Данные поступают" : status?.gsi_installed ? "Конфигурация готова — запустите Dota 2" : "Нужна конфигурация GSI"}</span><button onClick={provisionGsi} disabled={busy}>{status?.gsi_installed ? "Проверить снова" : "Настроить автоматически"}</button></li>
+          <li className={status?.companion_token_configured && status.backend_connected ? "is-complete" : ""}><strong>Связь с PreReborn</strong><span>{status?.backend_connected ? "Состояние отправляется" : status?.companion_token_configured ? "Ожидает GSI или восстанавливает связь" : "Добавьте companion token"}</span><CompanionTokenForm status={status} busy={busy} onSave={(token) => run(() => api.saveCompanionToken(token))} /></li>
+          <li className={status?.obs_connected ? "is-complete" : ""}><strong>OBS</strong><span>{status?.obs_connected ? "WebSocket и сцены доступны" : status?.obs_state === "recovering" ? "Соединение восстанавливается" : "Настройте OBS WebSocket и сцены"}</span><ObsScenePanel status={status} onStatus={setStatus} /><button onClick={checkObs} disabled={busy || !status}>Проверить OBS</button></li>
+        </ol>
+        <div className="setup-guide__footer"><p>{ready ? "Все обязательные компоненты готовы." : "Завершение станет доступно, когда все обязательные проверки успешны."}</p><button className="button button--primary" onClick={finishSetup} disabled={!ready}>Завершить настройку</button></div>
+      </section> : view === "home" ? <>
         <section className={`readiness ${ready ? "readiness--ok" : "readiness--warning"}`}>
           <div>
             <span className="readiness__label">Состояние эфира</span>
             <h2>{ready ? "Всё готово к стриму" : "Проверьте подключения"}</h2>
             <p>{ready ? "Companion получает данные и управляет сценами OBS." : "Один или несколько сервисов требуют внимания."}</p>
           </div>
-          <button className="button" onClick={() => void run(api.getStatus)} disabled={busy}>Обновить</button>
+          <div className="readiness__actions"><button className="button" onClick={() => setSetupOpen(true)}>Проверить настройку</button><button className="button" onClick={() => void run(api.getStatus)} disabled={busy}>Обновить</button></div>
         </section>
 
         <section className="status-grid" aria-label="Состояние подключений">
           <StatusCard label="Companion" value={status?.backend_connected ? "Подключён" : "Нет связи"} detail={status?.backend_connected ? "Состояние отправляется на сервер" : "Проверьте токен и подключение"} tone={status?.backend_connected ? "ok" : "error"} />
-          <StatusCard label="Dota 2 / GSI" value={hasGsiSignal ? "Получает данные" : status?.gsi_installed ? "Ожидает Dota 2" : "Не настроен"} detail={hasGsiSignal ? `Получено событий: ${status?.request_count ?? history.length}` : status?.gsi_installed ? "GSI установлен, запустите игру" : "Установите конфигурацию GSI"} tone={hasGsiSignal ? "ok" : status?.gsi_installed ? "warning" : "error"} />
-          <StatusCard label="OBS" value={status?.obs_connected ? "Подключён" : "Нет связи"} detail={status?.obs_connected ? "OBS WebSocket отвечает" : "Проверьте OBS WebSocket"} tone={status?.obs_connected ? "ok" : "error"} />
+          <StatusCard label="Dota 2 / GSI" value={hasGsiSignal ? "Получает данные" : status?.gsi_state === "recovering" ? "Восстанавливается" : status?.gsi_installed ? "Ожидает Dota 2" : "Не настроен"} detail={hasGsiSignal ? `Получено событий: ${status?.request_count ?? history.length}` : status?.gsi_last_error ?? (status?.gsi_installed ? "GSI установлен, запустите игру" : "Установите конфигурацию GSI")} tone={hasGsiSignal ? "ok" : status?.gsi_installed || status?.gsi_state === "recovering" ? "warning" : "error"} />
+          <StatusCard label="OBS" value={status?.obs_connected ? "Подключён" : status?.obs_state === "recovering" ? "Восстанавливается" : "Нет связи"} detail={status?.obs_connected ? "OBS WebSocket отвечает" : status?.obs_last_error ?? "Проверьте OBS WebSocket"} tone={status?.obs_connected ? "ok" : status?.obs_state === "recovering" ? "warning" : "error"} />
         </section>
 
         {error && <p className="app__error">Ошибка: {error}</p>}

@@ -92,4 +92,18 @@ h1, h2, p { margin-top: 0; }
 .obs-panel label:not(.obs-panel__toggle) { display: grid; gap: 4px; color: var(--muted); font-size: .8rem; }
 .backend-status__error, .obs-panel__error { color: var(--danger); }
 .diagnostics-panel__warning { color: var(--warning); }
-@media (max-width: 700px) { .app { padding: 20px; } .status-grid, .scene-actions { grid-template-columns: 1fr; } .mode-hint { display: block; margin: 8px 0 0; } }
+.readiness__actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.button--primary { border-color: var(--accent); background: rgba(143,124,255,.22); }
+.setup-guide { padding: 24px; border: 1px solid rgba(143,124,255,.38); border-radius: 18px; background: rgba(19,22,32,.97); }
+.setup-guide__heading, .setup-guide__footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.setup-guide__heading h2 { margin: 3px 0; }
+.setup-guide__heading p, .setup-guide__footer p, .setup-steps small { margin: 0; color: var(--muted); }
+.setup-steps { display: grid; gap: 10px; padding: 0; margin: 22px 0; list-style: none; counter-reset: setup; }
+.setup-steps > li { counter-increment: setup; display: grid; grid-template-columns: 28px minmax(120px,.55fr) 1fr; align-items: start; gap: 5px 12px; padding: 15px; border: 1px solid var(--border); border-radius: 12px; background: #0e1119; }
+.setup-steps > li::before { content: counter(setup); grid-row: 1 / span 3; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: var(--muted); background: var(--raised); }
+.setup-steps > li.is-complete::before { content: "✓"; color: #09140f; background: var(--success); }
+.setup-steps > li > span { color: var(--muted); }
+.setup-steps > li > small, .setup-steps > li > button, .setup-steps > li > .companion-token, .setup-steps > li > .obs-panel { grid-column: 2 / -1; }
+.setup-steps > li > button { justify-self: start; border: 1px solid var(--border); border-radius: 9px; padding: 8px 14px; background: var(--raised); }
+.setup-guide__footer { padding-top: 16px; border-top: 1px solid var(--border); }
+@media (max-width: 700px) { .app { padding: 20px; } .setup-guide__heading, .setup-guide__footer { align-items: stretch; flex-direction: column; } .setup-steps > li { grid-template-columns: 28px 1fr; } .status-grid, .scene-actions { grid-template-columns: 1fr; } .mode-hint { display: block; margin: 8px 0 0; } }

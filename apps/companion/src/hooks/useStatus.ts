@@ -18,8 +18,10 @@ export function useStatus() {
     refresh().finally(() => {
       if (!cancelled) setLoading(false);
     });
+    const timer = window.setInterval(() => void refresh(), 3000);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
