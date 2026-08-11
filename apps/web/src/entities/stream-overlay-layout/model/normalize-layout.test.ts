@@ -17,8 +17,11 @@ describe("normalizeOverlayLayout", () => {
             aspectRatio: { preset: "16:9", widthRatio: 16, heightRatio: 9 },
         });
 
-        expect(layout.version).toBe(4);
+        expect(layout.version).toBe(5);
         expect(layout.scenes.gameplay.widgets.session.xVw).toBe(42);
+        expect(layout.scenes.gameplay.gameplayProtection.enabled).toBe(true);
+        expect(layout.scenes.gameplay.gameplayProtection.zones[0]?.id).toBe("buyback-portraits");
+        expect(layout.scenes.draft.gameplayProtection).toEqual({ enabled: false, zones: [] });
         expect(layout.scenes.draft.widgets.session.visible).toBe(true);
     });
 

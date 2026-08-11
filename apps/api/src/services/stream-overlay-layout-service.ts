@@ -118,10 +118,26 @@ export interface MinimapCoverSettings {
     size: number;
 }
 
+export interface GameplayProtectionZone {
+    id: string;
+    label: string;
+    enabled: boolean;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export interface GameplayProtectionSettings {
+    enabled: boolean;
+    zones: GameplayProtectionZone[];
+}
+
 export interface OverlaySceneLayout {
     widgets: OverlayLayoutWidgets;
     cameraZone: CameraZone;
     minimapCover: MinimapCoverSettings;
+    gameplayProtection: GameplayProtectionSettings;
 }
 
 export const DRAFT_PROTECTION_MODES = ["off", "cover", "substitute"] as const;
@@ -131,7 +147,7 @@ export interface DraftProtectionSettings {
 }
 
 export type OverlayLayout = {
-    version: 4;
+    version: 5;
     scenes: {
         draft: OverlaySceneLayout;
         gameplay: OverlaySceneLayout;
@@ -178,7 +194,7 @@ const defaultGameplayWidgets: OverlayLayoutWidgets = {
 };
 
 export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
-    version: 4,
+    version: 5,
     scenes: {
         gameplay: {
             widgets: defaultGameplayWidgets,
@@ -191,6 +207,9 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
                 height: 300,
             },
             minimapCover: { enabled: true, preset: "random-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
+            gameplayProtection: { enabled: true, zones: [
+                { id: "buyback-portraits", label: "Buyback portrait borders", enabled: true, x: 488, y: 0, width: 944, height: 76 },
+            ] },
         },
         draft: {
             widgets: {
@@ -212,6 +231,7 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
                 height: 300,
             },
             minimapCover: { enabled: false, preset: "random-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
+            gameplayProtection: { enabled: false, zones: [] },
         },
     },
     aspectRatio: DEFAULT_OVERLAY_ASPECT_RATIO,
@@ -413,6 +433,32 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
         };
     };
 
+    const normalizeGameplayProtection = (
+        value: unknown,
+        fallback: GameplayProtectionSettings
+    ): GameplayProtectionSettings => {
+        if (typeof value !== "object" || value === null) return fallback;
+        const raw = value as Record<string, unknown>;
+        const zones = Array.isArray(raw.zones)
+            ? raw.zones.flatMap((value, index) => {
+                  if (typeof value !== "object" || value === null) return [];
+                  const zone = value as Record<string, unknown>;
+                  const number = (key: string, fallbackValue: number) =>
+                      typeof zone[key] === "number" ? zone[key] as number : fallbackValue;
+                  return [{
+                      id: typeof zone.id === "string" ? zone.id.slice(0, 80) : "zone-" + (index + 1),
+                      label: typeof zone.label === "string" ? zone.label.slice(0, 80) : "Zone " + (index + 1),
+                      enabled: zone.enabled !== false,
+                      x: clamp(number("x", 0), 0, 1920),
+                      y: clamp(number("y", 0), 0, 1080),
+                      width: clamp(number("width", 80), 8, 1920),
+                      height: clamp(number("height", 24), 8, 1080),
+                  }];
+              }).slice(0, 20)
+            : fallback.zones;
+        return { enabled: raw.enabled !== false, zones };
+    };
+
     const rawScenes = parsed.data.scenes ?? {};
     const layoutVersion = typeof parsed.data.version === "number" ? parsed.data.version : 1;
     const rawGameplay = rawScenes.gameplay as Record<string, unknown> | undefined;
@@ -426,7 +472,7 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
     ).parse(parsed.data.aspectRatio);
 
     return {
-        version: 4,
+        version: 5,
         scenes: {
             gameplay: {
                 widgets: normalizeWidgets(
@@ -439,6 +485,7 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
                     layoutVersion
                 ),
                 minimapCover: normalizeMinimapCover(rawGameplay?.minimapCover, gameplayDefaults.minimapCover),
+                gameplayProtection: normalizeGameplayProtection(rawGameplay?.gameplayProtection, gameplayDefaults.gameplayProtection),
             },
             draft: {
                 widgets: normalizeWidgets(rawDraft?.widgets, draftDefaults.widgets),
@@ -448,6 +495,7 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
                     layoutVersion
                 ),
                 minimapCover: normalizeMinimapCover(rawDraft?.minimapCover, draftDefaults.minimapCover),
+                gameplayProtection: normalizeGameplayProtection(rawDraft?.gameplayProtection, draftDefaults.gameplayProtection),
             },
         },
         aspectRatio,

@@ -45,7 +45,7 @@ const gameplayWidgets: OverlayLayout["scenes"]["gameplay"]["widgets"] = {
 };
 
 export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
-    version: 4,
+    version: 5,
     scenes: {
         gameplay: {
             widgets: gameplayWidgets,
@@ -58,6 +58,9 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
                 height: 300,
             },
             minimapCover: { enabled: true, preset: "random-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
+            gameplayProtection: { enabled: true, zones: [
+                { id: "buyback-portraits", label: "Buyback portrait borders", enabled: true, x: 488, y: 0, width: 944, height: 76 },
+            ] },
         },
         draft: {
             widgets: {
@@ -79,6 +82,7 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
                 height: 300,
             },
             minimapCover: { enabled: false, preset: "random-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
+            gameplayProtection: { enabled: false, zones: [] },
         },
     },
     aspectRatio: DEFAULT_OVERLAY_ASPECT_RATIO,
