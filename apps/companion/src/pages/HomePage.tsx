@@ -71,7 +71,7 @@ export function HomePage() {
   };
 
   const setAutomaticMode = (enabled: boolean) => {
-    if (status) void run(() => api.saveObsConfig({ ...status.obs_config, enabled }));
+    if (status) void run(() => api.setObsAutomation(enabled));
   };
 
   const latestEvent = history[0] ?? status?.last_event ?? null;
