@@ -1,0 +1,8 @@
+.zone {
+    position: absolute;
+    z-index: 1;
+    pointer-events: none;
+    background: linear-gradient(180deg, #171b22, #080a0e);
+    border: 1px solid rgb(158 166 181 / 42%);
+    box-shadow: inset 0 1px rgb(255 255 255 / 7%), 0 1px 4px rgb(0 0 0 / 70%);
+}

@@ -54,6 +54,7 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
             },
             cameraZone: { enabled: true, anchor: "bottom-right", x: 1860, y: 1013, width: 400, height: 300 },
             minimapCover: { enabled: true, preset: "random-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
+            gameplayProtection: { enabled: true, zones: [] },
         },
     },
     {
@@ -98,6 +99,7 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
             },
             cameraZone: { enabled: true, anchor: "bottom-right", x: 1860, y: 1013, width: 400, height: 300 },
             minimapCover: { enabled: true, preset: "random-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
+            gameplayProtection: { enabled: true, zones: [] },
         },
     },
     {
@@ -142,6 +144,7 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
             },
             cameraZone: { enabled: true, anchor: "bottom-right", x: 1860, y: 1013, width: 400, height: 300 },
             minimapCover: { enabled: true, preset: "random-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
+            gameplayProtection: { enabled: true, zones: [] },
         },
     },
     {
@@ -186,6 +189,7 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
             },
             cameraZone: { enabled: true, anchor: "bottom-right", x: 1860, y: 1013, width: 400, height: 300 },
             minimapCover: { enabled: true, preset: "random-a", anchor: "bottom-left", x: 0, y: 0, size: 282 },
+            gameplayProtection: { enabled: true, zones: [] },
         },
     },
 ];

@@ -1,6 +1,7 @@
 import { DEFAULT_OVERLAY_LAYOUT } from "./default-layout";
 import type {
     CameraZone,
+    GameplayProtectionSettings,
     MinimapCoverSettings,
     OverlayLayout,
     OverlayLayoutWidgets,
@@ -92,6 +93,32 @@ const normalizeMinimapCover = (value: unknown, fallback: MinimapCoverSettings): 
     };
 };
 
+const normalizeGameplayProtection = (
+    value: unknown,
+    fallback: GameplayProtectionSettings
+): GameplayProtectionSettings => {
+    const raw = asRecord(value);
+    if (!raw) return clone(fallback);
+    const zones = Array.isArray(raw.zones)
+        ? raw.zones.flatMap((value, index) => {
+              const zone = asRecord(value);
+              if (!zone) return [];
+              const number = (key: string, fallbackValue: number) =>
+                  typeof zone[key] === "number" ? zone[key] as number : fallbackValue;
+              return [{
+                  id: typeof zone.id === "string" ? zone.id : `zone-${index + 1}`,
+                  label: typeof zone.label === "string" ? zone.label.slice(0, 80) : `Zone ${index + 1}`,
+                  enabled: zone.enabled !== false,
+                  x: Math.min(Math.max(number("x", 0), 0), 1920),
+                  y: Math.min(Math.max(number("y", 0), 0), 1080),
+                  width: Math.min(Math.max(number("width", 80), 8), 1920),
+                  height: Math.min(Math.max(number("height", 24), 8), 1080),
+              }];
+          }).slice(0, 20)
+        : clone(fallback.zones);
+    return { enabled: raw.enabled !== false, zones };
+};
+
 const normalizeScene = (
     value: unknown,
     fallback: OverlaySceneLayout,
@@ -103,6 +130,10 @@ const normalizeScene = (
         widgets: normalizeWidgets(raw?.widgets ?? legacyWidgets, fallback.widgets),
         cameraZone: normalizeCameraZone(raw?.cameraZone, fallback.cameraZone, layoutVersion),
         minimapCover: normalizeMinimapCover(raw?.minimapCover, fallback.minimapCover),
+        gameplayProtection: normalizeGameplayProtection(
+            raw?.gameplayProtection,
+            fallback.gameplayProtection
+        ),
     };
 };
 
@@ -116,7 +147,7 @@ export const normalizeOverlayLayout = (value: unknown): OverlayLayout => {
     const layoutVersion = typeof raw?.version === "number" ? raw.version : 1;
 
     return {
-        version: 4,
+        version: 5,
         aspectRatio:
             aspectRatio &&
             typeof aspectRatio.widthRatio === "number" &&

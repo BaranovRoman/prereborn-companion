@@ -6,11 +6,13 @@ import {
     type OverlayAspectRatio,
     type MinimapCoverSettings,
     type DraftProtectionMode,
+    type GameplayProtectionSettings,
 } from "@/entities/stream-overlay-layout/model/types";
 import { computeSceneDimensions } from "@/entities/stream-overlay-layout/lib/scene-dimensions";
 import { GameUiReferenceLayer, type ReferenceBackgroundImage } from "./game-ui-reference-layer";
 import { AntiSnipeLayer } from "./anti-snipe-layer";
 import { DraftProtectionLayer } from "./draft-protection-layer";
+import { GameplayProtectionLayer } from "./gameplay-protection-layer";
 import styles from "./overlay-canvas.module.scss";
 
 export interface OverlaySceneContext {
@@ -40,6 +42,7 @@ interface OverlayCanvasProps {
     showSafeArea?: boolean;
     minimapCover?: MinimapCoverSettings;
     draftProtectionMode?: DraftProtectionMode;
+    gameplayProtection?: GameplayProtectionSettings;
     // "Фон для примерки" (см. задачу) - только editor читает его из
     // IndexedDB и передаёт сюда; live overlay (/overlay/:token) этот проп
     // никогда не передаёт, а GameUiReferenceLayer вдобавок сам игнорирует
@@ -65,6 +68,7 @@ export const OverlayCanvas = ({
     showSafeArea = false,
     minimapCover,
     draftProtectionMode,
+    gameplayProtection,
     referenceBackground = null,
     children,
 }: OverlayCanvasProps) => {
@@ -137,6 +141,7 @@ export const OverlayCanvas = ({
                     sceneHeight={sceneHeight}
                     settings={minimapCover}
                 />
+                <GameplayProtectionLayer settings={gameplayProtection} />
                 {draftProtectionMode && (
                     <DraftProtectionLayer mode={draftProtectionMode} />
                 )}

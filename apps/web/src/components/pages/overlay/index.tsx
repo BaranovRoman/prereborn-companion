@@ -12,6 +12,7 @@ import { RecentMatches } from "./widgets/recent-matches";
 import { DebugPanel } from "./debug-panel";
 import { QueueScene } from "@/components/pages/stream/queue/queue-scene";
 import { getBroadcastScene } from "./lib/get-broadcast-scene";
+import { resolveOverlayScene } from "./lib/resolve-overlay-scene";
 
 interface OverlayPageProps {
     publicToken: string;
@@ -50,11 +51,12 @@ export const OverlayPage = ({
 
     const layout = normalizeOverlayLayout(data.layout ?? DEFAULT_OVERLAY_LAYOUT);
     const derivedScene = getBroadcastScene(data.companion.payload);
-    const activeScene =
-        data.sceneOverride ??
-        (!data.companion.isOnline && layout.draftProtection.mode !== "off"
-            ? "draft"
-            : derivedScene);
+    const activeScene = resolveOverlayScene({
+        override: data.sceneOverride,
+        companionOnline: data.companion.isOnline,
+        derived: derivedScene,
+        draftProtectionMode: layout.draftProtection.mode,
+    });
 
     if (activeScene === "betweenMatches") {
         return (
@@ -79,6 +81,7 @@ export const OverlayPage = ({
                 mode="live"
                 aspectRatio={layout.aspectRatio}
                 minimapCover={layout.scenes[activeScene].minimapCover}
+                gameplayProtection={activeScene === "gameplay" ? layout.scenes.gameplay.gameplayProtection : undefined}
                 draftProtectionMode={
                     activeScene === "draft" ? layout.draftProtection.mode : undefined
                 }

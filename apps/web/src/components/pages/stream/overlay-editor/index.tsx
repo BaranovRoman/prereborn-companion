@@ -42,6 +42,8 @@ import { AnchorGrid } from "./anchor-grid";
 import { OVERLAY_LAYOUT_PRESETS } from "./presets";
 import { useReferenceBackground } from "./use-reference-background";
 import { CameraZoneEditor } from "./camera-zone-editor";
+import { GameplayProtectionEditor } from "./gameplay-protection-editor";
+import { UserPresets } from "./user-presets";
 import {
     PREVIEW_SESSION,
     PREVIEW_LAST_HERO_ID,
@@ -673,6 +675,8 @@ export const OverlayEditorPage = () => {
                     </div>
                 )}
 
+                <UserPresets layout={layout} onApply={setLayout} />
+
                 <details className={styles.advancedSection}>
                     <summary>Дополнительно: пропорции сцены</summary>
                     <div className={styles.advancedSectionBody}>
@@ -873,6 +877,16 @@ export const OverlayEditorPage = () => {
                     )}
                 </div>
 
+                {selectedScene === "gameplay" && (
+                    <GameplayProtectionEditor
+                        value={layout.scenes.gameplay.gameplayProtection}
+                        onChange={(gameplayProtection) => setLayout((current) => ({
+                            ...current,
+                            scenes: { ...current.scenes, gameplay: { ...current.scenes.gameplay, gameplayProtection } },
+                        }))}
+                    />
+                )}
+
                 <div className={styles.controls}>
                     <Collapse items={collapseItems} defaultActiveKey={[]} />
                 </div>
@@ -890,6 +904,7 @@ export const OverlayEditorPage = () => {
                         aspectRatio={layout.aspectRatio}
                         showSafeArea={showSafeArea}
                         minimapCover={activeSceneLayout.minimapCover}
+                        gameplayProtection={selectedScene === "gameplay" ? activeSceneLayout.gameplayProtection : undefined}
                         draftProtectionMode={
                             selectedScene === "draft"
                                 ? layout.draftProtection.mode

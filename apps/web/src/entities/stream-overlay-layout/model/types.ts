@@ -125,10 +125,26 @@ export interface MinimapCoverSettings {
     size: number;
 }
 
+export interface GameplayProtectionZone {
+    id: string;
+    label: string;
+    enabled: boolean;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
+export interface GameplayProtectionSettings {
+    enabled: boolean;
+    zones: GameplayProtectionZone[];
+}
+
 export interface OverlaySceneLayout {
     widgets: OverlayLayoutWidgets;
     cameraZone: CameraZone;
     minimapCover: MinimapCoverSettings;
+    gameplayProtection: GameplayProtectionSettings;
 }
 
 export const DRAFT_PROTECTION_MODES = ["off", "cover", "substitute"] as const;
@@ -139,7 +155,7 @@ export interface DraftProtectionSettings {
 }
 
 export type OverlayLayout = {
-    version: 4;
+    version: 5;
     scenes: Record<ConfigurableBroadcastSceneId, OverlaySceneLayout>;
     aspectRatio: OverlayAspectRatio;
     draftProtection: DraftProtectionSettings;
