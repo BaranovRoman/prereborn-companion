@@ -3,6 +3,7 @@ import { z } from "zod";
 import { upsertCompanionState } from "../../services/stream-companion-service.js";
 import { processGsiPayloadForMatch } from "../../services/stream-match-service.js";
 import { logger } from "../../utils/logger.js";
+import { getTwitchChatStatus } from "../../services/twitch-integration-service.js";
 
 // Разумный потолок для JSON-состояния GSI - даже со всеми data-категориями
 // включёнными (map/player/hero/abilities/items/events/buildings/league/
@@ -77,5 +78,20 @@ export const putCompanionGsiStateController = async (
             message: error instanceof Error ? error.message : String(error),
         });
         res.status(500).json({ error: "Внутренняя ошибка сервера" });
+    }
+};
+
+export const getCompanionTwitchChatController = async (
+    req: Request,
+    res: Response
+) => {
+    try {
+        res.json(await getTwitchChatStatus(req.streamUserId as string));
+    } catch (error) {
+        logger.error("Companion Twitch chat error", {
+            requestId: req.requestId,
+            message: error instanceof Error ? error.message : String(error),
+        });
+        res.status(502).json({ error: "Не удалось получить Twitch-чат" });
     }
 };

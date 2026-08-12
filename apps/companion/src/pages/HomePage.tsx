@@ -8,13 +8,14 @@ import { EventHistoryList } from "../components/EventHistoryList";
 import { LastEventPanel } from "../components/LastEventPanel";
 import { ObsScenePanel } from "../components/ObsScenePanel";
 import { StatusChecklist } from "../components/StatusChecklist";
+import { TwitchChatPage } from "../components/TwitchChatPage";
 import { useDiagnostics } from "../hooks/useDiagnostics";
 import { useGsiEvents } from "../hooks/useGsiEvents";
 import { useStatus } from "../hooks/useStatus";
 import * as api from "../services/dotaCompanionApi";
 import type { StatusSnapshot } from "../types/status";
 
-type View = "home" | "diagnostics";
+type View = "home" | "chat" | "diagnostics";
 type Scene = "betweenMatches" | "draft" | "gameplay";
 
 const sceneLabels: Record<Scene, string> = {
@@ -104,6 +105,7 @@ export function HomePage() {
         </div>
         <nav className="app-nav" aria-label="Разделы приложения">
           <button className={view === "home" ? "is-active" : ""} onClick={() => setView("home")}>Главная</button>
+          <button className={view === "chat" ? "is-active" : ""} onClick={() => setView("chat")}>Чат</button>
           <button className={view === "diagnostics" ? "is-active" : ""} onClick={() => setView("diagnostics")}>Диагностика</button>
         </nav>
       </header>
@@ -121,7 +123,7 @@ export function HomePage() {
           <li className={status?.obs_connected ? "is-complete" : ""}><strong>OBS</strong><span>{status?.obs_connected ? "WebSocket и сцены доступны" : status?.obs_state === "recovering" ? "Соединение восстанавливается" : "Настройте OBS WebSocket и сцены"}</span><ObsScenePanel status={status} onStatus={setStatus} /><button onClick={checkObs} disabled={busy || !status}>Проверить OBS</button></li>
         </ol>
         <div className="setup-guide__footer"><p>{ready ? "Все обязательные компоненты готовы." : "Завершение станет доступно, когда все обязательные проверки успешны."}</p><button className="button button--primary" onClick={finishSetup} disabled={!ready}>Завершить настройку</button></div>
-      </section> : view === "home" ? <>
+      </section> : view === "chat" ? <TwitchChatPage /> : view === "home" ? <>
         <section className={`readiness ${ready ? "readiness--ok" : "readiness--warning"}`}>
           <div>
             <span className="readiness__label">Состояние эфира</span>

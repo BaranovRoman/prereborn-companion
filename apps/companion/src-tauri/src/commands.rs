@@ -139,6 +139,11 @@ pub fn save_companion_token(
     Ok(state.snapshot())
 }
 
+
+#[tauri::command]
+pub fn get_twitch_chat(app: AppHandle) -> Result<serde_json::Value, String> {
+    backend::get_twitch_chat(&app)
+}
 #[tauri::command]
 pub fn resend_current_state(
     app: AppHandle,
