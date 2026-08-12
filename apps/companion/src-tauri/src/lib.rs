@@ -80,10 +80,16 @@ fn try_auto_provision(app: &tauri::AppHandle) {
             inner.gsi_installed = true;
             inner.gsi_config_path = Some(target.to_string_lossy().to_string());
             drop(inner);
-            storage::append_rolling_log(app, &format!("GSI config auto-installed at {}", target.display()));
+            storage::append_rolling_log(
+                app,
+                &format!("GSI config auto-installed at {}", target.display()),
+            );
         }
         Err(e) => {
-            storage::append_rolling_log(app, &format!("GSI auto-install failed, use the Install GSI button: {e}"));
+            storage::append_rolling_log(
+                app,
+                &format!("GSI auto-install failed, use the Install GSI button: {e}"),
+            );
         }
     }
 }
@@ -107,15 +113,11 @@ pub fn run() {
             storage::append_rolling_log(&handle, "PreReborn Companion starting up.");
             diagnostics::recover_last_session(&handle);
 
-            if let Err(e) = server::start(handle.clone()) {
-                storage::append_rolling_log(
-                    &handle,
-                    &format!("Failed to start GSI HTTP server: {e}"),
-                );
-            }
+            server::start(handle.clone());
 
             try_auto_provision(&handle);
             backend::init(handle.clone());
+            obs::init(handle.clone());
 
             build_tray(&handle)?;
 
