@@ -71,7 +71,10 @@ secrets may be absent initially. Adding or rotating one secret only requires
 updating that single GitHub Environment secret and rerunning the deployment.
 
 The workflow combines secrets with stable public settings, transfers the result
-over SSH without printing it and creates the runtime `.env` automatically.
+over SSH without printing it and creates the runtime `.env` automatically. The
+public web build also receives
+`NEXT_PUBLIC_MEDIA_BASE_URL=https://prereborn.ru/media`; media itself is deployed
+separately according to `docs/media-hosting.md`.
 
 Generate a dedicated deployment key locally:
 

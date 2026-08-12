@@ -9,6 +9,7 @@
 // Чтобы обновить список при выходе новых героев - повторить тот же запрос
 // к api.opendota.com/api/heroes и пересобрать этот файл, заводить под это
 // эндпоинт не нужно.
+import { buildMediaUrl } from "@/shared/config/media";
 import { buildHeroImageUrl } from "../lib/hero-image";
 import type { DotaHero } from "./types";
 import { getHeroAttribute } from "./attributes";
@@ -152,8 +153,8 @@ const RAW_HEROES: RawHero[] = [
 export const DOTA_HEROES: DotaHero[] = RAW_HEROES.map((hero) => ({
     ...hero,
     imageUrl: buildHeroImageUrl(hero.name),
-    videoUrl: `/vendor/valve/video/heroes/${hero.name}.webm`,
-    featuredVideoUrl: `/vendor/valve/video/heroes-featured/${hero.name}.webm`,
-    favoriteVideoUrl: `/vendor/valve/video/heroes-favorite/${hero.name}.webm`,
+    videoUrl: buildMediaUrl(`dota/heroes/${hero.name}.webm`),
+    featuredVideoUrl: buildMediaUrl(`dota/heroes-featured/${hero.name}.webm`),
+    favoriteVideoUrl: buildMediaUrl(`dota/heroes-favorite/${hero.name}.webm`),
     attribute: getHeroAttribute(hero.id),
 }));
