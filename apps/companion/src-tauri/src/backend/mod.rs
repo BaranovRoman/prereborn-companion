@@ -114,6 +114,31 @@ fn try_send_pending(app: &AppHandle) {
 
 /// Manual "resend current state" - ignores `dirty`, sends whatever the last
 /// known GSI payload was (even if it was already sent successfully before).
+
+pub fn get_twitch_chat(app: &AppHandle) -> Result<serde_json::Value, String> {
+    let token = app
+        .state::<AppState>()
+        .0
+        .lock()
+        .unwrap()
+        .companion_token
+        .clone()
+        .ok_or_else(|| "Сначала добавьте companion token.".to_string())?;
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .get(format!("{DEFAULT_BACKEND_URL}/stream/companion/twitch-chat"))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("Twitch-чат недоступен: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json()
+        .map_err(|error| format!("Неверный ответ Twitch-чата: {error}"))
+}
 pub fn resend_now(app: &AppHandle) -> Result<(), String> {
     let (payload, token) = {
         let state = app.state::<AppState>();

@@ -32,7 +32,7 @@ export const connectTwitchController = async (req: Request, res: Response) => {
     url.searchParams.set("state", state);
     url.searchParams.set(
         "scope",
-        "chat:read channel:read:subscriptions moderator:read:followers"
+        "user:read:chat channel:read:subscriptions moderator:read:followers"
     );
     url.searchParams.set("force_verify", "true");
     res.json({ redirectUrl: url.toString() });

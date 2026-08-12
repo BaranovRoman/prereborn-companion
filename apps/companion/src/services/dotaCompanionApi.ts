@@ -1,3 +1,20 @@
+
+export interface TwitchChatMessage {
+  id: string;
+  author: string;
+  color: string | null;
+  text: string;
+  badges: string[];
+  messageType: string;
+  receivedAt: string;
+}
+export interface TwitchChatStatus {
+  accountConnected: boolean;
+  configured: boolean;
+  displayName: string | null;
+  connected: boolean;
+  messages: TwitchChatMessage[];
+}
 import { invoke } from "@tauri-apps/api/core";
 import type { DiagnosticsStatusSnapshot, ObsConfig, StatusSnapshot } from "../types/status";
 
@@ -10,6 +27,7 @@ export const openDotaFolder = () => invoke<void>("open_dota_folder");
 export const clearLog = () => invoke<StatusSnapshot>("clear_log");
 export const saveCompanionToken = (token: string) =>
   invoke<StatusSnapshot>("save_companion_token", { token });
+export const getTwitchChat = () => invoke<TwitchChatStatus>("get_twitch_chat");
 export const resendCurrentState = () =>
   invoke<StatusSnapshot>("resend_current_state");
 export const saveObsConfig = (config: ObsConfig) =>

@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import WebSocket from "ws";
+import { TwitchEventSubChatClient, type TwitchChatMessage } from "./twitch-eventsub-chat.js";
 import { env } from "../config/env.js";
 import { pool } from "../db/client.js";
 
@@ -11,15 +11,6 @@ interface TwitchToken {
     access_token: string;
     refresh_token?: string;
     expires_in: number;
-}
-
-interface TwitchChatMessage {
-    id: string;
-    author: string;
-    color: string | null;
-    text: string;
-    badges: string[];
-    receivedAt: string;
 }
 
 interface TwitchSubscriber {
@@ -42,13 +33,7 @@ interface TwitchAudience {
     expiresAt: number;
 }
 
-interface TwitchChatConnection {
-    socket: WebSocket;
-    connected: boolean;
-    reconnectTimer?: ReturnType<typeof setTimeout>;
-}
-
-const chatConnections = new Map<string, TwitchChatConnection>();
+const chatConnections = new Map<string, TwitchEventSubChatClient>();
 const chatMessages = new Map<string, TwitchChatMessage[]>();
 const recentSubscribers = new Map<string, TwitchSubscriber[]>();
 const audienceCache = new Map<string, TwitchAudience>();
@@ -157,62 +142,6 @@ export const saveTwitchLink = async (
     stopTwitchChat(streamUserId);
 };
 
-const parseIrcTags = (raw: string) =>
-    Object.fromEntries(
-        raw.split(";").map((entry) => {
-            const [key, ...value] = entry.split("=");
-            return [key, value.join("=")];
-        })
-    );
-
-const decodeIrcTag = (value: string) =>
-    value
-        .replaceAll("\\s", " ")
-        .replaceAll("\\:", ";")
-        .replaceAll("\\r", "\r")
-        .replaceAll("\\n", "\n")
-        .replaceAll("\\\\", "\\");
-
-const appendChatMessage = (streamUserId: string, line: string) => {
-    const match = line.match(/^@([^ ]+) :[^ ]+ PRIVMSG #[^ ]+ :([\s\S]*)$/);
-    if (!match) return;
-    const tags = parseIrcTags(match[1]);
-    const author = decodeIrcTag(tags["display-name"] || "");
-    if (!author) return;
-    const message: TwitchChatMessage = {
-        id: tags.id || crypto.randomUUID(),
-        author,
-        color: tags.color || null,
-        text: match[2],
-        badges: (tags.badges || "").split(",").filter(Boolean),
-        receivedAt: new Date().toISOString(),
-    };
-    const next = [...(chatMessages.get(streamUserId) ?? []), message].slice(-CHAT_MESSAGE_LIMIT);
-    chatMessages.set(streamUserId, next);
-};
-
-const appendSubscriber = (streamUserId: string, line: string) => {
-    const match = line.match(/^@([^ ]+) :[^ ]+ USERNOTICE #[^ ]+/);
-    if (!match) return;
-    const tags = parseIrcTags(match[1]);
-    const kind = tags["msg-id"];
-    if (!["sub", "resub", "subgift", "anonsubgift"].includes(kind)) return;
-    const name = decodeIrcTag(
-        tags["msg-param-recipient-display-name"] || tags["display-name"] || "Anonymous"
-    );
-    const subscriber: TwitchSubscriber = {
-        id: tags.id || crypto.randomUUID(),
-        name,
-        tier: tags["msg-param-sub-plan"] || "1000",
-        isGift: kind === "subgift" || kind === "anonsubgift",
-        receivedAt: new Date().toISOString(),
-    };
-    const next = [subscriber, ...(recentSubscribers.get(streamUserId) ?? [])]
-        .filter((entry, index, list) => list.findIndex((item) => item.name === entry.name) === index)
-        .slice(0, 6);
-    recentSubscribers.set(streamUserId, next);
-};
-
 const getTwitchUserToken = async (streamUserId: string) => {
     const result = await pool.query<{
         access_token: string | null;
@@ -244,59 +173,33 @@ const getTwitchUserToken = async (streamUserId: string) => {
          SET access_token = $2, refresh_token = COALESCE($3, refresh_token),
              token_expires_at = $4, updated_at = CURRENT_TIMESTAMP
          WHERE stream_user_id = $1`,
-        [
-            streamUserId,
-            token.access_token,
-            token.refresh_token ?? null,
-            new Date(Date.now() + token.expires_in * 1000),
-        ]
+        [streamUserId, token.access_token, token.refresh_token ?? null,
+            new Date(Date.now() + token.expires_in * 1000)]
     );
     return token.access_token;
 };
-
 const stopTwitchChat = (streamUserId: string) => {
-    const connection = chatConnections.get(streamUserId);
-    if (!connection) return;
-    if (connection.reconnectTimer) clearTimeout(connection.reconnectTimer);
+    chatConnections.get(streamUserId)?.stop();
     chatConnections.delete(streamUserId);
-    connection.socket.close();
 };
 
-const ensureTwitchChat = async (streamUserId: string, login: string) => {
+const ensureTwitchChat = (streamUserId: string, broadcasterId: string) => {
     if (chatConnections.has(streamUserId)) return;
-    const accessToken = await getTwitchUserToken(streamUserId);
-    if (!accessToken) return;
+    const config = getTwitchConfig();
+    if (!config) return;
 
-    const socket = new WebSocket("wss://irc-ws.chat.twitch.tv:443");
-    const connection: TwitchChatConnection = { socket, connected: false };
-    chatConnections.set(streamUserId, connection);
-
-    socket.on("open", () => {
-        socket.send("CAP REQ :twitch.tv/tags twitch.tv/commands");
-        socket.send(`PASS oauth:${accessToken}`);
-        socket.send(`NICK ${login}`);
-        socket.send(`JOIN #${login}`);
+    const client = new TwitchEventSubChatClient({
+        broadcasterId,
+        clientId: config.clientId,
+        getAccessToken: () => getTwitchUserToken(streamUserId),
+        onMessage: (message) => {
+            const messages = chatMessages.get(streamUserId) ?? [];
+            if (messages.some(({ id }) => id === message.id)) return;
+            chatMessages.set(streamUserId, [...messages, message].slice(-CHAT_MESSAGE_LIMIT));
+        },
     });
-    socket.on("message", (payload) => {
-        const lines = payload.toString().split("\r\n");
-        for (const line of lines) {
-            if (line.startsWith("PING ")) {
-                socket.send(line.replace("PING", "PONG"));
-                continue;
-            }
-            if (line.includes(" 001 ") || line.includes(" JOIN #")) connection.connected = true;
-            appendChatMessage(streamUserId, line);
-            appendSubscriber(streamUserId, line);
-        }
-    });
-    socket.on("close", () => {
-        if (chatConnections.get(streamUserId) !== connection) return;
-        chatConnections.delete(streamUserId);
-        connection.reconnectTimer = setTimeout(() => {
-            void ensureTwitchChat(streamUserId, login);
-        }, 5_000);
-    });
-    socket.on("error", () => socket.close());
+    chatConnections.set(streamUserId, client);
+    client.start();
 };
 
 const getTwitchAudience = async (streamUserId: string, broadcasterId: string) => {
@@ -399,7 +302,7 @@ export const getTwitchStatus = async (streamUserId: string) => {
         };
     }
 
-    void ensureTwitchChat(streamUserId, link.login);
+    ensureTwitchChat(streamUserId, link.twitch_user_id);
     const audience = await getTwitchAudience(streamUserId, link.twitch_user_id);
 
     let live: null | { title: string; viewerCount: number; gameName: string } = null;
@@ -437,6 +340,35 @@ export const getTwitchStatus = async (streamUserId: string) => {
     };
 };
 
+
+export const getTwitchChatStatus = async (streamUserId: string) => {
+    const result = await pool.query<{
+        twitch_user_id: string;
+        display_name: string;
+    }>(
+        `SELECT twitch_user_id, display_name
+         FROM stream_twitch_links WHERE stream_user_id = $1`,
+        [streamUserId]
+    );
+    const link = result.rows[0];
+    if (!link) {
+        return {
+            accountConnected: false,
+            configured: Boolean(getTwitchConfig()),
+            displayName: null,
+            connected: false,
+            messages: [],
+        };
+    }
+    ensureTwitchChat(streamUserId, link.twitch_user_id);
+    return {
+        accountConnected: true,
+        configured: Boolean(getTwitchConfig()),
+        displayName: link.display_name,
+        connected: chatConnections.get(streamUserId)?.connected ?? false,
+        messages: chatMessages.get(streamUserId) ?? [],
+    };
+};
 export const disconnectTwitch = async (streamUserId: string) => {
     stopTwitchChat(streamUserId);
     chatMessages.delete(streamUserId);
