@@ -1,4 +1,5 @@
 import { DEFAULT_OVERLAY_LAYOUT } from "./default-layout";
+import { RECENT_MATCHES_LIMIT_MAX, RECENT_MATCHES_LIMIT_MIN } from "./types";
 import type {
     CameraZone,
     MinimapCoverSettings,
@@ -29,12 +30,27 @@ const normalizeWidgets = (
     }
     const recentMatches = asRecord(raw.recentMatches);
     if (recentMatches) {
+        const settings = asRecord(recentMatches.recentMatches);
+        const rawLimit = settings?.limit;
+        const limit =
+            typeof rawLimit === "number" &&
+            Number.isInteger(rawLimit) &&
+            rawLimit >= RECENT_MATCHES_LIMIT_MIN &&
+            rawLimit <= RECENT_MATCHES_LIMIT_MAX
+                ? rawLimit
+                : result.recentMatches.recentMatches.limit;
+        const source =
+            settings?.source === "recent-matches"
+                ? "recent-matches"
+                : "current-stream";
         result.recentMatches = {
             ...result.recentMatches,
             ...recentMatches,
             recentMatches: {
                 ...result.recentMatches.recentMatches,
-                ...(asRecord(recentMatches.recentMatches) ?? {}),
+                ...(settings ?? {}),
+                limit,
+                source,
             },
         };
     }

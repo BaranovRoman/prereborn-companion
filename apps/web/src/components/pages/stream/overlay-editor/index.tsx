@@ -38,6 +38,7 @@ import {
 import { SessionStats } from "@/components/pages/overlay/widgets/session-stats";
 import { CurrentGame } from "@/components/pages/overlay/widgets/current-game";
 import { RecentMatches } from "@/components/pages/overlay/widgets/recent-matches";
+import { selectRecentMatches } from "@/components/pages/overlay/lib/select-recent-matches";
 import { AnchorGrid } from "./anchor-grid";
 import { OVERLAY_LAYOUT_PRESETS } from "./presets";
 import { useReferenceBackground } from "./use-reference-background";
@@ -46,6 +47,7 @@ import {
     PREVIEW_SESSION,
     PREVIEW_LAST_HERO_ID,
     PREVIEW_MATCHES,
+    PREVIEW_CURRENT_STREAM_MATCHES,
     PREVIEW_GAME_MODE,
 } from "./preview-data";
 import styles from "./index.module.scss";
@@ -76,6 +78,11 @@ const SCALE_OPTIONS = [
 const DIRECTION_OPTIONS = [
     { label: "Новые сверху", value: "newest-first" as const },
     { label: "Старые сверху", value: "oldest-first" as const },
+];
+
+const RECENT_MATCHES_SOURCE_OPTIONS = [
+    { label: "Текущий стрим", value: "current-stream" as const },
+    { label: "Последние матчи", value: "recent-matches" as const },
 ];
 
 const CORNER_OPTIONS = [
@@ -497,7 +504,13 @@ export const OverlayEditorPage = () => {
             case "recentMatches":
                 return (
                     <RecentMatches
-                        matches={PREVIEW_MATCHES}
+                        matches={selectRecentMatches(
+                            {
+                                matches: PREVIEW_CURRENT_STREAM_MATCHES,
+                                recentMatches: PREVIEW_MATCHES,
+                            },
+                            recentMatchesSettings.source
+                        )}
                         settings={recentMatchesSettings}
                         anchor={activeSceneLayout.widgets.recentMatches.anchor}
                     />
@@ -549,6 +562,17 @@ export const OverlayEditorPage = () => {
 
                     {id === "recentMatches" && (
                         <div className={styles.recentMatchesSettings}>
+                            <div className={styles.settingsRow}>
+                                <span className={styles.settingsRowLabel}>Источник</span>
+                                <Segmented
+                                    size="small"
+                                    value={recentMatchesSettings.source}
+                                    options={RECENT_MATCHES_SOURCE_OPTIONS}
+                                    onChange={(source) =>
+                                        updateRecentMatchesSettings({ source })
+                                    }
+                                />
+                            </div>
                             <div className={styles.settingsRow}>
                                 <span className={styles.settingsRowLabel}>
                                     Количество матчей

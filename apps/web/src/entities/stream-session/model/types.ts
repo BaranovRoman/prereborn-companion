@@ -135,6 +135,7 @@ export interface OverlayData {
     // Последние завершённые матчи, новые сверху (см. ORDER BY ended_at DESC
     // в stream-match-service.ts) - пусто, пока не завершился ни один матч.
     matches: StreamMatch[];
+    recentMatches?: StreamMatch[];
     companion: OverlayCompanionState;
     steam: {
         connected: boolean;

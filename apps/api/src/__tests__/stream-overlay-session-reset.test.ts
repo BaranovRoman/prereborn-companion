@@ -6,6 +6,7 @@ import { app } from "../app.js";
 import { pool } from "../db/client.js";
 import { createTables } from "../db/migrate.js";
 import { getRecentMatchesForSession } from "../services/stream-match-service.js";
+import { DEFAULT_OVERLAY_LAYOUT, saveOverlayLayout } from "../services/stream-overlay-layout-service.js";
 
 // Регрессия: "начать новый стрим" не должен оставлять в публичном overlay
 // список матчей от предыдущей (уже закрытой) сессии - см. задачу. Матчи в
@@ -79,5 +80,31 @@ describe("overlay recent matches after session reset", () => {
         expect(res.status).toBe(200);
         expect(res.body.matches).toHaveLength(1);
         expect(res.body.matches[0].heroId).toBe(2);
+    });
+
+    it("Recent matches ignores the session boundary without filling current stream", async () => {
+        const layout = structuredClone(DEFAULT_OVERLAY_LAYOUT);
+        for (const scene of Object.values(layout.scenes)) {
+            scene.widgets.recentMatches.recentMatches = { ...scene.widgets.recentMatches.recentMatches, limit: 10, source: "recent-matches" };
+        }
+        await saveOverlayLayout(streamUserId.toString(), layout);
+        const res = await request(app).get(`/api/stream/overlay/${publicToken}`);
+        expect(res.status).toBe(200);
+        expect(res.body.matches).toEqual([]);
+        expect(res.body.recentMatches.map((match: { heroId: number }) => match.heroId)).toEqual([2, 1]);
+    });
+
+    it("returns more than five current-stream matches without previous-session rows", async () => {
+        for (let heroId = 3; heroId <= 9; heroId += 1) await insertMatch(activeSessionId, heroId);
+        const layout = structuredClone(DEFAULT_OVERLAY_LAYOUT);
+        for (const scene of Object.values(layout.scenes)) {
+            scene.widgets.recentMatches.recentMatches = { ...scene.widgets.recentMatches.recentMatches, limit: 8, source: "current-stream" };
+        }
+        await saveOverlayLayout(streamUserId.toString(), layout);
+        const res = await request(app).get(`/api/stream/overlay/${publicToken}`);
+        expect(res.status).toBe(200);
+        expect(res.body.matches).toHaveLength(8);
+        expect(res.body.matches.map((match: { heroId: number }) => match.heroId)).not.toContain(1);
+        expect(res.body.recentMatches).toEqual([]);
     });
 });

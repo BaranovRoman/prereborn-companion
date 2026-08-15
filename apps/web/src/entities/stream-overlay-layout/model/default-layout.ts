@@ -31,6 +31,7 @@ const gameplayWidgets: OverlayLayout["scenes"]["gameplay"]["widgets"] = {
             anchor: "top-left",
             recentMatches: {
                 limit: 5,
+                source: "current-stream",
                 direction: "newest-first",
                 compact: true,
             },

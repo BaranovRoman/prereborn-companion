@@ -80,6 +80,7 @@ export const RECENT_MATCHES_LIMIT_MAX = 20;
 // layout JSON (см. задачу, п.3).
 export interface RecentMatchesSettings {
     limit: number;
+    source: "current-stream" | "recent-matches";
     direction: "newest-first" | "oldest-first";
     compact: boolean;
 }
