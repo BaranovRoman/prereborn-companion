@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ObsConfig, StatusSnapshot } from "../types/status";
 import * as api from "../services/dotaCompanionApi";
+import { missingMappedScenes, sceneMappings, sceneOptions } from "./obsSceneMapping";
 
 interface Props {
   status: StatusSnapshot | null;
@@ -13,10 +14,17 @@ const sceneLabel = {
   gameplay: "Игра",
 };
 
+const mappingKey = {
+  betweenMatches: "between_matches_scene",
+  draft: "draft_scene",
+  gameplay: "gameplay_scene",
+} as const;
+
 export function ObsScenePanel({ status, onStatus }: Props) {
   const [config, setConfig] = useState<ObsConfig | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [scenes, setScenes] = useState<string[] | null>(null);
 
   useEffect(() => {
     if (status && !config) setConfig(status.obs_config);
@@ -24,15 +32,31 @@ export function ObsScenePanel({ status, onStatus }: Props) {
 
   if (!status || !config) return null;
   const patch = (value: Partial<ObsConfig>) => setConfig({ ...config, ...value });
+  const missingScenes = missingMappedScenes(config, scenes);
+  const hasEmptyMapping = sceneMappings.some(({ key }) => !config[key].trim());
 
   const save = async () => {
+    if (hasEmptyMapping) {
+      setMessage("Ошибка: выберите OBS scene для каждого состояния.");
+      return;
+    }
+    if (missingScenes.length > 0) {
+      setMessage("Ошибка: выберите существующую OBS scene вместо отсутствующей.");
+      return;
+    }
     setBusy(true);
     setMessage(null);
     try {
       const updated = await api.saveObsConfig(config);
       onStatus(updated);
       setConfig({ ...updated.obs_config, password: "" });
-      setMessage("Настройки сохранены локально.");
+      const unavailable = !updated.obs_connected;
+      if (unavailable) setScenes(null);
+      setMessage(
+        unavailable
+          ? "Настройки сохранены локально. OBS сейчас недоступен, список сцен не проверен."
+          : "Настройки сохранены локально."
+      );
     } catch (error) {
       setMessage("Ошибка: " + String(error));
     } finally {
@@ -40,19 +64,25 @@ export function ObsScenePanel({ status, onStatus }: Props) {
     }
   };
 
-  const test = async () => {
+  const refreshScenes = async () => {
     setBusy(true);
     setMessage(null);
     try {
-      const scenes = await api.testObsConnection();
+      const availableScenes = await api.testObsConnection();
+      setScenes(availableScenes);
       onStatus(await api.getStatus());
-      setMessage("OBS подключён. Найдено сцен: " + scenes.length + ".");
+      setMessage("OBS подключён. Найдено сцен: " + availableScenes.length + ".");
     } catch (error) {
-      setMessage("Ошибка подключения: " + String(error));
+      setScenes(null);
+      setMessage("OBS сейчас недоступен, сохранённые значения не изменены: " + String(error));
     } finally {
       setBusy(false);
     }
   };
+
+  const activeMapping = status.obs_active_scene
+    ? config[mappingKey[status.obs_active_scene]]
+    : null;
 
   return (
     <section className="obs-panel">
@@ -95,28 +125,34 @@ export function ObsScenePanel({ status, onStatus }: Props) {
         </label>
       </div>
       <div className="obs-panel__mapping">
-        <label>
-          <span>Между матчами</span>
-          <input value={config.between_matches_scene} onChange={(event) => patch({ between_matches_scene: event.target.value })} />
-        </label>
-        <label>
-          <span>Драфт</span>
-          <input value={config.draft_scene} onChange={(event) => patch({ draft_scene: event.target.value })} />
-        </label>
-        <label>
-          <span>Игра</span>
-          <input value={config.gameplay_scene} onChange={(event) => patch({ gameplay_scene: event.target.value })} />
-        </label>
+        {sceneMappings.map(({ key, label }) => {
+          const missing = scenes !== null && !!config[key] && !scenes.includes(config[key]);
+          return (
+            <label key={key} className={missing ? "is-invalid" : undefined}>
+              <span>{label}</span>
+              <select value={config[key]} onChange={(event) => patch({ [key]: event.target.value })}>
+                {!config[key] && <option value="">Выберите сцену</option>}
+                {sceneOptions(config[key], scenes).map((scene) => (
+                  <option key={scene} value={scene}>
+                    {missing && scene === config[key] ? scene + " — не найдена" : scene}
+                  </option>
+                ))}
+              </select>
+              {missing && <small>Scene удалена или переименована в OBS.</small>}
+            </label>
+          );
+        })}
       </div>
       <div className="action-buttons">
-        <button disabled={busy} onClick={save}>Сохранить</button>
-        <button disabled={busy} onClick={test}>Проверить подключение</button>
+        <button disabled={busy || hasEmptyMapping || missingScenes.length > 0} onClick={save}>Сохранить</button>
+        <button disabled={busy} onClick={refreshScenes}>Обновить список сцен</button>
       </div>
       <p className="obs-panel__status">
         {status.obs_connected ? "● OBS подключён" : "○ OBS не подключён"}
         {status.obs_active_scene
-          ? " · активна: " + sceneLabel[status.obs_active_scene]
+          ? " · состояние: " + sceneLabel[status.obs_active_scene] + " · mapped scene: " + activeMapping
           : ""}
+        {" · режим: " + (config.enabled ? "Automatic" : "Manual")}
       </p>
       {(message || status.obs_last_error) && (
         <p className={status.obs_last_error ? "obs-panel__error" : "obs-panel__message"}>

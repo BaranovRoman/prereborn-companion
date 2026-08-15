@@ -85,11 +85,13 @@ h1, h2, p { margin-top: 0; }
 .action-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
 .companion-token__row { display: flex; gap: 8px; }
 .companion-token__row input { flex: 1; }
-.companion-token input, .obs-panel input:not([type="checkbox"]) { min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: .6em .75em; color: inherit; background: #0e1119; }
+.companion-token input, .obs-panel input:not([type="checkbox"]), .obs-panel select { min-width: 0; border: 1px solid var(--border); border-radius: 8px; padding: .6em .75em; color: inherit; background: #0e1119; }
 .obs-panel__toggle { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .obs-panel__connection, .obs-panel__mapping { display: grid; gap: 10px; margin-bottom: 12px; }
 .obs-panel__connection { grid-template-columns: 1fr 100px 1fr; }
 .obs-panel label:not(.obs-panel__toggle) { display: grid; gap: 4px; color: var(--muted); font-size: .8rem; }
+.obs-panel label.is-invalid select { border-color: var(--danger); }
+.obs-panel label.is-invalid small { color: var(--danger); }
 .backend-status__error, .obs-panel__error { color: var(--danger); }
 .diagnostics-panel__warning { color: var(--warning); }
 .readiness__actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }

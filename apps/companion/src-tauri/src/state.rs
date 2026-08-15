@@ -95,6 +95,7 @@ pub struct InnerState {
     pub obs_config: ObsConfig,
     pub obs_connected: bool,
     pub obs_active_scene: Option<BroadcastScene>,
+    pub obs_active_scene_name: Option<String>,
     pub obs_switch_pending: Option<BroadcastScene>,
     pub obs_retry_scene: Option<BroadcastScene>,
     pub obs_retry_attempt: u32,
