@@ -60,7 +60,8 @@ Regenerate the exact manifest while the source files are present:
 node scripts/generate-media-hosting-manifest.mjs
 ```
 
-The phase-one code/config migration does not authorize deletion of source files,
-changes to `.gitattributes`, LFS pruning, or Git history rewriting. Historical
-LFS cleanup, if ever needed, is a separate decision and must not be performed as
-part of the current-tree migration.
+The source files were removed from the current repository tree only after all
+381 public URLs had been verified. The ignored source directory can be restored
+locally when preparing a future media update; regenerate the manifest before
+uploading it. Git history was not rewritten and historical LFS cleanup remains a
+separate, explicitly destructive decision.
