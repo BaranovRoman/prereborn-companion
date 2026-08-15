@@ -11,19 +11,6 @@ const nextConfig = {
       { source: "/uploads/:path*", destination: `${backendUrl}/uploads/:path*` }
     ];
   },
-  async headers() {
-    return [
-      {
-        source: "/vendor/valve/video/:path*",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "public, max-age=604800, stale-while-revalidate=86400"
-          }
-        ]
-      }
-    ];
-  },
   turbopack: {
     resolveAlias: { "@": "./src" },
     resolveExtensions: [".js", ".jsx", ".ts", ".tsx", ".json"]

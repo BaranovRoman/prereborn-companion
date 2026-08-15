@@ -56,12 +56,12 @@ The Codex App on Windows may intermittently fail before command or patch executi
 Examples include:
 
 - `windows sandbox helper_unknown_error`
-- sandbox/helper failure before command execution
-- `setup refresh` failures
-- ACL/sandbox setup failures
+- sandbox setup or command-launch failures
+- `setup refresh` or ACL failures
 - built-in `apply_patch` failing before modifying files
+- LF/CRLF exact-match mismatches
 
-Treat these as Codex infrastructure failures, not repository or application failures.
+Treat these as infrastructure/tooling failures, not repository or application defects. They must not terminate an otherwise recoverable workstream.
 
 #### Read-only command failures
 
@@ -69,49 +69,47 @@ If a normal read-only command fails before execution because of the Windows sand
 
 1. Retry the same operation once.
 2. Prefer an equivalent Git Bash-compatible command for the retry when applicable.
-3. If the retry also fails for the same infrastructure reason, report the failure if the requested information cannot otherwise be obtained safely.
+3. If the retry also fails, use a safe deterministic fallback or report the failure if the information cannot otherwise be obtained safely.
 4. Do not modify application code to work around the infrastructure failure.
 
 #### File editing failures
 
-If the built-in patch/edit mechanism fails because of a Windows sandbox/helper error:
+For normal edits:
 
-1. Retry the same patch once.
-2. If the second attempt fails with the same infrastructure error, fallback editing is explicitly allowed.
-3. Use the smallest deterministic fallback available.
-4. Keep the fallback strictly limited to the intended files and requested changes.
-5. Verify the resulting diff immediately before continuing.
+1. Try built-in `apply_patch`.
+2. If it fails once with a recognized Windows sandbox/helper error, retry once.
+3. If it fails again for the same reason, immediately switch to a deterministic fallback.
+4. Do not keep retrying the broken built-in mechanism during the same infrastructure incident.
 
 Fallback editing priority:
 
 1. Git Bash / standard repository tools.
 2. A small one-off Node.js script.
 3. `git apply` with a generated patch.
-4. PowerShell only when the previous options are impractical.
+4. PowerShell only when genuinely necessary.
 
-Do not stop an otherwise valid workstream solely because the built-in patch/edit mechanism is unavailable.
+Keep fallback edits strictly limited to the intended files and requested changes. Do not blindly chain unrelated editing mechanisms or create large reusable editing frameworks for ordinary work.
 
-Do not cycle through many different editing mechanisms. Once a deterministic fallback works, continue with that mechanism for the current edit.
+A failed fallback does not automatically require stopping the workstream. If it fails for a clearly understood mechanical reason such as LF/CRLF differences, quoting or escaping, Windows/POSIX path representation, or an unavailable shell shim, inspect the target file and repository state, then adapt the same deterministic fallback. Fallback scripts may normalize LF/CRLF in memory for matching and must write the repository's intended line endings.
 
-Do not create reusable custom editing frameworks such as large `Replace-Exact`, `ReadAllText` / `WriteAllText`, or similar helpers unless there is no simpler deterministic option.
+Stop only when:
 
-After every fallback edit, always run:
+- repository state is ambiguous;
+- a partial edit cannot be compared reliably with the intended result;
+- unrelated modifications cannot be safely separated;
+- the target cannot be parsed or read reliably;
+- continuing risks losing user work;
+- trivial commands fail before execution because the whole sandbox/helper is unhealthy.
 
+After every fallback edit, run and inspect:
+
+- `git status`
 - `git diff --check`
 - `git diff`
 
-Inspect the resulting diff before continuing.
+If the diff exactly represents the intended change, continue the workstream. If validation exposes a real code problem, fix it normally and run the relevant targeted validation.
 
-Then run the relevant targeted tests, typecheck, lint, or build required to validate the affected code.
-
-If a fallback edit:
-
-- partially succeeds;
-- produces an unexpected diff;
-- modifies unrelated files;
-- cannot be verified reliably;
-
-stop and report the exact repository state instead of attempting blind repairs.
+Do not treat LF/CRLF mismatch by itself as unrecoverable. Repository text remains LF-only unless explicitly Windows-specific; avoid exact-match strategies that unnecessarily depend on platform line endings.
 
 ### Git
 
@@ -189,10 +187,16 @@ When a build, test, lint, typecheck, or other validation command is still runnin
 - do not restart the same command solely because it is taking longer than expected;
 - do not start unrelated edits while required validation is still running;
 - if the command was launched through the wrong shell or blocked by a `.ps1` shim, restart it once using Git Bash or the appropriate `.cmd` shim.
+- after a timeout, run a trivial health check such as `echo` and `git status` before continuing;
+- if trivial checks also fail before execution, treat it as a sandbox-wide failure and stop;
+- never use broad `taskkill` or `Stop-Process` commands that may terminate unrelated user Node processes;
+- do not run `pnpm install` unless dependency installation is actually required.
 
 ### Workflow continuity
 
 Infrastructure failures should interrupt only the affected operation, not automatically abandon the entire ticket workstream.
+
+Preserve the current branch, working-tree changes, completed discovery, completed ticket workflow actions, and successful validation. Recover only the failed operation, verify repository state, and continue. Stop for infrastructure reasons only when the execution environment is unusable or repository state cannot be safely determined.
 
 When a safe fallback is available:
 
