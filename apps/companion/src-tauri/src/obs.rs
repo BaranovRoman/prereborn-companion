@@ -12,6 +12,7 @@ use crate::state::AppState;
 use crate::storage;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ObsConfig {
     pub enabled: bool,
     pub host: String,
@@ -33,6 +34,54 @@ impl Default for ObsConfig {
             draft_scene: "Dota — Драфт".into(),
             gameplay_scene: "Dota — Игра".into(),
         }
+    }
+}
+
+impl ObsConfig {
+    pub fn mapped_scene_names(&self) -> [&str; 3] {
+        [
+            self.between_matches_scene.as_str(),
+            self.draft_scene.as_str(),
+            self.gameplay_scene.as_str(),
+        ]
+    }
+
+    fn is_active_mapping(
+        &self,
+        desired: BroadcastScene,
+        active_scene: Option<BroadcastScene>,
+        active_scene_name: Option<&str>,
+    ) -> bool {
+        active_scene == Some(desired)
+            && active_scene_name == Some(desired.obs_scene_name(self))
+    }
+
+    pub fn validate_mapping(&self, available_scenes: Option<&[String]>) -> Result<(), String> {
+        let labels = ["Между матчами", "Драфт", "Игра"];
+        let empty: Vec<&str> = labels
+            .into_iter()
+            .zip(self.mapped_scene_names())
+            .filter_map(|(label, name)| name.trim().is_empty().then_some(label))
+            .collect();
+        if !empty.is_empty() {
+            return Err(format!("Выберите сцены OBS для: {}", empty.join(", ")));
+        }
+
+        if let Some(scenes) = available_scenes {
+            let missing: Vec<&str> = self
+                .mapped_scene_names()
+                .into_iter()
+                .filter(|name| !scenes.iter().any(|scene| scene == name))
+                .collect();
+            if !missing.is_empty() {
+                return Err(format!(
+                    "В OBS не найдены выбранные сцены: {}",
+                    missing.join(", ")
+                ));
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -280,6 +329,10 @@ pub fn handle_remote_command(app: &AppHandle, desired: BroadcastScene) {
     schedule_switch(app, desired, false);
 }
 
+pub fn reapply_current_mapping(app: &AppHandle, desired: BroadcastScene) {
+    schedule_switch(app, desired, true);
+}
+
 fn schedule_switch(app: &AppHandle, desired: BroadcastScene, require_enabled: bool) {
     let config = {
         let state = app.state::<AppState>();
@@ -291,7 +344,11 @@ fn schedule_switch(app: &AppHandle, desired: BroadcastScene, require_enabled: bo
         if inner.obs_switch_pending.is_some() || inner.obs_check_pending {
             return;
         }
-        if inner.obs_active_scene == Some(desired) {
+        if inner.obs_config.is_active_mapping(
+            desired,
+            inner.obs_active_scene,
+            inner.obs_active_scene_name.as_deref(),
+        ) {
             inner.obs_retry_scene = None;
             inner.obs_retry_at = None;
             inner.obs_retry_attempt = 0;
@@ -316,15 +373,20 @@ fn schedule_switch(app: &AppHandle, desired: BroadcastScene, require_enabled: bo
             }
             match &result {
                 Ok(()) => {
+                    let switched_scene_name = desired.obs_scene_name(&config).to_string();
                     inner.obs_connected = true;
                     inner.obs_active_scene = Some(desired);
+                    inner.obs_active_scene_name = Some(switched_scene_name.clone());
                     inner.obs_last_error = None;
                     inner.obs_last_checked_at = Some(Instant::now());
-                    if inner.obs_retry_scene == Some(desired) {
+                    let mapping_is_current =
+                        desired.obs_scene_name(&inner.obs_config) == switched_scene_name;
+                    if inner.obs_retry_scene == Some(desired) && mapping_is_current {
                         inner.obs_retry_scene = None;
                         inner.obs_retry_attempt = 0;
                         inner.obs_retry_at = None;
                     } else {
+                        inner.obs_retry_scene = Some(inner.obs_retry_scene.unwrap_or(desired));
                         inner.obs_retry_at = Some(Instant::now());
                     }
                 }
@@ -395,6 +457,84 @@ mod tests {
                 "player": { "activity": "playing" }
             })),
             BroadcastScene::BetweenMatches
+        );
+    }
+    #[test]
+    fn obs_config_uses_field_defaults_for_partial_legacy_json() {
+        let config: ObsConfig = serde_json::from_value(json!({
+            "enabled": true,
+            "gameplay_scene": "Custom gameplay"
+        }))
+        .unwrap();
+
+        assert!(config.enabled);
+        assert_eq!(config.host, "127.0.0.1");
+        assert_eq!(config.port, 4455);
+        assert_eq!(config.between_matches_scene, "Dota — Между матчами");
+        assert_eq!(config.draft_scene, "Dota — Драфт");
+        assert_eq!(config.gameplay_scene, "Custom gameplay");
+    }
+
+    #[test]
+    fn obs_config_preserves_complete_legacy_json() {
+        let config: ObsConfig = serde_json::from_value(json!({
+            "enabled": true,
+            "host": "obs.local",
+            "port": 4456,
+            "password": "secret",
+            "between_matches_scene": "Queue",
+            "draft_scene": "Draft",
+            "gameplay_scene": "Gameplay"
+        }))
+        .unwrap();
+
+        assert_eq!(config.mapped_scene_names(), ["Queue", "Draft", "Gameplay"]);
+        assert_eq!(config.host, "obs.local");
+        assert_eq!(config.port, 4456);
+        assert_eq!(config.password, "secret");
+    }
+
+    #[test]
+    fn mapping_validation_distinguishes_unavailable_and_missing_scenes() {
+        let config = ObsConfig::default();
+        assert!(config.validate_mapping(None).is_ok());
+
+        let available = vec![
+            config.between_matches_scene.clone(),
+            config.gameplay_scene.clone(),
+        ];
+        assert_eq!(
+            config.validate_mapping(Some(&available)).unwrap_err(),
+            "В OBS не найдены выбранные сцены: Dota — Драфт"
+        );
+    }
+
+    #[test]
+    fn changed_mapping_is_not_treated_as_an_already_active_scene() {
+        let mut config = ObsConfig::default();
+        let active_name = config.draft_scene.clone();
+
+        assert!(config.is_active_mapping(
+            BroadcastScene::Draft,
+            Some(BroadcastScene::Draft),
+            Some(&active_name)
+        ));
+
+        config.draft_scene = "Renamed draft".into();
+        assert!(!config.is_active_mapping(
+            BroadcastScene::Draft,
+            Some(BroadcastScene::Draft),
+            Some(&active_name)
+        ));
+    }
+
+    #[test]
+    fn mapping_validation_rejects_empty_values_without_obs() {
+        let mut config = ObsConfig::default();
+        config.draft_scene = "  ".into();
+        assert_eq!(
+            config.validate_mapping(None).unwrap_err(),
+            "Выберите сцены OBS для: Драфт"
         );
     }
 }

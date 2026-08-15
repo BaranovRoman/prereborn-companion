@@ -166,24 +166,57 @@ pub fn save_obs_config(
     if config.host.is_empty() {
         return Err("Укажите адрес OBS WebSocket.".into());
     }
-    {
+    let mapping_changed = {
         let inner = state.0.lock().unwrap();
         if config.password.is_empty() {
             config.password = inner.obs_config.password.clone();
+        }
+        config.mapped_scene_names() != inner.obs_config.mapped_scene_names()
+    };
+    config.validate_mapping(None)?;
+    let verification = obs::test_connection(&config);
+    if let Ok(scenes) = &verification {
+        if config.enabled || mapping_changed {
+            config.validate_mapping(Some(scenes))?;
         }
     }
     storage::save_obs_config(&app, &config).map_err(|e| e.to_string())?;
     {
         let mut inner = state.0.lock().unwrap();
+        let automation_was_enabled = inner.obs_config.enabled;
         inner.obs_config = config;
-        inner.obs_connected = false;
-        inner.obs_active_scene = None;
-        inner.obs_switch_pending = None;
-        inner.obs_last_error = None;
+        if !automation_was_enabled && inner.obs_config.enabled {
+            inner.obs_active_scene_name = None;
+        }
+        match &verification {
+            Ok(_) => {
+                inner.obs_connected = true;
+                inner.obs_last_error = None;
+            }
+            Err(error) => {
+                inner.obs_connected = false;
+                inner.obs_last_error = Some(format!(
+                    "Настройки сохранены, но сейчас невозможно проверить сцены: {error}"
+                ));
+            }
+        }
     }
     storage::append_rolling_log(&app, "OBS scene switching settings saved locally.");
-    if state.0.lock().unwrap().obs_config.enabled {
-        obs::handle_gsi(&app, &serde_json::json!({}));
+    let desired = {
+        let inner = state.0.lock().unwrap();
+        if inner.obs_config.enabled {
+            inner.obs_active_scene.or_else(|| {
+                inner
+                    .last_gsi_payload
+                    .as_ref()
+                    .map(BroadcastScene::from_gsi)
+            })
+        } else {
+            None
+        }
+    };
+    if let Some(desired) = desired {
+        obs::reapply_current_mapping(&app, desired);
     }
     Ok(state.snapshot())
 }
@@ -193,23 +226,6 @@ pub fn test_obs_connection(app: AppHandle, state: State<AppState>) -> Result<Vec
     let config = state.0.lock().unwrap().obs_config.clone();
     match obs::test_connection(&config) {
         Ok(scenes) => {
-            let expected = [
-                &config.between_matches_scene,
-                &config.draft_scene,
-                &config.gameplay_scene,
-            ];
-            let missing: Vec<&str> = expected
-                .into_iter()
-                .filter(|name| !scenes.contains(*name))
-                .map(String::as_str)
-                .collect();
-            if !missing.is_empty() {
-                let error = format!("OBS подключён, но не найдены сцены: {}", missing.join(", "));
-                let mut inner = state.0.lock().unwrap();
-                inner.obs_connected = false;
-                inner.obs_last_error = Some(error.clone());
-                return Err(error);
-            }
             let mut inner = state.0.lock().unwrap();
             inner.obs_connected = true;
             inner.obs_last_error = None;
@@ -245,6 +261,7 @@ pub fn switch_obs_scene(
             let mut inner = state.0.lock().unwrap();
             inner.obs_connected = true;
             inner.obs_active_scene = Some(scene);
+            inner.obs_active_scene_name = Some(scene.obs_scene_name(&config).to_string());
             inner.obs_last_error = None;
             drop(inner);
             storage::append_rolling_log(
