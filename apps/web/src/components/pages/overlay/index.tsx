@@ -12,6 +12,7 @@ import { RecentMatches } from "./widgets/recent-matches";
 import { DebugPanel } from "./debug-panel";
 import { QueueScene } from "@/components/pages/stream/queue/queue-scene";
 import { getBroadcastScene } from "./lib/get-broadcast-scene";
+import { selectRecentMatches } from "./lib/select-recent-matches";
 
 interface OverlayPageProps {
     publicToken: string;
@@ -113,7 +114,10 @@ export const OverlayPage = ({
                             sceneHeight={sceneHeight}
                         >
                             <RecentMatches
-                                matches={data.matches}
+                                matches={selectRecentMatches(
+                                    data,
+                                    widgets.recentMatches.recentMatches.source
+                                )}
                                 settings={widgets.recentMatches.recentMatches}
                                 anchor={widgets.recentMatches.anchor}
                             />

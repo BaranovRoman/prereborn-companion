@@ -137,3 +137,7 @@ export const PREVIEW_MATCHES: StreamMatch[] = [
         endedAt: minutesAgo(245),
     },
 ];
+
+// Текущая preview-session намеренно короче общей истории: Current stream
+// не дополняется строками из прошлых sessions.
+export const PREVIEW_CURRENT_STREAM_MATCHES = PREVIEW_MATCHES.slice(0, 5);

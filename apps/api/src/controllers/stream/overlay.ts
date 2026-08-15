@@ -8,6 +8,7 @@ import {
 import { getOrCreateActiveSession } from "../../services/stream-session-service.js";
 import { syncRecentMatches } from "../../services/dota-sync-service.js";
 import {
+    getRecentFinalizedMatches,
     getRecentMatchesForSession,
     getSessionStartRating,
 } from "../../services/stream-match-service.js";
@@ -56,12 +57,6 @@ export const getOverlayController = async (req: Request, res: Response) => {
         const steamProfile = steamLink
             ? await getCachedSteamProfile(steamLink.dotaAccountId)
             : null;
-        // Последние завершённые матчи, распознанные из GSI (см.
-        // services/stream-match-service.ts) - id/hero_id/K-D-A/result/endedAt
-        // only, без внутреннего streamUserId/сырого GSI payload матча.
-        // Скоуп по ТЕКУЩЕЙ сессии (не по streamUserId целиком) - иначе
-        // "начать новый стрим" не очищал бы этот список (см. задачу).
-        const matches = await getRecentMatchesForSession(session.id, 10);
         // Раскладка виджетов - редко меняется, но отдаётся вместе с
         // остальным payload'ом одного и того же поллинга (см. задачу, п.12):
         // отдельный опрос под layout не нужен.
@@ -76,6 +71,27 @@ export const getOverlayController = async (req: Request, res: Response) => {
                 });
                 return null;
             }),
+        ]);
+
+        const configuredRecentMatches = Object.values(layout.scenes).map(
+            (scene) => scene.widgets.recentMatches.recentMatches
+        );
+        const maxLimitFor = (source: "current-stream" | "recent-matches") =>
+            Math.max(
+                0,
+                ...configuredRecentMatches
+                    .filter((settings) => settings.source === source)
+                    .map((settings) => settings.limit)
+            );
+        const currentStreamLimit = maxLimitFor("current-stream");
+        const recentMatchesLimit = maxLimitFor("recent-matches");
+        const [matches, recentMatches] = await Promise.all([
+            currentStreamLimit > 0
+                ? getRecentMatchesForSession(session.id, currentStreamLimit)
+                : Promise.resolve([]),
+            recentMatchesLimit > 0
+                ? getRecentFinalizedMatches(streamUserId, recentMatchesLimit)
+                : Promise.resolve([]),
         ]);
 
         // Суммарное изменение рейтинга за текущую сессию (см. задачу: рядом
@@ -115,6 +131,21 @@ export const getOverlayController = async (req: Request, res: Response) => {
             gameMode,
             sceneOverride,
             matches: matches.map((match) => ({
+                id: match.id,
+                dotaMatchId: match.matchId,
+                heroId: match.heroId,
+                kills: match.kills,
+                deaths: match.deaths,
+                assists: match.assists,
+                inventory: match.inventory,
+                result: match.result,
+                ratingBefore: match.ratingBefore,
+                ratingDelta: match.ratingDelta,
+                ratingAfter: match.ratingAfter,
+                gameMode: match.gameMode,
+                endedAt: match.endedAt,
+            })),
+            recentMatches: recentMatches.map((match) => ({
                 id: match.id,
                 dotaMatchId: match.matchId,
                 heroId: match.heroId,

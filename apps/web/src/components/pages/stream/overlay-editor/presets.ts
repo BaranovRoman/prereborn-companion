@@ -26,6 +26,7 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                     anchor: "top-left",
                     recentMatches: {
                         limit: 5,
+                        source: "current-stream",
                         direction: "newest-first",
                         compact: true,
                     },
@@ -70,6 +71,7 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                     anchor: "bottom-left",
                     recentMatches: {
                         limit: 5,
+                        source: "current-stream",
                         direction: "newest-first",
                         compact: true,
                     },
@@ -128,6 +130,7 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                     anchor: "top-left",
                     recentMatches: {
                         limit: 3,
+                        source: "current-stream",
                         direction: "newest-first",
                         compact: true,
                     },
@@ -172,6 +175,7 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                     anchor: "top-left",
                     recentMatches: {
                         limit: 5,
+                        source: "current-stream",
                         direction: "newest-first",
                         compact: true,
                     },

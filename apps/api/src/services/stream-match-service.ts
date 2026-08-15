@@ -176,6 +176,21 @@ export const getRecentMatchesForSession = async (
     return result.rows.map(toStreamMatch);
 };
 
+// Account-wide выборка для публичного режима Recent matches. Здесь, как и
+// в session-scoped overlay, показываем только finalized результаты.
+export const getRecentFinalizedMatches = async (
+    streamUserId: string,
+    limit: number
+): Promise<StreamMatch[]> => {
+    const result = await pool.query<StreamMatchRow>(
+        "SELECT " + MATCH_COLUMNS + " FROM stream_matches " +
+            "WHERE stream_user_id = $1 AND state = 'finalized' " +
+            "ORDER BY id DESC LIMIT $2",
+        [streamUserId, limit]
+    );
+    return result.rows.map(toStreamMatch);
+};
+
 // Рейтинг сессии до самого первого её матча - см. исходный комментарий (не
 // заводить отдельную колонку под "стартовый рейтинг сессии").
 export const getSessionStartRating = async (

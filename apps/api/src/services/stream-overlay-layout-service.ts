@@ -83,6 +83,7 @@ export const DEFAULT_OVERLAY_ASPECT_RATIO: OverlayAspectRatio = {
 // не описано в схеме ниже - buildRecentMatchesSettingsSchema его игнорирует.
 export interface RecentMatchesSettings {
     limit: number;
+    source: "current-stream" | "recent-matches";
     direction: "newest-first" | "oldest-first";
     compact: boolean;
 }
@@ -164,6 +165,7 @@ const defaultGameplayWidgets: OverlayLayoutWidgets = {
             anchor: "top-left",
             recentMatches: {
                 limit: 5,
+                source: "current-stream",
                 direction: "newest-first",
                 compact: true,
             },
@@ -261,6 +263,7 @@ const buildRecentMatchesSettingsSchema = (fallback: RecentMatchesSettings) =>
     z
         .object({
             limit: limitSchema.catch(fallback.limit),
+            source: z.enum(["current-stream", "recent-matches"]).catch(fallback.source),
             direction: z
                 .enum(["newest-first", "oldest-first"])
                 .catch(fallback.direction),

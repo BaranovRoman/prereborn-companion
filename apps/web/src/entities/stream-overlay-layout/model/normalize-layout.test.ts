@@ -96,4 +96,25 @@ describe("normalizeOverlayLayout", () => {
             y: 1013,
         });
     });
+
+    it("defaults old Recent Games settings to five current-stream matches", () => {
+        const settings = normalizeOverlayLayout({ version: 4 }).scenes.gameplay.widgets.recentMatches.recentMatches;
+        expect(settings).toMatchObject({ limit: 5, source: "current-stream" });
+    });
+
+    it("preserves custom count/source and rejects invalid persisted values", () => {
+        const configured = normalizeOverlayLayout({
+            version: 4,
+            scenes: { gameplay: { widgets: { recentMatches: { recentMatches: { limit: 15, source: "recent-matches" } } } } },
+        }).scenes.gameplay.widgets.recentMatches.recentMatches;
+        expect(configured).toMatchObject({ limit: 15, source: "recent-matches" });
+
+        for (const limit of [0, 21, 2.5, Number.NaN]) {
+            const normalized = normalizeOverlayLayout({
+                version: 4,
+                scenes: { gameplay: { widgets: { recentMatches: { recentMatches: { limit, source: "invalid" } } } } },
+            }).scenes.gameplay.widgets.recentMatches.recentMatches;
+            expect(normalized).toMatchObject({ limit: 5, source: "current-stream" });
+        }
+    });
 });
