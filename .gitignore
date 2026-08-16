@@ -12,6 +12,8 @@ playwright-report/
 !.env.example
 .mcp.json
 .codex/config.toml
+graphify-out/
+.graphify_labels.json
 .claude/settings.local.json
 !env.production.example
 uploads/

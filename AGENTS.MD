@@ -40,78 +40,12 @@ A PowerShell ExecutionPolicy failure is an environment/shell issue, not an appli
 
 ### File editing
 
-Prefer the built-in patch/edit mechanism for normal repository changes.
-
 - Keep edits scoped to the requested task.
 - Preserve existing file encoding.
 - Keep repository text files LF-only unless the file is explicitly Windows-specific.
 - Do not silently continue after a partial or uncertain edit.
 - Do not use large reusable custom editing frameworks for ordinary work.
 - Do not modify unrelated files as part of an editing fallback.
-
-### Windows sandbox/helper failures
-
-Errors such as `helper_unknown_error`, `setup refresh had errors`, sandbox helper timeouts/failures, `apply_patch` infrastructure failures, and commands blocked by the Codex sandbox rather than the project are infrastructure failures, not application defects.
-
-#### Retry policy
-
-For the same operation:
-
-1. Retry the standard method at most once.
-2. If the error repeats, do not retry indefinitely.
-3. Switch to an allowed deterministic fallback.
-
-Do not restart the workstream or automatically ask the user to restart Codex solely because of a sandbox/helper failure.
-
-#### Allowed fallbacks
-
-If built-in patch/edit is unavailable:
-
-- use safe direct editing through an available shell, Python, Node.js, or a script;
-- read the current file before overwriting it;
-- change only the target section;
-- preserve line endings and encoding;
-- inspect the diff afterward.
-
-If Git Bash temporarily cannot start because of the sandbox, `cmd.exe` or another available shell may be used for simple read-only, Git, or file operations. Outside Git Bash use `pnpm.cmd`; never change PowerShell ExecutionPolicy. Using another shell after an infrastructure failure is not a workflow violation.
-
-#### File operations
-
-Deterministic Python/Node/script editing is allowed only when the exact file and expected replacement are known, current contents were checked, unknown sections are untouched, and the diff is checked afterward. Do not perform broad regex rewrites across the repository without inspection. LF/CRLF mismatch alone is not unrecoverable; repository text remains LF-only unless explicitly Windows-specific.
-
-#### Git safety
-
-Infrastructure failure is not grounds to stop when Git state can be checked. Before a potentially risky fallback:
-
-- check `git status` when Git is available;
-- never delete or overwrite uncommitted user changes;
-- never run `git reset --hard`, `git clean -fd`, check out unrelated files, or perform other destructive operations;
-- do not switch or recreate a branch when current work could be lost.
-
-If Git is temporarily unavailable only because of the helper, safe read/edit work may continue while commit/push is deferred until Git recovers.
-
-#### When to stop
-
-Stop only when current file contents cannot be determined before editing, unknown uncommitted changes might be overwritten, the current branch cannot be safely determined before destructive Git work, a fallback requires guessing, all safe read/edit methods are unavailable, or data loss is possible. `helper_unknown_error` and `setup refresh had errors` alone are not sufficient reasons.
-
-#### Validation in a degraded environment
-
-Run every available check. Do not count a sandbox/helper failure as a test failure. Explicitly list checks blocked by infrastructure and continue when available validation is sufficient for a safe result. If the environment recovers in the same workstream, run deferred relevant checks.
-
-#### Reporting
-
-Do not tell the user to restart Codex and ask to continue while a safe fallback remains. Briefly record the issue internally, apply the fallback, and continue. Ask the user to intervene only when safe continuation is genuinely impossible.
-
-#### Pet project policy
-
-This pet project operates in build-first mode. Priorities are:
-
-1. Preserve existing changes.
-2. Complete the task correctly.
-3. Use a reasonable deterministic fallback.
-4. Do not turn sandbox instability into a persistent blocker.
-
-Excessively stopping work because of tooling instability is undesirable.
 
 ### Git
 
@@ -136,7 +70,13 @@ Before committing:
 - run `git diff --check`;
 - run the relevant validation commands.
 
-Do not reset, discard, overwrite, or otherwise modify unrelated user changes.
+Protecting existing work:
+
+- Check `git status` before any operation that could discard uncommitted changes (checkout/restore/reset/clean, etc.).
+- Never delete or overwrite uncommitted user changes.
+- Never run `git reset --hard`, `git clean -fd`, force-push, or other destructive/history-rewriting operations unless explicitly requested.
+- Do not switch or recreate a branch when current work on it could be lost.
+- Do not reset, discard, overwrite, or otherwise modify unrelated user changes.
 
 ### Windows-specific operations
 
@@ -157,11 +97,11 @@ For these cases:
 - use `.cmd` shims for Node tooling where appropriate;
 - do not broaden PowerShell usage to ordinary repository work.
 
-### Shell and infrastructure failures
+### Shell and tooling issues
 
-Do not treat shell/tooling failures as application failures. These include PowerShell ExecutionPolicy, Windows sandbox/helper errors, quoting or path syntax problems, unavailable command shims, and PATH issues.
+Do not treat shell/tooling failures as application failures. These include PowerShell ExecutionPolicy errors, quoting or path syntax problems, unavailable command shims, and PATH issues.
 
-If a command fails because of shell syntax, PATH, quoting, or a `.ps1` shim, retry with Git Bash when possible. If Git Bash is unavailable, use an allowed fallback shell under the rules above. Do not modify product logic to work around infrastructure failures.
+If a command fails because of shell syntax, PATH, quoting, or a `.ps1` shim, retry with Git Bash when possible. Do not modify product logic to work around a shell/tooling failure.
 
 ### Long-running commands
 
@@ -173,41 +113,59 @@ When a build, test, lint, typecheck, or other validation command is still runnin
 - wait for the result when it is required to validate the current change;
 - do not restart the same command solely because it is taking longer than expected;
 - do not start unrelated edits while required validation is still running;
-- if the command was launched through the wrong shell or blocked by a `.ps1` shim, restart it once using Git Bash or the appropriate `.cmd` shim.
-- after a timeout, run a trivial health check such as `echo` and `git status` before continuing;
-- if trivial checks also fail before execution, treat it as a sandbox-wide failure and stop;
+- if the command was launched through the wrong shell or blocked by a `.ps1` shim, restart it once using Git Bash or the appropriate `.cmd` shim;
 - never use broad `taskkill` or `Stop-Process` commands that may terminate unrelated user Node processes;
 - do not run `pnpm install` unless dependency installation is actually required.
 
-### Workflow continuity
+### Build-first workflow
 
-Infrastructure failures interrupt only the affected operation, not the workstream. Preserve the branch, working-tree changes, completed discovery, ticket workflow actions, and successful validation. Recover only the failed operation, verify what can be verified safely, and continue.
+This is a pet project operating in build-first mode. Priorities, in order:
 
-When a safe fallback exists:
+1. Preserve existing changes.
+2. Complete the task correctly.
+3. Use a reasonable deterministic fallback rather than stopping outright over routine tooling friction.
+4. Do not turn ordinary tooling instability into a persistent blocker.
 
-1. Preserve branch and repository state.
-2. Preserve completed discovery and Weeek/GitHub steps.
-3. Retry or fall back only for the failed operation.
-4. Verify with available checks and run deferred checks after recovery.
-5. Continue from the current workstream state.
+Stop and ask the user only when current file/branch state cannot be safely determined before an edit, uncommitted changes could be lost, or continuing would require guessing.
 
-Do not recreate a branch solely because of sandbox failure, restart completed discovery, move Weeek tasks backwards, or abandon work solely because the preferred patch or shell is unavailable.
-
-### General implementation workflow
+### Implementation workflow
 
 For implementation tasks:
 
 1. Read the relevant instructions and ticket requirements.
 2. Inspect the current repository state before editing.
-3. Preserve already completed work from the current workstream.
+3. Preserve already completed work from the current session.
 4. Make the smallest scoped changes that satisfy the requirements.
-5. Inspect the resulting diff.
-6. Run `git diff --check`.
-7. Run relevant targeted validation.
-8. Run broader validation when required by the ticket/workflow.
-9. Perform the requested self-review.
-10. Fix real correctness, regression, persistence, or safety issues found during self-review.
-11. Do not make unrelated cosmetic changes during final review.
-12. Do not confuse infrastructure failures with product defects.
+5. Inspect the resulting diff and run `git diff --check`.
+6. Run relevant targeted validation, then broader validation when required by the workflow.
+7. Perform a self-review; fix real correctness, regression, persistence, or safety issues found.
+8. Do not make unrelated cosmetic changes during final review.
 
 If manual UAT is explicitly deferred for the current workstream, automated validation and self-review may proceed to the configured pre-manual-review workflow gate without waiting for manual verification.
+
+## Research workflow
+
+Research/discovery/audit tasks must leave a durable result in `docs/research/<topic>.md`,
+not only in an AI chat or a PR description — see
+[docs/research/README.md](docs/research/README.md) for the required structure and rules.
+
+## Codebase navigation
+
+Graphify (`graphify-mcp`) is available as an MCP server exposing this repository as a code
+knowledge graph (symbols, calls, imports, routes → controllers → services). It is a map for
+navigation, not a replacement for reading source. Setup: [docs/graphify-setup.md](docs/graphify-setup.md).
+
+For tasks that touch existing functionality:
+
+1. First use Graphify to locate relevant symbols/modules/routes/dependencies.
+2. Then read only the files/ranges it points to.
+3. Read the actual source before making any change — the graph can lag behind the working tree; source code is the source of truth when they disagree.
+4. After a change, check real callers/dependents where that matters, not just the graph snapshot.
+
+Prefer Graphify for: finding an entry point in unfamiliar code, callers/callees, dependency
+and blast-radius questions, route → controller → service → storage paths, and locating
+related tests.
+
+Skip Graphify when the file is already known, the change is a small local edit, reading a
+small config is enough, or a plain search/read is obviously cheaper. Request the smallest
+subgraph needed for the question — never dump the whole repository graph into context.
