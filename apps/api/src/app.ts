@@ -38,6 +38,7 @@ app.get("/api/health", async (_req, res) => {
         donationAlertsConfigured: Boolean(
           env.donationAlertsClientId && env.donationAlertsClientSecret
         ),
+        adminAccessConfigured: env.adminEmails.length > 0,
       },
     });
   } catch {

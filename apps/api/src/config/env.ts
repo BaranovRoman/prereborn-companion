@@ -14,6 +14,16 @@ if (!streamJwtSecret) {
     );
 }
 
+// db/client.ts falls back to a local-dev connection (host/user/password
+// default to localhost/postgres/postgres) when DATABASE_URL is unset, which
+// would otherwise let a misconfigured production process start up and quietly
+// point at the wrong database instead of failing loudly at boot.
+if (!process.env.DATABASE_URL) {
+    throw new Error(
+        "DATABASE_URL is required. Set it in the environment (.env) before starting the server."
+    );
+}
+
 // Steam OpenID / OpenDota - опциональны на уровне процесса (в отличие от
 // JWT_SECRET), намеренно НЕ валятся при старте: без них ломается только
 // привязка Steam (controllers/stream/steam.ts сам вернёт понятную ошибку

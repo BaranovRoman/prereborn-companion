@@ -50,6 +50,8 @@ In repository settings, create the `production` environment. Add:
 - `PRODUCTION_SSH_KNOWN_HOSTS`: pinned server host-key line
 - `PRODUCTION_DATABASE_URL`: PostgreSQL connection string
 - `PRODUCTION_STREAM_JWT_SECRET`: stream authentication signing secret
+- `ADMIN_EMAILS`: optional comma-separated admin allowlist for `/admin`;
+  empty just means the admin panel is unreachable, it does not block startup
 - `OPENDOTA_API_KEY`: optional OpenDota key
 - `TWITCH_CLIENT_ID`: optional Twitch application ID
 - `TWITCH_CLIENT_SECRET`: optional Twitch application secret
@@ -121,3 +123,12 @@ pm2 save
 ```
 
 `bash deploy.sh` remains available as an emergency manual fallback.
+
+## Adding or changing an environment variable
+
+See [docs/operations/production-env.md](operations/production-env.md) for
+the full variable inventory, the required/optional/secret classification,
+and the exact steps to wire a new variable into the deploy workflow. The
+`.env` written on the server is fully regenerated from
+`deploy-production.yml` on every deploy — adding a variable to
+`.env.example` alone does not get it to production.
