@@ -282,6 +282,37 @@ const getAppToken = async () => {
     return appToken.value;
 };
 
+export interface TwitchLinkSummary {
+    login: string;
+    displayName: string;
+    connectedAt: string;
+}
+
+// Только для admin-карточки пользователя (WK-52) - в отличие от
+// getTwitchStatus/getTwitchChatStatus, не открывает EventSub-соединение
+// (ensureTwitchChat) и не ходит в Twitch API за live/audience: админу
+// достаточно факта привязки, без сетевых вызовов на каждый просмотр карточки.
+export const getTwitchLinkSummary = async (
+    streamUserId: string
+): Promise<TwitchLinkSummary | null> => {
+    const result = await pool.query<{
+        login: string;
+        display_name: string;
+        connected_at: Date;
+    }>(
+        `SELECT login, display_name, connected_at
+         FROM stream_twitch_links WHERE stream_user_id = $1`,
+        [streamUserId]
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+        login: row.login,
+        displayName: row.display_name,
+        connectedAt: row.connected_at.toISOString(),
+    };
+};
+
 export const getTwitchStatus = async (streamUserId: string) => {
     const result = await pool.query<{
         twitch_user_id: string; login: string; display_name: string;

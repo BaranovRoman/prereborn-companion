@@ -6,6 +6,7 @@ import { streamAccountRouter } from "./routes/stream/account.js";
 import { streamOverlayRouter } from "./routes/stream/overlay.js";
 import { streamIntegrationsRouter } from "./routes/stream/integrations.js";
 import { streamCompanionRouter } from "./routes/stream/companion.js";
+import { adminUsersRouter } from "./routes/admin/users.js";
 import { corsOptions } from "./config/cors.js";
 import { securityHeaders } from "./config/security-headers.js";
 import { requestId } from "./middleware/request-id.js";
@@ -23,6 +24,7 @@ app.use("/api/stream/account", streamAccountRouter);
 app.use("/api/stream/overlay", streamOverlayRouter);
 app.use("/api/stream/integrations", streamIntegrationsRouter);
 app.use("/api/stream/companion", streamCompanionRouter);
+app.use("/api/admin/users", adminUsersRouter);
 app.get("/api/health", async (_req, res) => {
   try {
     await pool.query("SELECT 1");

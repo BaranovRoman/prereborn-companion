@@ -78,6 +78,21 @@ export const completeOnboarding = async (id: string): Promise<StreamUser | null>
     return result.rows[0] ? toStreamUser(result.rows[0]) : null;
 };
 
+// Admin-support действие (WK-52): пользователь застрял на онбординге и не
+// может пройти его заново без чистого состояния. В отличие от
+// completeOnboarding это безусловный сброс в NULL, а не COALESCE.
+export const resetOnboarding = async (id: string): Promise<StreamUser | null> => {
+    const result = await pool.query<Omit<StreamUserRow, "password_hash">>(
+        `UPDATE stream_users
+         SET onboarding_completed_at = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING ${PUBLIC_COLUMNS}`,
+        [id]
+    );
+    return result.rows[0] ? toStreamUser(result.rows[0]) : null;
+};
+
 // Общий sha256 и для refresh-токенов, и для companion-токена - оба
 // хранятся на сервере только как хэш, сам секрет клиенту показывается
 // один раз в момент выдачи.

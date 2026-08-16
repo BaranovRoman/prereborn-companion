@@ -9,6 +9,7 @@ export default defineConfig({
         env: {
             NODE_ENV: "test",
             STREAM_JWT_SECRET: "test-only-stream-jwt-secret-not-for-production",
+            ADMIN_EMAILS: "admin_wk52_test@example.com",
         },
     },
 });

@@ -59,6 +59,16 @@ const parseOrigins = (value: string | undefined): string[] =>
 // разрешаются отдельно и только вне production, см. src/config/cors.ts.
 const corsAllowedOrigins = parseOrigins(process.env.CORS_ALLOWED_ORIGINS);
 
+// Минимальный admin-примитив (WK-52): нет отдельной системы ролей, поэтому
+// администратор - это существующий stream-пользователь (тот же JWT из
+// authenticateStreamUser), чей email входит в этот allowlist. Проверяется
+// только на бэкенде (middleware/require-admin.ts) - пустой список означает
+// "admin-панель недоступна никому", а не "всем".
+const adminEmails = (process.env.ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+
 export const env = {
     streamJwtSecret,
     steamOpenidRealm,
@@ -77,6 +87,7 @@ export const env = {
     isProduction,
     isTest,
     corsAllowedOrigins,
+    adminEmails,
     logLevel: process.env.LOG_LEVEL || (isProduction ? "info" : "debug"),
     loginRateLimit: {
         windowMs: parseIntEnv(
