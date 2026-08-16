@@ -4,9 +4,9 @@ test.describe("queue anti-stream-sniping scene", () => {
     test.beforeEach(async ({ page }) => {
         await page.route("**/api/stream/**", async (route) => {
             await route.fulfill({
-                status: 401,
+                status: 503,
                 contentType: "application/json",
-                body: JSON.stringify({ error: "E2E unauthenticated" }),
+                body: JSON.stringify({ error: "E2E backend unavailable" }),
             });
         });
     });

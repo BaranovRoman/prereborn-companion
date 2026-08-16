@@ -49,67 +49,69 @@ Prefer the built-in patch/edit mechanism for normal repository changes.
 - Do not use large reusable custom editing frameworks for ordinary work.
 - Do not modify unrelated files as part of an editing fallback.
 
-### Windows sandbox / apply_patch failures
+### Windows sandbox/helper failures
 
-The Codex App on Windows may intermittently fail before command or patch execution because of the Windows sandbox/helper.
+Errors such as `helper_unknown_error`, `setup refresh had errors`, sandbox helper timeouts/failures, `apply_patch` infrastructure failures, and commands blocked by the Codex sandbox rather than the project are infrastructure failures, not application defects.
 
-Examples include:
+#### Retry policy
 
-- `windows sandbox helper_unknown_error`
-- sandbox setup or command-launch failures
-- `setup refresh` or ACL failures
-- built-in `apply_patch` failing before modifying files
-- LF/CRLF exact-match mismatches
+For the same operation:
 
-Treat these as infrastructure/tooling failures, not repository or application defects. They must not terminate an otherwise recoverable workstream.
+1. Retry the standard method at most once.
+2. If the error repeats, do not retry indefinitely.
+3. Switch to an allowed deterministic fallback.
 
-#### Read-only command failures
+Do not restart the workstream or automatically ask the user to restart Codex solely because of a sandbox/helper failure.
 
-If a normal read-only command fails before execution because of the Windows sandbox/helper:
+#### Allowed fallbacks
 
-1. Retry the same operation once.
-2. Prefer an equivalent Git Bash-compatible command for the retry when applicable.
-3. If the retry also fails, use a safe deterministic fallback or report the failure if the information cannot otherwise be obtained safely.
-4. Do not modify application code to work around the infrastructure failure.
+If built-in patch/edit is unavailable:
 
-#### File editing failures
+- use safe direct editing through an available shell, Python, Node.js, or a script;
+- read the current file before overwriting it;
+- change only the target section;
+- preserve line endings and encoding;
+- inspect the diff afterward.
 
-For normal edits:
+If Git Bash temporarily cannot start because of the sandbox, `cmd.exe` or another available shell may be used for simple read-only, Git, or file operations. Outside Git Bash use `pnpm.cmd`; never change PowerShell ExecutionPolicy. Using another shell after an infrastructure failure is not a workflow violation.
 
-1. Try built-in `apply_patch`.
-2. If it fails once with a recognized Windows sandbox/helper error, retry once.
-3. If it fails again for the same reason, immediately switch to a deterministic fallback.
-4. Do not keep retrying the broken built-in mechanism during the same infrastructure incident.
+#### File operations
 
-Fallback editing priority:
+Deterministic Python/Node/script editing is allowed only when the exact file and expected replacement are known, current contents were checked, unknown sections are untouched, and the diff is checked afterward. Do not perform broad regex rewrites across the repository without inspection. LF/CRLF mismatch alone is not unrecoverable; repository text remains LF-only unless explicitly Windows-specific.
 
-1. Git Bash / standard repository tools.
-2. A small one-off Node.js script.
-3. `git apply` with a generated patch.
-4. PowerShell only when genuinely necessary.
+#### Git safety
 
-Keep fallback edits strictly limited to the intended files and requested changes. Do not blindly chain unrelated editing mechanisms or create large reusable editing frameworks for ordinary work.
+Infrastructure failure is not grounds to stop when Git state can be checked. Before a potentially risky fallback:
 
-A failed fallback does not automatically require stopping the workstream. If it fails for a clearly understood mechanical reason such as LF/CRLF differences, quoting or escaping, Windows/POSIX path representation, or an unavailable shell shim, inspect the target file and repository state, then adapt the same deterministic fallback. Fallback scripts may normalize LF/CRLF in memory for matching and must write the repository's intended line endings.
+- check `git status` when Git is available;
+- never delete or overwrite uncommitted user changes;
+- never run `git reset --hard`, `git clean -fd`, check out unrelated files, or perform other destructive operations;
+- do not switch or recreate a branch when current work could be lost.
 
-Stop only when:
+If Git is temporarily unavailable only because of the helper, safe read/edit work may continue while commit/push is deferred until Git recovers.
 
-- repository state is ambiguous;
-- a partial edit cannot be compared reliably with the intended result;
-- unrelated modifications cannot be safely separated;
-- the target cannot be parsed or read reliably;
-- continuing risks losing user work;
-- trivial commands fail before execution because the whole sandbox/helper is unhealthy.
+#### When to stop
 
-After every fallback edit, run and inspect:
+Stop only when current file contents cannot be determined before editing, unknown uncommitted changes might be overwritten, the current branch cannot be safely determined before destructive Git work, a fallback requires guessing, all safe read/edit methods are unavailable, or data loss is possible. `helper_unknown_error` and `setup refresh had errors` alone are not sufficient reasons.
 
-- `git status`
-- `git diff --check`
-- `git diff`
+#### Validation in a degraded environment
 
-If the diff exactly represents the intended change, continue the workstream. If validation exposes a real code problem, fix it normally and run the relevant targeted validation.
+Run every available check. Do not count a sandbox/helper failure as a test failure. Explicitly list checks blocked by infrastructure and continue when available validation is sufficient for a safe result. If the environment recovers in the same workstream, run deferred relevant checks.
 
-Do not treat LF/CRLF mismatch by itself as unrecoverable. Repository text remains LF-only unless explicitly Windows-specific; avoid exact-match strategies that unnecessarily depend on platform line endings.
+#### Reporting
+
+Do not tell the user to restart Codex and ask to continue while a safe fallback remains. Briefly record the issue internally, apply the fallback, and continue. Ask the user to intervene only when safe continuation is genuinely impossible.
+
+#### Pet project policy
+
+This pet project operates in build-first mode. Priorities are:
+
+1. Preserve existing changes.
+2. Complete the task correctly.
+3. Use a reasonable deterministic fallback.
+4. Do not turn sandbox instability into a persistent blocker.
+
+Excessively stopping work because of tooling instability is undesirable.
 
 ### Git
 
@@ -157,24 +159,9 @@ For these cases:
 
 ### Shell and infrastructure failures
 
-Do not treat shell/tooling failures as application failures.
+Do not treat shell/tooling failures as application failures. These include PowerShell ExecutionPolicy, Windows sandbox/helper errors, quoting or path syntax problems, unavailable command shims, and PATH issues.
 
-Examples of environment failures include:
-
-- PowerShell ExecutionPolicy
-- Windows sandbox/helper errors
-- shell quoting problems
-- path syntax problems
-- unavailable command shims
-- PATH issues
-
-If a command starts and then fails because of shell syntax, PATH, quoting, or a `.ps1` shim, retry using Git Bash when possible.
-
-If a command or patch fails before execution because of the Codex Windows sandbox/helper, follow the dedicated Windows sandbox rules above.
-
-Infrastructure failures must not automatically terminate a valid ticket workstream when a deterministic and verifiable fallback is available.
-
-Do not modify product logic to work around shell or infrastructure failures.
+If a command fails because of shell syntax, PATH, quoting, or a `.ps1` shim, retry with Git Bash when possible. If Git Bash is unavailable, use an allowed fallback shell under the rules above. Do not modify product logic to work around infrastructure failures.
 
 ### Long-running commands
 
@@ -194,25 +181,17 @@ When a build, test, lint, typecheck, or other validation command is still runnin
 
 ### Workflow continuity
 
-Infrastructure failures should interrupt only the affected operation, not automatically abandon the entire ticket workstream.
+Infrastructure failures interrupt only the affected operation, not the workstream. Preserve the branch, working-tree changes, completed discovery, ticket workflow actions, and successful validation. Recover only the failed operation, verify what can be verified safely, and continue.
 
-Preserve the current branch, working-tree changes, completed discovery, completed ticket workflow actions, and successful validation. Recover only the failed operation, verify repository state, and continue. Stop for infrastructure reasons only when the execution environment is unusable or repository state cannot be safely determined.
+When a safe fallback exists:
 
-When a safe fallback is available:
+1. Preserve branch and repository state.
+2. Preserve completed discovery and Weeek/GitHub steps.
+3. Retry or fall back only for the failed operation.
+4. Verify with available checks and run deferred checks after recovery.
+5. Continue from the current workstream state.
 
-1. preserve the current branch and repository state;
-2. preserve completed discovery and analysis;
-3. preserve already completed Weeek/GitHub workflow steps;
-4. retry or fall back only for the failed operation;
-5. verify the result;
-6. continue from the current workstream state.
-
-Do not:
-
-- recreate a branch solely because of a sandbox failure;
-- restart completed ticket discovery without a reason;
-- move Weeek tasks backwards because of an infrastructure failure;
-- abandon a workstream solely because built-in `apply_patch` is unavailable.
+Do not recreate a branch solely because of sandbox failure, restart completed discovery, move Weeek tasks backwards, or abandon work solely because the preferred patch or shell is unavailable.
 
 ### General implementation workflow
 
