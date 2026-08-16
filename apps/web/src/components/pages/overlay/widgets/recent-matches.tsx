@@ -1,4 +1,4 @@
-import type { SyntheticEvent } from "react";
+import { useEffect, type SyntheticEvent } from "react";
 import { getHeroById } from "@/entities/dota-hero/lib/search";
 import type { StreamMatch } from "@/entities/stream-session/model/types";
 import type {
@@ -96,6 +96,27 @@ export const RecentMatches = ({ matches, settings, anchor }: RecentMatchesProps)
     const overflowCount = Math.max(0, ordered.length - settings.limit);
 
     const growDirection = growDirectionForAnchor(anchor);
+
+    useEffect(() => {
+        console.info("[WK-68][Recent Games]", {
+            source: settings.source,
+            configuredLimit: settings.limit,
+            receivedMatches: matches.length,
+            renderedMatches: visible.length,
+            overflowMatches: overflowCount,
+            anchor,
+            growDirection,
+        });
+    }, [
+        anchor,
+        growDirection,
+        matches.length,
+        overflowCount,
+        settings.limit,
+        settings.source,
+        visible.length,
+    ]);
+
     const listClassName =
         growDirection === "up"
             ? `${styles.matchesList} ${styles.matchesListGrowUp}`
