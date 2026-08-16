@@ -27,6 +27,59 @@ import { getDonationAlertsStatus } from "../../services/donation-alerts-integrat
 
 const publicTokenSchema = z.string().uuid();
 
+const INTEGRATION_STATUS_TTL_MS = 15_000;
+const INTEGRATION_STATUS_CACHE_MAX = 500;
+type IntegrationStatus = {
+    twitch: Awaited<ReturnType<typeof getTwitchStatus>>;
+    donationAlerts: Awaited<ReturnType<typeof getDonationAlertsStatus>> | null;
+};
+const integrationStatusCache = new Map<
+    string,
+    { expiresAt: number; value: IntegrationStatus }
+>();
+const integrationStatusRefreshes = new Map<string, Promise<IntegrationStatus>>();
+
+export const loadIntegrationStatus = async (
+    streamUserId: string,
+    requestId?: string
+): Promise<IntegrationStatus> => {
+    const cached = integrationStatusCache.get(streamUserId);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    if (cached) integrationStatusCache.delete(streamUserId);
+
+    const inFlight = integrationStatusRefreshes.get(streamUserId);
+    if (inFlight) return inFlight;
+
+    const refresh = Promise.all([
+        getTwitchStatus(streamUserId),
+        getDonationAlertsStatus(streamUserId).catch((error) => {
+            logger.error("DonationAlerts sync from overlay poll failed", {
+                requestId,
+                message: error instanceof Error ? error.message : String(error),
+            });
+            return null;
+        }),
+    ]).then(([twitch, donationAlerts]) => {
+        if (!integrationStatusCache.has(streamUserId) &&
+            integrationStatusCache.size >= INTEGRATION_STATUS_CACHE_MAX) {
+            const oldestKey = integrationStatusCache.keys().next().value as
+                | string
+                | undefined;
+            if (oldestKey) integrationStatusCache.delete(oldestKey);
+        }
+        const value = { twitch, donationAlerts };
+        integrationStatusCache.set(streamUserId, {
+            expiresAt: Date.now() + INTEGRATION_STATUS_TTL_MS,
+            value,
+        });
+        return value;
+    }).finally(() => {
+        integrationStatusRefreshes.delete(streamUserId);
+    });
+    integrationStatusRefreshes.set(streamUserId, refresh);
+    return refresh;
+};
+
 // Публичный, без авторизации - открывается напрямую в OBS Browser Source и
 // опрашивается поллингом (см. frontend use-overlay-polling.ts). Намеренно
 // не возвращает email/внутренний streamUserId/токены и не тащит завершённые
@@ -60,18 +113,12 @@ export const getOverlayController = async (req: Request, res: Response) => {
         // Раскладка виджетов - редко меняется, но отдаётся вместе с
         // остальным payload'ом одного и того же поллинга (см. задачу, п.12):
         // отдельный опрос под layout не нужен.
-        const [layout, queueSettings, twitch, donationAlerts] = await Promise.all([
+        const [layout, queueSettings, integrations] = await Promise.all([
             getOverlayLayout(streamUserId),
             getQueueSettings(streamUserId),
-            getTwitchStatus(streamUserId),
-            getDonationAlertsStatus(streamUserId).catch((error) => {
-                logger.error("DonationAlerts sync from overlay poll failed", {
-                    requestId: req.requestId,
-                    message: error instanceof Error ? error.message : String(error),
-                });
-                return null;
-            }),
+            loadIntegrationStatus(streamUserId, req.requestId),
         ]);
+        const { twitch, donationAlerts } = integrations;
 
         const configuredRecentMatches = Object.values(layout.scenes).map(
             (scene) => scene.widgets.recentMatches.recentMatches
