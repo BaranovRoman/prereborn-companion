@@ -92,6 +92,10 @@ streamApiClient.interceptors.response.use(
                 return streamApiClient(config);
             }
             clearStreamTokens();
+            if (typeof window !== "undefined") {
+                const next = window.location.pathname.startsWith("/stream") ? window.location.pathname : "/stream";
+                window.location.assign("/stream/login?reason=session-expired&next=" + encodeURIComponent(next));
+            }
         }
 
         return Promise.reject(error);

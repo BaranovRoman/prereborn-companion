@@ -9,13 +9,14 @@ export const metadata: Metadata = {
     template: "%s — PreReborn Companion"
   },
   applicationName: "PreReborn Companion",
-  description: "Dota streamer companion and OBS overlays",
-  robots: { index: false, follow: false }
+  description: "Dota 2 streamer companion, OBS overlay и anti-stream-snipe.",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"),
+  robots: { index: true, follow: true }
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="ru">
       <body>
         <AntdRegistry>
           <AppAtmosphere />

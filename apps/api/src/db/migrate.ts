@@ -269,6 +269,20 @@ export const createTables = async (): Promise<void> => {
       ALTER TABLE stream_matches ADD COLUMN IF NOT EXISTS game_mode VARCHAR(10) NOT NULL DEFAULT 'ranked'
         CHECK (game_mode IN ('ranked', 'unranked'));
     `);
+        // Existing users keep their uninterrupted cabinet flow; only accounts
+        // created after this additive migration start with onboarding pending.
+        await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'stream_users' AND column_name = 'onboarding_completed_at'
+        ) THEN
+          ALTER TABLE stream_users ADD COLUMN onboarding_completed_at TIMESTAMP;
+          UPDATE stream_users SET onboarding_completed_at = created_at;
+        END IF;
+      END $$;
+    `);
 
         // РўСЂРµС‚РёР№ РІР·Р°РёРјРѕРёСЃРєР»СЋС‡Р°СЋС‰РёР№ СЂРµР·СѓР»СЊС‚Р°С‚ РјР°С‚С‡Р° - ABANDON. result Р±С‹Р»
         // VARCHAR(4) (С…РІР°С‚Р°Р»Рѕ СЂРѕРІРЅРѕ РЅР° 'win'/'loss') - СЂР°СЃС€РёСЂСЏРµРј РєРѕР»РѕРЅРєСѓ Рё

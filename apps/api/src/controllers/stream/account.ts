@@ -5,6 +5,7 @@ import {
     regeneratePublicToken,
     regenerateCompanionToken,
     setGameMode,
+    completeOnboarding,
 } from "../../services/stream-user-service.js";
 import { logger } from "../../utils/logger.js";
 import { env } from "../../config/env.js";
@@ -24,6 +25,17 @@ export const getMeController = async (req: Request, res: Response) => {
             requestId: req.requestId,
             message: error instanceof Error ? error.message : String(error),
         });
+        res.status(500).json({ error: "Внутренняя ошибка сервера" });
+    }
+};
+
+export const completeOnboardingController = async (req: Request, res: Response) => {
+    try {
+        const user = await completeOnboarding(req.streamUserId as string);
+        if (!user) return res.status(404).json({ error: "Пользователь не найден" });
+        res.json(user);
+    } catch (error) {
+        logger.error("Stream complete onboarding error", { requestId: req.requestId, message: error instanceof Error ? error.message : String(error) });
         res.status(500).json({ error: "Внутренняя ошибка сервера" });
     }
 };

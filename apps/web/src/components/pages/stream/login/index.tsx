@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Form, Input, Button, message } from "antd";
 import Link from "next/link";
 import Image from "next/image";
@@ -25,6 +25,9 @@ const extractErrorMessage = (error: unknown, fallback: string): string => {
 
 export const StreamLoginPage = () => {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const rawNext = searchParams.get("next");
+    const next = rawNext?.startsWith("/stream") && !rawNext.startsWith("//") ? rawNext : "/stream";
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [messageApi, contextHolder] = message.useMessage();
 
@@ -42,7 +45,7 @@ export const StreamLoginPage = () => {
         setIsSubmitting(true);
         try {
             await streamAuthApi.login(values.email, values.password);
-            router.push("/stream");
+            router.replace(next);
         } catch (error) {
             messageApi.error(
                 extractErrorMessage(error, "Не удалось войти. Проверьте данные.")
@@ -70,6 +73,7 @@ export const StreamLoginPage = () => {
                         <h1 className={styles.title}>Вход в аккаунт</h1>
                     </div>
                 </div>
+                {searchParams.get("reason") === "session-expired" && <div className={styles.sessionNotice}>Сессия истекла или была отозвана. Войдите снова.</div>}
                 <p className={styles.subtitle}>
                     Управляйте стримом, матчами и виджетами оверлея в одном месте.
                 </p>

@@ -4,6 +4,7 @@ import {
     regenerateTokenController,
     regenerateCompanionTokenController,
     patchGameModeController,
+    completeOnboardingController,
 } from "../../controllers/stream/account.js";
 import {
     getSessionController,
@@ -49,6 +50,7 @@ streamAccountRouter.post(
     "/me/companion-token/regenerate",
     regenerateCompanionTokenController
 );
+streamAccountRouter.post("/me/onboarding/complete", completeOnboardingController);
 
 streamAccountRouter.get("/session", getSessionController);
 streamAccountRouter.patch("/session", patchSessionController);
