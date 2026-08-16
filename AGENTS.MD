@@ -149,6 +149,20 @@ Research/discovery/audit tasks must leave a durable result in `docs/research/<to
 not only in an AI chat or a PR description — see
 [docs/research/README.md](docs/research/README.md) for the required structure and rules.
 
+## Production environment variables
+
+Production `.env` is fully regenerated from `.github/workflows/deploy-production.yml`
+on every deploy — nothing added only to `.env.example` reaches the server. When adding
+a new production env variable, an agent must:
+
+1. Update `.env.example` (and `env.production.example` if it differs for production).
+2. Classify it as required / optional / secret.
+3. Wire it into `deploy-production.yml` (and a fail-fast check in `apps/api/src/config/env.ts`
+   if required) so it actually reaches production.
+4. Not assume a developer will manually SSH in and add it to the server after merge.
+
+Full details: [docs/operations/production-env.md](docs/operations/production-env.md).
+
 ## Codebase navigation
 
 Graphify (`graphify-mcp`) is available as an MCP server exposing this repository as a code

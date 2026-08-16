@@ -71,6 +71,7 @@ jobs:
           TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
           DONATION_ALERTS_CLIENT_ID: ${{ secrets.DONATION_ALERTS_CLIENT_ID }}
           DONATION_ALERTS_CLIENT_SECRET: ${{ secrets.DONATION_ALERTS_CLIENT_SECRET }}
+          ADMIN_EMAILS: ${{ secrets.ADMIN_EMAILS }}
         run: |
           test -n "$DATABASE_URL" || {
             echo "PRODUCTION_DATABASE_URL is empty"
@@ -102,6 +103,9 @@ jobs:
             printf 'PORT=5102\n'
             printf 'NODE_ENV=production\n'
             printf 'STREAM_JWT_SECRET=%s\n' "$STREAM_JWT_SECRET"
+            # Optional: empty allowlist just means the admin panel is unreachable,
+            # never a startup failure - see apps/api/src/config/env.ts.
+            printf 'ADMIN_EMAILS=%s\n' "$ADMIN_EMAILS"
             printf 'CORS_ALLOWED_ORIGINS=https://prereborn.ru,https://www.prereborn.ru\n'
             printf 'STEAM_OPENID_REALM=https://prereborn.ru\n'
             printf 'STEAM_OPENID_RETURN_URL=https://prereborn.ru/api/stream/integrations/steam/callback\n'
