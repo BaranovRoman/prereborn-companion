@@ -1,0 +1,24 @@
+.page {
+    width: min(1200px, calc(100% - 40px));
+    margin: 0 auto;
+    padding: 32px 0 48px;
+}
+
+.title {
+    color: inherit;
+}
+
+.alert {
+    margin-bottom: 16px;
+}
+
+.search {
+    max-width: 360px;
+    margin-bottom: 16px;
+}
+
+.table {
+    :global(a) {
+        color: #70b9c7;
+    }
+}

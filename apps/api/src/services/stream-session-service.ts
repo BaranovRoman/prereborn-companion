@@ -167,3 +167,39 @@ export const resetActiveSession = async (
         client.release();
     }
 };
+
+// Admin-support действие (WK-52): закрывает явно зависшую активную сессию
+// без открытия новой (в отличие от resetActiveSession, которое сразу же
+// открывает следующую - это self-service "Начать новый стрим"). Возвращает
+// null, если активной сессии уже не было - вызывающий код должен трактовать
+// это как "нечего завершать", а не как ошибку.
+export const endActiveSession = async (
+    streamUserId: string
+): Promise<StreamSession | null> => {
+    const result = await pool.query<StreamSessionRow>(
+        `UPDATE stream_sessions
+         SET ended_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE stream_user_id = $1 AND ended_at IS NULL
+         RETURNING ${SESSION_COLUMNS}`,
+        [streamUserId]
+    );
+    return result.rows[0] ? toStreamSession(result.rows[0]) : null;
+};
+
+// Текущая (если есть) или последняя завершённая сессия - для admin-карточки
+// пользователя (WK-52), которой нужен один ряд "что сейчас/было со
+// стримом", а не создание сессии как побочный эффект (в отличие от
+// getOrCreateActiveSession, которым self-service эндпоинты создают строку,
+// если её ещё не было).
+export const getLatestSessionForUser = async (
+    streamUserId: string
+): Promise<StreamSession | null> => {
+    const result = await pool.query<StreamSessionRow>(
+        `SELECT ${SESSION_COLUMNS} FROM stream_sessions
+         WHERE stream_user_id = $1
+         ORDER BY started_at DESC
+         LIMIT 1`,
+        [streamUserId]
+    );
+    return result.rows[0] ? toStreamSession(result.rows[0]) : null;
+};
