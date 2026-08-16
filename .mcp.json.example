@@ -1,5 +1,5 @@
 {
-  "$comment": "Template — copy to .mcp.json (gitignored) and fill in WEEEK_API_TOKEN. Never commit real tokens.",
+  "$comment": "Template — copy to .mcp.json (gitignored) and fill in WEEEK_API_TOKEN. Never commit real tokens or machine-specific paths.",
   "mcpServers": {
     "weeek": {
       "type": "stdio",
@@ -7,6 +7,14 @@
       "args": ["/Users/romanbaranov/Sites/weeek-mcp/dist/index.js"],
       "env": {
         "WEEEK_API_TOKEN": "REPLACE_WITH_YOUR_WEEEK_API_TOKEN"
+      }
+    },
+    "graphify": {
+      "$comment": "Code knowledge graph for navigation — see docs/graphify-setup.md. Requires graphify-mcp installed locally (not a project/product dependency).",
+      "type": "stdio",
+      "command": "graphify-mcp-server",
+      "env": {
+        "GRAPHIFY_PROJECT_DIR": "."
       }
     }
   }
