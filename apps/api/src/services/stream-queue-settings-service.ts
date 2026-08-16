@@ -36,7 +36,7 @@ const widgetSettingsSchema = z.object({
         twitchChat: z.string().trim().min(1).max(48),
         friends: z.string().trim().min(1).max(48),
     }),
-    recentGamesLimit: z.number().int().min(1).max(5),
+    recentGamesLimit: z.number().int().min(1).max(15),
     chatMessagesLimit: z.number().int().min(3).max(30),
     friends: z.object({
         showDonaters: z.boolean(),
@@ -47,7 +47,7 @@ const widgetSettingsSchema = z.object({
 });
 
 export const queueSettingsSchema = z.object({
-    version: z.literal(1),
+    version: z.union([z.literal(1), z.literal(2)]),
     visibility: visibilitySchema,
     favoriteHeroIds: z.array(z.number().int().positive()).max(3).default([]),
     webcamImageUrl: z.string().max(512).nullable().default(null),
@@ -68,7 +68,7 @@ export const queueSettingsSchema = z.object({
             twitchChat: "Twitch chat",
             friends: "Friends",
         },
-        recentGamesLimit: 5,
+        recentGamesLimit: 15,
         chatMessagesLimit: 12,
         friends: {
             showDonaters: true,
@@ -82,7 +82,7 @@ export const queueSettingsSchema = z.object({
 export type QueueSettings = z.infer<typeof queueSettingsSchema>;
 
 export const DEFAULT_QUEUE_SETTINGS: QueueSettings = {
-    version: 1,
+    version: 2,
     visibility: {
         playerProfile: true,
         streamProfile: true,
@@ -112,7 +112,7 @@ export const DEFAULT_QUEUE_SETTINGS: QueueSettings = {
             twitchChat: "Twitch chat",
             friends: "Friends",
         },
-        recentGamesLimit: 5,
+        recentGamesLimit: 15,
         chatMessagesLimit: 12,
         friends: {
             showDonaters: true,
@@ -123,10 +123,22 @@ export const DEFAULT_QUEUE_SETTINGS: QueueSettings = {
     },
 };
 
+export const migrateQueueSettings = (settings: QueueSettings): QueueSettings =>
+    settings.version === 1
+        ? {
+              ...settings,
+              version: 2,
+              widgets: {
+                  ...settings.widgets,
+                  recentGamesLimit: 15,
+              },
+          }
+        : settings;
+
 export class InvalidQueueSettingsError extends Error {}
 
 const queueSettingsInputSchema = z.object({
-    version: z.literal(1).optional(),
+    version: z.union([z.literal(1), z.literal(2)]).optional(),
     visibility: z.record(z.string(), z.boolean()).optional(),
     favoriteHeroIds: z.array(z.number().int().positive()).max(3).optional(),
     webcamImageUrl: z.string().max(512).nullable().optional(),
@@ -140,7 +152,9 @@ export const getQueueSettings = async (streamUserId: string): Promise<QueueSetti
         [streamUserId]
     );
     const parsed = queueSettingsSchema.safeParse(rows[0]?.settings);
-    return parsed.success ? parsed.data : DEFAULT_QUEUE_SETTINGS;
+    return parsed.success
+        ? migrateQueueSettings(parsed.data)
+        : DEFAULT_QUEUE_SETTINGS;
 };
 
 export const saveQueueSettings = async (
@@ -153,7 +167,7 @@ export const saveQueueSettings = async (
     }
     const current = await getQueueSettings(streamUserId);
     const next = queueSettingsSchema.parse({
-        version: 1,
+        version: 2,
         visibility: {
             ...current.visibility,
             ...parsed.data.visibility,

@@ -52,7 +52,7 @@ export interface QueueWidgetSettings {
 }
 
 export interface QueueSettings {
-    version: 1;
+    version: 2;
     visibility: Record<QueueWidgetId, boolean>;
     favoriteHeroIds: number[];
     webcamImageUrl: string | null;
@@ -71,7 +71,7 @@ export const DEFAULT_QUEUE_WIDGET_SETTINGS: QueueWidgetSettings = {
         twitchChat: "Twitch chat",
         friends: "Friends",
     },
-    recentGamesLimit: 5,
+    recentGamesLimit: 15,
     chatMessagesLimit: 12,
     friends: {
         showDonaters: true,
@@ -82,7 +82,7 @@ export const DEFAULT_QUEUE_WIDGET_SETTINGS: QueueWidgetSettings = {
 };
 
 export const DEFAULT_QUEUE_SETTINGS: QueueSettings = {
-    version: 1,
+    version: 2,
     visibility: {
         playerProfile: true,
         streamProfile: true,

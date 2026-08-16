@@ -698,6 +698,18 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
     };
     const widgetSettings = activeSettings.widgets;
 
+    useEffect(() => {
+        console.info("[WK-68][Queue Recent Games]", {
+            configuredLimit: widgetSettings.recentGamesLimit,
+            receivedMatches: realMatches.length,
+            renderedMatches: Math.min(
+                realMatches.length,
+                widgetSettings.recentGamesLimit
+            ),
+            publicOverlay: Boolean(publicData),
+        });
+    }, [publicData, realMatches.length, widgetSettings.recentGamesLimit]);
+
     return (
         <div className={styles.interface}>
             <div className={styles.dashboard} data-top-count={2}>
