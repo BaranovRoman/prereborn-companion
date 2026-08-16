@@ -1,20 +1,27 @@
 "use client";
 
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { Button, Tag } from "antd";
 import {
     DOTA_COMPANION_DOWNLOAD_URL,
     DOTA_COMPANION_VERSION,
 } from "@/shared/config/dota-companion";
+import { useStreamSession } from "@/entities/stream-user/lib/use-stream-session";
 import { usePageReady } from "@/shared/ui/route-transition/usePageReady";
 import styles from "./index.module.scss";
 
 export const StreamDownloadPage = () => {
+    const router = useRouter();
+    const { user, loading } = useStreamSession();
     const { ready } = usePageReady(600);
     useEffect(() => {
         ready();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    useEffect(() => { if (!loading && !user) router.replace("/stream/login?next=/stream/download"); }, [loading, user, router]);
+    if (loading || !user) return <div className={styles.page}>Загрузка…</div>;
 
     return (
         <div className={styles.page}>
@@ -52,7 +59,7 @@ export const StreamDownloadPage = () => {
                 <div className={styles.section}>
                     <h2 className={styles.sectionTitle}>Установка</h2>
                     <ol className={styles.steps}>
-                        <li>Скачайте и запустите установщик (Setup.exe).</li>
+                        <li>{DOTA_COMPANION_DOWNLOAD_URL ? "Скачайте и запустите доступную beta-сборку." : "Production installer ещё готовится; не используйте файлы из непроверенных источников."}</li>
                         <li>
                             Откройте PreReborn Companion — он сам найдёт Dota 2 и
                             настроит Game State Integration.

@@ -26,6 +26,7 @@ import { useDonationAlertsIntegration } from "@/entities/donation-alerts-integra
 import { getBroadcastScene } from "@/components/pages/overlay/lib/get-broadcast-scene";
 import { ObsSetupGuide } from "./obs-setup-guide";
 import { ObsTestMode } from "./obs-test-mode";
+import { StreamOnboarding } from "../onboarding";
 import styles from "./index.module.scss";
 
 // Человеко-понятные причины ошибки привязки Steam - reason приходит от
@@ -268,6 +269,7 @@ export const StreamSettingsPage = () => {
             </header>
 
             <div className={styles.grid}>
+                <StreamOnboarding user={user} overlay={overlayData} onComplete={setUser} />
                 <div className={styles.broadcastBar}>
                     <div>
                         <span className={styles.broadcastEyebrow}>Сейчас в эфире</span>
@@ -351,7 +353,7 @@ export const StreamSettingsPage = () => {
                     <QueueWidgetsPanel currentRating={overlayData?.rating ?? null} />
                 </div>
 
-                <div className={styles.fullSpan}>
+                <div className={styles.fullSpan} id="integrations">
                     <IntegrationsCard
                         steamStatus={steamIntegration.status}
                         steamLoading={steamIntegration.loading}

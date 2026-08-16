@@ -29,6 +29,7 @@ export interface StreamUser {
     // матчу") - см. services/stream-match-service.ts. Не привязан к
     // конкретной stream_session и не сбрасывается "Начать новый стрим".
     gameMode: StreamGameMode;
+    onboardingCompletedAt: string | null;
 }
 
 interface StreamUserRow {
@@ -41,10 +42,11 @@ interface StreamUserRow {
     companion_token_hash: string | null;
     companion_token_created_at: Date | null;
     game_mode: StreamGameMode;
+    onboarding_completed_at: Date | null;
 }
 
 const PUBLIC_COLUMNS =
-    "id, email, public_token, created_at, updated_at, companion_token_hash, companion_token_created_at, game_mode";
+    "id, email, public_token, created_at, updated_at, companion_token_hash, companion_token_created_at, game_mode, onboarding_completed_at";
 
 const toStreamUser = (
     row: Omit<StreamUserRow, "password_hash">
@@ -59,7 +61,22 @@ const toStreamUser = (
         ? row.companion_token_created_at.toISOString()
         : null,
     gameMode: row.game_mode,
+    onboardingCompletedAt: row.onboarding_completed_at
+        ? row.onboarding_completed_at.toISOString()
+        : null,
 });
+
+export const completeOnboarding = async (id: string): Promise<StreamUser | null> => {
+    const result = await pool.query<Omit<StreamUserRow, "password_hash">>(
+        `UPDATE stream_users
+         SET onboarding_completed_at = COALESCE(onboarding_completed_at, CURRENT_TIMESTAMP),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING ${PUBLIC_COLUMNS}`,
+        [id]
+    );
+    return result.rows[0] ? toStreamUser(result.rows[0]) : null;
+};
 
 // Общий sha256 и для refresh-токенов, и для companion-токена - оба
 // хранятся на сервере только как хэш, сам секрет клиенту показывается

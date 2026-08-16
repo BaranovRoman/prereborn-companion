@@ -1,0 +1,2 @@
+import { beforeEach, describe, expect, it } from "vitest"; import { clearStreamTokens,getStreamAccessToken,getStreamRefreshToken,setStreamTokens } from "./tokens";
+describe("stream token lifecycle",()=>{beforeEach(()=>localStorage.clear());it("clears both tokens on logout",()=>{setStreamTokens("access","refresh");clearStreamTokens();expect(getStreamAccessToken()).toBeNull();expect(getStreamRefreshToken()).toBeNull()})});

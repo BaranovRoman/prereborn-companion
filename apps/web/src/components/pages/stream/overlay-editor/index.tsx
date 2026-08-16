@@ -223,6 +223,7 @@ export const OverlayEditorPage = () => {
     }, [loading, sessionUser, router]);
 
     useEffect(() => {
+        if (loading || !sessionUser) return;
         let cancelled = false;
         streamOverlayLayoutApi
             .get()
@@ -242,7 +243,7 @@ export const OverlayEditorPage = () => {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [loading, sessionUser]);
 
     const dirty = JSON.stringify(layout) !== JSON.stringify(lastSavedRef.current);
     const activeSceneLayout = layout.scenes[selectedScene];

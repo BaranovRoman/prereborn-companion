@@ -13,6 +13,7 @@ export interface StreamUser {
     // Текущий режим матчей ("что применится к СЛЕДУЮЩЕМУ завершённому
     // матчу") - см. PATCH /account/me/game-mode.
     gameMode: StreamGameMode;
+    onboardingCompletedAt: string | null;
 }
 
 // Ответ POST /account/me/companion-token/regenerate - единственное место,

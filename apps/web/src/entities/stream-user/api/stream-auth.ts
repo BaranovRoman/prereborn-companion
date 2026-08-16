@@ -81,6 +81,11 @@ export const streamAuthApi = {
         return data;
     },
 
+    completeOnboarding: async (): Promise<StreamUser> => {
+        const { data } = await streamApiClient.post<StreamUser>("/account/me/onboarding/complete");
+        return data;
+    },
+
     // Возвращает сырой companion-токен - показывается пользователю ровно
     // один раз (companion-panel.tsx), дальше нигде не хранится и не
     // запрашивается заново (backend его и не может отдать повторно - хранит
