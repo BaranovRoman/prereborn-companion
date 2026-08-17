@@ -143,8 +143,16 @@ jobs:
           # exactly as before.
           $extraArgs = ""
           if ($env:TAURI_SIGNING_PRIVATE_KEY) {
-            '{"bundle":{"createUpdaterArtifacts":true}}' | Set-Content -Path updater-config.json -Encoding ascii
-            $extraArgs = " --config updater-config.json"
+            # `pnpm exec` runs the tauri CLI with cwd = apps/companion, not
+            # this step's cwd (repo root) - a relative --config path here
+            # silently resolved against the wrong directory and failed with
+            # "cannot find the file specified" (see prereborn-v0.5.0's
+            # failed build log). Absolute path avoids the mismatch; GitHub
+            # Actions runner paths never contain spaces, so no quoting is
+            # needed through the cmd.exe wrapper below.
+            $configPath = Join-Path (Get-Location) "updater-config.json"
+            '{"bundle":{"createUpdaterArtifacts":true}}' | Set-Content -Path $configPath -Encoding ascii
+            $extraArgs = " --config $configPath"
           }
           cmd.exe /d /s /c "pnpm.cmd --filter @prereborn/companion exec tauri build --bundles nsis$extraArgs > tauri-build.log 2>&1"
           $buildExitCode = $LASTEXITCODE
