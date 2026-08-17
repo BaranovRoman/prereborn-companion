@@ -122,8 +122,21 @@ jobs:
 
       - name: Build Tauri app (Windows installer)
         shell: powershell
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          cmd.exe /d /s /c "pnpm.cmd --filter @prereborn/companion exec tauri build --bundles nsis > tauri-build.log 2>&1"
+          # Updater artifacts (signed .sig next to the installer, consumed by
+          # the in-app updater's endpoint - see WK-70) only get produced once
+          # a signing key exists. Until TAURI_SIGNING_PRIVATE_KEY is added as
+          # a repo secret, this is a no-op and the release keeps working
+          # exactly as before.
+          $extraArgs = ""
+          if ($env:TAURI_SIGNING_PRIVATE_KEY) {
+            '{"bundle":{"createUpdaterArtifacts":true}}' | Set-Content -Path updater-config.json -Encoding ascii
+            $extraArgs = " --config updater-config.json"
+          }
+          cmd.exe /d /s /c "pnpm.cmd --filter @prereborn/companion exec tauri build --bundles nsis$extraArgs > tauri-build.log 2>&1"
           $buildExitCode = $LASTEXITCODE
           Get-Content tauri-build.log
           exit $buildExitCode
@@ -137,6 +150,14 @@ jobs:
           draft: false
           files: tauri-build.log
 
+      - name: Generate updater manifest (latest.json)
+        shell: powershell
+        run: >-
+          ./scripts/companion-generate-update-manifest.ps1
+          -Version "${{ steps.version.outputs.version }}"
+          -Tag "${{ github.ref_name }}"
+          -Repository "${{ github.repository }}"
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -144,4 +165,7 @@ jobs:
           name: "PreReborn Companion ${{ steps.version.outputs.version }}"
           draft: false
           generate_release_notes: true
-          files: apps/companion/src-tauri/target/release/bundle/nsis/*.exe
+          files: |
+            apps/companion/src-tauri/target/release/bundle/nsis/*.exe
+            apps/companion/src-tauri/target/release/bundle/nsis/*.sig
+            latest.json
