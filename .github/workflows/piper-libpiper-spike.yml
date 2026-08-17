@@ -12,6 +12,12 @@ name: Spike - libpiper Windows build (WK-74)
 
 on:
   workflow_dispatch:
+  # TEMPORARY, see prior commit history on this branch - retry after fixing
+  # the vcvarsall.bat path discovery bug that caused the first spike run to
+  # silently fall back to a pre-installed MinGW toolchain instead of MSVC.
+  push:
+    branches: [feat/74]
+    paths: [".github/workflows/piper-libpiper-spike.yml"]
 
 jobs:
   build-libpiper:
@@ -38,7 +44,22 @@ jobs:
       - name: Configure + build + install libpiper (Release)
         shell: cmd
         run: |
-          call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64 || call "%ProgramFiles(x86)%\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" x64
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set VSPATH=%%i
+          if not defined VSPATH (
+            echo Could not locate a Visual Studio installation via vswhere
+            exit /b 1
+          )
+          echo Using VS install: %VSPATH%
+          call "%VSPATH%\VC\Auxiliary\Build\vcvarsall.bat" x64
+          if errorlevel 1 (
+            echo vcvarsall.bat failed
+            exit /b 1
+          )
+          where cl
+          if errorlevel 1 (
+            echo cl.exe not on PATH after vcvarsall - aborting rather than silently falling back to another compiler
+            exit /b 1
+          )
           cd /d C:\pb\piper1-gpl\libpiper
           cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=%CD%\install
           if errorlevel 1 exit /b 1
