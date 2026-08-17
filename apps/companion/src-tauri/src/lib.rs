@@ -143,6 +143,7 @@ pub fn run() {
             commands::clear_log,
             commands::save_companion_token,
             commands::get_twitch_chat,
+            commands::open_twitch_settings,
             commands::resend_current_state,
             commands::save_obs_config,
             commands::test_obs_connection,

@@ -8,11 +8,13 @@ export interface TwitchChatMessage {
   messageType: string;
   receivedAt: string;
 }
+export type TwitchChatState = "connected" | "reconnecting" | "reauth_required" | "unavailable";
 export interface TwitchChatStatus {
   accountConnected: boolean;
   configured: boolean;
   displayName: string | null;
   connected: boolean;
+  state: TwitchChatState;
   messages: TwitchChatMessage[];
 }
 import { invoke } from "@tauri-apps/api/core";
@@ -28,6 +30,7 @@ export const clearLog = () => invoke<StatusSnapshot>("clear_log");
 export const saveCompanionToken = (token: string) =>
   invoke<StatusSnapshot>("save_companion_token", { token });
 export const getTwitchChat = () => invoke<TwitchChatStatus>("get_twitch_chat");
+export const openTwitchSettings = () => invoke<void>("open_twitch_settings");
 export const resendCurrentState = () =>
   invoke<StatusSnapshot>("resend_current_state");
 export const saveObsConfig = (config: ObsConfig) =>

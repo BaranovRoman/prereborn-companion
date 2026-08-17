@@ -14,6 +14,12 @@ pub const GSI_CONFIG_FILE_NAME: &str = "gamestate_integration_dota_companion.cfg
 pub const DEFAULT_BACKEND_URL: &str = "http://127.0.0.1:3001/api";
 #[cfg(not(debug_assertions))]
 pub const DEFAULT_BACKEND_URL: &str = "https://prereborn.ru/api";
+// Same environment split as DEFAULT_BACKEND_URL, but for the web dashboard
+// (no /api suffix) - used to open the Twitch settings page for re-linking.
+#[cfg(debug_assertions)]
+pub const DEFAULT_WEB_ORIGIN: &str = "http://127.0.0.1:3000";
+#[cfg(not(debug_assertions))]
+pub const DEFAULT_WEB_ORIGIN: &str = "https://prereborn.ru";
 pub const COMPANION_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Clone, Serialize, Default)]
