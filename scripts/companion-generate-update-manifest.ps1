@@ -25,7 +25,12 @@ if (-not (Test-Path $sigPath)) {
 
 $signature = (Get-Content -Path $sigPath -Raw).Trim()
 $pubDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-$downloadUrl = "https://github.com/$Repository/releases/download/$Tag/$($installer.Name)"
+# GitHub Releases replaces spaces in asset filenames with dots on upload
+# (productName "PreReborn Companion" has a space) - the local build output
+# still has the space, so the download URL must use the sanitized name or
+# it 404s. See prereborn-v0.5.1's latest.json for the bug this fixes.
+$sanitizedName = $installer.Name -replace ' ', '.'
+$downloadUrl = "https://github.com/$Repository/releases/download/$Tag/$sanitizedName"
 
 $manifest = [ordered]@{
     version   = $Version
@@ -39,5 +44,10 @@ $manifest = [ordered]@{
     }
 }
 
-$manifest | ConvertTo-Json -Depth 5 | Set-Content -Path "latest.json" -Encoding utf8
+# -Encoding utf8 in Windows PowerShell 5.1 always writes a UTF-8 BOM, which
+# broke JSON parsing on the client (Tauri updater's HTTP client failed with
+# "error decoding response body" - a leading BOM isn't valid JSON to
+# serde_json). Content here is pure ASCII (base64 signature, plain URL/date
+# strings), so -Encoding ascii is both correct and BOM-free.
+$manifest | ConvertTo-Json -Depth 5 | Set-Content -Path "latest.json" -Encoding ascii
 Write-Host "Generated latest.json for $Version -> $downloadUrl"
