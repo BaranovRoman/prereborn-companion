@@ -1,12 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStderr, ChildStdin, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::{Deserialize, Serialize};
-use std::io::Write;
+use std::io::{Read, Write};
 use tauri::{AppHandle, Manager};
 
 use crate::storage;
@@ -121,6 +121,7 @@ fn save_config(app: &AppHandle, config: &TtsConfig) -> std::io::Result<()> {
 struct Sidecar {
     child: Child,
     stdin: ChildStdin,
+    stderr: ChildStderr,
     output_dir: PathBuf,
 }
 
@@ -147,6 +148,42 @@ impl SidecarPaths {
     }
 }
 
+// An *explicit* --espeak_data path (as opposed to cwd/relative resolution)
+// turned out not to be enough on its own: espeak-ng's own file-reading code
+// chokes on any non-ASCII byte in the path itself ("Illegal byte sequence"
+// opening phontab), which app_data_dir() hits directly for any Windows
+// account with a Cyrillic username - this app's own primary audience.
+// Confirmed by reproducing against a real installed Companion's
+// app_data_dir() on a Cyrillic-username account, and confirmed fixed by
+// resolving to the legacy 8.3 short-path form first (pure ASCII by
+// construction, e.g. C:\Users\РОМА~1). Falls back to the original (long)
+// path if short names are unavailable (disabled via `fsutil 8dot3name`, or
+// the path doesn't exist yet) - Piper will fail the same way it did before
+// this fix in that case, not worse.
+#[cfg(windows)]
+fn to_short_path(path: &Path) -> PathBuf {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetShortPathNameW(long_path: *const u16, short_path: *mut u16, buffer_len: u32) -> u32;
+    }
+
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+    let mut buffer = vec![0u16; 1024];
+    let len = unsafe { GetShortPathNameW(wide.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32) };
+    if len == 0 || len as usize >= buffer.len() {
+        return path.to_path_buf();
+    }
+    buffer.truncate(len as usize);
+    PathBuf::from(OsString::from_wide(&buffer))
+}
+#[cfg(not(windows))]
+fn to_short_path(path: &Path) -> PathBuf {
+    path.to_path_buf()
+}
+
 impl Sidecar {
     fn spawn(paths: &SidecarPaths) -> Result<Self, String> {
         let output_dir = paths.output_dir.clone();
@@ -159,19 +196,16 @@ impl Sidecar {
 
         let mut cmd = Command::new(&paths.exe);
         cmd.arg("--model")
-            .arg(&paths.model)
+            .arg(to_short_path(&paths.model))
             .arg("--config")
-            .arg(&paths.config)
-            // Explicit path, never cwd/relative resolution - a Cyrillic
-            // Windows username otherwise breaks espeak-ng-data loading
-            // ("Illegal byte sequence"), see wk-74-piper-prototype-findings.md.
+            .arg(to_short_path(&paths.config))
             .arg("--espeak_data")
-            .arg(&paths.espeak_data)
+            .arg(to_short_path(&paths.espeak_data))
             .arg("--output_dir")
-            .arg(&output_dir)
+            .arg(to_short_path(&output_dir))
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .stderr(Stdio::piped());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -186,7 +220,11 @@ impl Sidecar {
             .stdin
             .take()
             .ok_or_else(|| "Piper stdin unavailable".to_string())?;
-        Ok(Self { child, stdin, output_dir })
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| "Piper stderr unavailable".to_string())?;
+        Ok(Self { child, stdin, stderr, output_dir })
     }
 
     fn synthesize(&mut self, text: &str) -> Result<Vec<u8>, String> {
@@ -199,7 +237,9 @@ impl Sidecar {
         let deadline = Instant::now() + SYNTH_TIMEOUT;
         let path = loop {
             if let Ok(Some(status)) = self.child.try_wait() {
-                return Err(format!("Piper завершился неожиданно ({status})"));
+                let stderr = self.drain_stderr();
+                let detail = if stderr.is_empty() { String::new() } else { format!(": {stderr}") };
+                return Err(format!("Piper завершился неожиданно ({status}){detail}"));
             }
             let mut names: Vec<_> = fs::read_dir(&self.output_dir)
                 .map_err(|e| format!("Piper output dir: {e}"))?
@@ -239,6 +279,15 @@ impl Sidecar {
         let bytes = fs::read(&path).map_err(|e| format!("Piper output file: {e}"))?;
         let _ = fs::remove_file(&path);
         Ok(bytes)
+    }
+
+    // Only called after try_wait() has confirmed the child already exited,
+    // so its stderr pipe is guaranteed to EOF once buffered data is read -
+    // this can't block waiting on a still-running process.
+    fn drain_stderr(&mut self) -> String {
+        let mut buf = String::new();
+        let _ = self.stderr.read_to_string(&mut buf);
+        buf.trim().to_string()
     }
 
     fn kill(mut self) {
@@ -432,6 +481,15 @@ mod tests {
     #[test]
     fn engine_state_defaults_to_not_started() {
         assert_eq!(TtsEngineState::default(), TtsEngineState::NotStarted);
+    }
+
+    #[test]
+    fn to_short_path_falls_back_when_path_does_not_exist() {
+        // GetShortPathNameW (Windows) can only resolve a path that already
+        // exists on disk; a nonexistent path must fall back to itself
+        // unchanged rather than erroring or panicking.
+        let missing = std::path::PathBuf::from("Z:\\this\\path\\does\\not\\exist\\at\\all");
+        assert_eq!(to_short_path(&missing), missing);
     }
 
     // Real subprocess IPC test against an actual local libpiper build - not
