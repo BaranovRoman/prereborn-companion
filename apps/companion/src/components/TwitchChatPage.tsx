@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { BoundedTtsQueue, DEFAULT_CHAT_SETTINGS, nextUnreadCount, type ChatSettings } from "../chat/chat-model";
-import { getTwitchChat, type TwitchChatMessage, type TwitchChatStatus } from "../services/dotaCompanionApi";
+import { getTwitchChat, openTwitchSettings, type TwitchChatMessage, type TwitchChatStatus } from "../services/dotaCompanionApi";
 
 const STORAGE_KEY = "companion-twitch-chat-settings-v1";
 const loadSettings = (): ChatSettings => {
@@ -116,21 +116,42 @@ export function TwitchChatPage() {
   const update = <K extends keyof ChatSettings>(key: K, value: ChatSettings[K]) =>
     setSettings((current) => ({ ...current, [key]: value }));
 
+  const [reconnectPending, setReconnectPending] = useState(false);
+  const reconnectTwitch = async () => {
+    setReconnectPending(true);
+    try { await openTwitchSettings(); }
+    catch (cause) { setError(String(cause)); }
+    finally { setReconnectPending(false); }
+  };
+
   const messages: TwitchChatMessage[] = status?.messages ?? [];
+  const reauthRequired = status?.state === "reauth_required";
   const label = !status?.accountConnected
     ? "Twitch не подключён в веб-кабинете"
-    : status.connected ? "Чат подключён" : "Восстанавливаем подключение…";
+    : reauthRequired
+      ? "Twitch нужно переподключить, чтобы получать сообщения чата"
+      : status.connected ? "Чат подключён" : "Восстанавливаем подключение…";
 
   return <section className="chat-page">
     <div className="chat-page__header">
       <div><span className="section-heading__eyebrow">Не пропускайте зрителей</span><h2>Twitch-чат</h2><p>{status?.displayName ? `${status.displayName} · ${label}` : label}</p></div>
-      <span className={`connection-pill ${status?.connected ? "is-online" : ""}`}>{status?.connected ? "На связи" : "Ожидание"}</span>
+      <span className={`connection-pill ${status?.connected ? "is-online" : ""} ${reauthRequired ? "is-warning" : ""}`}>
+        {status?.connected ? "На связи" : reauthRequired ? "Нужен повторный вход" : "Ожидание"}
+      </span>
     </div>
     {error && <p className="app__error">Чат временно недоступен: {error}</p>}
+    {reauthRequired && <div className="chat-reauth-banner">
+      <p>Twitch нужно переподключить, чтобы получать сообщения чата. Это займёт минуту — откройте настройки и подключите Twitch заново.</p>
+      <button className="button" onClick={reconnectTwitch} disabled={reconnectPending}>Открыть настройки Twitch</button>
+    </div>}
     <div className="chat-layout">
       <div className="chat-stream">
         <div className="chat-messages" ref={listRef} onScroll={onScroll} aria-live="polite">
-          {!messages.length && <div className="chat-empty">{status?.accountConnected ? "Новые сообщения появятся здесь." : "Подключите Twitch в веб-кабинете PreReborn."}</div>}
+          {!messages.length && <div className="chat-empty">
+            {reauthRequired
+              ? "Сообщения не поступают, пока Twitch не переподключён."
+              : status?.accountConnected ? "Новые сообщения появятся здесь." : "Подключите Twitch в веб-кабинете PreReborn."}
+          </div>}
           {messages.map((message) => <article className="chat-message" key={message.id}>
             <div><strong style={{ color: message.color || undefined }}>{message.author}</strong><time>{new Date(message.receivedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></div>
             <p>{message.text}</p>

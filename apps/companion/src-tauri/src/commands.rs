@@ -7,7 +7,7 @@ use crate::backend;
 use crate::diagnostics::{self, DiagnosticsStatusSnapshot};
 use crate::gsi::{config, finder};
 use crate::obs::{self, BroadcastScene, ObsConfig};
-use crate::state::{AppState, StatusSnapshot};
+use crate::state::{AppState, StatusSnapshot, DEFAULT_WEB_ORIGIN};
 use crate::storage;
 
 #[tauri::command]
@@ -102,6 +102,13 @@ pub fn open_dota_folder(app: AppHandle, state: State<AppState>) -> Result<(), St
     };
     app.opener()
         .open_path(dota_path, None::<String>)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn open_twitch_settings(app: AppHandle) -> Result<(), String> {
+    app.opener()
+        .open_url(format!("{DEFAULT_WEB_ORIGIN}/stream"), None::<String>)
         .map_err(|e| e.to_string())
 }
 

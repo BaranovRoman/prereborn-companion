@@ -1,7 +1,8 @@
 import crypto from "crypto";
-import { TwitchEventSubChatClient, type TwitchChatMessage } from "./twitch-eventsub-chat.js";
+import { TwitchEventSubChatClient, type TwitchChatMessage, type TwitchChatState } from "./twitch-eventsub-chat.js";
 import { env } from "../config/env.js";
 import { pool } from "../db/client.js";
+import { logger } from "../utils/logger.js";
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 const CHAT_MESSAGE_LIMIT = 40;
@@ -37,6 +38,16 @@ const chatConnections = new Map<string, TwitchEventSubChatClient>();
 const chatMessages = new Map<string, TwitchChatMessage[]>();
 const recentSubscribers = new Map<string, TwitchSubscriber[]>();
 const audienceCache = new Map<string, TwitchAudience>();
+
+// Test-only seam: lets tests inject a client wired with a fake socket/
+// subscription/token-validation instead of the real WebSocket + Twitch API,
+// so the reauth_required state machine can be exercised end-to-end through
+// getTwitchChatStatus() without a network connection to Twitch.
+type ChatClientFactory = (options: ConstructorParameters<typeof TwitchEventSubChatClient>[0]) => TwitchEventSubChatClient;
+let createChatClient: ChatClientFactory = (options) => new TwitchEventSubChatClient(options);
+export const __setChatClientFactoryForTests = (factory: ChatClientFactory | null) => {
+    createChatClient = factory ?? ((options) => new TwitchEventSubChatClient(options));
+};
 
 export const getTwitchConfig = () => {
     if (
@@ -188,7 +199,7 @@ const ensureTwitchChat = (streamUserId: string, broadcasterId: string) => {
     const config = getTwitchConfig();
     if (!config) return;
 
-    const client = new TwitchEventSubChatClient({
+    const client = createChatClient({
         broadcasterId,
         clientId: config.clientId,
         getAccessToken: () => getTwitchUserToken(streamUserId),
@@ -196,6 +207,14 @@ const ensureTwitchChat = (streamUserId: string, broadcasterId: string) => {
             const messages = chatMessages.get(streamUserId) ?? [];
             if (messages.some(({ id }) => id === message.id)) return;
             chatMessages.set(streamUserId, [...messages, message].slice(-CHAT_MESSAGE_LIMIT));
+        },
+        onError: (error, classification) => {
+            const log = classification === "reauth_required" ? logger.warn : logger.error;
+            log("Twitch chat subscription failed", {
+                streamUserId,
+                classification,
+                message: error instanceof Error ? error.message : String(error),
+            });
         },
     });
     chatConnections.set(streamUserId, client);
@@ -372,6 +391,8 @@ export const getTwitchStatus = async (streamUserId: string) => {
 };
 
 
+export type TwitchChatStatusState = TwitchChatState | "unavailable";
+
 export const getTwitchChatStatus = async (streamUserId: string) => {
     const result = await pool.query<{
         twitch_user_id: string;
@@ -388,15 +409,18 @@ export const getTwitchChatStatus = async (streamUserId: string) => {
             configured: Boolean(getTwitchConfig()),
             displayName: null,
             connected: false,
+            state: "unavailable" as TwitchChatStatusState,
             messages: [],
         };
     }
     ensureTwitchChat(streamUserId, link.twitch_user_id);
+    const state: TwitchChatStatusState = chatConnections.get(streamUserId)?.state ?? "unavailable";
     return {
         accountConnected: true,
         configured: Boolean(getTwitchConfig()),
         displayName: link.display_name,
-        connected: chatConnections.get(streamUserId)?.connected ?? false,
+        connected: state === "connected",
+        state,
         messages: chatMessages.get(streamUserId) ?? [],
     };
 };
