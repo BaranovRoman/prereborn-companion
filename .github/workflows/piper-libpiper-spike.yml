@@ -12,6 +12,13 @@ name: Spike - libpiper Windows build (WK-74)
 
 on:
   workflow_dispatch:
+  # TEMPORARY: workflow_dispatch alone can't be triggered by API/CLI until
+  # this file exists on the default branch, which this spike deliberately
+  # avoids touching. Trigger once via a push to this path on feat/74, then
+  # remove this block again (see WK-74 spike notes).
+  push:
+    branches: [feat/74]
+    paths: [".github/workflows/piper-libpiper-spike.yml"]
 
 jobs:
   build-libpiper:
