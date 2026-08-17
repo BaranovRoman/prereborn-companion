@@ -177,6 +177,12 @@ fn send_state(token: &str, payload: &serde_json::Value) -> Result<(), String> {
         .send()
         .map_err(|e| format!("Сеть недоступна: {e}"))?;
 
+    if response.status() == reqwest::StatusCode::UPGRADE_REQUIRED {
+        return Err(format!(
+            "Companion устарел ({COMPANION_VERSION}) — скачайте новую версию с сайта."
+        ));
+    }
+
     if !response.status().is_success() {
         return Err(format!("Backend ответил {}", response.status()));
     }

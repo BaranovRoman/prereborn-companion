@@ -4,6 +4,10 @@ import { upsertCompanionState } from "../../services/stream-companion-service.js
 import { processGsiPayloadForMatch } from "../../services/stream-match-service.js";
 import { logger } from "../../utils/logger.js";
 import { getTwitchChatStatus } from "../../services/twitch-integration-service.js";
+import {
+    isCompanionVersionSupported,
+    MIN_SUPPORTED_COMPANION_VERSION,
+} from "../../utils/companion-version.js";
 
 // Разумный потолок для JSON-состояния GSI - даже со всеми data-категориями
 // включёнными (map/player/hero/abilities/items/events/buildings/league/
@@ -46,6 +50,18 @@ export const putCompanionGsiStateController = async (
         const parsed = gsiStateSchema.safeParse(req.body);
         if (!parsed.success) {
             return res.status(400).json({ error: "Неверный формат payload" });
+        }
+
+        if (!isCompanionVersionSupported(parsed.data.companionVersion)) {
+            // 426 (not 400/403) so the companion's error handling can tell
+            // "you're outdated" apart from a generic backend failure and
+            // show the user something actionable instead of a raw status
+            // code (see backend/mod.rs::send_state on the companion side).
+            return res.status(426).json({
+                error: "companion_outdated",
+                message: `Companion устарел, требуется версия ${MIN_SUPPORTED_COMPANION_VERSION} или новее`,
+                minVersion: MIN_SUPPORTED_COMPANION_VERSION,
+            });
         }
 
         const streamUserId = req.streamUserId as string;
