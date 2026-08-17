@@ -9,9 +9,11 @@ import { LastEventPanel } from "../components/LastEventPanel";
 import { ObsScenePanel } from "../components/ObsScenePanel";
 import { StatusChecklist } from "../components/StatusChecklist";
 import { TwitchChatPage } from "../components/TwitchChatPage";
+import { UpdateBanner } from "../components/UpdateBanner";
 import { useDiagnostics } from "../hooks/useDiagnostics";
 import { useGsiEvents } from "../hooks/useGsiEvents";
 import { useStatus } from "../hooks/useStatus";
+import { useUpdater } from "../hooks/useUpdater";
 import * as api from "../services/dotaCompanionApi";
 import type { StatusSnapshot } from "../types/status";
 
@@ -43,6 +45,7 @@ export function HomePage() {
   const { status, setStatus, refresh } = useStatus();
   const history = useGsiEvents();
   const diagnostics = useDiagnostics();
+  const updater = useUpdater();
   const [view, setView] = useState<View>("home");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +55,11 @@ export function HomePage() {
     if (history.length > 0) refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [history.length]);
+
+  useEffect(() => {
+    void updater.checkForUpdate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const listeners = ["backend-status", "gsi-status", "obs-status"].map((event) => listen(event, () => refresh()));
@@ -109,6 +117,14 @@ export function HomePage() {
           <button className={view === "diagnostics" ? "is-active" : ""} onClick={() => setView("diagnostics")}>Диагностика</button>
         </nav>
       </header>
+
+      <UpdateBanner
+        state={updater.state}
+        onCheck={() => void updater.checkForUpdate()}
+        onInstall={() => void updater.installUpdate()}
+        onRestart={() => void updater.restartToApply()}
+        onDismiss={updater.dismiss}
+      />
 
       {view === "home" && setupOpen ? <section className="setup-guide" aria-labelledby="setup-title">
         <div className="setup-guide__heading">
