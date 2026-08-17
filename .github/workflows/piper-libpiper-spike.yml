@@ -12,12 +12,6 @@ name: Spike - libpiper Windows build (WK-74)
 
 on:
   workflow_dispatch:
-  # TEMPORARY, see prior commit history on this branch - retry after fixing
-  # the vcvarsall.bat path discovery bug that caused the first spike run to
-  # silently fall back to a pre-installed MinGW toolchain instead of MSVC.
-  push:
-    branches: [feat/74]
-    paths: [".github/workflows/piper-libpiper-spike.yml"]
 
 jobs:
   build-libpiper:
