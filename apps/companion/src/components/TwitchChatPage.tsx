@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { BoundedTtsQueue, DEFAULT_CHAT_SETTINGS, nextUnreadCount, type ChatSettings } from "../chat/chat-model";
-import { getTwitchChat, openTwitchSettings, type TwitchChatMessage, type TwitchChatStatus } from "../services/dotaCompanionApi";
+import {
+  getPiperTtsStatus, getTwitchChat, openTwitchSettings, setPiperTtsEnabled, synthesizePiperTts,
+  type PiperTtsStatus, type TwitchChatMessage, type TwitchChatStatus,
+} from "../services/dotaCompanionApi";
 
 const STORAGE_KEY = "companion-twitch-chat-settings-v1";
 const loadSettings = (): ChatSettings => {
@@ -21,18 +24,65 @@ export function TwitchChatPage() {
   const speaking = useRef(false);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const [piperStatus, setPiperStatus] = useState<PiperTtsStatus | null>(null);
+  const [piperBusy, setPiperBusy] = useState(false);
+  // HTMLAudioElement currently playing a Piper clip, if any - stopTts()
+  // needs to pause it directly (unlike speechSynthesis, there's no global
+  // "cancel" for it). `generation` is bumped on every stop so an
+  // already-in-flight synthesize() result that resolves afterward is
+  // discarded instead of starting playback the user just stopped.
+  const currentAudio = useRef<HTMLAudioElement | null>(null);
+  const generation = useRef(0);
 
-  const drainTts = () => {
-    if (speaking.current || !settingsRef.current.ttsEnabled || !("speechSynthesis" in window)) return;
-    const text = queue.current.takeNext();
-    if (!text) return;
-    speaking.current = true;
+  const refreshPiperStatus = async () => {
+    try { setPiperStatus(await getPiperTtsStatus()); }
+    catch { /* transient IPC hiccup - next poll/attempt will retry */ }
+  };
+
+  const speakWithSystem = (text: string, done: () => void) => {
+    if (!("speechSynthesis" in window)) return done();
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "ru-RU";
-    const done = () => { speaking.current = false; drainTts(); };
     utterance.onend = done;
     utterance.onerror = done;
     window.speechSynthesis.speak(utterance);
+  };
+
+  const speakWithPiper = async (text: string, done: () => void) => {
+    const myGeneration = generation.current;
+    try {
+      const base64 = await synthesizePiperTts(text);
+      void refreshPiperStatus();
+      if (myGeneration !== generation.current) return done();
+      const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
+      const audio = new Audio(url);
+      currentAudio.current = audio;
+      const cleanup = () => {
+        URL.revokeObjectURL(url);
+        if (currentAudio.current === audio) currentAudio.current = null;
+        done();
+      };
+      audio.onended = cleanup;
+      audio.onerror = cleanup;
+      await audio.play().catch(cleanup);
+    } catch {
+      // Piper unavailable/crashed for this message - read it with the
+      // system voice instead of dropping it silently.
+      void refreshPiperStatus();
+      if (myGeneration !== generation.current) return done();
+      speakWithSystem(text, done);
+    }
+  };
+
+  const drainTts = () => {
+    if (speaking.current || !settingsRef.current.ttsEnabled) return;
+    const text = queue.current.takeNext();
+    if (!text) return;
+    speaking.current = true;
+    const done = () => { speaking.current = false; drainTts(); };
+    if (settingsRef.current.ttsEngine === "piper") void speakWithPiper(text, done);
+    else speakWithSystem(text, done);
   };
 
   const beep = () => {
@@ -53,11 +103,28 @@ export function TwitchChatPage() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
     if (!settings.ttsEnabled) {
+      generation.current += 1;
       queue.current.clear();
       speaking.current = false;
       window.speechSynthesis?.cancel();
+      if (currentAudio.current) { currentAudio.current.pause(); currentAudio.current = null; }
     }
   }, [settings]);
+
+  const piperActive = settings.ttsEnabled && settings.ttsEngine === "piper";
+  useEffect(() => {
+    let active = true;
+    setPiperBusy(true);
+    setPiperTtsEnabled(piperActive)
+      .then((next) => { if (active) setPiperStatus(next); })
+      .catch((cause) => {
+        if (active) setPiperStatus((prev) => prev
+          ? { ...prev, state: "crashed", lastError: String(cause) }
+          : { enabled: piperActive, state: "crashed", lastError: String(cause), resourcesReady: false });
+      })
+      .finally(() => { if (active) setPiperBusy(false); });
+    return () => { active = false; };
+  }, [piperActive]);
 
   useEffect(() => {
     let active = true;
@@ -108,10 +175,12 @@ export function TwitchChatPage() {
     setUnread(0);
   };
   const stopTts = () => {
+    generation.current += 1;
     setSettings((value) => ({ ...value, ttsEnabled: false }));
     queue.current.clear();
     speaking.current = false;
     window.speechSynthesis?.cancel();
+    if (currentAudio.current) { currentAudio.current.pause(); currentAudio.current = null; }
   };
   const update = <K extends keyof ChatSettings>(key: K, value: ChatSettings[K]) =>
     setSettings((current) => ({ ...current, [key]: value }));
@@ -163,6 +232,20 @@ export function TwitchChatPage() {
         <h3>Уведомления</h3>
         <label><input type="checkbox" checked={settings.soundEnabled} onChange={(event) => update("soundEnabled", event.target.checked)} /> Звук нового сообщения</label>
         <label><input type="checkbox" checked={settings.ttsEnabled} onChange={(event) => update("ttsEnabled", event.target.checked)} /> Озвучивать сообщения</label>
+        <div className={`tts-engine-choice ${!settings.ttsEnabled ? "is-disabled" : ""}`}>
+          <label><input type="radio" name="ttsEngine" disabled={!settings.ttsEnabled} checked={settings.ttsEngine === "system"} onChange={() => update("ttsEngine", "system")} /> Системный голос</label>
+          <label><input type="radio" name="ttsEngine" disabled={!settings.ttsEnabled} checked={settings.ttsEngine === "piper"} onChange={() => update("ttsEngine", "piper")} /> Piper (локальный, офлайн)</label>
+        </div>
+        {piperActive && <p className="tts-piper-status">
+          {piperBusy || piperStatus?.state === "starting" ? "Piper: загрузка/запуск…"
+            : piperStatus?.state === "ready" ? "Piper: готов"
+            : piperStatus?.state === "crashed" || piperStatus?.state === "unavailable"
+              ? `Piper недоступен, читаем системным голосом: ${piperStatus.lastError ?? "неизвестная ошибка"}`
+              : "Piper: ожидание первого сообщения"}
+        </p>}
+        {piperActive && <p className="tts-license-note">
+          Piper и <a href="https://github.com/espeak-ng/espeak-ng" target="_blank" rel="noreferrer">espeak-ng</a> (GPL-3.0, запускаются отдельным процессом, исходники: <a href="https://github.com/OHF-Voice/piper1-gpl" target="_blank" rel="noreferrer">OHF-Voice/piper1-gpl</a>), голос ru_RU-denis-medium (MIT/CC0).
+        </p>}
         <label className={!settings.ttsEnabled ? "is-disabled" : ""}><input type="checkbox" disabled={!settings.ttsEnabled} checked={settings.speakAuthor} onChange={(event) => update("speakAuthor", event.target.checked)} /> Произносить имя автора</label>
         <label className={!settings.ttsEnabled ? "is-disabled" : ""}>Максимальная длина
           <select disabled={!settings.ttsEnabled} value={settings.maxLength} onChange={(event) => update("maxLength", Number(event.target.value))}>

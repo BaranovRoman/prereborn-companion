@@ -140,6 +140,10 @@ h1, h2, p { margin-top: 0; }
 .chat-settings label:has(select) { align-items: stretch; flex-direction: column; gap: 5px; }
 .chat-settings label.is-disabled { color: var(--muted); }
 .chat-settings select { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 7px; color: inherit; background: #0e1119; }
+.tts-engine-choice { display: grid; gap: 5px; padding-left: 4px; }
+.tts-engine-choice.is-disabled { color: var(--muted); }
+.tts-piper-status, .tts-license-note { margin: -4px 0 0; font-size: .76rem; color: var(--muted); }
+.tts-license-note a { color: inherit; }
 @media (max-width: 700px) {
   body { min-width: 320px; }
   .app-header { align-items: stretch; flex-direction: column; }

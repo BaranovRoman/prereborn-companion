@@ -31,6 +31,21 @@ export const saveCompanionToken = (token: string) =>
   invoke<StatusSnapshot>("save_companion_token", { token });
 export const getTwitchChat = () => invoke<TwitchChatStatus>("get_twitch_chat");
 export const openTwitchSettings = () => invoke<void>("open_twitch_settings");
+
+export type PiperTtsEngineState = "notStarted" | "starting" | "ready" | "crashed" | "unavailable";
+export interface PiperTtsStatus {
+  enabled: boolean;
+  state: PiperTtsEngineState;
+  lastError: string | null;
+  resourcesReady: boolean;
+}
+export const getPiperTtsStatus = () => invoke<PiperTtsStatus>("get_tts_status");
+export const setPiperTtsEnabled = (enabled: boolean) =>
+  invoke<PiperTtsStatus>("set_tts_enabled", { enabled });
+// Returns base64-encoded WAV bytes - Tauri's default JSON IPC would blow up
+// a raw Vec<u8> into one JSON number per byte (~3-4x the payload size for
+// a synthesized clip), base64 is far cheaper to transport for this size.
+export const synthesizePiperTts = (text: string) => invoke<string>("synthesize_piper_tts", { text });
 export const resendCurrentState = () =>
   invoke<StatusSnapshot>("resend_current_state");
 export const saveObsConfig = (config: ObsConfig) =>

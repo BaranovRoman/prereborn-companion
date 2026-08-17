@@ -9,6 +9,7 @@ use crate::gsi::{config, finder};
 use crate::obs::{self, BroadcastScene, ObsConfig};
 use crate::state::{AppState, StatusSnapshot, DEFAULT_WEB_ORIGIN};
 use crate::storage;
+use crate::tts::{self, TtsStatus};
 
 #[tauri::command]
 pub fn get_status(state: State<AppState>) -> StatusSnapshot {
@@ -313,6 +314,26 @@ pub fn diagnostics_stop(app: AppHandle) -> Result<DiagnosticsStatusSnapshot, Str
 #[tauri::command]
 pub fn diagnostics_clear(app: AppHandle) -> Result<DiagnosticsStatusSnapshot, String> {
     diagnostics::clear(&app)
+}
+
+// WK-75 - local Piper TTS sidecar (see src-tauri/src/tts.rs). Downloading
+// resources and running synthesis can each take real time (network,
+// ~15s synthesis timeout) - both commands are `async fn` so Tauri runs
+// them off the main IPC thread instead of blocking other commands.
+
+#[tauri::command]
+pub fn get_tts_status(app: AppHandle) -> TtsStatus {
+    tts::status(&app)
+}
+
+#[tauri::command]
+pub async fn set_tts_enabled(app: AppHandle, enabled: bool) -> Result<TtsStatus, String> {
+    tts::set_enabled(&app, enabled)
+}
+
+#[tauri::command]
+pub async fn synthesize_piper_tts(app: AppHandle, text: String) -> Result<String, String> {
+    tts::synthesize_base64(&app, &text)
 }
 
 #[tauri::command]
