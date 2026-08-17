@@ -6,6 +6,7 @@ mod obs;
 mod server;
 mod state;
 mod storage;
+mod tts;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -31,7 +32,10 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                     let _ = window.set_focus();
                 }
             }
-            "quit" => app.exit(0),
+            "quit" => {
+                tts::stop(app);
+                app.exit(0);
+            }
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -103,10 +107,12 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(AppState::new())
         .manage(diagnostics::DiagnosticsState::new())
+        .manage(tts::TtsState::new())
         .setup(|app| {
             let handle = app.handle().clone();
 
             storage::init(&handle)?;
+            tts::init(&handle);
             {
                 let state = handle.state::<AppState>();
                 let mut inner = state.0.lock().unwrap();
@@ -153,6 +159,9 @@ pub fn run() {
             commands::diagnostics_stop,
             commands::diagnostics_clear,
             commands::diagnostics_export,
+            commands::get_tts_status,
+            commands::set_tts_enabled,
+            commands::synthesize_piper_tts,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

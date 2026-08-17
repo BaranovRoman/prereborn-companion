@@ -19,6 +19,7 @@ graphify-out/
 uploads/
 /apps/web/public/vendor/valve/video/
 /diagnostics/
+/piper-dist/
 *.zip
 *.msi
 *.exe

@@ -1,16 +1,19 @@
 import type { TwitchChatMessage } from "../services/dotaCompanionApi";
 
+export type TtsEngine = "system" | "piper";
 export interface ChatSettings {
   soundEnabled: boolean;
   ttsEnabled: boolean;
   speakAuthor: boolean;
   maxLength: number;
+  ttsEngine: TtsEngine;
 }
 export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   soundEnabled: false,
   ttsEnabled: false,
   speakAuthor: true,
   maxLength: 180,
+  ttsEngine: "system",
 };
 export const nextUnreadCount = (current: number, isAtBottom: boolean, added: number) =>
   isAtBottom ? 0 : current + added;
