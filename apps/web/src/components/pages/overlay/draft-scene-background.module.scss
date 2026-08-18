@@ -1,0 +1,16 @@
+.stage {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    background: #090305;
+}
+
+// Выше atmosphereFinish (z-index 7 в переиспользуемом queue-scene.module.scss)
+// - иначе затемнение окажется под виньеткой шейдера, а не поверх неё.
+.dim {
+    position: absolute;
+    inset: 0;
+    z-index: 8;
+    background: rgba(4, 3, 5, 0.5);
+}

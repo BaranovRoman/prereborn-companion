@@ -1,8 +1,27 @@
 import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DraftProtectionLayer } from "./draft-protection-layer";
 
-afterEach(cleanup);
+// jsdom does not implement matchMedia - the reused DraftSceneBackground
+// (red-fog-background.tsx) reads prefers-reduced-motion unconditionally, even
+// when it falls back because WebGL2 itself is unavailable in jsdom (which it
+// already handles gracefully). This stub only covers that environment gap,
+// not the shader/component itself.
+beforeEach(() => {
+    vi.stubGlobal(
+        "matchMedia",
+        vi.fn().mockReturnValue({
+            matches: false,
+            addEventListener: () => {},
+            removeEventListener: () => {},
+        })
+    );
+});
+
+afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+});
 
 describe("DraftProtectionLayer", () => {
     it("renders the cinematic draft scene when protection is off", () => {
@@ -10,19 +29,22 @@ describe("DraftProtectionLayer", () => {
         expect(getByTestId("cinematic-draft-layer")).toBeTruthy();
     });
 
-    it("renders an opaque cover without real draft data", () => {
+    it("renders the classic picker composition without real draft data for full cover", () => {
         const { getByTestId } = render(<DraftProtectionLayer mode="cover" />);
-        expect(getByTestId("draft-protection-layer").textContent).toContain(
-            "Выбор героев скрыт"
-        );
+        const text = getByTestId("draft-protection-layer").textContent;
+        expect(text).toContain("DRAFT PROTECTED");
+        expect(text).toContain("Информация скрыта во время драфта");
+        // no hero identity/timer of any kind in the cover composition
+        expect(text).not.toMatch(/\d/);
     });
 
     it("renders the fake draft picker for the substitute mode", () => {
         const { getByTestId } = render(
             <DraftProtectionLayer mode="substitute" payload={null} />
         );
-        const text = getByTestId("fake-draft-picker").textContent;
-        expect(text).toContain("PUBLIC DRAFT");
-        expect(text).toContain("не связана с реальными пиками и банами");
+        expect(getByTestId("fake-draft-picker")).toBeTruthy();
+        // enter state starts with nothing focused yet - carousel/showcase
+        // populate once the controller advances past "enter".
+        expect(getByTestId("fake-countdown").textContent).toMatch(/^\d{2}$/);
     });
 });
