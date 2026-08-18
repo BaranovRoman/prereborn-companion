@@ -73,6 +73,14 @@ export const OverlayPage = ({
     }
 
     const widgets = layout.scenes[activeScene].widgets;
+    // A manual "Тест сцен OBS" test carries its own draftProtection.mode
+    // snapshot (see obs-scene-command-service.ts) - preferred over `layout`
+    // while active so a re-test always reflects exactly what was just saved,
+    // without depending on `layout` being re-fetched at the same instant.
+    const draftProtectionMode =
+        activeScene === "draft"
+            ? data.draftProtectionModeOverride ?? layout.draftProtection.mode
+            : undefined;
 
     return (
         <>
@@ -80,9 +88,7 @@ export const OverlayPage = ({
                 mode="live"
                 aspectRatio={layout.aspectRatio}
                 minimapCover={layout.scenes[activeScene].minimapCover}
-                draftProtectionMode={
-                    activeScene === "draft" ? layout.draftProtection.mode : undefined
-                }
+                draftProtectionMode={draftProtectionMode}
                 draftPayload={activeScene === "draft" ? data.companion.payload : undefined}
             >
                 {({ sceneWidth, sceneHeight }) => (

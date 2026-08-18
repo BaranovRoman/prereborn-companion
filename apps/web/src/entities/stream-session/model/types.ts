@@ -1,5 +1,6 @@
 import type {
     BroadcastSceneId,
+    DraftProtectionMode,
     OverlayLayout,
 } from "@/entities/stream-overlay-layout/model/types";
 import type { QueueSettings } from "@/entities/stream-queue-settings/model/types";
@@ -132,6 +133,11 @@ export interface OverlayData {
     gameMode: StreamGameMode;
     // Temporary test-mode override. Normally the scene is derived from GSI.
     sceneOverride: BroadcastSceneId | null;
+    // Snapshot of draftProtection.mode captured when the "draft" test scene
+    // was triggered - null unless sceneOverride is "draft". Lets a manual
+    // OBS test show the exact saved mode without depending on `layout`
+    // being re-fetched at the same instant (see obs-scene-command-service.ts).
+    draftProtectionModeOverride: DraftProtectionMode | null;
     // Последние завершённые матчи, новые сверху (см. ORDER BY ended_at DESC
     // в stream-match-service.ts) - пусто, пока не завершился ни один матч.
     matches: StreamMatch[];
