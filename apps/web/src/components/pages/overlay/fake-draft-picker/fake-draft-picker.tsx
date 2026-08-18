@@ -6,6 +6,7 @@ import type { DotaHeroAttribute } from "@/entities/dota-hero/model/attributes";
 import { getDraftSignals } from "../lib/get-draft-signals";
 import { HeroMedia } from "../hero-media";
 import { DraftSceneBackground } from "../draft-scene-background";
+import { FrameCorners } from "../ui/frame-corners";
 import { useFakeDraftController } from "./fake-draft-controller";
 import styles from "./fake-draft-picker.module.scss";
 
@@ -54,82 +55,94 @@ export const FakeDraftPicker = ({ payload, active = true }: FakeDraftPickerProps
             <DraftSceneBackground seed={741} />
 
             <div className={styles.picker}>
-                <div className={styles.header}>
+                {/* Единственное место, отражающее lock-состояние - раньше
+                    рядом жил ещё и отдельный золотой badge поверх hero video,
+                    дублируя тот же смысл двумя разными виджетами. */}
+                <div className={`${styles.headerPlate} ${isLocked ? styles.headerLocked : ""}`}>
                     <span className={styles.status}>{statusLabel}</span>
+                    <span className={styles.headerDivider} aria-hidden="true" />
                     <strong className={styles.countdown} data-testid="fake-countdown">
                         {String(snapshot.countdown).padStart(2, "0")}
                     </strong>
                 </div>
 
                 <div className={styles.showcase}>
-                    {focusedHero && (
-                        <motion.div
-                            key={focusedHero.id}
-                            className={`${styles.showcaseHero} ${isLocked ? styles.locked : ""}`}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            transition={{ duration: 0.3 }}
-                            data-testid="fake-focused-hero"
-                            data-hero-id={focusedHero.id}
-                        >
-                            <HeroMedia
-                                videoSrc={focusedHero.featuredVideoUrl}
-                                imageSrc={focusedHero.imageUrl}
-                                title={focusedHero.localizedName}
-                            />
-                            <span className={styles.showcaseMist} />
-                            {isLocked && <span className={styles.lockBadge}>LOCKED</span>}
-                            <div className={styles.showcaseCaption}>
+                    <div className={`${styles.showcaseFrame} ${isLocked ? styles.locked : ""}`}>
+                        <FrameCorners />
+                        {focusedHero && (
+                            <motion.div
+                                key={focusedHero.id}
+                                className={styles.showcaseHero}
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                transition={{ duration: 0.3 }}
+                                data-testid="fake-focused-hero"
+                                data-hero-id={focusedHero.id}
+                            >
+                                <HeroMedia
+                                    videoSrc={focusedHero.featuredVideoUrl}
+                                    imageSrc={focusedHero.imageUrl}
+                                    title={focusedHero.localizedName}
+                                />
+                            </motion.div>
+                        )}
+                        {focusedHero && (
+                            <div className={styles.namePlate}>
                                 <strong>{focusedHero.localizedName}</strong>
-                                <span>{focusedHero.attribute.toUpperCase()}</span>
+                                <span className={styles.attributeTag}>
+                                    {focusedHero.attribute.toUpperCase()}
+                                </span>
                             </div>
-                        </motion.div>
-                    )}
+                        )}
+                    </div>
                 </div>
 
                 <div className={styles.carouselRow}>
                     <span className={styles.arrow} aria-hidden="true">
                         &#10094;
                     </span>
-                    <div className={styles.carousel} data-testid="fake-carousel">
-                        {snapshot.carouselHeroIds.map((heroId) => {
-                            const hero = getHeroById(heroId);
-                            if (!hero) return null;
-                            const isFocused = heroId === snapshot.focusedHeroId;
-                            const isHovered = heroId === snapshot.hoverHeroId;
-                            return (
-                                <div
-                                    key={hero.id}
-                                    className={`${styles.card} ${isFocused ? styles.cardFocused : ""} ${isHovered ? styles.cardHovered : ""}`}
-                                >
-                                    <img src={hero.imageUrl} alt={hero.localizedName} className={styles.cardImage} />
-                                </div>
-                            );
-                        })}
+                    <div className={styles.carouselMask}>
+                        <div className={styles.carousel} data-testid="fake-carousel">
+                            {snapshot.carouselHeroIds.map((heroId) => {
+                                const hero = getHeroById(heroId);
+                                if (!hero) return null;
+                                const isFocused = heroId === snapshot.focusedHeroId;
+                                const isHovered = heroId === snapshot.hoverHeroId;
+                                return (
+                                    <div
+                                        key={hero.id}
+                                        className={`${styles.card} ${isFocused ? styles.cardFocused : ""} ${isHovered ? styles.cardHovered : ""}`}
+                                    >
+                                        <img src={hero.imageUrl} alt={hero.localizedName} className={styles.cardImage} />
+                                    </div>
+                                );
+                            })}
+                        </div>
                     </div>
                     <span className={styles.arrow} aria-hidden="true">
                         &#10095;
                     </span>
                 </div>
 
-                <div className={styles.filters}>
-                    {ATTRIBUTES.map((attribute) => (
-                        <span
-                            key={attribute.id}
-                            className={`${styles.filter} ${styles[attribute.id]} ${
-                                focusedHero?.attribute === attribute.id ? styles.filterActive : ""
-                            }`}
-                        >
-                            {attribute.label}
+                <div className={styles.controlPanel}>
+                    <div className={styles.filters}>
+                        {ATTRIBUTES.map((attribute) => (
+                            <span
+                                key={attribute.id}
+                                className={`${styles.filter} ${styles[attribute.id]} ${
+                                    focusedHero?.attribute === attribute.id ? styles.filterActive : ""
+                                }`}
+                            >
+                                {attribute.label}
+                            </span>
+                        ))}
+                    </div>
+                    <div className={styles.actions}>
+                        <span className={styles.randomButton}>RANDOM</span>
+                        <span className={`${styles.pickButton} ${isLocked ? styles.pickButtonActive : ""}`}>
+                            PICK
                         </span>
-                    ))}
-                </div>
-
-                <div className={styles.actions}>
-                    <span className={styles.randomButton}>RANDOM</span>
-                    <span className={`${styles.pickButton} ${isLocked ? styles.pickButtonActive : ""}`}>
-                        PICK
-                    </span>
+                    </div>
                 </div>
             </div>
         </div>

@@ -7,6 +7,10 @@
     font-family: var(--font-ui, sans-serif);
 }
 
+// Плотная центральная колонка (header -> showcase -> carousel -> control
+// panel) вместо showcase, растянутого через flex:1 на весь остаток высоты -
+// старый Dota picker выглядит как единый плотный HUD-блок, а не "герой +
+// элементы, разложенные по красивому фону".
 .picker {
     position: absolute;
     inset: 0;
@@ -14,150 +18,181 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 14px;
+    justify-content: center;
+    gap: 12px;
     box-sizing: border-box;
-    padding: 34px 0 26px;
+    padding: 28px 0 24px;
 }
 
-.header {
+.headerPlate {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: 14px;
+    padding: 9px 30px;
+    border: 1px solid rgba(217, 201, 168, 0.25);
+    background: linear-gradient(180deg, rgba(22, 18, 16, 0.88), rgba(10, 8, 8, 0.88));
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.06),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.55),
+        0 6px 16px rgba(0, 0, 0, 0.45);
+    transition: border-color 260ms ease, box-shadow 260ms ease;
+}
+
+.headerLocked {
+    border-color: rgba(217, 165, 91, 0.65);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.55),
+        0 0 20px rgba(217, 165, 91, 0.4);
+}
+
+.headerDivider {
+    width: 1px;
+    align-self: stretch;
+    background: rgba(217, 201, 168, 0.22);
 }
 
 .status {
     color: #d9c9a8;
     font-family: var(--font-title, serif);
-    font-size: 20px;
+    font-size: 16px;
     font-weight: 400;
-    letter-spacing: 0.32em;
+    letter-spacing: 0.26em;
     text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
 }
 
 .countdown {
     color: #f2e7d0;
     font-family: var(--font-title, serif);
-    font-size: 56px;
+    font-size: 30px;
     font-weight: 400;
     line-height: 1;
-    text-shadow: 0 0 22px rgba(217, 165, 91, 0.45), 0 4px 14px rgba(0, 0, 0, 0.85);
+    text-shadow: 0 0 16px rgba(217, 165, 91, 0.45), 0 4px 12px rgba(0, 0, 0, 0.85);
     font-variant-numeric: tabular-nums;
 }
 
 .showcase {
     position: relative;
-    flex: 1;
-    min-height: 0;
-    width: min(46%, 620px);
+    flex: 0 0 auto;
     display: flex;
+    justify-content: center;
+}
+
+// Компактный showcase встроен в металлическую/каменную рамку picker'а, а не
+// самостоятельная "постер"-карточка. Пропорция 3/4 намеренно совпадает с
+// carousel-карточками ниже - showcase читается как увеличенный слот той же
+// ленты, а не отдельный виджет.
+.showcaseFrame {
+    position: relative;
+    height: 480px;
+    aspect-ratio: 3 / 4;
+    overflow: hidden;
+    border: 1px solid rgba(217, 201, 168, 0.3);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        inset 0 0 0 1px rgba(0, 0, 0, 0.6),
+        0 10px 26px rgba(0, 0, 0, 0.55);
+    background: #0c0a09;
+    transition: box-shadow 260ms ease;
+}
+
+.showcaseFrame.locked {
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        inset 0 0 0 2px rgba(217, 165, 91, 0.65),
+        0 0 34px rgba(217, 165, 91, 0.35);
 }
 
 .showcaseHero {
-    position: relative;
-    flex: 1;
-    overflow: hidden;
-    transition: filter 260ms ease;
-}
-
-.showcaseHero.locked {
-    filter: drop-shadow(0 0 30px rgba(217, 165, 91, 0.35));
-}
-
-.showcaseMist {
     position: absolute;
-    inset: auto 0 0;
+    inset: 0;
     z-index: 1;
-    height: 46%;
-    background: linear-gradient(transparent, rgba(6, 4, 5, 0.98));
-    pointer-events: none;
 }
 
-.showcaseHero::before {
+.showcaseHero::after {
     content: "";
     position: absolute;
     inset: 0;
     z-index: 1;
-    background: linear-gradient(90deg, rgba(6, 4, 5, 0.55), transparent 22%, transparent 78%, rgba(6, 4, 5, 0.55));
+    background: linear-gradient(90deg, rgba(6, 4, 5, 0.5), transparent 20%, transparent 80%, rgba(6, 4, 5, 0.5));
     pointer-events: none;
 }
 
-.lockBadge {
-    position: absolute;
-    top: 18px;
-    left: 50%;
-    z-index: 2;
-    padding: 5px 16px;
-    color: #1a1408;
-    font-family: var(--font-title, serif);
-    font-size: 14px;
-    font-weight: 400;
-    letter-spacing: 0.2em;
-    background: linear-gradient(180deg, #f0cf87, #c69a4c);
-    box-shadow: 0 2px 12px rgba(217, 165, 91, 0.5);
-    transform: translateX(-50%);
-}
-
-.showcaseCaption {
+.namePlate {
     position: absolute;
     left: 0;
     right: 0;
-    bottom: 14px;
+    bottom: 0;
     z-index: 2;
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    text-align: center;
+    align-items: baseline;
+    justify-content: center;
+    gap: 10px;
+    padding: 34px 14px 12px;
+    background: linear-gradient(180deg, transparent, rgba(6, 4, 5, 0.85) 45%, rgba(5, 3, 4, 0.96));
+    border-top: 1px solid rgba(217, 201, 168, 0.16);
     text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
 }
 
-.showcaseCaption strong {
+.namePlate strong {
     font-family: var(--font-title, serif);
-    font-size: 34px;
+    font-size: 24px;
     font-weight: 400;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.04em;
+    color: #f2e7d0;
 }
 
-.showcaseCaption span {
-    color: #c8bfae;
-    font-size: 13px;
-    letter-spacing: 0.24em;
+.attributeTag {
+    color: #a49f95;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    padding: 3px 8px;
+    border: 1px solid rgba(217, 201, 168, 0.2);
 }
 
 .carouselRow {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 18px;
+    gap: 16px;
     width: 100%;
 }
 
 .arrow {
     flex: 0 0 auto;
-    color: rgba(217, 201, 168, 0.5);
-    font-size: 26px;
+    color: rgba(217, 201, 168, 0.45);
+    font-size: 24px;
     line-height: 1;
+}
+
+// overflow: hidden + mask-image - лента ощущается шире экрана и "продолжает
+// идти" за пределы видимой области (как строка героев в старом picker'е),
+// вместо ленты, аккуратно центрированной в воздухе.
+.carouselMask {
+    width: min(92%, 1740px);
+    overflow: hidden;
+    mask-image: linear-gradient(90deg, transparent, black 4%, black 96%, transparent);
+    -webkit-mask-image: linear-gradient(90deg, transparent, black 4%, black 96%, transparent);
 }
 
 .carousel {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
-    overflow: visible;
+    gap: 8px;
+    padding: 14px 0;
 }
 
 .card {
     flex: 0 0 auto;
-    width: 118px;
+    width: 108px;
     aspect-ratio: 3 / 4;
     overflow: hidden;
-    border: 1px solid rgba(217, 201, 168, 0.18);
+    border: 1px solid rgba(217, 201, 168, 0.16);
     opacity: 0.55;
-    filter: saturate(0.7) brightness(0.65);
+    filter: saturate(0.65) brightness(0.6);
     transform: scale(0.92);
-    transition: opacity 220ms ease, transform 220ms ease, filter 220ms ease, border-color 220ms ease;
+    transition: opacity 220ms ease, transform 220ms ease, filter 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
 }
 
 .cardImage {
@@ -166,68 +201,88 @@
     object-fit: cover;
 }
 
+// Selected slot отличается рамкой/яркостью/небольшим scale - НЕ отдельным
+// увеличенным размером карточки и НЕ выпрыгиванием вверх из ленты (как было
+// раньше с width 118->148 + translateY(-10px)).
 .cardFocused {
-    width: 148px;
     opacity: 1;
     filter: none;
-    transform: scale(1.14) translateY(-10px);
+    transform: scale(1.12);
     border-color: #d9a55b;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(217, 165, 91, 0.35);
+    z-index: 1;
 }
 
 .cardHovered {
     opacity: 0.85;
     filter: saturate(0.9) brightness(0.85);
     transform: scale(1.02);
-    border-color: rgba(217, 165, 91, 0.6);
+    border-color: rgba(217, 165, 91, 0.55);
+}
+
+.controlPanel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
 }
 
 .filters {
     display: flex;
-    gap: 2px;
+    border: 1px solid rgba(217, 201, 168, 0.22);
+    background: linear-gradient(180deg, rgba(20, 17, 16, 0.85), rgba(11, 9, 9, 0.85));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 0 rgba(0, 0, 0, 0.5);
 }
 
 .filter {
-    padding: 7px 20px;
+    padding: 8px 22px;
     color: #a49f95;
     font-size: 12px;
-    letter-spacing: 0.16em;
-    border: 1px solid rgba(217, 201, 168, 0.14);
-    background: rgba(10, 8, 8, 0.55);
+    letter-spacing: 0.14em;
+    border-right: 1px solid rgba(217, 201, 168, 0.14);
 }
 
-.strength.filterActive { color: #f2b0a6; border-color: rgba(191, 84, 71, 0.65); background: rgba(120, 41, 34, 0.35); }
-.agility.filterActive { color: #c3e6a8; border-color: rgba(120, 168, 84, 0.65); background: rgba(59, 92, 34, 0.35); }
-.intelligence.filterActive { color: #a9d6ea; border-color: rgba(72, 145, 176, 0.65); background: rgba(30, 74, 92, 0.35); }
-.universal.filterActive { color: #f0dba0; border-color: rgba(201, 162, 39, 0.65); background: rgba(97, 79, 22, 0.35); }
+.filter:last-child {
+    border-right: none;
+}
+
+.strength.filterActive { color: #f2b0a6; background: rgba(120, 41, 34, 0.35); }
+.agility.filterActive { color: #c3e6a8; background: rgba(59, 92, 34, 0.35); }
+.intelligence.filterActive { color: #a9d6ea; background: rgba(30, 74, 92, 0.35); }
+.universal.filterActive { color: #f0dba0; background: rgba(97, 79, 22, 0.35); }
 
 .actions {
     display: flex;
-    gap: 14px;
+    border: 1px solid rgba(217, 201, 168, 0.22);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 0 rgba(0, 0, 0, 0.5);
 }
 
 .randomButton,
 .pickButton {
-    padding: 9px 34px;
     font-family: var(--font-title, serif);
-    font-size: 14px;
-    letter-spacing: 0.18em;
+    letter-spacing: 0.16em;
     text-align: center;
 }
 
 .randomButton {
-    color: #d3cec4;
-    border: 1px solid rgba(217, 201, 168, 0.22);
-    background: rgba(20, 18, 17, 0.7);
+    padding: 9px 26px;
+    font-size: 13px;
+    color: #cfc9bd;
+    background: rgba(18, 16, 15, 0.85);
+    border-right: 1px solid rgba(217, 201, 168, 0.18);
 }
 
+// PICK заметно тяжелее визуально - шире, крупнее, с золотым верхним бликом,
+// а не просто такая же по весу кнопка другого цвета рядом с RANDOM.
 .pickButton {
-    color: #f4e3d0;
-    border: 1px solid rgba(191, 84, 71, 0.4);
-    background: linear-gradient(180deg, rgba(154, 61, 51, 0.85), rgba(96, 34, 28, 0.9));
+    padding: 11px 42px;
+    font-size: 15px;
+    color: #f6e6d2;
+    background: linear-gradient(180deg, rgba(163, 66, 55, 0.92), rgba(90, 32, 26, 0.95));
+    box-shadow: inset 0 1px 0 rgba(255, 214, 160, 0.3);
     transition: box-shadow 220ms ease;
 }
 
 .pickButtonActive {
-    box-shadow: 0 0 22px rgba(217, 165, 91, 0.55);
+    box-shadow: inset 0 1px 0 rgba(255, 214, 160, 0.3), 0 0 20px rgba(217, 165, 91, 0.55);
 }

@@ -73,7 +73,17 @@ export const OverlayCanvas = ({
     children,
 }: OverlayCanvasProps) => {
     const viewportRef = useRef<HTMLDivElement>(null);
-    const [sceneScale, setSceneScale] = useState(1);
+    // scale = Math.max(...) ("cover", не "contain") + offsetX/Y центрируют
+    // отмасштабированную сцену в viewport - раньше scale брался через
+    // Math.min и .canvas был прижат к top-left без центрирования, поэтому
+    // при любом расхождении реального viewport с 16:9 (например, вкладка
+    // браузера при прямом открытии /overlay/:token - системный UI чуть
+    // меняет высоту относительно 1920x1080) справа/снизу оставалась
+    // незакрытая полоса viewport'а, которая из-за прозрачного фона
+    // (см. .viewportLive) просвечивала белым фоном страницы. Cover-fit
+    // гарантирует, что сцена всегда полностью покрывает viewport (излишек
+    // уходит в overflow: hidden), сохраняя пропорции - без white/empty gap.
+    const [transform, setTransform] = useState({ scale: 1, offsetX: 0, offsetY: 0 });
     const { width: sceneWidth, height: sceneHeight } =
         computeSceneDimensions(aspectRatio);
 
@@ -84,17 +94,21 @@ export const OverlayCanvas = ({
         const measure = () => {
             const rect = el.getBoundingClientRect();
             if (rect.width === 0 || rect.height === 0) return;
-            setSceneScale(
-                Math.min(rect.width / sceneWidth, rect.height / sceneHeight)
-            );
+            const scale = Math.max(rect.width / sceneWidth, rect.height / sceneHeight);
+            setTransform({
+                scale,
+                offsetX: (rect.width - sceneWidth * scale) / 2,
+                offsetY: (rect.height - sceneHeight * scale) / 2,
+            });
         };
 
         measure();
         const observer = new ResizeObserver(measure);
         observer.observe(el);
         return () => observer.disconnect();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sceneWidth, sceneHeight]);
+
+    const { scale: sceneScale, offsetX, offsetY } = transform;
 
     const safeAreaXPx = (SAFE_AREA_PERCENT / 100) * sceneWidth;
     const safeAreaYPx = (SAFE_AREA_PERCENT / 100) * sceneHeight;
@@ -111,7 +125,7 @@ export const OverlayCanvas = ({
                 style={{
                     width: sceneWidth,
                     height: sceneHeight,
-                    transform: `scale(${sceneScale})`,
+                    transform: `translate(${offsetX}px, ${offsetY}px) scale(${sceneScale})`,
                 }}
             >
                 {showSafeArea && (
