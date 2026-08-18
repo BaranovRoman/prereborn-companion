@@ -40,6 +40,9 @@ interface OverlayCanvasProps {
     showSafeArea?: boolean;
     minimapCover?: MinimapCoverSettings;
     draftProtectionMode?: DraftProtectionMode;
+    // Только для draftProtectionMode === "off"/"substitute" - см.
+    // draft-protection-layer.tsx и get-draft-signals.ts.
+    draftPayload?: unknown;
     // "Фон для примерки" (см. задачу) - только editor читает его из
     // IndexedDB и передаёт сюда; live overlay (/overlay/:token) этот проп
     // никогда не передаёт, а GameUiReferenceLayer вдобавок сам игнорирует
@@ -65,6 +68,7 @@ export const OverlayCanvas = ({
     showSafeArea = false,
     minimapCover,
     draftProtectionMode,
+    draftPayload,
     referenceBackground = null,
     children,
 }: OverlayCanvasProps) => {
@@ -138,7 +142,7 @@ export const OverlayCanvas = ({
                     settings={minimapCover}
                 />
                 {draftProtectionMode && (
-                    <DraftProtectionLayer mode={draftProtectionMode} />
+                    <DraftProtectionLayer mode={draftProtectionMode} payload={draftPayload} />
                 )}
                 {children({ sceneScale, sceneWidth, sceneHeight })}
             </div>

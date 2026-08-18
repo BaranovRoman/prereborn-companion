@@ -1,0 +1,125 @@
+.layer {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+    box-sizing: border-box;
+    padding: 56px 90px 44px;
+    color: #f8fafc;
+    background:
+        radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.2), transparent 32%),
+        radial-gradient(circle at 80% 80%, rgba(239, 68, 68, 0.16), transparent 34%),
+        #070b14;
+}
+
+.heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+    padding-bottom: 18px;
+}
+
+.heading span {
+    color: #60a5fa;
+    font-weight: 800;
+    letter-spacing: 0.2em;
+}
+
+.countdown {
+    font-variant-numeric: tabular-nums;
+    font-size: 32px;
+    color: #f8fafc;
+}
+
+.focus {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+}
+
+.focusedHero {
+    position: relative;
+    width: 420px;
+    height: 100%;
+    max-height: 480px;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 2px solid rgba(148, 163, 184, 0.3);
+    transition: border-color 220ms ease, box-shadow 220ms ease;
+}
+
+.focusedHero.locked {
+    border-color: #fbbf24;
+    box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.22);
+}
+
+.focusedName {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 16px;
+    font-size: 26px;
+    font-weight: 800;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+    background: linear-gradient(to top, rgba(7, 11, 20, 0.9), transparent);
+}
+
+.lockBadge {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    padding: 4px 10px;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    color: #070b14;
+    background: #fbbf24;
+    border-radius: 4px;
+}
+
+.carousel {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+}
+
+.card {
+    width: 84px;
+    height: 84px;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 2px solid rgba(148, 163, 184, 0.25);
+    opacity: 0.65;
+    transform: scale(0.92);
+    transition: opacity 220ms ease, transform 220ms ease, border-color 220ms ease;
+}
+
+.cardImage {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.cardFocused {
+    opacity: 1;
+    transform: scale(1.08);
+    border-color: #60a5fa;
+}
+
+.cardHovered {
+    opacity: 0.9;
+    transform: scale(1);
+    border-color: rgba(96, 165, 250, 0.6);
+}
+
+.disclaimer {
+    margin: 0;
+    text-align: center;
+    color: #94a3b8;
+}
