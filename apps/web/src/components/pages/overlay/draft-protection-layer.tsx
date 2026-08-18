@@ -1,7 +1,7 @@
 import type { DraftProtectionMode } from "@/entities/stream-overlay-layout/model/types";
 import { CinematicDraftLayer } from "./cinematic-draft/cinematic-draft-layer";
 import { FakeDraftPicker } from "./fake-draft-picker/fake-draft-picker";
-import styles from "./draft-protection-layer.module.scss";
+import { FullCoverView } from "./full-cover/full-cover-view";
 
 interface DraftProtectionLayerProps {
     mode: DraftProtectionMode;
@@ -17,13 +17,5 @@ export const DraftProtectionLayer = ({ mode, payload }: DraftProtectionLayerProp
 
     if (mode === "substitute") return <FakeDraftPicker payload={payload} />;
 
-    return (
-        <div className={styles.layer} data-testid="draft-protection-layer">
-            <div className={styles.cover}>
-                <span className={styles.eyebrow}>DRAFT PROTECTED</span>
-                <strong>Выбор героев скрыт</strong>
-                <span>Трансляция продолжится после завершения драфта</span>
-            </div>
-        </div>
-    );
+    return <FullCoverView />;
 };

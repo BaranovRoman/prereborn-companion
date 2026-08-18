@@ -49,6 +49,7 @@ import {
     PREVIEW_MATCHES,
     PREVIEW_CURRENT_STREAM_MATCHES,
     PREVIEW_GAME_MODE,
+    PREVIEW_DRAFT_PAYLOAD,
 } from "./preview-data";
 import styles from "./index.module.scss";
 
@@ -919,6 +920,9 @@ export const OverlayEditorPage = () => {
                             selectedScene === "draft"
                                 ? layout.draftProtection.mode
                                 : undefined
+                        }
+                        draftPayload={
+                            selectedScene === "draft" ? PREVIEW_DRAFT_PAYLOAD : undefined
                         }
                         referenceBackground={referenceBackgroundImage}
                     >
