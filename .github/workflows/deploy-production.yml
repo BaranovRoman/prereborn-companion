@@ -40,7 +40,8 @@ jobs:
           SSH_PORT: ${{ secrets.PRODUCTION_SSH_PORT }}
           SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+          ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+            -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
             'mkdir -p /var/www/www-root/data/www/prereborn.ru'
 
       - name: Upload verified source
@@ -50,7 +51,7 @@ jobs:
           SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
         run: |
           rsync -az --delete \
-            -e "ssh -p $SSH_PORT" \
+            -e "ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -p $SSH_PORT" \
             --exclude='.git/' \
             --exclude='.env' \
             --exclude='node_modules/' \
@@ -124,7 +125,8 @@ jobs:
             printf 'NEXT_PUBLIC_MEDIA_BASE_URL=https://prereborn.ru/media\n'
             printf 'NEXT_PUBLIC_DOTA_COMPANION_DOWNLOAD_URL=https://github.com/BaranovRoman/prereborn-companion/releases/download/prereborn-v0.3.1/PreReborn.Companion_0.3.1_x64-setup.exe\n'
           } | \
-            ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+            -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
               'umask 077; cat > /var/www/www-root/data/www/prereborn.ru/.env'
 
       - name: Build, migrate and reload
@@ -133,7 +135,8 @@ jobs:
           SSH_PORT: ${{ secrets.PRODUCTION_SSH_PORT }}
           SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
         run: |
-          ssh -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+          ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+            -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
             'cd /var/www/www-root/data/www/prereborn.ru && SKIP_GIT_PULL=1 bash deploy.sh'
 
       - name: Verify public endpoint
