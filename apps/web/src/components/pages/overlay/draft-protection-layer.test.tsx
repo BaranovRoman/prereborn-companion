@@ -5,9 +5,9 @@ import { DraftProtectionLayer } from "./draft-protection-layer";
 afterEach(cleanup);
 
 describe("DraftProtectionLayer", () => {
-    it("renders no layer when the user explicitly disables protection", () => {
-        const { container } = render(<DraftProtectionLayer mode="off" />);
-        expect(container.childElementCount).toBe(0);
+    it("renders the cinematic draft scene when protection is off", () => {
+        const { getByTestId } = render(<DraftProtectionLayer mode="off" payload={null} />);
+        expect(getByTestId("cinematic-draft-layer")).toBeTruthy();
     });
 
     it("renders an opaque cover without real draft data", () => {
@@ -17,13 +17,12 @@ describe("DraftProtectionLayer", () => {
         );
     });
 
-    it("renders only the static public substitute model", () => {
+    it("renders the fake draft picker for the substitute mode", () => {
         const { getByTestId } = render(
-            <DraftProtectionLayer mode="substitute" />
+            <DraftProtectionLayer mode="substitute" payload={null} />
         );
-        const text = getByTestId("draft-protection-layer").textContent;
+        const text = getByTestId("fake-draft-picker").textContent;
         expect(text).toContain("PUBLIC DRAFT");
-        expect(text).toContain("Crystal Maiden");
         expect(text).toContain("не связана с реальными пиками и банами");
     });
 });

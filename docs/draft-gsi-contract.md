@@ -29,3 +29,21 @@ The same mapping is used by Companion for OBS scene switching and by the browser
 `uncertain -> draft -> gameplay -> between matches` is the expected happy path. Any state may transition to `uncertain` when data disappears. Protected modes render an opaque frame in both `draft` and `uncertain`; `off` is the explicit user opt-out. A known gameplay state is required before protected draft content is removed.
 
 This is a GSI-only architecture: GSI decides only the coarse phase, while public presentation data is stored in overlay settings and never derived from hidden selections.
+
+## Addendum (WK-77): own-team/own-hero consumption
+
+The `off`/`substitute` draft scenes (`apps/web/src/components/pages/overlay/cinematic-draft/`,
+`.../fake-draft-picker/`) additionally read exactly two already-flowing, already-precedented
+fields via `apps/web/src/components/pages/overlay/lib/get-draft-signals.ts`:
+`player.team_name` and `hero.id`/`hero.name` (the same fields already used server-side in
+`stream-match-service.ts` and documented in the companion diagnostics catalog). These describe
+only the local player's own team and own selected hero - never another player's pick or ban.
+
+- **Real/cinematic draft (`off`)** renders the player's own hero once GSI reports it; the other
+  9 slots (teammates + enemies) have no reliable data source and stay empty by design - Valve
+  does not expose a stable, documented `draft.*` pick/ban contract (see "Actual limitations and
+  unknowns" above), and this addendum does not change that decision.
+- **Fake picker (`substitute`)** reads the same two fields for exactly one purpose: to exclude
+  the player's real hero id from the fake hero pool, so the fake picker can never coincidentally
+  "reveal" it. It never renders team_name/hero.id.
+- `draft.*` fields (picks/bans/activeteam) are still never parsed or rendered anywhere.

@@ -83,6 +83,7 @@ export const OverlayPage = ({
                 draftProtectionMode={
                     activeScene === "draft" ? layout.draftProtection.mode : undefined
                 }
+                draftPayload={activeScene === "draft" ? data.companion.payload : undefined}
             >
                 {({ sceneWidth, sceneHeight }) => (
                     <>
