@@ -21,7 +21,7 @@ describe("chat model", () => {
     expect(prepareTtsText(message("1", "https://example.com"), enabled)).toBeNull();
     expect(prepareTtsText(message("2", "aaaaaaaaaaaa"), enabled)).toBeNull();
     expect(prepareTtsText(message("3", "notice", "system"), enabled)).toBeNull();
-    expect(prepareTtsText(message("4", "see https://example.com now"), enabled)).toBe("Viewer: see ссылка now");
+    expect(prepareTtsText(message("4", "see https://example.com now"), enabled)).toBe("Виевер: see ссылка now");
   });
   it("limits length and optionally omits author", () => {
     expect(prepareTtsText(message("1", "abcdefghij"), { ...enabled, speakAuthor: false, maxLength: 6 })).toBe("abcde…");
@@ -29,11 +29,19 @@ describe("chat model", () => {
   it("normalizes the username and message for speech without touching the displayed message", () => {
     const raw = message("5", "хахахахахаха го дальше 🔥", "text");
     raw.author = "Roma_Romych_TV";
-    expect(prepareTtsText(raw, enabled)).toBe("Roma Romych: ха-ха го дальше");
+    expect(prepareTtsText(raw, enabled)).toBe("Рома Ромыч: ха-ха го дальше");
     // The chat UI renders message.text/message.author directly - normalization
     // must never mutate the original message object.
     expect(raw.text).toBe("хахахахахаха го дальше 🔥");
     expect(raw.author).toBe("Roma_Romych_TV");
+  });
+  it("uses a pronunciation override when the settings define one for this username", () => {
+    const withOverride = { ...enabled, usernamePronunciations: "romaromych=Ромчик" };
+    expect(prepareTtsText(message("6", "го", "text"), { ...withOverride, speakAuthor: true, }))
+      .toBe("Виевер: го"); // no override for "Viewer" - falls back to transliteration as usual
+    const raw = message("7", "го", "text");
+    raw.author = "RomaRomych";
+    expect(prepareTtsText(raw, withOverride)).toBe("Ромчик: го");
   });
   it("deduplicates, bounds and expires the queue", () => {
     const queue = new BoundedTtsQueue(2, 100);

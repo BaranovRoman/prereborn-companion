@@ -252,6 +252,15 @@ export function TwitchChatPage() {
             <option value={80}>80 символов</option><option value={180}>180 символов</option><option value={300}>300 символов</option>
           </select>
         </label>
+        <label className={!settings.ttsEnabled || !settings.speakAuthor ? "is-disabled" : ""}>Произношение никнеймов (по одному на строку: ник=как произносить)
+          <textarea
+            disabled={!settings.ttsEnabled || !settings.speakAuthor}
+            value={settings.usernamePronunciations}
+            onChange={(event) => update("usernamePronunciations", event.target.value)}
+            placeholder={"romaromych=Ромаромыч"}
+            rows={3}
+          />
+        </label>
         <p>TTS выключен по умолчанию. Ссылки, системные события и явный спам не читаются.</p>
         <button className="button" onClick={stopTts} disabled={!settings.ttsEnabled && !speaking.current}>Остановить и выключить TTS</button>
       </aside>

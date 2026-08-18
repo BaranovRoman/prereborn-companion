@@ -168,6 +168,70 @@ confirmed, narrowly-scoped fixes, not tied to which voice ships):
   chat UI (`message.text`/`message.author` render directly from the
   unmodified `TwitchChatMessage`).
 
+## Follow-up: Latin username pronunciation
+
+The main audit fixed spectral "muffled" quality (voice choice) and basic
+username structure (separators/suffixes/digits). A second, distinct problem
+surfaced afterward on real messages: Latin-script usernames themselves are
+mispronounced, independent of voice or structure - `romaromych` came out
+sounding like "омаомыч" (leading /r/ dropped from both syllables), `imwisp`
+like "имисп" (/w/ dropped entirely). Russian text through the same voice is
+unaffected. Root cause: Piper's `ru_RU` voice phonemizes through
+espeak-ng's `ru` module, which doesn't handle raw Latin input reliably -
+confirmed by re-synthesizing both strings with the real production
+`dmitri-medium` build: `romaromych` renders as **0.546s** of audio raw vs
+**0.662s** transliterated to `ромаромыч` (~21% more audio recovered -
+consistent with dropped syllables), `imwisp` **0.546s** raw vs **0.557s**
+transliterated to `имвисп` (a smaller gap, consistent with just one dropped
+letter, /w/).
+
+**Fix**: transliterate Latin username fragments to a Cyrillic phonetic
+approximation before they reach Piper, so espeak-ng's `ru` phonemizer never
+sees raw Latin at all. Added to
+`apps/companion/src/chat/tts-normalize.ts`, applied only to the username
+(never message text, never the displayed name):
+
+- A longest-match-first digraph table (`shch`→щ, `sh`→ш, `ch`→ч, `zh`→ж,
+  `kh`→х, `ts`→ц, `ya`→я, `yu`→ю, `yo`→ё), then a full single-letter
+  fallback covering every Latin letter, so any Latin run transliterates in
+  full rather than partially.
+- `w` maps the same as `v` ("soft" w) - Russian has no native /w/ phoneme,
+  and mapping it to `в` is exactly what fixes the `imwisp` case (espeak-ng
+  was dropping `w` outright rather than approximating it).
+- Only Latin letter runs inside a token are rewritten; existing separator
+  splitting, TV/TTV suffix stripping, digit-run/unreadable-fragment
+  filtering, and repeat-collapsing all still run on the original Latin
+  spelling first, in the same order as before - transliteration is the
+  last per-token step, right before joining. This also means a token
+  mixing scripts (rare) only has its Latin half rewritten.
+- The "never go silent" fallback (used when normalization strips every
+  token, e.g. a username that's entirely a platform suffix) also runs
+  through transliteration now - previously it fell back to the raw
+  original, which for an all-Latin username would hit the exact espeak-ng
+  mangling this fix exists to avoid.
+- Explicitly not academic transliteration or a general NLP system - no
+  context-sensitive English pronunciation rules (e.g. `player` renders as
+  "плаыер", not "плеер" - phonetically odd but deterministic and
+  Piper-readable, not silently dropped). Good enough for "sounds like a
+  name", not linguistically correct.
+
+**Pronunciation overrides**: since automatic transliteration can't always
+match how someone actually wants their name read (see `player` above),
+added a minimal override list - `ChatSettings.usernamePronunciations`, a
+single raw string of `username=spoken name` lines (case-insensitive on the
+username), edited via a plain textarea in the TTS settings panel
+(`TwitchChatPage.tsx`), not a dictionary editor. An override always wins
+over automatic transliteration. Persisted through the same
+`localStorage`-backed settings object the rest of chat settings already
+uses - no new storage mechanism.
+
+Verified via `pnpm test` (34/34 passing, 24 in `tts-normalize.test.ts`
+covering both motivating examples, TV/TTV stripping before transliteration,
+mixed Cyrillic/Latin, overrides, and the never-silent fallback) and
+`pnpm build` (`tsc` + `vite build` clean). No Rust/engine/pipeline changes -
+scoped entirely to the text handed to Piper, per instruction not to touch
+the engine or audio pipeline.
+
 ## Follow-up
 
 - The GPL-3.0 source-offer + MIT notice obligations noted in

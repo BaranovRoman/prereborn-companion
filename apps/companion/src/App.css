@@ -138,8 +138,10 @@ h1, h2, p { margin-top: 0; }
 .chat-settings h3 { margin: 0 0 2px; font-size: 1rem; }
 .chat-settings label { display: flex; align-items: center; gap: 8px; font-size: .85rem; }
 .chat-settings label:has(select) { align-items: stretch; flex-direction: column; gap: 5px; }
+.chat-settings label:has(textarea) { align-items: stretch; flex-direction: column; gap: 5px; }
 .chat-settings label.is-disabled { color: var(--muted); }
 .chat-settings select { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 7px; color: inherit; background: #0e1119; }
+.chat-settings textarea { width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 7px; color: inherit; background: #0e1119; font: inherit; resize: vertical; }
 .tts-engine-choice { display: grid; gap: 5px; padding-left: 4px; }
 .tts-engine-choice.is-disabled { color: var(--muted); }
 .tts-piper-status, .tts-license-note { margin: -4px 0 0; font-size: .76rem; color: var(--muted); }

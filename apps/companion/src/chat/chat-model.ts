@@ -1,5 +1,5 @@
 import type { TwitchChatMessage } from "../services/dotaCompanionApi";
-import { normalizeMessageForSpeech, normalizeUsernameForSpeech } from "./tts-normalize";
+import { normalizeMessageForSpeech, parsePronunciationOverrides, resolveSpokenUsername } from "./tts-normalize";
 
 export type TtsEngine = "system" | "piper";
 export interface ChatSettings {
@@ -8,6 +8,10 @@ export interface ChatSettings {
   speakAuthor: boolean;
   maxLength: number;
   ttsEngine: TtsEngine;
+  // Raw "username=spoken name" lines, one override per line - see
+  // tts-normalize.ts's parsePronunciationOverrides. Deliberately a plain
+  // string, not a structured list/editor.
+  usernamePronunciations: string;
 }
 export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   soundEnabled: false,
@@ -15,6 +19,7 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   speakAuthor: true,
   maxLength: 180,
   ttsEngine: "system",
+  usernamePronunciations: "",
 };
 export const nextUnreadCount = (current: number, isAtBottom: boolean, added: number) =>
   isAtBottom ? 0 : current + added;
@@ -42,7 +47,8 @@ export const prepareTtsText = (
   const speechText = normalizeMessageForSpeech(text);
   if (!speechText) return null;
   if (!settings.speakAuthor) return speechText;
-  const speechAuthor = normalizeUsernameForSpeech(message.author);
+  const overrides = parsePronunciationOverrides(settings.usernamePronunciations);
+  const speechAuthor = resolveSpokenUsername(message.author, overrides);
   return `${speechAuthor}: ${speechText}`;
 };
 
