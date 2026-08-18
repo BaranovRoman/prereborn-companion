@@ -244,7 +244,7 @@ export function TwitchChatPage() {
               : "Piper: ожидание первого сообщения"}
         </p>}
         {piperActive && <p className="tts-license-note">
-          Piper и <a href="https://github.com/espeak-ng/espeak-ng" target="_blank" rel="noreferrer">espeak-ng</a> (GPL-3.0, запускаются отдельным процессом, исходники: <a href="https://github.com/OHF-Voice/piper1-gpl" target="_blank" rel="noreferrer">OHF-Voice/piper1-gpl</a>), голос ru_RU-denis-medium (MIT/CC0).
+          Piper и <a href="https://github.com/espeak-ng/espeak-ng" target="_blank" rel="noreferrer">espeak-ng</a> (GPL-3.0, запускаются отдельным процессом, исходники: <a href="https://github.com/OHF-Voice/piper1-gpl" target="_blank" rel="noreferrer">OHF-Voice/piper1-gpl</a>), голос ru_RU-dmitri-medium (MIT/CC0).
         </p>}
         <label className={!settings.ttsEnabled ? "is-disabled" : ""}><input type="checkbox" disabled={!settings.ttsEnabled} checked={settings.speakAuthor} onChange={(event) => update("speakAuthor", event.target.checked)} /> Произносить имя автора</label>
         <label className={!settings.ttsEnabled ? "is-disabled" : ""}>Максимальная длина

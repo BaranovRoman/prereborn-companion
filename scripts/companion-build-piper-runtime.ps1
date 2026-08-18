@@ -2,7 +2,7 @@
 # assets Companion downloads on first opt-in (see
 # apps/companion/src-tauri/src/tts.rs) rather than bundling in the
 # installer: piper-runtime-win-x64.zip (engine) and
-# piper-voice-ru_RU-denis-medium.zip (voice). Not linked into Companion's
+# piper-voice-ru_RU-dmitri-medium.zip (voice). Not linked into Companion's
 # own binary anywhere - see docs/research/local-tts-licensing.md for why
 # that boundary matters.
 #
@@ -13,11 +13,15 @@
 $ErrorActionPreference = "Stop"
 
 $PiperVersion = "v1.7.0"
-$VoiceName = "ru_RU-denis-medium"
+# ru_RU-dmitri-medium, not denis (WK-77 quality audit) - both MIT/CC0, but
+# a spectral comparison found dmitri meaningfully brighter/less muffled
+# than denis at the same 22050Hz medium-quality tier. See
+# docs/research/wk-77-tts-quality-audit.md.
+$VoiceName = "ru_RU-dmitri-medium"
 # piper-voices' HF repo layout is <lang>/<lang_LOCALE>/<voice>/<quality>/ -
 # not derivable from $VoiceName alone (it's lang_LOCALE-voice-quality),
 # hence spelled out explicitly rather than regex-guessed.
-$VoiceHfPath = "ru/ru_RU/denis/medium"
+$VoiceHfPath = "ru/ru_RU/dmitri/medium"
 $BuildRoot = "C:\pb"
 $OutDir = Join-Path (Get-Location) "piper-dist"
 

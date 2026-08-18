@@ -20,12 +20,20 @@ use crate::storage;
 // installer, so they survive Companion auto-updates untouched and are
 // never fetched for users who never enable this feature.
 
-pub const VOICE_NAME: &str = "ru_RU-denis-medium";
+// Switched from ru_RU-denis-medium to ru_RU-dmitri-medium (WK-77 quality
+// audit): both voices are MIT/CC0 (docs/research/local-tts-licensing.md),
+// same 22050Hz medium-quality tier, but a spectral comparison of identical
+// synthesized phrases showed denis puts ~80% of its energy below 1kHz with
+// almost nothing above 4kHz (a measurably dull/bassy signature), while
+// dmitri carries meaningfully more energy in the 4-8kHz range - matching
+// the reported "muffled/underwater" complaint and its fix. See
+// docs/research/wk-77-tts-quality-audit.md for the full comparison.
+pub const VOICE_NAME: &str = "ru_RU-dmitri-medium";
 const SYNTH_TIMEOUT: Duration = Duration::from_secs(15);
 const RUNTIME_ASSET_URL: &str =
     "https://github.com/BaranovRoman/prereborn-companion/releases/latest/download/piper-runtime-win-x64.zip";
 const VOICE_ASSET_URL: &str =
-    "https://github.com/BaranovRoman/prereborn-companion/releases/latest/download/piper-voice-ru_RU-denis-medium.zip";
+    "https://github.com/BaranovRoman/prereborn-companion/releases/latest/download/piper-voice-ru_RU-dmitri-medium.zip";
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -116,6 +124,40 @@ fn save_config(app: &AppHandle, config: &TtsConfig) -> std::io::Result<()> {
         fs::create_dir_all(dir)?;
     }
     fs::write(path, serde_json::to_string_pretty(config)?)
+}
+
+// This build of libpiper's WAV writer (v1.7.0) never patches the RIFF/data
+// chunk size fields with the real byte count once synthesis finishes -
+// every file it writes declares a fixed placeholder size (~2GB) regardless
+// of actual length, confirmed by inspecting real output byte-for-byte
+// during the WK-77 quality audit. Chromium/WebView2's own WAV decoder
+// tolerates this fine (it clamps to the bytes actually available), so this
+// was never the cause of the reported audio-quality complaints - but it's
+// a real RIFF-spec violation that would silently break on any stricter
+// consumer (a different browser engine, a native player, re-encoding the
+// clip), so it's worth fixing at the source rather than leaving it to rely
+// on every future consumer being equally lenient. No-ops (leaves bytes
+// untouched) if the buffer doesn't parse as a RIFF/WAVE file with a `data`
+// chunk - never panics on unexpected engine output.
+fn fix_wav_chunk_sizes(bytes: &mut [u8]) {
+    const HEADER_LEN: usize = 12; // "RIFF" + size(4) + "WAVE"
+    if bytes.len() < HEADER_LEN || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return;
+    }
+    let mut offset = HEADER_LEN;
+    while offset + 8 <= bytes.len() {
+        let chunk_id = &bytes[offset..offset + 4];
+        let declared_size = u32::from_le_bytes(bytes[offset + 4..offset + 8].try_into().unwrap()) as usize;
+        if chunk_id == b"data" {
+            let actual_size = bytes.len() - offset - 8;
+            bytes[offset + 4..offset + 8].copy_from_slice(&(actual_size as u32).to_le_bytes());
+            let riff_size = (bytes.len() - 8) as u32;
+            bytes[4..8].copy_from_slice(&riff_size.to_le_bytes());
+            return;
+        }
+        // Chunks are word-aligned; a chunk with an odd size has one pad byte.
+        offset += 8 + declared_size + (declared_size % 2);
+    }
 }
 
 struct Sidecar {
@@ -276,8 +318,9 @@ impl Sidecar {
             }
             std::thread::sleep(Duration::from_millis(20));
         }
-        let bytes = fs::read(&path).map_err(|e| format!("Piper output file: {e}"))?;
+        let mut bytes = fs::read(&path).map_err(|e| format!("Piper output file: {e}"))?;
         let _ = fs::remove_file(&path);
+        fix_wav_chunk_sizes(&mut bytes);
         Ok(bytes)
     }
 
@@ -481,6 +524,65 @@ mod tests {
     #[test]
     fn engine_state_defaults_to_not_started() {
         assert_eq!(TtsEngineState::default(), TtsEngineState::NotStarted);
+    }
+
+    // Builds a minimal RIFF/WAVE/fmt/data buffer, optionally with bogus
+    // chunk-size fields matching what this exact libpiper build actually
+    // emits (confirmed byte-for-byte during the WK-77 audit: RIFF size
+    // 0x7ffff024, data size 0x7ffff000, regardless of real payload length).
+    fn build_wav(data_payload: &[u8], bogus_sizes: bool) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"RIFF");
+        buf.extend_from_slice(&if bogus_sizes { 0x7ffff024u32 } else { (36 + data_payload.len()) as u32 }.to_le_bytes());
+        buf.extend_from_slice(b"WAVE");
+        buf.extend_from_slice(b"fmt ");
+        buf.extend_from_slice(&16u32.to_le_bytes());
+        buf.extend_from_slice(&3u16.to_le_bytes()); // IEEE float
+        buf.extend_from_slice(&1u16.to_le_bytes()); // mono
+        buf.extend_from_slice(&22050u32.to_le_bytes());
+        buf.extend_from_slice(&88200u32.to_le_bytes());
+        buf.extend_from_slice(&4u16.to_le_bytes());
+        buf.extend_from_slice(&32u16.to_le_bytes());
+        buf.extend_from_slice(b"data");
+        buf.extend_from_slice(&if bogus_sizes { 0x7ffff000u32 } else { data_payload.len() as u32 }.to_le_bytes());
+        buf.extend_from_slice(data_payload);
+        buf
+    }
+
+    #[test]
+    fn fix_wav_chunk_sizes_corrects_bogus_placeholder_sizes() {
+        let payload = vec![0u8; 200];
+        let mut bytes = build_wav(&payload, true);
+        fix_wav_chunk_sizes(&mut bytes);
+        let riff_size = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+        let data_size = u32::from_le_bytes(bytes[40..44].try_into().unwrap());
+        assert_eq!(riff_size as usize, bytes.len() - 8);
+        assert_eq!(data_size as usize, payload.len());
+    }
+
+    #[test]
+    fn fix_wav_chunk_sizes_is_a_no_op_on_already_correct_sizes() {
+        let payload = vec![1u8, 2, 3, 4];
+        let original = build_wav(&payload, false);
+        let mut bytes = original.clone();
+        fix_wav_chunk_sizes(&mut bytes);
+        assert_eq!(bytes, original);
+    }
+
+    #[test]
+    fn fix_wav_chunk_sizes_never_panics_on_garbage_input() {
+        let mut empty: Vec<u8> = Vec::new();
+        fix_wav_chunk_sizes(&mut empty);
+        assert!(empty.is_empty());
+
+        let mut too_short = b"RIFF".to_vec();
+        fix_wav_chunk_sizes(&mut too_short);
+        assert_eq!(too_short, b"RIFF");
+
+        let mut not_riff = b"not a wav file at all".to_vec();
+        let copy = not_riff.clone();
+        fix_wav_chunk_sizes(&mut not_riff);
+        assert_eq!(not_riff, copy);
     }
 
     #[test]

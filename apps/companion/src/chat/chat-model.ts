@@ -1,4 +1,5 @@
 import type { TwitchChatMessage } from "../services/dotaCompanionApi";
+import { normalizeMessageForSpeech, normalizeUsernameForSpeech } from "./tts-normalize";
 
 export type TtsEngine = "system" | "piper";
 export interface ChatSettings {
@@ -22,6 +23,12 @@ const URL_PATTERN = /https?:\/\/\S+|www\.\S+/gi;
 const REPEATED_PATTERN = /(.)\1{7,}/iu;
 const ALLOWED_TYPES = new Set(["text", "channel_points_highlighted", "user_intro"]);
 
+// Builds a speech-only representation of the message - never affects what's
+// rendered in the chat UI (TwitchChatPage.tsx renders message.text/
+// message.author straight from the original TwitchChatMessage, not this
+// output). WK-66's safety filters (type allowlist, repeated-character spam
+// drop) run first and unchanged, against the raw message text, so a message
+// this function would otherwise mangle never reaches it in the first place.
 export const prepareTtsText = (
   message: TwitchChatMessage,
   settings: ChatSettings,
@@ -32,7 +39,11 @@ export const prepareTtsText = (
   if (text.length > settings.maxLength) {
     text = `${text.slice(0, Math.max(1, settings.maxLength - 1)).trimEnd()}…`;
   }
-  return settings.speakAuthor ? `${message.author}: ${text}` : text;
+  const speechText = normalizeMessageForSpeech(text);
+  if (!speechText) return null;
+  if (!settings.speakAuthor) return speechText;
+  const speechAuthor = normalizeUsernameForSpeech(message.author);
+  return `${speechAuthor}: ${speechText}`;
 };
 
 interface QueueEntry { id: string; text: string; receivedAt: number }

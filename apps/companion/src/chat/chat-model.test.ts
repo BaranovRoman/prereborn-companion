@@ -26,6 +26,15 @@ describe("chat model", () => {
   it("limits length and optionally omits author", () => {
     expect(prepareTtsText(message("1", "abcdefghij"), { ...enabled, speakAuthor: false, maxLength: 6 })).toBe("abcde…");
   });
+  it("normalizes the username and message for speech without touching the displayed message", () => {
+    const raw = message("5", "хахахахахаха го дальше 🔥", "text");
+    raw.author = "Roma_Romych_TV";
+    expect(prepareTtsText(raw, enabled)).toBe("Roma Romych: ха-ха го дальше");
+    // The chat UI renders message.text/message.author directly - normalization
+    // must never mutate the original message object.
+    expect(raw.text).toBe("хахахахахаха го дальше 🔥");
+    expect(raw.author).toBe("Roma_Romych_TV");
+  });
   it("deduplicates, bounds and expires the queue", () => {
     const queue = new BoundedTtsQueue(2, 100);
     expect(queue.enqueue(message("1"), enabled, 0)).toBe(true);
