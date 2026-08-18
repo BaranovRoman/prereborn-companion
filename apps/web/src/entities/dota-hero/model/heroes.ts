@@ -158,3 +158,11 @@ export const DOTA_HEROES: DotaHero[] = RAW_HEROES.map((hero) => ({
     favoriteVideoUrl: buildMediaUrl(`dota/heroes-favorite/${hero.name}.webm`),
     attribute: getHeroAttribute(hero.id),
 }));
+
+// Стабильный алфавитный ростер - как в старом Dota hero picker
+// (Abaddon -> Alchemist -> Ancient Apparition -> ...). Используется там, где
+// нужен предсказуемый порядок соседей героя (см. fake-draft-picker), а не
+// порядок RAW_HEROES (который следует id из api.opendota.com/api/heroes).
+export const DOTA_HEROES_BY_NAME: DotaHero[] = [...DOTA_HEROES].sort((a, b) =>
+    a.localizedName.localeCompare(b.localizedName)
+);

@@ -7,10 +7,10 @@
     font-family: var(--font-ui, sans-serif);
 }
 
-// Плотная центральная колонка (header -> showcase -> carousel -> control
-// panel) вместо showcase, растянутого через flex:1 на весь остаток высоты -
-// старый Dota picker выглядит как единый плотный HUD-блок, а не "герой +
-// элементы, разложенные по красивому фону".
+// Минимальный header (SELECT A HERO / countdown) + одна большая карусель -
+// никакого отдельного showcase, фильтров или action-кнопок (см. задачу:
+// "главный и практически единственный визуальный объект picker'а - большая
+// карусель hero videos").
 .picker {
     position: absolute;
     inset: 0;
@@ -19,7 +19,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 12px;
+    gap: 32px;
     box-sizing: border-box;
     padding: 28px 0 24px;
 }
@@ -71,218 +71,9 @@
     font-variant-numeric: tabular-nums;
 }
 
-.showcase {
+.carouselStage {
     position: relative;
-    flex: 0 0 auto;
-    display: flex;
-    justify-content: center;
-}
-
-// Компактный showcase встроен в металлическую/каменную рамку picker'а, а не
-// самостоятельная "постер"-карточка. Пропорция 3/4 намеренно совпадает с
-// carousel-карточками ниже - showcase читается как увеличенный слот той же
-// ленты, а не отдельный виджет.
-.showcaseFrame {
-    position: relative;
-    height: 480px;
-    aspect-ratio: 3 / 4;
-    overflow: hidden;
-    border: 1px solid rgba(217, 201, 168, 0.3);
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.05),
-        inset 0 0 0 1px rgba(0, 0, 0, 0.6),
-        0 10px 26px rgba(0, 0, 0, 0.55);
-    background: #0c0a09;
-    transition: box-shadow 260ms ease;
-}
-
-.showcaseFrame.locked {
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.05),
-        inset 0 0 0 2px rgba(217, 165, 91, 0.65),
-        0 0 34px rgba(217, 165, 91, 0.35);
-}
-
-.showcaseHero {
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-}
-
-.showcaseHero::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    background: linear-gradient(90deg, rgba(6, 4, 5, 0.5), transparent 20%, transparent 80%, rgba(6, 4, 5, 0.5));
-    pointer-events: none;
-}
-
-.namePlate {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 2;
-    display: flex;
-    align-items: baseline;
-    justify-content: center;
-    gap: 10px;
-    padding: 34px 14px 12px;
-    background: linear-gradient(180deg, transparent, rgba(6, 4, 5, 0.85) 45%, rgba(5, 3, 4, 0.96));
-    border-top: 1px solid rgba(217, 201, 168, 0.16);
-    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.9);
-}
-
-.namePlate strong {
-    font-family: var(--font-title, serif);
-    font-size: 24px;
-    font-weight: 400;
-    letter-spacing: 0.04em;
-    color: #f2e7d0;
-}
-
-.attributeTag {
-    color: #a49f95;
-    font-size: 10px;
-    letter-spacing: 0.2em;
-    padding: 3px 8px;
-    border: 1px solid rgba(217, 201, 168, 0.2);
-}
-
-.carouselRow {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
     width: 100%;
-}
-
-.arrow {
-    flex: 0 0 auto;
-    color: rgba(217, 201, 168, 0.45);
-    font-size: 24px;
-    line-height: 1;
-}
-
-// overflow: hidden + mask-image - лента ощущается шире экрана и "продолжает
-// идти" за пределы видимой области (как строка героев в старом picker'е),
-// вместо ленты, аккуратно центрированной в воздухе.
-.carouselMask {
-    width: min(92%, 1740px);
-    overflow: hidden;
-    mask-image: linear-gradient(90deg, transparent, black 4%, black 96%, transparent);
-    -webkit-mask-image: linear-gradient(90deg, transparent, black 4%, black 96%, transparent);
-}
-
-.carousel {
     display: flex;
-    align-items: center;
     justify-content: center;
-    gap: 8px;
-    padding: 14px 0;
-}
-
-.card {
-    flex: 0 0 auto;
-    width: 108px;
-    aspect-ratio: 3 / 4;
-    overflow: hidden;
-    border: 1px solid rgba(217, 201, 168, 0.16);
-    opacity: 0.55;
-    filter: saturate(0.65) brightness(0.6);
-    transform: scale(0.92);
-    transition: opacity 220ms ease, transform 220ms ease, filter 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
-}
-
-.cardImage {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-// Selected slot отличается рамкой/яркостью/небольшим scale - НЕ отдельным
-// увеличенным размером карточки и НЕ выпрыгиванием вверх из ленты (как было
-// раньше с width 118->148 + translateY(-10px)).
-.cardFocused {
-    opacity: 1;
-    filter: none;
-    transform: scale(1.12);
-    border-color: #d9a55b;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(217, 165, 91, 0.35);
-    z-index: 1;
-}
-
-.cardHovered {
-    opacity: 0.85;
-    filter: saturate(0.9) brightness(0.85);
-    transform: scale(1.02);
-    border-color: rgba(217, 165, 91, 0.55);
-}
-
-.controlPanel {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-}
-
-.filters {
-    display: flex;
-    border: 1px solid rgba(217, 201, 168, 0.22);
-    background: linear-gradient(180deg, rgba(20, 17, 16, 0.85), rgba(11, 9, 9, 0.85));
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 0 rgba(0, 0, 0, 0.5);
-}
-
-.filter {
-    padding: 8px 22px;
-    color: #a49f95;
-    font-size: 12px;
-    letter-spacing: 0.14em;
-    border-right: 1px solid rgba(217, 201, 168, 0.14);
-}
-
-.filter:last-child {
-    border-right: none;
-}
-
-.strength.filterActive { color: #f2b0a6; background: rgba(120, 41, 34, 0.35); }
-.agility.filterActive { color: #c3e6a8; background: rgba(59, 92, 34, 0.35); }
-.intelligence.filterActive { color: #a9d6ea; background: rgba(30, 74, 92, 0.35); }
-.universal.filterActive { color: #f0dba0; background: rgba(97, 79, 22, 0.35); }
-
-.actions {
-    display: flex;
-    border: 1px solid rgba(217, 201, 168, 0.22);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), inset 0 -1px 0 rgba(0, 0, 0, 0.5);
-}
-
-.randomButton,
-.pickButton {
-    font-family: var(--font-title, serif);
-    letter-spacing: 0.16em;
-    text-align: center;
-}
-
-.randomButton {
-    padding: 9px 26px;
-    font-size: 13px;
-    color: #cfc9bd;
-    background: rgba(18, 16, 15, 0.85);
-    border-right: 1px solid rgba(217, 201, 168, 0.18);
-}
-
-// PICK заметно тяжелее визуально - шире, крупнее, с золотым верхним бликом,
-// а не просто такая же по весу кнопка другого цвета рядом с RANDOM.
-.pickButton {
-    padding: 11px 42px;
-    font-size: 15px;
-    color: #f6e6d2;
-    background: linear-gradient(180deg, rgba(163, 66, 55, 0.92), rgba(90, 32, 26, 0.95));
-    box-shadow: inset 0 1px 0 rgba(255, 214, 160, 0.3);
-    transition: box-shadow 220ms ease;
-}
-
-.pickButtonActive {
-    box-shadow: inset 0 1px 0 rgba(255, 214, 160, 0.3), 0 0 20px rgba(217, 165, 91, 0.55);
 }
