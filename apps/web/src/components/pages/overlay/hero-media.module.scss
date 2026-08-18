@@ -22,3 +22,9 @@
     object-fit: cover;
     transition: opacity 220ms ease;
 }
+
+.placeholder {
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 35%, #2a2f31, #101314 72%);
+}

@@ -100,7 +100,9 @@ export const getOverlayController = async (req: Request, res: Response) => {
         }
 
         const session = await getOrCreateActiveSession(streamUserId);
-        const sceneOverride = getObsSceneOverride(streamUserId);
+        const obsSceneOverride = getObsSceneOverride(streamUserId);
+        const sceneOverride = obsSceneOverride?.scene ?? null;
+        const draftProtectionModeOverride = obsSceneOverride?.draftProtectionMode ?? null;
         const gameMode = await getStreamUserGameMode(streamUserId);
         const [companionState, companionLastSeenAt] = await Promise.all([
             getCompanionState(streamUserId),
@@ -177,6 +179,7 @@ export const getOverlayController = async (req: Request, res: Response) => {
             updatedAt: session.updatedAt,
             gameMode,
             sceneOverride,
+            draftProtectionModeOverride,
             matches: matches.map((match) => ({
                 id: match.id,
                 dotaMatchId: match.matchId,
