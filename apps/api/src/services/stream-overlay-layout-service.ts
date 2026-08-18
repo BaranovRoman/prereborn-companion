@@ -125,6 +125,13 @@ export interface OverlaySceneLayout {
     minimapCover: MinimapCoverSettings;
 }
 
+// Kept in sync by hand with apps/web/.../stream-overlay-layout/model/types.ts
+// (no shared types package). A future "photorealism" mode is reserved there
+// (RESERVED_FUTURE_DRAFT_PROTECTION_MODE) but intentionally not added to
+// this tuple yet - see that file for the safety rule and the addition
+// order. Validation below (z.enum(DRAFT_PROTECTION_MODES)) already reads
+// this tuple generically, so extending it here is the only change this file
+// needs once a renderer exists.
 export const DRAFT_PROTECTION_MODES = ["off", "cover", "substitute"] as const;
 export type DraftProtectionMode = (typeof DRAFT_PROTECTION_MODES)[number];
 export interface DraftProtectionSettings {

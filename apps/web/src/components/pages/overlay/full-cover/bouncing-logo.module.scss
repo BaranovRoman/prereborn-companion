@@ -1,0 +1,19 @@
+// inset 3.5% - тот же safe-viewport margin, что и SAFE_AREA_PERCENT
+// (entities/stream-overlay-layout/model/types.ts); logo физически не может
+// пересечь края этого контейнера (см. bouncing-logo.tsx: границы отскока
+// считаются от clientWidth/clientHeight этого элемента).
+.safeViewport {
+    position: absolute;
+    inset: 3.5%;
+    z-index: 2;
+}
+
+.logo {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: block;
+    will-change: transform;
+    user-select: none;
+    pointer-events: none;
+}

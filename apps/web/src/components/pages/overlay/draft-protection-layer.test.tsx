@@ -7,6 +7,10 @@ import { DraftProtectionLayer } from "./draft-protection-layer";
 // when it falls back because WebGL2 itself is unavailable in jsdom (which it
 // already handles gracefully). This stub only covers that environment gap,
 // not the shader/component itself.
+// jsdom also does not implement ResizeObserver - only BouncingLogo
+// (full-cover mode) constructs one; every real target (browsers, OBS's
+// Chromium-based browser source) supports it natively, so this is a test-env
+// stub only, not a production fallback.
 beforeEach(() => {
     vi.stubGlobal(
         "matchMedia",
@@ -15,6 +19,14 @@ beforeEach(() => {
             addEventListener: () => {},
             removeEventListener: () => {},
         })
+    );
+    vi.stubGlobal(
+        "ResizeObserver",
+        class {
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        }
     );
 });
 
@@ -29,13 +41,13 @@ describe("DraftProtectionLayer", () => {
         expect(getByTestId("cinematic-draft-layer")).toBeTruthy();
     });
 
-    it("renders the classic picker composition without real draft data for full cover", () => {
+    it("renders a text-free, data-free screensaver for full cover", () => {
         const { getByTestId } = render(<DraftProtectionLayer mode="cover" />);
-        const text = getByTestId("draft-protection-layer").textContent;
-        expect(text).toContain("DRAFT PROTECTED");
-        expect(text).toContain("Информация скрыта во время драфта");
-        // no hero identity/timer of any kind in the cover composition
-        expect(text).not.toMatch(/\d/);
+        const layer = getByTestId("draft-protection-layer");
+        // No status text, no hero identity, no timer - just background +
+        // the bouncing Prereborn logo (see full-cover-view.tsx).
+        expect(layer.textContent).toBe("");
+        expect(layer.querySelector("img")).toBeTruthy();
     });
 
     it("renders the fake draft picker for the substitute mode", () => {

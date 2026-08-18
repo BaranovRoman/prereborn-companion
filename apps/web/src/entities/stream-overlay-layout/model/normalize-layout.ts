@@ -1,7 +1,8 @@
 import { DEFAULT_OVERLAY_LAYOUT } from "./default-layout";
-import { RECENT_MATCHES_LIMIT_MAX, RECENT_MATCHES_LIMIT_MIN } from "./types";
+import { DRAFT_PROTECTION_MODES, RECENT_MATCHES_LIMIT_MAX, RECENT_MATCHES_LIMIT_MIN } from "./types";
 import type {
     CameraZone,
+    DraftProtectionMode,
     MinimapCoverSettings,
     OverlayLayout,
     OverlayLayoutWidgets,
@@ -14,6 +15,13 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
         : null;
 
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+// Generic membership check against DRAFT_PROTECTION_MODES rather than a
+// hardcoded `=== "off" || === "substitute"` whitelist - a mode added to the
+// tuple in types.ts is accepted here automatically instead of silently
+// falling back to "cover" until this file is also updated.
+const isDraftProtectionMode = (value: unknown): value is DraftProtectionMode =>
+    (DRAFT_PROTECTION_MODES as readonly string[]).includes(value as string);
 
 const normalizeWidgets = (
     value: unknown,
@@ -158,11 +166,9 @@ export const normalizeOverlayLayout = (value: unknown): OverlayLayout => {
             draft: normalizeScene(scenes?.draft, fallback.scenes.draft, layoutVersion),
         },
         draftProtection: {
-            mode:
-                asRecord(raw?.draftProtection)?.mode === "off" ||
-                asRecord(raw?.draftProtection)?.mode === "substitute"
-                    ? (asRecord(raw?.draftProtection)?.mode as "off" | "substitute")
-                    : "cover",
+            mode: isDraftProtectionMode(asRecord(raw?.draftProtection)?.mode)
+                ? (asRecord(raw?.draftProtection)?.mode as DraftProtectionMode)
+                : "cover",
         },
     };
 };

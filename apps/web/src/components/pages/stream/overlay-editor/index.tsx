@@ -11,6 +11,8 @@ import { streamOverlayLayoutApi } from "@/entities/stream-overlay-layout/api/str
 import { DEFAULT_OVERLAY_LAYOUT } from "@/entities/stream-overlay-layout/model/default-layout";
 import { normalizeOverlayLayout } from "@/entities/stream-overlay-layout/model/normalize-layout";
 import {
+    DRAFT_PROTECTION_MODES,
+    DRAFT_PROTECTION_MODE_LABELS,
     OVERLAY_ASPECT_RATIO_PRESETS,
     OVERLAY_WIDGET_IDS,
     RECENT_MATCHES_LIMIT_MIN,
@@ -651,11 +653,10 @@ export const OverlayEditorPage = () => {
                         <strong>Защита драфта</strong>
                         <Segmented
                             value={layout.draftProtection.mode}
-                            options={[
-                                { label: "Без защиты", value: "off" },
-                                { label: "Полное перекрытие", value: "cover" },
-                                { label: "Публичный драфт", value: "substitute" },
-                            ]}
+                            options={DRAFT_PROTECTION_MODES.map((mode) => ({
+                                label: DRAFT_PROTECTION_MODE_LABELS[mode],
+                                value: mode,
+                            }))}
                             onChange={(mode) =>
                                 setLayout((current) => ({
                                     ...current,

@@ -1,15 +1,37 @@
 import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CinematicDraftLayer } from "./cinematic-draft-layer";
 
-afterEach(cleanup);
+// jsdom does not implement matchMedia - DraftSceneBackground's RedFogBackground
+// reads prefers-reduced-motion unconditionally (see draft-protection-layer.test.tsx
+// for the same stub/rationale).
+beforeEach(() => {
+    vi.stubGlobal(
+        "matchMedia",
+        vi.fn().mockReturnValue({
+            matches: false,
+            addEventListener: () => {},
+            removeEventListener: () => {},
+        })
+    );
+});
+
+afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+});
 
 describe("CinematicDraftLayer", () => {
     it("renders 10 empty slots when nothing is known yet", () => {
         const { getByTestId, container } = render(<CinematicDraftLayer payload={null} />);
         expect(getByTestId("cinematic-draft-layer")).toBeTruthy();
         expect(container.querySelectorAll('[data-testid^="draft-slot-"]').length).toBe(10);
-        expect(container.textContent).toBe("");
+        // Слоты остаются пустыми, но статичные подписи ряда (RADIANT/DIRE) -
+        // часть композиции, не производная от данных, и остаются всегда.
+        for (const slot of container.querySelectorAll('[data-testid^="draft-slot-"]')) {
+            expect(slot.textContent).toBe("");
+        }
+        expect(container.textContent).toBe("RADIANTDIRE");
     });
 
     it("places the player's own hero in their own team's first slot", () => {

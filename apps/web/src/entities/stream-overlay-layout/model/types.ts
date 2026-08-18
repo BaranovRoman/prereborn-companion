@@ -135,6 +135,38 @@ export interface OverlaySceneLayout {
 export const DRAFT_PROTECTION_MODES = ["off", "cover", "substitute"] as const;
 export type DraftProtectionMode = (typeof DRAFT_PROTECTION_MODES)[number];
 
+// Single source of truth for user-facing mode labels - the editor's mode
+// switcher (see overlay-editor/index.tsx) derives its options from this map
+// instead of hardcoding a second `{label, value}` array, so TypeScript flags
+// a missing label the moment DRAFT_PROTECTION_MODES grows.
+export const DRAFT_PROTECTION_MODE_LABELS: Record<DraftProtectionMode, string> = {
+    off: "Без защиты",
+    cover: "Полное перекрытие",
+    substitute: "Фейковый драфт",
+};
+
+// Reserved identifier for a future "Фотореализм" mode: a decoy Dota draft UI
+// assembled from user-prepared template screenshots (transparent areas for
+// safe nicknames/hero video) + an explicit user-configured safe fake-hero
+// pool. Deliberately NOT part of DRAFT_PROTECTION_MODES yet - it has no
+// renderer, and adding it to the persisted/validated union would make it a
+// selectable-but-broken value before templates/pool config exist.
+//
+// Safety rule for whoever implements it: fake content must come ONLY from
+// the explicit safe fake pool, prepared templates, and an independent
+// randomization/state machine - it must NEVER be derived from or correlated
+// with the real hero/pick/ban (no "real pick -> similar-looking fake pick").
+// This mirrors why `substitute` and `off` today only ever read the local
+// player's own team/hero via get-draft-signals.ts - see
+// docs/draft-gsi-contract.md.
+//
+// To implement: add the value to DRAFT_PROTECTION_MODES, a label above, a
+// renderer entry in draft-protection-layer.tsx's registry, and an option in
+// the editor's Segmented control (already derived from the two maps above,
+// so no hardcoded options array to update). The union type will then force
+// every exhaustive switch to be revisited.
+export const RESERVED_FUTURE_DRAFT_PROTECTION_MODE = "photorealism" as const;
+
 export interface DraftProtectionSettings {
     mode: DraftProtectionMode;
 }
