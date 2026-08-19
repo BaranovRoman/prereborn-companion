@@ -9,18 +9,20 @@ const renderMedia = (props: Partial<Parameters<typeof HeroMedia>[0]> = {}) =>
         <HeroMedia videoSrc={props.videoSrc ?? "/video.webm"} imageSrc="/portrait.png" title="Pudge" {...props} />
     );
 
-describe("HeroMedia - loading and terminal states", () => {
-    it("shows a neutral placeholder (not the portrait) while the video is loading - portrait is not loading UI", () => {
-        const { container } = renderMedia();
+describe("HeroMedia - loading and terminal states (default loadingPresentation=\"portrait\")", () => {
+    it("shows the portrait (not a blank/neutral area) while the video is loading - default policy for informational widgets", () => {
+        const { container } = renderMedia({ videoSrc: "/portrait-loading.webm" });
         // video stays mounted (loading) but is not the visible representation
         const video = container.querySelector("video");
         expect(video).toBeTruthy();
         expect(video?.style.opacity).toBe("0");
-        expect(container.querySelector("img")).toBeNull();
-        expect(container.querySelector("[aria-hidden]")).toBeTruthy();
+        expect(container.querySelector("img")).toBeTruthy();
+        // The neutral placeholder is a <span>, distinct from the portrait
+        // <img> - only one representation is ever mounted at a time.
+        expect(container.querySelector("span[aria-hidden]")).toBeNull();
     });
 
-    it("loading -> ready -> playing: shows the video once ready, no portrait ever shown", () => {
+    it("loading -> ready -> playing: shows the video once ready, portrait removed", () => {
         const { container } = renderMedia({ videoSrc: "/loading-ready.webm" });
         const video = container.querySelector("video") as HTMLVideoElement;
 
@@ -57,6 +59,35 @@ describe("HeroMedia - loading and terminal states", () => {
         expect(container.querySelector("video")).toBeNull();
         expect(container.querySelector("img")).toBeNull();
         expect(container.querySelector("span[aria-hidden]")).toBeTruthy();
+    });
+});
+
+// WK-77 follow-up: loadingPresentation is a policy the CONSUMER opts into,
+// not a hidden global default - hero-carousel.tsx and cinematic-draft-layer
+// are the only two callers that need "no portrait flash on remount" (see
+// hero-media.tsx's HeroMediaProps doc comment for why). Every other consumer
+// gets the "portrait" default tested above, so this Draft-only behavior can
+// never leak into an informational widget again.
+describe("HeroMedia - loadingPresentation=\"neutral\" (Draft opt-in only)", () => {
+    it("shows a neutral placeholder, not the portrait, while loading", () => {
+        const { container } = renderMedia({
+            videoSrc: "/draft-loading.webm",
+            loadingPresentation: "neutral",
+        });
+        expect(container.querySelector("img")).toBeNull();
+        expect(container.querySelector("span[aria-hidden]")).toBeTruthy();
+    });
+
+    it("still falls back to the portrait on terminal error, same as the default policy", () => {
+        const { container } = renderMedia({
+            videoSrc: "/draft-terminal-error.webm",
+            loadingPresentation: "neutral",
+        });
+        const video = container.querySelector("video") as HTMLVideoElement;
+        fireEvent(video, new Event("error"));
+
+        expect(container.querySelector("video")).toBeNull();
+        expect(container.querySelector("img")).toBeTruthy();
     });
 });
 

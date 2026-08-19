@@ -72,3 +72,33 @@ describe("HeroCarousel DOM identity across carousel movement", () => {
         expect(findVideo(container, secondHeroId)).toBeTruthy();
     });
 });
+
+// WK-77 follow-up (OBS perf): only center ± PLAYING_RADIUS should actually
+// call video.play() - everything else in the wider mount window is present
+// in the DOM (preloaded / showing its last decoded frame) but not
+// autoplaying, so it isn't also paying continuous decode cost. See
+// hero-carousel.tsx's PLAYING_RADIUS vs ACTIVE_RADIUS vs OVERSCAN_RADIUS
+// doc comments for why these are three separate radii now.
+describe("HeroCarousel tiered playback", () => {
+    it("plays only the center and its immediate neighbor; farther mounted cards are paused but present", () => {
+        const centerHeroId = ROSTER[10];
+        const { container } = render(
+            <HeroCarousel roster={ROSTER} centerHeroId={centerHeroId} cycleId={1} locked={false} />
+        );
+
+        const centerVideo = findVideo(container, centerHeroId) as HTMLVideoElement;
+        const playingNeighbor = findVideo(container, ROSTER[11]) as HTMLVideoElement; // distance 1
+        // distance 3 - inside ACTIVE_RADIUS (visible/preloaded) but outside
+        // PLAYING_RADIUS - must be mounted, must not autoplay.
+        const pausedButMounted = findVideo(container, ROSTER[13]) as HTMLVideoElement;
+        // distance 6 - inside OVERSCAN_RADIUS only (preload-ahead window).
+        const overscanOnly = findVideo(container, ROSTER[16]) as HTMLVideoElement;
+
+        expect(centerVideo.autoplay).toBe(true);
+        expect(playingNeighbor.autoplay).toBe(true);
+        expect(pausedButMounted).toBeTruthy();
+        expect(pausedButMounted.autoplay).toBe(false);
+        expect(overscanOnly).toBeTruthy();
+        expect(overscanOnly.autoplay).toBe(false);
+    });
+});

@@ -13,6 +13,26 @@ interface HeroMediaProps {
     // resumes instantly once it re-enters the active window (see
     // hero-carousel.tsx: ACTIVE_RADIUS vs OVERSCAN_RADIUS).
     paused?: boolean;
+    // What to show while status is "loading" (before the video has ever
+    // proven itself playable, and not yet known-ready from the session
+    // registry below). This is a policy the CONSUMER chooses, not something
+    // HeroMedia itself decides - see the WK-77 follow-up hero-media
+    // regression task: HeroMedia is meant to be one base stable media
+    // renderer, with each scene declaring its own loading presentation
+    // rather than the component branching on "is this Draft".
+    //
+    // "portrait" (default): show the static portrait immediately, matching
+    // every other informational widget in this app - a video that hasn't
+    // loaded yet is not a reason to show an empty area.
+    //
+    // "neutral": show the neutral placeholder instead, never the portrait,
+    // for exactly one documented reason - the Fake Draft carousel's
+    // overscan window (hero-carousel.tsx) mounts/remounts cards during
+    // ordinary back-and-forth scrolling, and briefly flashing the portrait
+    // on every such remount (before the registry/video reconfirm "ready")
+    // reads as a flicker in a fast-moving carousel. Only hero-carousel.tsx
+    // and cinematic-draft-layer.tsx opt into this.
+    loadingPresentation?: "portrait" | "neutral";
 }
 
 type MediaStatus = "loading" | "ready" | "failed";
@@ -53,7 +73,14 @@ const mediaReadiness = new Map<string, MediaStatus>();
 // (the actual flicker bug), and made the paused/resume effect below refuse
 // to resume playback (it required videoReady===true) if that happened while
 // a card was inactive.
-export const HeroMedia = ({ videoSrc, imageSrc, title, className, paused = false }: HeroMediaProps) => {
+export const HeroMedia = ({
+    videoSrc,
+    imageSrc,
+    title,
+    className,
+    paused = false,
+    loadingPresentation = "portrait",
+}: HeroMediaProps) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     const [status, setStatus] = useState<MediaStatus>(() => mediaReadiness.get(videoSrc) ?? "loading");
     const [imageFailed, setImageFailed] = useState(false);
@@ -102,8 +129,10 @@ export const HeroMedia = ({ videoSrc, imageSrc, title, className, paused = false
     }, [paused, videoSrc]);
 
     const showVideo = status === "ready";
-    const showImage = status === "failed" && !imageFailed;
-    const showPlaceholder = status === "loading" || (status === "failed" && imageFailed);
+    const showImage =
+        !imageFailed &&
+        (status === "failed" || (status === "loading" && loadingPresentation === "portrait"));
+    const showPlaceholder = !showVideo && !showImage;
 
     return (
         <span className={`${styles.media} ${className ?? ""}`}>

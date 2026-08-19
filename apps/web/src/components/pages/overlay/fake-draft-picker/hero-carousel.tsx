@@ -26,6 +26,21 @@ interface HeroCarouselProps {
 // "5-7 крупных hero videos видимо и играет + preload несколько слева/справа,
 // итого не больше ~15-20 одновременно подготовленных videos".
 const SLOT_STEP = 230;
+// WK-77 follow-up (Fake Draft OBS perf): PLAYING_RADIUS is a separate, much
+// smaller tier from ACTIVE_RADIUS. Before this change every card within
+// ACTIVE_RADIUS (7 cards: center ± 3) was simultaneously playing + decoding
+// + running an animated `filter: brightness()` every frame - that combo was
+// the main measured cost, not just "many <video> elements exist". Only
+// center ± this radius actually calls video.play(); everything else in
+// ACTIVE_RADIUS is mounted and shows its last decoded frame via HeroMedia's
+// `paused` prop (browsers keep the frame on screen without further decode
+// cost - see hero-media.tsx's sticky-ready invariant), and resumes
+// instantly once back inside PLAYING_RADIUS since it never lost its ready
+// state.
+const PLAYING_RADIUS = 1;
+// ACTIVE_RADIUS still governs how far ahead of an in-flight scroll the mount
+// window is guaranteed to extend (see the preload-the-path effect below) -
+// unrelated to which cards are actually playing.
 const ACTIVE_RADIUS = 3;
 const OVERSCAN_RADIUS = 7;
 
@@ -133,14 +148,14 @@ export const HeroCarousel = ({ roster, centerHeroId, cycleId, locked }: HeroCaro
                     const hero = heroId !== undefined ? getHeroById(heroId) : undefined;
                     if (!hero) return null;
                     const isCenter = index === roundedCenter;
-                    const active = Math.abs(index - roundedCenter) <= ACTIVE_RADIUS;
+                    const playing = Math.abs(index - roundedCenter) <= PLAYING_RADIUS;
                     return (
                         <HeroCarouselCard
                             key={hero.id}
                             index={index}
                             hero={hero}
                             centerIndexMV={centerIndexMV}
-                            active={active}
+                            playing={playing}
                             isCenter={isCenter}
                             locked={locked && isCenter}
                         />
@@ -155,25 +170,34 @@ interface HeroCarouselCardProps {
     index: number;
     hero: DotaHero;
     centerIndexMV: MotionValue<number>;
-    active: boolean;
+    playing: boolean;
     isCenter: boolean;
     locked: boolean;
 }
 
-const HeroCarouselCard = ({ index, hero, centerIndexMV, active, isCenter, locked }: HeroCarouselCardProps) => {
+const HeroCarouselCard = ({ index, hero, centerIndexMV, playing, isCenter, locked }: HeroCarouselCardProps) => {
     const distance = useTransform(centerIndexMV, (v) => Math.abs(index - v));
     const x = useTransform(centerIndexMV, (v) => (index - v) * SLOT_STEP);
     const y = useTransform(distance, (d) => Math.min(d, 6) * 5);
     const scale = useTransform(distance, (d) => clampNum(1 - d * 0.12, 0.52, 1));
     const opacity = useTransform(distance, (d) => clampNum(1 - d * 0.17, 0.22, 1));
-    const brightness = useTransform(distance, (d) => clampNum(1 - d * 0.14, 0.34, 1));
-    const filter = useTransform(brightness, (b) => `brightness(${b})`);
+    // WK-77 follow-up perf: this used to be an animated `filter:
+    // brightness()` on the same element as the playing <video> - a CSS
+    // filter forces the browser to rasterize/composite that element every
+    // frame instead of letting transform/opacity stay on the compositor
+    // thread, and with several videos actively decoding at once that
+    // rasterization cost is the main measured contributor to OBS lag (see
+    // the task's before/after report). A plain black overlay whose opacity
+    // is driven by the same distance value produces the same visual dimming
+    // but is itself just an opacity-animated layer - compositor-only, same
+    // cost class as the x/y/scale/opacity transforms already here.
+    const dimOverlayOpacity = useTransform(distance, (d) => clampNum(d * 0.14, 0, 0.66));
     const zIndex = useTransform(distance, (d) => Math.round(100 - d));
 
     return (
         <motion.div
             className={`${styles.card} ${isCenter ? styles.cardCenter : ""} ${locked ? styles.cardLocked : ""}`}
-            style={{ x, y, scale, opacity, filter, zIndex }}
+            style={{ x, y, scale, opacity, zIndex }}
             data-testid={isCenter ? "fake-focused-hero" : undefined}
             data-hero-id={hero.id}
         >
@@ -182,8 +206,14 @@ const HeroCarouselCard = ({ index, hero, centerIndexMV, active, isCenter, locked
                 videoSrc={hero.featuredVideoUrl}
                 imageSrc={hero.imageUrl}
                 title={hero.localizedName}
-                paused={!active}
+                paused={!playing}
                 className={styles.cardMedia}
+                loadingPresentation="neutral"
+            />
+            <motion.span
+                className={styles.dimOverlay}
+                style={{ opacity: dimOverlayOpacity }}
+                aria-hidden="true"
             />
             {isCenter && (
                 <div className={styles.namePlate}>
