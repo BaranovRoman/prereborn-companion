@@ -113,8 +113,16 @@ pub fn open_twitch_settings(app: AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+// `async` so this never blocks the main IPC/UI thread (see the WK-78 note
+// on get_twitch_chat/resend_current_state below for why a plain `fn` command
+// is dangerous here) - the rename step is fast regardless of how many files
+// the legacy directory holds, but a plain `fn` would still stall the UI
+// thread for however long that filesystem call takes. The actual bulk
+// deletion always happens on a separate background thread
+// (storage::cleanup_legacy_payloads), so this command returns as soon as the
+// (cheap) staging step is done - it never waits for the deletion to finish.
 #[tauri::command]
-pub fn clear_log(app: AppHandle, state: State<AppState>) -> Result<StatusSnapshot, String> {
+pub async fn clear_log(app: AppHandle, state: State<'_, AppState>) -> Result<StatusSnapshot, String> {
     storage::clear_logs(&app).map_err(|e| e.to_string())?;
     {
         let mut inner = state.0.lock().unwrap();

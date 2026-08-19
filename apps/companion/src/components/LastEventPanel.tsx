@@ -21,8 +21,6 @@ export function LastEventPanel({ event, requestCount }: Props) {
           <dd>{event.remote_addr}</dd>
           <dt>Сводка</dt>
           <dd>{event.summary}</dd>
-          <dt>Файл</dt>
-          <dd className="last-event__file">{event.payload_file}</dd>
         </dl>
       ) : (
         <p className="last-event__empty">Событий пока нет — GSI ничего не присылал.</p>

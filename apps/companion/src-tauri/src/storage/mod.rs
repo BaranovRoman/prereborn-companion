@@ -1,13 +1,11 @@
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use chrono::Local;
 use tauri::{AppHandle, Manager};
 use crate::obs::ObsConfig;
-
-static REQUEST_SEQ: AtomicU32 = AtomicU32::new(0);
 
 const ROLLING_LOG_NAME: &str = "app.log";
 const ROLLING_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
@@ -17,10 +15,6 @@ pub fn logs_root(app: &AppHandle) -> PathBuf {
         .app_data_dir()
         .expect("app_data_dir must resolve")
         .join("logs")
-}
-
-pub fn payloads_dir(app: &AppHandle) -> PathBuf {
-    logs_root(app).join("payloads")
 }
 
 fn companion_config_path(app: &AppHandle) -> PathBuf {
@@ -78,7 +72,6 @@ pub fn load_obs_config(app: &AppHandle) -> ObsConfig {
 
 pub fn init(app: &AppHandle) -> std::io::Result<()> {
     fs::create_dir_all(logs_root(app))?;
-    fs::create_dir_all(payloads_dir(app))?;
     Ok(())
 }
 
@@ -115,60 +108,150 @@ pub fn clear_logs(app: &AppHandle) -> std::io::Result<()> {
     let rotated = path.with_extension("log.1");
     let _ = fs::remove_file(rotated);
 
-    let dir = payloads_dir(app);
-    if dir.exists() {
-        for entry in fs::read_dir(&dir)? {
-            let entry = entry?;
-            let _ = fs::remove_file(entry.path());
-        }
-    }
+    cleanup_legacy_payloads(app);
+
     append_rolling_log(app, "Logs cleared by user.");
     Ok(())
 }
 
-pub struct PayloadWriteResult {
-    pub file_path: PathBuf,
+pub struct ParsedPayload {
     pub summary: String,
     // Some(...) only when raw_body parsed as JSON - used by server/mod.rs to
-    // feed the backend-forwarding queue (backend/mod.rs). Non-JSON bodies are
-    // still captured on disk above, just never forwarded to the backend.
+    // feed the backend-forwarding queue (backend/mod.rs).
     pub parsed: Option<serde_json::Value>,
 }
 
-/// Persists one incoming GSI request as its own file: timestamp, remote address,
-/// raw headers, raw JSON body, and (when parseable) a pretty-printed copy —
-/// nothing is filtered out, per the "capture everything" requirement.
-pub fn write_payload_file(
-    app: &AppHandle,
-    remote_addr: &str,
-    headers: &[(String, String)],
-    raw_body: &str,
-) -> std::io::Result<PayloadWriteResult> {
-    let now = Local::now();
-    let seq = REQUEST_SEQ.fetch_add(1, Ordering::SeqCst);
-    let file_stamp = now.format("%Y-%m-%dT%H-%M-%S%.3f");
-    let file_name = format!("{file_stamp}_{seq:06}.json");
-    let file_path = payloads_dir(app).join(&file_name);
-
+/// Parses one incoming GSI request body in memory - no file is written for
+/// it. Normal Companion usage no longer persists a per-request payload file
+/// (see `cleanup_legacy_payloads` for removing what earlier versions left
+/// behind); detailed raw payload capture is diagnostics-only, gated behind
+/// an explicitly started session (see `diagnostics::observe`).
+pub fn parse_payload(raw_body: &str) -> ParsedPayload {
     let parsed: Option<serde_json::Value> = serde_json::from_str(raw_body).ok();
-    let pretty = parsed
-        .as_ref()
-        .map(|v| serde_json::to_string_pretty(v).unwrap_or_default());
-
-    let record = serde_json::json!({
-        "timestamp": now.to_rfc3339(),
-        "remote_addr": remote_addr,
-        "headers": headers,
-        "raw_body": raw_body,
-        "pretty_json": pretty,
-        "parsed_ok": parsed.is_some(),
-    });
-
-    fs::write(&file_path, serde_json::to_string_pretty(&record)?)?;
-
     let summary = summarize_payload(parsed.as_ref(), raw_body);
+    ParsedPayload { summary, parsed }
+}
 
-    Ok(PayloadWriteResult { file_path, summary, parsed })
+static LEGACY_CLEANUP_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+pub fn legacy_cleanup_in_progress() -> bool {
+    LEGACY_CLEANUP_IN_PROGRESS.load(Ordering::SeqCst)
+}
+
+const LEGACY_PAYLOADS_DIR_NAME: &str = "payloads";
+const LEGACY_CLEANUP_STAGE_PREFIX: &str = "payloads.cleanup-";
+
+/// Atomically renames `dir` out of the way so callers never wait on however
+/// many files it holds - a rename is a single filesystem metadata operation,
+/// independent of file count, unlike deleting file-by-file. Falls back to
+/// returning `dir` itself if the rename fails (e.g. a file inside is
+/// momentarily locked by an AV scanner or Explorer has it open) - the caller
+/// still removes it, just not staged first.
+fn stage_directory_for_removal(dir: &Path) -> PathBuf {
+    let staged = dir.with_file_name(format!(
+        "{LEGACY_CLEANUP_STAGE_PREFIX}{}",
+        Local::now().format("%Y%m%dT%H%M%S%.3f")
+    ));
+    match fs::rename(dir, &staged) {
+        Ok(()) => staged,
+        Err(_) => dir.to_path_buf(),
+    }
+}
+
+/// Finds everything that needs deleting: the legacy `payloads` directory (if
+/// still present) plus any `payloads.cleanup-*` staging directories left
+/// behind by a previous cleanup that got interrupted or hit a locked file -
+/// so a failed deletion is retried on the next call instead of leaking an
+/// orphaned directory forever. Pure/path-based so it's unit-testable without
+/// an AppHandle.
+fn collect_legacy_cleanup_targets(logs_root: &Path) -> Vec<PathBuf> {
+    let mut targets = Vec::new();
+
+    // Stage `payloads` first (a side effect), then find it again below via
+    // the prefix scan rather than also pushing it here directly - otherwise
+    // a successful rename would be counted (and later deleted) twice. The
+    // one case that scan can't find is a *failed* rename, where `dir` keeps
+    // its original, non-prefixed name - that one is added directly.
+    let dir = logs_root.join(LEGACY_PAYLOADS_DIR_NAME);
+    if dir.exists() {
+        let staged = stage_directory_for_removal(&dir);
+        if staged == dir {
+            targets.push(staged);
+        }
+    }
+
+    if let Ok(entries) = fs::read_dir(logs_root) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            let is_stage_dir = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|name| name.starts_with(LEGACY_CLEANUP_STAGE_PREFIX));
+            if is_stage_dir && path.is_dir() {
+                targets.push(path);
+            }
+        }
+    }
+
+    targets
+}
+
+/// Removes whatever's left of the legacy per-request GSI payload directory
+/// (from before this was gated behind diagnostics) in the background, so
+/// callers - the "Очистить лог" button and the startup safety net - never
+/// block on however many hundreds of thousands of files a long-running
+/// install accumulated. A no-op if nothing needs cleaning, and a no-op if a
+/// cleanup is already running rather than starting a second, overlapping
+/// one.
+pub fn cleanup_legacy_payloads(app: &AppHandle) {
+    // The guard is acquired *before* looking for anything to clean, not
+    // after: collecting targets renames directories on disk as a side
+    // effect, so two overlapping callers racing to collect first (rather
+    // than racing on the atomic swap) could both rename something and only
+    // one would ever spawn a thread to delete it - leaking a staged
+    // directory. Acquiring first means only the caller that actually wins
+    // the swap ever touches the filesystem.
+    if LEGACY_CLEANUP_IN_PROGRESS.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    let targets = collect_legacy_cleanup_targets(&logs_root(app));
+    if targets.is_empty() {
+        LEGACY_CLEANUP_IN_PROGRESS.store(false, Ordering::SeqCst);
+        return;
+    }
+
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let mut failed = Vec::new();
+        for target in &targets {
+            if let Err(e) = fs::remove_dir_all(target) {
+                failed.push(format!("{}: {e}", target.display()));
+            }
+        }
+        LEGACY_CLEANUP_IN_PROGRESS.store(false, Ordering::SeqCst);
+        if failed.is_empty() {
+            append_rolling_log(
+                &app,
+                &format!(
+                    "Legacy GSI payload log cleanup finished ({} director{} removed).",
+                    targets.len(),
+                    if targets.len() == 1 { "y" } else { "ies" }
+                ),
+            );
+        } else {
+            append_rolling_log(
+                &app,
+                &format!(
+                    "Legacy GSI payload log cleanup: {} of {} director{} failed, will retry next launch/cleanup (non-fatal): {}",
+                    failed.len(),
+                    targets.len(),
+                    if targets.len() == 1 { "y" } else { "ies" },
+                    failed.join("; ")
+                ),
+            );
+        }
+    });
 }
 
 fn summarize_payload(parsed: Option<&serde_json::Value>, raw_body: &str) -> String {
@@ -207,5 +290,95 @@ fn summarize_payload(parsed: Option<&serde_json::Value>, raw_body: &str) -> Stri
         format!("keys: [{}]", keys.join(", "))
     } else {
         parts.join(", ")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    #[test]
+    fn parse_payload_never_touches_disk_even_under_heavy_load() {
+        // Regression guard for the root cause this module used to have: a
+        // file written per GSI request. 1000 simulated requests must not
+        // create a single file anywhere - parse_payload has no AppHandle/
+        // path parameter at all, so this is also structurally guaranteed by
+        // its signature, not just by this test.
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..1000 {
+            let body = format!(
+                r#"{{"map":{{"game_state":"DOTA_GAMERULES_STATE_GAME_IN_PROGRESS"}},"seq":{i}}}"#
+            );
+            let result = parse_payload(&body);
+            assert!(result.parsed.is_some());
+            assert_eq!(result.summary, "game_state=DOTA_GAMERULES_STATE_GAME_IN_PROGRESS");
+        }
+        let entries: Vec<_> = fs::read_dir(dir.path()).unwrap().collect();
+        assert!(entries.is_empty(), "parse_payload must not create any files");
+    }
+
+    #[test]
+    fn parse_payload_handles_non_json_body_without_panicking() {
+        let result = parse_payload("not json");
+        assert!(result.parsed.is_none());
+        assert_eq!(result.summary, "non-JSON body (8 bytes)");
+    }
+
+    #[test]
+    fn collect_legacy_cleanup_targets_is_empty_when_nothing_to_clean() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(collect_legacy_cleanup_targets(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn collect_legacy_cleanup_targets_stages_a_large_payloads_dir_quickly() {
+        let logs_root = tempfile::tempdir().unwrap();
+        let payloads = logs_root.path().join(LEGACY_PAYLOADS_DIR_NAME);
+        fs::create_dir_all(&payloads).unwrap();
+        for i in 0..5000 {
+            fs::write(payloads.join(format!("{i}.json")), b"{}").unwrap();
+        }
+
+        let started = Instant::now();
+        let targets = collect_legacy_cleanup_targets(logs_root.path());
+        let elapsed = started.elapsed();
+
+        // A rename is O(1) regardless of file count - this is the whole
+        // point of staging instead of deleting file-by-file. A generous
+        // bound (well under what 5000 individual removals would take) is
+        // enough to catch a regression back to per-file work.
+        assert!(
+            elapsed.as_millis() < 2000,
+            "staging a 5000-file directory took {elapsed:?} - looks like per-file work crept back in"
+        );
+
+        assert_eq!(targets.len(), 1);
+        assert!(!payloads.exists(), "original payloads dir should have been renamed away");
+        assert!(targets[0].is_dir());
+        assert_eq!(fs::read_dir(&targets[0]).unwrap().count(), 5000);
+    }
+
+    #[test]
+    fn collect_legacy_cleanup_targets_picks_up_a_leftover_failed_stage() {
+        // Simulates a previous cleanup whose background remove_dir_all
+        // failed partway (e.g. a locked file) and left a staged directory
+        // behind - the next call must retry it, not silently ignore it.
+        let logs_root = tempfile::tempdir().unwrap();
+        let stale_stage = logs_root.path().join(format!("{LEGACY_CLEANUP_STAGE_PREFIX}20260101T000000"));
+        fs::create_dir_all(&stale_stage).unwrap();
+        fs::write(stale_stage.join("leftover.json"), b"{}").unwrap();
+
+        let targets = collect_legacy_cleanup_targets(logs_root.path());
+        assert_eq!(targets, vec![stale_stage]);
+    }
+
+    #[test]
+    fn collect_legacy_cleanup_targets_ignores_unrelated_files_and_dirs() {
+        let logs_root = tempfile::tempdir().unwrap();
+        fs::write(logs_root.path().join("app.log"), b"hello").unwrap();
+        fs::create_dir_all(logs_root.path().join("diagnostics")).unwrap();
+
+        assert!(collect_legacy_cleanup_targets(logs_root.path()).is_empty());
     }
 }

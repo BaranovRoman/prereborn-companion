@@ -27,7 +27,6 @@ pub struct LastEvent {
     pub timestamp: String,
     pub remote_addr: String,
     pub summary: String,
-    pub payload_file: String,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -44,6 +43,11 @@ pub struct StatusSnapshot {
     pub request_count: u32,
     pub last_event: Option<LastEvent>,
     pub log_dir: Option<String>,
+    // True while a background thread is deleting a legacy logs/payloads
+    // directory (see storage::cleanup_legacy_payloads) - surfaced so the UI
+    // can show that a "Очистить лог" click is still finishing up in the
+    // background instead of looking like it silently did nothing.
+    pub legacy_cleanup_in_progress: bool,
     // Отправка состояния на backend (services/... на бэкенде,
     // src-tauri/src/backend/mod.rs здесь) - полностью независима от
     // локального GSI-сервера выше: сетевые сбои никогда не должны его
@@ -158,6 +162,7 @@ impl AppState {
             request_count: inner.request_count,
             last_event: inner.last_event.clone(),
             log_dir: inner.log_dir.clone(),
+            legacy_cleanup_in_progress: crate::storage::legacy_cleanup_in_progress(),
             backend_url: DEFAULT_BACKEND_URL.to_string(),
             companion_token_configured: inner.companion_token.is_some(),
             backend_connected: inner.backend_connected,
