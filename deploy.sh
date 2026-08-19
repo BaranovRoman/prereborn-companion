@@ -2,6 +2,24 @@
 
 set -Eeuo pipefail
 
+# WK-78 - serializes the whole script so two overlapping invocations (e.g. a
+# cancelled GitHub Actions deploy run whose remote build/SSH session died
+# without killing this script, immediately followed by a retry) can't both
+# run `pnpm build`/migrations/pm2 reload on production at once and exhaust
+# its memory/CPU. Deliberately outside DEPLOY_PATH so a concurrent rsync
+# --delete step (from a second workflow run) can never unlink the lock file
+# out from under an active flock. Non-blocking: a second invocation fails
+# fast with a clear message instead of silently queueing behind a build that
+# might run for a long time. The lock is released automatically by the OS
+# when this script's fd 200 closes - on normal exit, on error (`set -e`), or
+# if the process is killed - so no cleanup/trap is needed.
+LOCK_FILE="/tmp/prereborn-production-deploy.lock"
+exec 200>"$LOCK_FILE"
+flock -n 200 || {
+  echo "Another deploy is already running (lock: $LOCK_FILE). Aborting."
+  exit 1
+}
+
 DEPLOY_PATH="/var/www/www-root/data/www/prereborn.ru"
 API_PATH="$DEPLOY_PATH/apps/api"
 
