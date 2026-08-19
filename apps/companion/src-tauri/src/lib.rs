@@ -162,6 +162,7 @@ pub fn run() {
             commands::get_tts_status,
             commands::set_tts_enabled,
             commands::synthesize_piper_tts,
+            commands::diagnostics_trace_tts_frontend,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

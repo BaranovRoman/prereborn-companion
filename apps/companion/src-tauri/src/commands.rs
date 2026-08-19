@@ -332,8 +332,38 @@ pub async fn set_tts_enabled(app: AppHandle, enabled: bool) -> Result<TtsStatus,
 }
 
 #[tauri::command]
-pub async fn synthesize_piper_tts(app: AppHandle, text: String) -> Result<String, String> {
-    tts::synthesize_base64(&app, &text)
+pub async fn synthesize_piper_tts(app: AppHandle, text: String, message_id: Option<String>) -> Result<String, String> {
+    tts::synthesize_base64(&app, &text, message_id.as_deref())
+}
+
+/// Frontend-owned half of the TTS diagnostics trace (see
+/// diagnostics/tts_trace.rs) - queue/playback-stage timestamps the Rust
+/// side never observes. `source`/`local_time` are filled in here rather
+/// than trusted from the caller. No-op unless a diagnostics session is
+/// active (see `diagnostics::observe_tts_stage`), so this is safe to call
+/// unconditionally/fire-and-forget from the frontend on every TTS message.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FrontendTtsTraceInput {
+    message_id: String,
+    engine: Option<String>,
+    stages: std::collections::BTreeMap<String, f64>,
+    #[serde(default)]
+    detail: serde_json::Value,
+}
+
+#[tauri::command]
+pub fn diagnostics_trace_tts_frontend(app: AppHandle, event: FrontendTtsTraceInput) {
+    use crate::diagnostics::tts_trace::{TtsTraceEvent, TtsTraceSource};
+    let full = TtsTraceEvent {
+        message_id: event.message_id,
+        source: TtsTraceSource::Frontend,
+        local_time: chrono::Local::now().to_rfc3339(),
+        engine: event.engine,
+        stages: event.stages,
+        detail: event.detail,
+    };
+    diagnostics::observe_tts_stage(&app, &full);
 }
 
 #[tauri::command]

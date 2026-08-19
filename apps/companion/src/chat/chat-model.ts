@@ -73,9 +73,13 @@ export class BoundedTtsQueue {
     return true;
   }
 
-  takeNext(now = Date.now()) {
+  // Returns the whole entry (not just `text`) so callers can correlate TTS
+  // diagnostics trace events with the originating message id - see
+  // TwitchChatPage.tsx's drainTts().
+  takeNext(now = Date.now()): { id: string; text: string } | null {
     while (this.queue[0] && now - this.queue[0].receivedAt > this.maxAgeMs) this.queue.shift();
-    return this.queue.shift()?.text ?? null;
+    const entry = this.queue.shift();
+    return entry ? { id: entry.id, text: entry.text } : null;
   }
 
   clear() { this.queue.length = 0; }

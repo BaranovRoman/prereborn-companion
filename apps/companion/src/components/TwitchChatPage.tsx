@@ -1,9 +1,23 @@
 import { useEffect, useRef, useState } from "react";
 import { BoundedTtsQueue, DEFAULT_CHAT_SETTINGS, nextUnreadCount, type ChatSettings } from "../chat/chat-model";
 import {
-  getPiperTtsStatus, getTwitchChat, openTwitchSettings, setPiperTtsEnabled, synthesizePiperTts,
-  type PiperTtsStatus, type TwitchChatMessage, type TwitchChatStatus,
+  diagnosticsTraceTtsFrontend, getPiperTtsStatus, getTwitchChat, openTwitchSettings, setPiperTtsEnabled,
+  synthesizePiperTts, type PiperTtsStatus, type TwitchChatMessage, type TwitchChatStatus,
 } from "../services/dotaCompanionApi";
+
+// TTS pipeline diagnostics trace (see diagnostics_trace_tts_frontend /
+// diagnostics/tts_trace.rs) - one entry per in-flight message, from the
+// moment it's enqueued for speech until playback ends, when it's flushed
+// and removed. `stages` holds performance.now() timestamps under the exact
+// names requested for the latency investigation (receivedAt, queuedAt,
+// drainPickedAt, synthesisRequestedAt, audioReadyAt, playbackRequestedAt,
+// actualPlaybackStartedAt, playbackEndedAt); `detail` is free-form context
+// (queue sizes, which engine, text length, seconds since the previous
+// message). Capped like the file's other per-message maps (`known`, `seen`
+// in chat-model.ts) so an edge case (a message queued then evicted as stale
+// before ever draining) can't leak unbounded entries.
+interface TtsTraceBuilder { stages: Record<string, number>; detail: Record<string, unknown> }
+const MAX_TRACE_ENTRIES = 200;
 
 const STORAGE_KEY = "companion-twitch-chat-settings-v1";
 const loadSettings = (): ChatSettings => {
@@ -33,29 +47,64 @@ export function TwitchChatPage() {
   // discarded instead of starting playback the user just stopped.
   const currentAudio = useRef<HTMLAudioElement | null>(null);
   const generation = useRef(0);
+  const traces = useRef(new Map<string, TtsTraceBuilder>());
+  const lastPlaybackEndedAt = useRef<number | null>(null);
 
   const refreshPiperStatus = async () => {
     try { setPiperStatus(await getPiperTtsStatus()); }
     catch { /* transient IPC hiccup - next poll/attempt will retry */ }
   };
 
-  const speakWithSystem = (text: string, done: () => void) => {
+  const traceFor = (id: string): TtsTraceBuilder => {
+    let entry = traces.current.get(id);
+    if (!entry) {
+      entry = { stages: {}, detail: {} };
+      traces.current.set(id, entry);
+      while (traces.current.size > MAX_TRACE_ENTRIES) {
+        const oldest = traces.current.keys().next().value;
+        if (oldest) traces.current.delete(oldest);
+      }
+    }
+    return entry;
+  };
+
+  // Fire-and-forget by design: the diagnostics IPC round-trip must never be
+  // awaited on the TTS critical path, or the instrumentation would add the
+  // exact kind of latency it's supposed to be measuring.
+  const flushTrace = (messageId: string, trace: TtsTraceBuilder) => {
+    traces.current.delete(messageId);
+    void diagnosticsTraceTtsFrontend({
+      messageId,
+      engine: typeof trace.detail.engine === "string" ? trace.detail.engine : undefined,
+      stages: trace.stages,
+      detail: trace.detail,
+    }).catch(() => { /* diagnostics session likely inactive/transient IPC hiccup - non-fatal */ });
+  };
+
+  const speakWithSystem = (text: string, trace: TtsTraceBuilder, done: () => void) => {
     if (!("speechSynthesis" in window)) return done();
+    if (trace.detail.engine === undefined) trace.detail.engine = "system";
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "ru-RU";
+    trace.stages.audioReadyAt = performance.now();
+    utterance.onstart = () => { trace.stages.actualPlaybackStartedAt = performance.now(); };
     utterance.onend = done;
     utterance.onerror = done;
+    trace.stages.playbackRequestedAt = performance.now();
     window.speechSynthesis.speak(utterance);
   };
 
-  const speakWithPiper = async (text: string, done: () => void) => {
+  const speakWithPiper = async (text: string, messageId: string, trace: TtsTraceBuilder, done: () => void) => {
     const myGeneration = generation.current;
+    trace.stages.synthesisRequestedAt = performance.now();
     try {
-      const base64 = await synthesizePiperTts(text);
+      const base64 = await synthesizePiperTts(text, messageId);
+      trace.detail.engine = "piper";
       void refreshPiperStatus();
       if (myGeneration !== generation.current) return done();
       const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
       const url = URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
+      trace.stages.audioReadyAt = performance.now();
       const audio = new Audio(url);
       currentAudio.current = audio;
       const cleanup = () => {
@@ -65,24 +114,41 @@ export function TwitchChatPage() {
       };
       audio.onended = cleanup;
       audio.onerror = cleanup;
+      audio.onplaying = () => {
+        if (trace.stages.actualPlaybackStartedAt === undefined) trace.stages.actualPlaybackStartedAt = performance.now();
+      };
+      trace.stages.playbackRequestedAt = performance.now();
       await audio.play().catch(cleanup);
     } catch {
       // Piper unavailable/crashed for this message - read it with the
       // system voice instead of dropping it silently.
+      trace.detail.engine = "piper-fallback-system";
       void refreshPiperStatus();
       if (myGeneration !== generation.current) return done();
-      speakWithSystem(text, done);
+      speakWithSystem(text, trace, done);
     }
   };
 
   const drainTts = () => {
     if (speaking.current || !settingsRef.current.ttsEnabled) return;
-    const text = queue.current.takeNext();
-    if (!text) return;
+    const next = queue.current.takeNext();
+    if (!next) return;
+    const { id: messageId, text } = next;
     speaking.current = true;
-    const done = () => { speaking.current = false; drainTts(); };
-    if (settingsRef.current.ttsEngine === "piper") void speakWithPiper(text, done);
-    else speakWithSystem(text, done);
+    const trace = traceFor(messageId);
+    trace.stages.drainPickedAt = performance.now();
+    trace.detail.queueSizeAfterDrainPick = queue.current.size;
+    trace.detail.secondsSincePreviousTts =
+      lastPlaybackEndedAt.current !== null ? (performance.now() - lastPlaybackEndedAt.current) / 1000 : null;
+    const done = () => {
+      trace.stages.playbackEndedAt = performance.now();
+      lastPlaybackEndedAt.current = trace.stages.playbackEndedAt;
+      speaking.current = false;
+      flushTrace(messageId, trace);
+      drainTts();
+    };
+    if (settingsRef.current.ttsEngine === "piper") void speakWithPiper(text, messageId, trace, done);
+    else speakWithSystem(text, trace, done);
   };
 
   const beep = () => {
@@ -108,6 +174,10 @@ export function TwitchChatPage() {
       speaking.current = false;
       window.speechSynthesis?.cancel();
       if (currentAudio.current) { currentAudio.current.pause(); currentAudio.current = null; }
+      // Messages still mid-flight (queued/drained but not yet finished) never
+      // reach done()/flushTrace() when TTS is stopped mid-speech - drop their
+      // half-built traces rather than leave them for the size cap to evict.
+      traces.current.clear();
     }
   }, [settings]);
 
@@ -144,7 +214,22 @@ export function TwitchChatPage() {
         if (fresh.length) {
           setUnread((current) => nextUnreadCount(current, atBottom.current, fresh.length));
           if (settingsRef.current.soundEnabled) beep();
-          for (const message of fresh) queue.current.enqueue(message, settingsRef.current);
+          for (const message of fresh) {
+            const receivedAt = performance.now();
+            const queued = queue.current.enqueue(message, settingsRef.current);
+            if (!queued) continue;
+            const trace = traceFor(message.id);
+            // prepareTtsText/dedup run synchronously inside enqueue() above,
+            // so receivedAt/filteredAt/queuedAt are all effectively the same
+            // instant here - that's expected, they exist to prove text
+            // filtering itself isn't where latency accumulates.
+            trace.stages.receivedAt = receivedAt;
+            trace.stages.filteredAt = receivedAt;
+            trace.stages.queuedAt = performance.now();
+            trace.detail.queueSizeAfterEnqueue = queue.current.size;
+            trace.detail.wasSpeakingAtEnqueue = speaking.current;
+            trace.detail.textLength = message.text.length;
+          }
           drainTts();
         }
         setStatus(next);

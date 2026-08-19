@@ -45,7 +45,26 @@ export const setPiperTtsEnabled = (enabled: boolean) =>
 // Returns base64-encoded WAV bytes - Tauri's default JSON IPC would blow up
 // a raw Vec<u8> into one JSON number per byte (~3-4x the payload size for
 // a synthesized clip), base64 is far cheaper to transport for this size.
-export const synthesizePiperTts = (text: string) => invoke<string>("synthesize_piper_tts", { text });
+// `messageId` is diagnostics-only (see diagnostics_trace_tts_frontend below)
+// - omitting it changes nothing about synthesis itself.
+export const synthesizePiperTts = (text: string, messageId?: string) =>
+  invoke<string>("synthesize_piper_tts", { text, messageId });
+
+// TTS pipeline diagnostics trace - the frontend-owned half (queue/playback
+// stage timestamps; the Rust/Piper side writes its own half directly from
+// tts.rs). No-op unless a diagnostics session is active
+// (diagnostics::observe_tts_stage), so this is safe to call unconditionally
+// - callers should fire-and-forget it (`void diagnosticsTraceTtsFrontend(...)`)
+// rather than await it, so a diagnostics IPC round-trip can never add
+// latency to the TTS path it's measuring.
+export interface TtsTraceEventInput {
+  messageId: string;
+  engine?: string;
+  stages: Record<string, number>;
+  detail?: unknown;
+}
+export const diagnosticsTraceTtsFrontend = (event: TtsTraceEventInput) =>
+  invoke<void>("diagnostics_trace_tts_frontend", { event });
 export const resendCurrentState = () =>
   invoke<StatusSnapshot>("resend_current_state");
 export const saveObsConfig = (config: ObsConfig) =>

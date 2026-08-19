@@ -24,6 +24,7 @@ pub mod export;
 pub mod redact;
 pub mod session;
 pub mod timeline;
+pub mod tts_trace;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -37,6 +38,7 @@ use tauri::{AppHandle, Manager};
 use crate::state::COMPANION_VERSION;
 use crate::storage;
 use session::DiagnosticSession;
+use tts_trace::TtsTraceEvent;
 
 static SESSION_SEQ: AtomicU32 = AtomicU32::new(0);
 
@@ -67,6 +69,7 @@ pub struct DiagnosticsStatusSnapshot {
     pub bytes_written: u64,
     pub size_limit_bytes: u64,
     pub size_limit_reached: bool,
+    pub tts_trace_count: u64,
 }
 
 fn snapshot_of(session: &DiagnosticSession) -> DiagnosticsStatusSnapshot {
@@ -83,6 +86,7 @@ fn snapshot_of(session: &DiagnosticSession) -> DiagnosticsStatusSnapshot {
         bytes_written: session.bytes_written,
         size_limit_bytes: session::SIZE_LIMIT_BYTES,
         size_limit_reached: session.size_limit_reached,
+        tts_trace_count: session.tts_trace_count,
     }
 }
 
@@ -149,6 +153,23 @@ pub fn observe(app: &AppHandle, parsed: Option<&Value>, raw_len: usize) {
     }
     if let Some(err) = session.record_tick(parsed, raw_len, Local::now()) {
         storage::append_rolling_log(app, &format!("Diagnostics write error (non-fatal): {err}"));
+    }
+}
+
+/// Called from the TTS pipeline (tts.rs's synthesize(), and the
+/// `diagnostics_trace_tts_frontend` command for frontend-owned stages).
+/// Same no-op-unless-a-session-is-active shape as `observe()` above - a
+/// diagnostics session captures both GSI and TTS trace data together, so
+/// there is only one Start/Stop/Export flow for the user to operate.
+pub fn observe_tts_stage(app: &AppHandle, event: &TtsTraceEvent) {
+    let state = app.state::<DiagnosticsState>();
+    let mut inner = state.0.lock().unwrap();
+    let Some(session) = inner.session.as_mut() else { return };
+    if session.finalized {
+        return;
+    }
+    if let Some(err) = session.record_tts_trace(event) {
+        storage::append_rolling_log(app, &format!("Diagnostics TTS trace write error (non-fatal): {err}"));
     }
 }
 

@@ -43,6 +43,28 @@ describe("chat model", () => {
     raw.author = "RomaRomych";
     expect(prepareTtsText(raw, withOverride)).toBe("Ромчик: го");
   });
+  // Regression for the reported truncation bug ("только произносится первый
+  // вопрос"): the message is well under the default maxLength (180) and has
+  // no run of 2+ consecutive punctuation marks, so neither the length cutoff
+  // nor EXCESSIVE_PUNCTUATION should shorten it - proves the app's own text
+  // pipeline passes the full multi-question message through untouched.
+  it("does not truncate a multi-question message that fits within maxLength", () => {
+    const raw = "а тебе снилось что ты бабочка? или бабочке снилось что это ты? или бабочке снилось что ты бабочка?";
+    const result = prepareTtsText(message("1", raw), enabled);
+    expect(result).toBe(`Виевер: ${raw}`);
+    expect(result?.endsWith("бабочка?")).toBe(true);
+  });
+
+  it("truncation only kicks in at the character limit, never at sentence punctuation", () => {
+    const raw = "первое предложение. второе предложение. третье предложение.";
+    expect(prepareTtsText(message("1", raw), { ...enabled, speakAuthor: false, maxLength: 300 })).toBe(raw);
+    // A tighter limit does cut it - by length, ending in an ellipsis, not at
+    // the first ".".
+    const truncated = prepareTtsText(message("2", raw), { ...enabled, speakAuthor: false, maxLength: 20 });
+    expect(truncated).toHaveLength(20);
+    expect(truncated?.endsWith("…")).toBe(true);
+  });
+
   it("deduplicates, bounds and expires the queue", () => {
     const queue = new BoundedTtsQueue(2, 100);
     expect(queue.enqueue(message("1"), enabled, 0)).toBe(true);
@@ -51,5 +73,11 @@ describe("chat model", () => {
     queue.enqueue(message("3"), enabled, 0);
     expect(queue.size).toBe(2);
     expect(queue.takeNext(101)).toBeNull();
+  });
+  it("takeNext returns the message id alongside the text for trace correlation", () => {
+    const queue = new BoundedTtsQueue();
+    queue.enqueue(message("1", "hi there"), enabled, 0);
+    expect(queue.takeNext(0)).toEqual({ id: "1", text: "Виевер: hi there" });
+    expect(queue.takeNext(0)).toBeNull();
   });
 });

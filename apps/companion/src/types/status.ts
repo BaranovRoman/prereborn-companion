@@ -18,6 +18,7 @@ export interface DiagnosticsStatusSnapshot {
   bytes_written: number;
   size_limit_bytes: number;
   size_limit_reached: boolean;
+  tts_trace_count: number;
 }
 
 export type ConnectionState = "waiting" | "connected" | "recovering" | "unavailable";

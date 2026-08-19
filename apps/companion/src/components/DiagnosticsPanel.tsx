@@ -40,10 +40,11 @@ export function DiagnosticsPanel({ status, refresh }: Props) {
 
   return (
     <section className="diagnostics-panel">
-      <h2>Диагностика GSI (v0.3.0)</h2>
+      <h2>Диагностика GSI и TTS (v0.4.0)</h2>
       <p className="diagnostics-panel__hint">
-        Отдельный от обычной работы Companion сбор полного сырого GSI-payload'а — только для анализа того, что
-        реально присылает Dota. Выключено по умолчанию, ничего не меняет в обычной работе приложения.
+        Отдельный от обычной работы Companion сбор полного сырого GSI-payload'а и тайминга TTS-конвейера — только
+        для анализа того, что реально присылает Dota и где накапливается задержка озвучки. Выключено по умолчанию,
+        ничего не меняет в обычной работе приложения.
       </p>
 
       <ul className="status-checklist">
@@ -65,6 +66,8 @@ export function DiagnosticsPanel({ status, refresh }: Props) {
           <dd>{status.snapshot_count}</dd>
           <dt>Ошибок разбора запросов</dt>
           <dd>{status.error_count}</dd>
+          <dt>TTS trace-событий</dt>
+          <dd>{status.tts_trace_count}</dd>
           <dt>Замеченные game_state</dt>
           <dd>{status.observed_game_states.length > 0 ? status.observed_game_states.join(", ") : "—"}</dd>
           <dt>Match ID</dt>

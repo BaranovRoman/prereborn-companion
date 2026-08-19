@@ -10,10 +10,10 @@ use zip::{CompressionMethod, ZipWriter};
 use super::analysis;
 use super::catalog::FieldInfo;
 
-/// Bumped to 1.1.0 when unused-known-fields.json / possible-features.md /
-/// analysis-summary.json were added, so downstream tooling can detect the
-/// shape change.
-pub const SCHEMA_VERSION: &str = "1.1.0";
+/// Bumped to 1.2.0 when tts-trace.json was added, so downstream tooling can
+/// detect the shape change. (1.1.0 added unused-known-fields.json /
+/// possible-features.md / analysis-summary.json.)
+pub const SCHEMA_VERSION: &str = "1.2.0";
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Manifest {
@@ -146,6 +146,24 @@ Contents:
                          numbered to match the snapshot it belongs to.
   errors.json                Requests that failed to parse as a JSON object
                          (raw content is never stored here, only length/time).
+  tts-trace.json           TTS pipeline timing, present only if TTS was used
+                         during this session. One record per (messageId,
+                         source) pair - `source` is "frontend" (queue/
+                         playback stage timestamps from the Companion UI) or
+                         "piper_sidecar" (synthesis-stage timestamps from the
+                         Rust/Piper side, only present for messages spoken
+                         with the Piper engine). The two sources for the same
+                         message are written independently as soon as each
+                         side observes its own stages - group by messageId to
+                         see one message's full timeline. `stages` is a map
+                         of stage name -> milliseconds (monotonic, relative -
+                         compare stages within the same record, not across
+                         records/sources). Chat message text is included
+                         here deliberately (unlike GSI's secret-key
+                         redaction, this is about diagnosing exactly what
+                         text reached the TTS engine and how much audio came
+                         back for it, e.g. for a message that gets cut off
+                         mid-sentence).
 
 Recommended order to read this export:
   1. timeline.json                              - the story of the session
@@ -155,6 +173,16 @@ Recommended order to read this export:
   4. gsi-manifest.json                           - what was even asked for (context for #3)
   5. snapshots/                                   - full raw payloads for anything surprising
   6. diffs/                                        - exact field-by-field changes between snapshots
+  7. tts-trace.json                               - TTS pipeline timing, if TTS was used this session
+
+Note on "currently_used": field-catalog.json's `currently_used` flag only
+reflects what Companion's own Rust code reads (server/mod.rs's
+summarize_payload) - it does NOT cover the separate browser overlay, which
+reads two more already-flowing fields client-side (`player.team_name` and
+`hero.id`/`hero.name`, see docs/draft-gsi-contract.md's WK-77 addendum). A
+field showing `currently_used: false` here means "nothing in Companion's
+Rust layer reads this exact path today," not "nothing in the product reads
+it."
 
 Redaction: any JSON object key containing "token", "auth", "password",
 "secret" or "authorization" (case-insensitive, at any nesting depth) has
@@ -235,6 +263,11 @@ pub fn export_zip(
 
     let errors = jsonl_to_array(&session_dir.join("errors.jsonl"))?;
     write_entry(&mut zip, "errors.json", &serde_json::to_vec_pretty(&errors).map_err(|e| e.to_string())?)?;
+
+    let tts_trace = jsonl_to_array(&session_dir.join("tts-trace.jsonl"))?;
+    if !tts_trace.is_empty() {
+        write_entry(&mut zip, "tts-trace.json", &serde_json::to_vec_pretty(&tts_trace).map_err(|e| e.to_string())?)?;
+    }
 
     for path in sorted_json_files(&session_dir.join("snapshots"))? {
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("snapshot.json");
@@ -339,6 +372,63 @@ mod tests {
             );
         }
         assert_eq!(gsi_manifest["gsi_port"], json!(crate::state::GSI_PORT));
+    }
+
+    #[test]
+    fn includes_tts_trace_json_only_when_the_session_captured_any() {
+        let dir = tempdir().unwrap();
+        let session_dir = dir.path().join("session-with-tts");
+        fs::create_dir_all(session_dir.join("snapshots")).unwrap();
+        fs::create_dir_all(session_dir.join("diffs")).unwrap();
+        fs::write(session_dir.join("timeline.jsonl"), "").unwrap();
+        fs::write(session_dir.join("errors.jsonl"), "").unwrap();
+        fs::write(
+            session_dir.join("tts-trace.jsonl"),
+            format!(
+                "{}\n",
+                serde_json::to_string(&json!({"messageId": "msg-1", "source": "frontend"})).unwrap()
+            ),
+        )
+        .unwrap();
+
+        let manifest = Manifest {
+            companion_version: "0.4.0".into(),
+            diagnostics_schema_version: SCHEMA_VERSION.into(),
+            session_id: "s3".into(),
+            started_at: "2026-08-19T10:00:00+03:00".into(),
+            ended_at: None,
+            gsi_request_count: 0,
+            snapshot_count: 0,
+            error_count: 0,
+            observed_game_states: vec![],
+            observed_match_ids: vec![],
+            os: "windows".into(),
+            size_bytes_used: 10,
+            size_limit_bytes: super::super::session::SIZE_LIMIT_BYTES,
+            size_limit_reached: false,
+        };
+        let output = dir.path().join("with-tts.zip");
+        export_zip(&session_dir, &[], &manifest, "2026-08-19T10:05:00+03:00", &output).unwrap();
+
+        let file = fs::File::open(&output).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        let names: Vec<String> = (0..archive.len()).map(|i| archive.by_index(i).unwrap().name().to_string()).collect();
+        assert!(names.contains(&"tts-trace.json".to_string()));
+
+        // A session that never captured TTS trace events must not get an
+        // empty tts-trace.json entry - matches the README's "present only
+        // if TTS was used".
+        let session_dir_no_tts = dir.path().join("session-without-tts");
+        fs::create_dir_all(session_dir_no_tts.join("snapshots")).unwrap();
+        fs::create_dir_all(session_dir_no_tts.join("diffs")).unwrap();
+        fs::write(session_dir_no_tts.join("timeline.jsonl"), "").unwrap();
+        fs::write(session_dir_no_tts.join("errors.jsonl"), "").unwrap();
+        let output2 = dir.path().join("without-tts.zip");
+        export_zip(&session_dir_no_tts, &[], &manifest, "2026-08-19T10:05:00+03:00", &output2).unwrap();
+        let file2 = fs::File::open(&output2).unwrap();
+        let mut archive2 = zip::ZipArchive::new(file2).unwrap();
+        let names2: Vec<String> = (0..archive2.len()).map(|i| archive2.by_index(i).unwrap().name().to_string()).collect();
+        assert!(!names2.contains(&"tts-trace.json".to_string()));
     }
 
     #[test]

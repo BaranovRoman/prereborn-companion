@@ -10,6 +10,7 @@ use super::catalog::{FieldCatalog, FieldInfo};
 use super::diff::{diff_values, ChangeKind, DiffEntry};
 use super::redact::redact;
 use super::timeline::{extract_summary, format_changes, is_low_value_path, Reason, TimelineEntry, SIGNIFICANT_PATHS};
+use super::tts_trace::TtsTraceEvent;
 
 /// Suggested by the brief as "100-200MB"; picked the middle so there's
 /// headroom before the hard stop kicks in mid-match.
@@ -43,6 +44,8 @@ struct SessionStateFile {
     observed_game_states: Vec<String>,
     observed_match_ids: Vec<String>,
     finalized: bool,
+    #[serde(default)]
+    tts_trace_count: u64,
 }
 
 fn write_json_file<T: Serialize>(path: &Path, value: &T) -> std::io::Result<u64> {
@@ -73,6 +76,7 @@ pub struct DiagnosticSession {
     pub observed_match_ids: std::collections::BTreeSet<String>,
     pub catalog: FieldCatalog,
     pub finalized: bool,
+    pub tts_trace_count: u64,
     last_payload: Option<Value>,
     last_snapshot_payload: Option<Value>,
     last_snapshot_at: Option<DateTime<Local>>,
@@ -97,6 +101,7 @@ impl DiagnosticSession {
             observed_match_ids: Default::default(),
             catalog: FieldCatalog::new(),
             finalized: false,
+            tts_trace_count: 0,
             last_payload: None,
             last_snapshot_payload: None,
             last_snapshot_at: None,
@@ -148,6 +153,7 @@ impl DiagnosticSession {
             observed_match_ids: state.observed_match_ids.into_iter().collect(),
             catalog,
             finalized: true,
+            tts_trace_count: state.tts_trace_count,
             last_payload: None,
             last_snapshot_payload: None,
             last_snapshot_at: None,
@@ -161,6 +167,31 @@ impl DiagnosticSession {
 
     fn errors_path(&self) -> PathBuf {
         self.dir.join("errors.jsonl")
+    }
+
+    fn tts_trace_path(&self) -> PathBuf {
+        self.dir.join("tts-trace.jsonl")
+    }
+
+    /// Appends one TTS trace record (see tts_trace.rs). Not gated by
+    /// `size_limit_reached` - like timeline.jsonl/errors.jsonl, these are a
+    /// tiny fraction of a session's byte budget and stay useful even after
+    /// full GSI snapshots have stopped. Still counted into `bytes_written`
+    /// for an honest total, and a no-op once the session is finalized (the
+    /// caller in mod.rs already checks this, but this method double-checks
+    /// so it's never wrong to call directly, e.g. from a test).
+    pub fn record_tts_trace(&mut self, event: &TtsTraceEvent) -> Option<String> {
+        if self.finalized {
+            return None;
+        }
+        match append_jsonl(&self.tts_trace_path(), event) {
+            Ok(bytes) => {
+                self.bytes_written += bytes;
+                self.tts_trace_count += 1;
+                None
+            }
+            Err(e) => Some(format!("tts-trace.jsonl: {e}")),
+        }
     }
 
     /// Errors writing diagnostic files are swallowed into this session's own
@@ -329,6 +360,7 @@ impl DiagnosticSession {
             observed_game_states: self.observed_game_states.iter().cloned().collect(),
             observed_match_ids: self.observed_match_ids.iter().cloned().collect(),
             finalized: self.finalized,
+            tts_trace_count: self.tts_trace_count,
         };
         let state_err = write_json_file(&self.dir.join("session-state.json"), &state_file)
             .err()
@@ -407,8 +439,23 @@ fn classify(tick_diff: &[DiffEntry], last_snapshot_at: Option<DateTime<Local>>, 
     if tick_diff.iter().any(|e| e.kind == ChangeKind::Added) {
         return Some(Reason::FieldAdded);
     }
+    // draft.*/abilities.* aren't in SIGNIFICANT_PATHS (their sub-field
+    // names - ability0..abilityN, whatever draft.* actually contains - are
+    // unknown until a real session captures them, so nothing is hardcoded
+    // here) - a prefix match instead, so any value change under either
+    // section gets its own snapshot immediately rather than waiting for the
+    // next periodic checkpoint. This is specifically for WK-diagnostics
+    // field-timing resolution: the generic diff already records every
+    // changed field regardless, this only controls how promptly it's
+    // captured. If abilities.* cooldown turns out to be a live per-tick
+    // countdown this can snapshot every tick during any cooldown - accepted,
+    // the existing SIZE_LIMIT_BYTES cap already degrades gracefully (stops
+    // full snapshots, keeps timeline/catalog) for exactly this kind of case.
     let significant_changed = tick_diff.iter().any(|e| {
-        e.kind == ChangeKind::ValueChanged && SIGNIFICANT_PATHS.iter().any(|p| e.path == format!("$.{p}"))
+        e.kind == ChangeKind::ValueChanged
+            && (SIGNIFICANT_PATHS.iter().any(|p| e.path == format!("$.{p}"))
+                || e.path.starts_with("$.draft")
+                || e.path.starts_with("$.abilities"))
     });
     if significant_changed {
         return Some(Reason::SignificantValueChanged);
@@ -625,5 +672,95 @@ mod tests {
         let last_line = timeline_content.lines().last().unwrap();
         assert!(!last_line.contains("clock_time"), "clock_time must be filtered out of the human-readable change list");
         assert!(last_line.contains("win_team"));
+    }
+
+    #[test]
+    fn draft_field_value_change_alone_triggers_an_immediate_snapshot() {
+        let (_guard, mut session) = new_session();
+        let t0 = session.started_at;
+        session.record_tick(
+            Some(&json!({ "map": { "game_state": "MENU" }, "draft": { "activeteam": 0 } })),
+            10,
+            t0,
+        );
+        assert_eq!(session.snapshot_count, 1);
+
+        // Nothing else in this tick changed (no game_state/add/remove) - only
+        // a draft.* leaf value - must still snapshot immediately, not wait
+        // for the 30s periodic checkpoint like an ordinary unlisted field
+        // would (see low_value_clock_changes_do_not_spam_triggers_or_change_lists).
+        session.record_tick(
+            Some(&json!({ "map": { "game_state": "MENU" }, "draft": { "activeteam": 2 } })),
+            10,
+            t0 + Duration::seconds(1),
+        );
+        assert_eq!(session.snapshot_count, 2, "draft.* value change must trigger its own snapshot immediately");
+        let timeline_content = fs::read_to_string(session.timeline_path()).unwrap();
+        assert!(timeline_content.lines().last().unwrap().contains("draft.activeteam"));
+    }
+
+    #[test]
+    fn ability_field_value_change_alone_triggers_an_immediate_snapshot() {
+        let (_guard, mut session) = new_session();
+        let t0 = session.started_at;
+        session.record_tick(
+            Some(&json!({
+                "map": { "game_state": "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS" },
+                "abilities": { "ability0": { "cooldown": 10, "level": 1 } }
+            })),
+            10,
+            t0,
+        );
+        assert_eq!(session.snapshot_count, 1);
+
+        session.record_tick(
+            Some(&json!({
+                "map": { "game_state": "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS" },
+                "abilities": { "ability0": { "cooldown": 9, "level": 1 } }
+            })),
+            10,
+            t0 + Duration::seconds(1),
+        );
+        assert_eq!(session.snapshot_count, 2, "abilities.* value change must trigger its own snapshot immediately");
+        let timeline_content = fs::read_to_string(session.timeline_path()).unwrap();
+        assert!(timeline_content.lines().last().unwrap().contains("abilities.ability0.cooldown"));
+    }
+
+    #[test]
+    fn records_tts_trace_events_and_counts_them() {
+        use super::super::tts_trace::{TtsTraceEvent, TtsTraceSource};
+        let (_guard, mut session) = new_session();
+        let mut stages = std::collections::BTreeMap::new();
+        stages.insert("receivedAt".to_string(), 0.0);
+        let event = TtsTraceEvent {
+            message_id: "msg-1".to_string(),
+            source: TtsTraceSource::Frontend,
+            local_time: "now".to_string(),
+            engine: Some("piper".to_string()),
+            stages,
+            detail: json!({}),
+        };
+        assert!(session.record_tts_trace(&event).is_none());
+        assert_eq!(session.tts_trace_count, 1);
+        let content = fs::read_to_string(session.tts_trace_path()).unwrap();
+        assert_eq!(content.lines().count(), 1);
+        assert!(content.contains("msg-1"));
+    }
+
+    #[test]
+    fn tts_trace_is_not_recorded_after_finalization() {
+        use super::super::tts_trace::{TtsTraceEvent, TtsTraceSource};
+        let (_guard, mut session) = new_session();
+        session.finalize_shutdown(session.started_at);
+        let event = TtsTraceEvent {
+            message_id: "msg-1".to_string(),
+            source: TtsTraceSource::PiperSidecar,
+            local_time: "now".to_string(),
+            engine: None,
+            stages: std::collections::BTreeMap::new(),
+            detail: Value::Null,
+        };
+        assert!(session.record_tts_trace(&event).is_none());
+        assert_eq!(session.tts_trace_count, 0, "must not record into a finalized session");
     }
 }

@@ -123,4 +123,22 @@ describe("normalizeMessageForSpeech", () => {
   it("collapses whitespace after other normalization", () => {
     expect(normalizeMessageForSpeech("го   🔥  дальше")).toBe("го дальше");
   });
+
+  // Regression for the reported truncation bug: this exact multi-question
+  // message was only spoken up to the first "?". EXCESSIVE_PUNCTUATION only
+  // matches RUNS of 2+ consecutive marks - these are three isolated single
+  // "?"s separated by words, so nothing here should touch them. `.`/`!`/`?`
+  // must never be treated as "stop after the first sentence".
+  it("does not truncate a message with multiple isolated question marks", () => {
+    const message =
+      "а тебе снилось что ты бабочка? или бабочке снилось что это ты? или бабочке снилось что ты бабочка?";
+    expect(normalizeMessageForSpeech(message)).toBe(message);
+  });
+
+  it("does not truncate at isolated periods or a mixed ?! across several clauses", () => {
+    const periods = "первое предложение. второе предложение. третье предложение.";
+    expect(normalizeMessageForSpeech(periods)).toBe(periods);
+    const mixed = "серьёзно? ты уверен?! точно да!";
+    expect(normalizeMessageForSpeech(mixed)).toBe(mixed);
+  });
 });

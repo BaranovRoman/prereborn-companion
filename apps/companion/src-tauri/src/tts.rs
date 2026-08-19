@@ -165,6 +165,37 @@ struct Sidecar {
     stdin: ChildStdin,
     stderr: ChildStderr,
     output_dir: PathBuf,
+    spawned_at: Instant,
+    call_count: u64,
+}
+
+/// Per-call timing/counters from one `Sidecar::synthesize()`, for the TTS
+/// diagnostics trace (see diagnostics/tts_trace.rs). Deliberately returned
+/// alongside the audio bytes rather than logged from inside `Sidecar`
+/// itself - `Sidecar` has no `AppHandle` and stays fully decoupled/testable
+/// exactly as before (see the `#[ignore]`d real-subprocess test); only the
+/// outer `synthesize()` in this file, which does have an `AppHandle`, turns
+/// this into a diagnostics event.
+#[derive(Debug, Clone, Copy)]
+struct SynthesisTrace {
+    text_len: usize,
+    stdin_write_ms: f64,
+    /// Time+poll-count waiting for Piper's output file to appear at all.
+    file_appear_wait_ms: f64,
+    file_appear_polls: u32,
+    /// Time+poll-count waiting for that file's size to stop changing
+    /// (Windows shows the directory entry before Piper finishes writing).
+    size_stable_wait_ms: f64,
+    size_stable_polls: u32,
+    /// How many files were in output_dir at the moment one was picked -
+    /// >1 would mean a previous call's file wasn't cleaned up, which the
+    /// "at most one file exists" comment in spawn() assumes never happens.
+    dir_entries_seen_at_pick: usize,
+    wav_bytes_len: usize,
+    /// (bytes - 44-byte header) / 4 bytes-per-sample / 22050Hz - the WAV
+    /// format was measured byte-exact (22050Hz mono 32-bit float) during
+    /// the WK-77 quality audit, so this is a real duration, not a guess.
+    output_wav_duration_ms: f64,
 }
 
 /// Where to find the engine + voice - split out of Sidecar::spawn so tests
@@ -266,18 +297,24 @@ impl Sidecar {
             .stderr
             .take()
             .ok_or_else(|| "Piper stderr unavailable".to_string())?;
-        Ok(Self { child, stdin, stderr, output_dir })
+        Ok(Self { child, stdin, stderr, output_dir, spawned_at: Instant::now(), call_count: 0 })
     }
 
-    fn synthesize(&mut self, text: &str) -> Result<Vec<u8>, String> {
+    fn synthesize(&mut self, text: &str) -> Result<(Vec<u8>, SynthesisTrace), String> {
+        self.call_count += 1;
+
         // Piper's stdin protocol is one line per utterance - strip any
         // embedded newlines rather than let them desync line framing.
         let line: String = text.chars().map(|c| if c == '\n' || c == '\r' { ' ' } else { c }).collect();
+        let stdin_write_started = Instant::now();
         writeln!(self.stdin, "{line}").map_err(|e| format!("Piper stdin: {e}"))?;
         self.stdin.flush().map_err(|e| format!("Piper stdin: {e}"))?;
+        let stdin_write_ms = stdin_write_started.elapsed().as_secs_f64() * 1000.0;
 
+        let file_appear_started = Instant::now();
         let deadline = Instant::now() + SYNTH_TIMEOUT;
-        let path = loop {
+        let mut file_appear_polls: u32 = 0;
+        let (path, dir_entries_seen_at_pick) = loop {
             if let Ok(Some(status)) = self.child.try_wait() {
                 let stderr = self.drain_stderr();
                 let detail = if stderr.is_empty() { String::new() } else { format!(": {stderr}") };
@@ -292,20 +329,25 @@ impl Sidecar {
             // itself - sorting gives write order, though in practice at
             // most one file exists (see spawn(), invariant enforced there).
             names.sort();
+            let entries_seen = names.len();
             if let Some(path) = names.into_iter().next() {
-                break path;
+                break (path, entries_seen);
             }
+            file_appear_polls += 1;
             if Instant::now() >= deadline {
                 return Err("Piper synthesis timed out".to_string());
             }
             std::thread::sleep(Duration::from_millis(20));
         };
+        let file_appear_wait_ms = file_appear_started.elapsed().as_secs_f64() * 1000.0;
 
         // Windows makes the directory entry visible as soon as the file is
         // created, before Piper has finished writing/flushing its contents
         // - reading immediately on first sight can race and return a
         // truncated (or 0-byte) file. Wait for the size to stop changing
         // across two consecutive polls before treating it as complete.
+        let size_stable_started = Instant::now();
+        let mut size_stable_polls: u32 = 0;
         let mut last_size: Option<u64> = None;
         loop {
             let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
@@ -313,15 +355,36 @@ impl Sidecar {
                 break;
             }
             last_size = Some(size);
+            size_stable_polls += 1;
             if Instant::now() >= deadline {
                 return Err("Piper output file never finished writing".to_string());
             }
             std::thread::sleep(Duration::from_millis(20));
         }
+        let size_stable_wait_ms = size_stable_started.elapsed().as_secs_f64() * 1000.0;
+
         let mut bytes = fs::read(&path).map_err(|e| format!("Piper output file: {e}"))?;
         let _ = fs::remove_file(&path);
         fix_wav_chunk_sizes(&mut bytes);
-        Ok(bytes)
+
+        const WAV_HEADER_LEN: usize = 44;
+        const BYTES_PER_SAMPLE: usize = 4;
+        const SAMPLE_RATE_HZ: f64 = 22050.0;
+        let sample_count = bytes.len().saturating_sub(WAV_HEADER_LEN) / BYTES_PER_SAMPLE;
+        let output_wav_duration_ms = sample_count as f64 / SAMPLE_RATE_HZ * 1000.0;
+
+        let trace = SynthesisTrace {
+            text_len: text.chars().count(),
+            stdin_write_ms,
+            file_appear_wait_ms,
+            file_appear_polls,
+            size_stable_wait_ms,
+            size_stable_polls,
+            dir_entries_seen_at_pick,
+            wav_bytes_len: bytes.len(),
+            output_wav_duration_ms,
+        };
+        Ok((bytes, trace))
     }
 
     // Only called after try_wait() has confirmed the child already exited,
@@ -430,12 +493,56 @@ pub fn set_enabled(app: &AppHandle, enabled: bool) -> Result<TtsStatus, String> 
     Ok(status(app))
 }
 
+/// Builds the diagnostics-only TTS trace event for one Piper synthesis call
+/// (see diagnostics/tts_trace.rs) - kept as a plain function of already-
+/// computed values (no AppHandle, no mutex) so it can't itself pick up any
+/// locking/IO concerns beyond what `synthesize()` below already has.
+fn build_tts_trace_event(
+    message_id: &str,
+    respawned: bool,
+    sidecar_age_ms: f64,
+    call_count: u64,
+    trace: &SynthesisTrace,
+) -> crate::diagnostics::tts_trace::TtsTraceEvent {
+    use crate::diagnostics::tts_trace::{TtsTraceEvent, TtsTraceSource};
+    let mut stages = std::collections::BTreeMap::new();
+    stages.insert("sidecarWriteMs".to_string(), trace.stdin_write_ms);
+    stages.insert("fileAppearWaitMs".to_string(), trace.file_appear_wait_ms);
+    stages.insert("sizeStableWaitMs".to_string(), trace.size_stable_wait_ms);
+    stages.insert(
+        "synthesisTotalMs".to_string(),
+        trace.stdin_write_ms + trace.file_appear_wait_ms + trace.size_stable_wait_ms,
+    );
+    TtsTraceEvent {
+        message_id: message_id.to_string(),
+        source: TtsTraceSource::PiperSidecar,
+        local_time: chrono::Local::now().to_rfc3339(),
+        engine: Some(VOICE_NAME.to_string()),
+        stages,
+        detail: serde_json::json!({
+            "textLen": trace.text_len,
+            "fileAppearPolls": trace.file_appear_polls,
+            "sizeStablePolls": trace.size_stable_polls,
+            "dirEntriesSeenAtPick": trace.dir_entries_seen_at_pick,
+            "wavBytesLen": trace.wav_bytes_len,
+            "outputWavDurationMs": trace.output_wav_duration_ms,
+            "sidecarRespawnedThisCall": respawned,
+            "sidecarAgeMs": sidecar_age_ms,
+            "sidecarCallCount": call_count,
+        }),
+    }
+}
+
 /// Synthesizes one utterance, lazily starting (or restarting, after a
 /// crash) the persistent sidecar as needed. Calls are serialized by the
 /// Mutex here - matches the frontend's own one-utterance-at-a-time queue
 /// (BoundedTtsQueue + the `speaking` gate in TwitchChatPage.tsx), so this
 /// never needs to arbitrate concurrent synthesis requests.
-pub fn synthesize(app: &AppHandle, text: &str) -> Result<Vec<u8>, String> {
+///
+/// `message_id` is diagnostics-only (see diagnostics/tts_trace.rs) - `None`
+/// (the normal, non-diagnostic path) skips emitting a trace event entirely
+/// and behaves exactly as before this was added.
+pub fn synthesize(app: &AppHandle, text: &str, message_id: Option<&str>) -> Result<Vec<u8>, String> {
     let state = app.state::<TtsState>();
     let mut inner = state.0.lock().unwrap();
     if !inner.enabled {
@@ -451,7 +558,8 @@ pub fn synthesize(app: &AppHandle, text: &str) -> Result<Vec<u8>, String> {
             inner.sidecar = None;
         }
     }
-    if inner.sidecar.is_none() {
+    let respawned = inner.sidecar.is_none();
+    if respawned {
         inner.state = TtsEngineState::Starting;
         match Sidecar::spawn(&SidecarPaths::for_app(app)) {
             Ok(sidecar) => {
@@ -467,12 +575,10 @@ pub fn synthesize(app: &AppHandle, text: &str) -> Result<Vec<u8>, String> {
             }
         }
     }
-    let result = inner.sidecar.as_mut().expect("just ensured").synthesize(text);
-    match &result {
-        Ok(_) => {
-            inner.state = TtsEngineState::Ready;
-            inner.last_error = None;
-        }
+
+    let synth_result = inner.sidecar.as_mut().expect("just ensured").synthesize(text);
+    let (bytes, trace) = match synth_result {
+        Ok(pair) => pair,
         Err(error) => {
             // Don't reuse a sidecar that just failed - next call respawns
             // fresh instead of retrying against a possibly-wedged process.
@@ -483,14 +589,25 @@ pub fn synthesize(app: &AppHandle, text: &str) -> Result<Vec<u8>, String> {
             inner.last_error = Some(error.clone());
             drop(inner);
             storage::append_rolling_log(app, &format!("Piper TTS synthesis failed: {error}"));
-            return result;
+            return Err(error);
         }
+    };
+    inner.state = TtsEngineState::Ready;
+    inner.last_error = None;
+    let sidecar_age_ms =
+        inner.sidecar.as_ref().map(|s| s.spawned_at.elapsed().as_secs_f64() * 1000.0).unwrap_or(0.0);
+    let call_count = inner.sidecar.as_ref().map(|s| s.call_count).unwrap_or(0);
+    drop(inner);
+
+    if let Some(message_id) = message_id {
+        let event = build_tts_trace_event(message_id, respawned, sidecar_age_ms, call_count, &trace);
+        crate::diagnostics::observe_tts_stage(app, &event);
     }
-    result
+    Ok(bytes)
 }
 
-pub fn synthesize_base64(app: &AppHandle, text: &str) -> Result<String, String> {
-    synthesize(app, text).map(|bytes| BASE64.encode(bytes))
+pub fn synthesize_base64(app: &AppHandle, text: &str, message_id: Option<&str>) -> Result<String, String> {
+    synthesize(app, text, message_id).map(|bytes| BASE64.encode(bytes))
 }
 
 /// Stops the sidecar without touching the `enabled` setting - used on app
@@ -621,18 +738,80 @@ mod tests {
         };
         let mut sidecar = Sidecar::spawn(&paths).expect("spawn");
 
-        let first = sidecar.synthesize("Привет стример, как дела в игре сегодня?").expect("first synthesize");
+        let (first, first_trace) = sidecar.synthesize("Привет стример, как дела в игре сегодня?").expect("first synthesize");
         assert!(first.len() > 1000, "suspiciously small wav: {} bytes", first.len());
         assert_eq!(&first[0..4], b"RIFF", "not a valid WAV file");
+        assert_eq!(first_trace.wav_bytes_len, first.len());
 
         // Second call against the SAME child process proves persistence -
         // the whole point of this architecture (see local-tts-licensing.md
         // and the implementation plan in wk-74-libpiper-ci-spike.md).
         let pid_before = sidecar.child.id();
-        let second = sidecar.synthesize("гг вп").expect("second synthesize");
+        let (second, _) = sidecar.synthesize("гг вп").expect("second synthesize");
         assert_eq!(sidecar.child.id(), pid_before, "sidecar respawned instead of being reused");
         assert!(second.len() > 500);
         assert_eq!(&second[0..4], b"RIFF");
+
+        sidecar.kill();
+    }
+
+    // Targeted repro for the WK diagnostics brief's truncation report: this
+    // exact multi-question message was reported as spoken only up to the
+    // first "?". Static analysis of prepareTtsText/normalizeMessageForSpeech
+    // found no sentence-truncation logic in Companion's own text pipeline
+    // (see chat-model.test.ts/tts-normalize.test.ts), so if this is a real
+    // bug it must be inside libpiper itself - this asserts the returned WAV's
+    // computed duration is proportionate to the full sent text, not just the
+    // first clause. Run with the same env vars as the test above:
+    //   cargo test --manifest-path apps/companion/src-tauri/Cargo.toml \
+    //     tts::tests::piper_does_not_truncate_a_multi_question_message -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn piper_does_not_truncate_a_multi_question_message() {
+        let Ok(exe) = std::env::var("PIPER_TEST_EXE") else {
+            panic!("set PIPER_TEST_EXE/_MODEL/_CONFIG/_ESPEAK_DATA to run this test");
+        };
+        let model = std::env::var("PIPER_TEST_MODEL").unwrap();
+        let config = std::env::var("PIPER_TEST_CONFIG").unwrap();
+        let espeak_data = std::env::var("PIPER_TEST_ESPEAK_DATA").unwrap();
+        let output_dir = tempfile::tempdir().unwrap();
+
+        let paths = SidecarPaths {
+            exe: exe.into(),
+            model: model.into(),
+            config: config.into(),
+            espeak_data: espeak_data.into(),
+            output_dir: output_dir.path().to_path_buf(),
+        };
+        let mut sidecar = Sidecar::spawn(&paths).expect("spawn");
+
+        let full = "а тебе снилось что ты бабочка? или бабочке снилось что это ты? или бабочке снилось что ты бабочка?";
+        let (full_bytes, full_trace) = sidecar.synthesize(full).expect("full synthesize");
+        let (short_bytes, short_trace) = sidecar.synthesize("а тебе снилось что ты бабочка?").expect("short synthesize");
+
+        println!(
+            "full: {} chars -> {:.0}ms audio ({} bytes); first-question-only: {} chars -> {:.0}ms audio ({} bytes)",
+            full_trace.text_len,
+            full_trace.output_wav_duration_ms,
+            full_bytes.len(),
+            short_trace.text_len,
+            short_trace.output_wav_duration_ms,
+            short_bytes.len(),
+        );
+
+        // The full three-question message is ~3.3x the character count of
+        // just the first question - if Piper only synthesizes the first
+        // clause, full_trace's duration will be roughly equal to
+        // short_trace's instead of proportionately longer. A generous 1.5x
+        // threshold (well below the ~3.3x expected for full synthesis)
+        // still clearly distinguishes "truncated" from "not truncated".
+        assert!(
+            full_trace.output_wav_duration_ms > short_trace.output_wav_duration_ms * 1.5,
+            "full message's audio duration ({:.0}ms) is not proportionately longer than the first-question-only \
+             duration ({:.0}ms) - this points at Piper/espeak-ng truncating after the first sentence",
+            full_trace.output_wav_duration_ms,
+            short_trace.output_wav_duration_ms,
+        );
 
         sidecar.kill();
     }
