@@ -30,6 +30,9 @@ use crate::storage;
 // docs/research/wk-77-tts-quality-audit.md for the full comparison.
 pub const VOICE_NAME: &str = "ru_RU-dmitri-medium";
 const SYNTH_TIMEOUT: Duration = Duration::from_secs(15);
+// Resource archives are ~30MB - long enough to need real time on a slow
+// link, bounded so a stalled/unreachable GitHub can't hang forever (WK-78).
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
 const RUNTIME_ASSET_URL: &str =
     "https://github.com/BaranovRoman/prereborn-companion/releases/latest/download/piper-runtime-win-x64.zip";
 const VOICE_ASSET_URL: &str =
@@ -438,9 +441,10 @@ pub fn status(app: &AppHandle) -> TtsStatus {
 /// Downloads + extracts the engine and voice archives into app_data_dir()
 /// if they aren't already present. Idempotent - a no-op once resources
 /// exist, so re-enabling after a prior successful download never
-/// re-downloads. Blocking (reqwest blocking client, ~30MB) - called from
-/// a Tauri command, off the UI thread already by virtue of IPC dispatch.
-pub fn ensure_resources(app: &AppHandle) -> Result<(), String> {
+/// re-downloads. Blocking (reqwest blocking client, ~30MB) - only ever
+/// called via `spawn_blocking` from `set_enabled` below, never directly
+/// from a command, so it can't tie up an async worker thread (WK-78).
+fn ensure_resources_blocking(app: &AppHandle) -> Result<(), String> {
     if resources_ready(app) {
         return Ok(());
     }
@@ -455,7 +459,14 @@ pub fn ensure_resources(app: &AppHandle) -> Result<(), String> {
 }
 
 fn download_and_extract(url: &str, dest: &Path) -> Result<(), String> {
-    let response = reqwest::blocking::get(url).map_err(|e| format!("Скачивание не удалось: {e}"))?;
+    let client = reqwest::blocking::Client::builder()
+        .timeout(DOWNLOAD_TIMEOUT)
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+    let response = client
+        .get(url)
+        .send()
+        .map_err(|e| format!("Скачивание не удалось: {e}"))?;
     if !response.status().is_success() {
         return Err(format!("Скачивание не удалось: HTTP {}", response.status()));
     }
@@ -469,9 +480,17 @@ fn download_and_extract(url: &str, dest: &Path) -> Result<(), String> {
         .map_err(|e| format!("Не удалось распаковать архив: {e}"))
 }
 
-pub fn set_enabled(app: &AppHandle, enabled: bool) -> Result<TtsStatus, String> {
+/// `async` so the (potentially minutes-long, on a slow/stalled link)
+/// resource download runs via `spawn_blocking` on Tauri's blocking pool
+/// instead of occupying one of the few async worker threads the command
+/// itself is dispatched on (WK-78 - see `commands.rs`'s WK-75 comment for
+/// why this command is `async` in the first place).
+pub async fn set_enabled(app: &AppHandle, enabled: bool) -> Result<TtsStatus, String> {
     if enabled {
-        ensure_resources(app)?;
+        let app_for_download = app.clone();
+        tauri::async_runtime::spawn_blocking(move || ensure_resources_blocking(&app_for_download))
+            .await
+            .map_err(|e| format!("Internal error: {e}"))??;
     }
     let state = app.state::<TtsState>();
     {

@@ -148,16 +148,21 @@ pub fn save_companion_token(
 }
 
 
+// WK-78 - both `async` so the blocking, network-bound backend call inside
+// runs via `spawn_blocking` on Tauri's blocking pool instead of the main
+// IPC/UI thread (a plain `fn` command here would freeze the whole window
+// for up to REQUEST_TIMEOUT on every call - see backend/mod.rs).
+
 #[tauri::command]
-pub fn get_twitch_chat(app: AppHandle) -> Result<serde_json::Value, String> {
-    backend::get_twitch_chat(&app)
+pub async fn get_twitch_chat(app: AppHandle) -> Result<serde_json::Value, String> {
+    backend::get_twitch_chat(&app).await
 }
 #[tauri::command]
-pub fn resend_current_state(
+pub async fn resend_current_state(
     app: AppHandle,
-    state: State<AppState>,
+    state: State<'_, AppState>,
 ) -> Result<StatusSnapshot, String> {
-    backend::resend_now(&app)?;
+    backend::resend_now(&app).await?;
     Ok(state.snapshot())
 }
 
@@ -328,7 +333,7 @@ pub fn get_tts_status(app: AppHandle) -> TtsStatus {
 
 #[tauri::command]
 pub async fn set_tts_enabled(app: AppHandle, enabled: bool) -> Result<TtsStatus, String> {
-    tts::set_enabled(&app, enabled)
+    tts::set_enabled(&app, enabled).await
 }
 
 #[tauri::command]
