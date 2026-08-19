@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { SAFE_AREA_PERCENT } from "@/entities/stream-overlay-layout/model/types";
 import styles from "./bouncing-logo.module.scss";
 
 // Постоянная линейная скорость полёта (px/сек в логических px сцены, т.е.
@@ -8,7 +9,12 @@ import styles from "./bouncing-logo.module.scss";
 // измеряется через clientWidth/clientHeight, которые CSS-scale родителя не
 // трогает).
 const SPEED_PX_PER_SEC = 150;
-const LOGO_SIZE_FRACTION = 0.22; // доля меньшей стороны safe-viewport
+const LOGO_SIZE_FRACTION = 0.22; // доля меньшей стороны size-basis (см. measure())
+// Size-basis остаётся привязан к прежним safe-area пропорциям (0.93 = 1 -
+// 2*3.5%), чтобы визуальный размер логотипа не изменился при переходе
+// границ отскока на реальный viewport (см. задачу: "существующий размер
+// логотипа" сохранить, а safe-area для физики убрать).
+const SIZE_BASIS_FRACTION = 1 - (SAFE_AREA_PERCENT * 2) / 100;
 const MIN_HUE_JUMP_DEG = 70; // "заметно отличающийся" hue при столкновении
 
 const pickNextHue = (currentHue: number): number => {
@@ -60,9 +66,13 @@ export const BouncingLogo = () => {
         const measure = () => {
             width = container.clientWidth;
             height = container.clientHeight;
-            logoSize = Math.min(width, height) * LOGO_SIZE_FRACTION;
+            const sizeBasis = Math.min(width, height) * SIZE_BASIS_FRACTION;
+            logoSize = sizeBasis * LOGO_SIZE_FRACTION;
             logo.style.width = `${logoSize}px`;
             logo.style.height = `${logoSize}px`;
+            // Границы отскока - реальный viewport (0..width/height), без
+            // safe-area отступа: логотип должен доходить bounding box'ом
+            // ровно до края экрана.
             const maxX = Math.max(width - logoSize, 0);
             const maxY = Math.max(height - logoSize, 0);
             x = Math.min(Math.max(x, 0), maxX);
@@ -178,7 +188,7 @@ export const BouncingLogo = () => {
     }, []);
 
     return (
-        <div ref={containerRef} className={styles.safeViewport} aria-hidden="true">
+        <div ref={containerRef} className={styles.viewport} aria-hidden="true">
             <img ref={logoRef} src="/logo-new.png" alt="" className={styles.logo} />
         </div>
     );
