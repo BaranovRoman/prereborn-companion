@@ -58,70 +58,65 @@ fn retry_delay(attempt: u32) -> Duration {
     Duration::from_secs(2_u64.saturating_pow(attempt.min(4)).min(30))
 }
 
+/// Handles one GSI request's body once it's already been read off the wire -
+/// separated from `handle_request` so it's testable without a real
+/// `tiny_http::Request` (which has no public constructor). Nothing is
+/// filtered here - every payload Dota sends is processed, whether or not it
+/// parses as JSON - but unlike before, none of it is written to disk on this
+/// path; that only happens inside an explicitly started diagnostics session
+/// (see `diagnostics::observe`).
+fn process_gsi_body(app: &AppHandle, remote_addr: &str, body: &str) -> LastEvent {
+    let result = storage::parse_payload(body);
+
+    // Passive diagnostic-mode observer - see diagnostics/mod.rs. A no-op
+    // (one mutex lock, one None check) unless a diagnostics session has been
+    // explicitly started; never affects the behavior below.
+    diagnostics::observe(app, result.parsed.as_ref(), body.len());
+
+    let last_event = LastEvent {
+        timestamp: chrono::Local::now().to_rfc3339(),
+        remote_addr: remote_addr.to_string(),
+        summary: result.summary.clone(),
+    };
+    if let Some(parsed) = result.parsed.as_ref() {
+        obs::handle_gsi(app, parsed);
+    }
+
+    {
+        let state = app.state::<AppState>();
+        let mut inner = state.0.lock().unwrap();
+        inner.request_count += 1;
+        inner.gsi_last_received_at = Some(Instant::now());
+        inner.last_event = Some(last_event.clone());
+        // Only valid-JSON payloads feed the backend-forwarding queue - the
+        // backend expects a parsed object, so malformed bodies simply
+        // aren't forwarded.
+        if let Some(parsed) = result.parsed {
+            inner.last_gsi_payload = Some(parsed);
+            inner.dirty = true;
+            inner.payload_version = inner.payload_version.wrapping_add(1);
+        }
+    }
+
+    storage::append_rolling_log(
+        app,
+        &format!("GSI request from {remote_addr}: {}", result.summary),
+    );
+    let _ = app.emit("gsi-event", &last_event);
+
+    last_event
+}
+
 fn handle_request(app: &AppHandle, mut request: tiny_http::Request) {
     let remote_addr = request
         .remote_addr()
         .map(|a| a.to_string())
         .unwrap_or_else(|| "unknown".to_string());
 
-    let headers: Vec<(String, String)> = request
-        .headers()
-        .iter()
-        .map(|h| (h.field.to_string(), h.value.as_str().to_string()))
-        .collect();
-
     let mut body = String::new();
     let _ = request.as_reader().read_to_string(&mut body);
 
-    // Nothing is filtered here — every payload Dota sends is persisted as-is,
-    // whether or not it parses as JSON, per the "capture everything" brief.
-    match storage::write_payload_file(app, &remote_addr, &headers, &body) {
-        Ok(result) => {
-            // Passive diagnostic-mode observer - see diagnostics/mod.rs. A
-            // no-op (one mutex lock, one None check) unless a diagnostics
-            // session has been explicitly started; never affects the
-            // existing behavior below.
-            diagnostics::observe(app, result.parsed.as_ref(), body.len());
-
-            let last_event = LastEvent {
-                timestamp: chrono::Local::now().to_rfc3339(),
-                remote_addr: remote_addr.clone(),
-                summary: result.summary.clone(),
-                payload_file: result.file_path.to_string_lossy().to_string(),
-            };
-            if let Some(parsed) = result.parsed.as_ref() {
-                obs::handle_gsi(app, parsed);
-            }
-
-            {
-                let state = app.state::<AppState>();
-                let mut inner = state.0.lock().unwrap();
-                inner.request_count += 1;
-                inner.gsi_last_received_at = Some(Instant::now());
-                inner.last_event = Some(last_event.clone());
-                // Only valid-JSON payloads feed the backend-forwarding queue -
-                // the backend expects a parsed object, so malformed bodies
-                // (still captured on disk above) simply aren't forwarded.
-                if let Some(parsed) = result.parsed {
-                    inner.last_gsi_payload = Some(parsed);
-                    inner.dirty = true;
-                    inner.payload_version = inner.payload_version.wrapping_add(1);
-                }
-            }
-
-            storage::append_rolling_log(
-                app,
-                &format!("GSI request from {remote_addr}: {}", result.summary),
-            );
-            let _ = app.emit("gsi-event", &last_event);
-        }
-        Err(e) => {
-            storage::append_rolling_log(
-                app,
-                &format!("Failed to persist GSI payload from {remote_addr}: {e}"),
-            );
-        }
-    }
+    process_gsi_body(app, &remote_addr, &body);
 
     let response = tiny_http::Response::from_string("{\"status\":\"ok\"}").with_header(
         tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap(),

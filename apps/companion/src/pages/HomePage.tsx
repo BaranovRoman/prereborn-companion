@@ -191,7 +191,7 @@ export function HomePage() {
         <div className="page-heading"><span className="section-heading__eyebrow">Для разработчика</span><h2>Диагностика</h2><p>Технические данные и настройки Companion. Повседневное управление находится на главной.</p></div>
         {error && <p className="app__error">Ошибка: {error}</p>}
         <section><h2>Базовая настройка</h2><StatusChecklist status={status} /></section>
-        <div className="diagnostic-card"><ActionButtons busy={busy} canOpenDotaFolder={!!status?.dota_found} onInstallGsi={() => void run(api.installGsi)} onPickFolder={() => void run(api.pickDotaFolder)} onOpenDotaFolder={() => void run(api.openDotaFolder)} onOpenLogs={() => void run(api.openLogsFolder)} onClearLog={() => void run(api.clearLog)} onRefresh={() => void run(api.getStatus)} /></div>
+        <div className="diagnostic-card"><ActionButtons busy={busy} canOpenDotaFolder={!!status?.dota_found} legacyCleanupInProgress={!!status?.legacy_cleanup_in_progress} onInstallGsi={() => void run(api.installGsi)} onPickFolder={() => void run(api.pickDotaFolder)} onOpenDotaFolder={() => void run(api.openDotaFolder)} onOpenLogs={() => void run(api.openLogsFolder)} onClearLog={() => void run(api.clearLog)} onRefresh={() => void run(api.getStatus)} /></div>
         <div className="diagnostic-card"><LastEventPanel event={latestEvent} requestCount={status?.request_count ?? 0} /></div>
         <EventHistoryList events={history} />
         <CompanionTokenForm status={status} busy={busy} onSave={(token) => run(() => api.saveCompanionToken(token))} />

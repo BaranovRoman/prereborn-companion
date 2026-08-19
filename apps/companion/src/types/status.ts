@@ -2,7 +2,6 @@ export interface LastEvent {
   timestamp: string;
   remote_addr: string;
   summary: string;
-  payload_file: string;
 }
 
 export interface DiagnosticsStatusSnapshot {
@@ -36,6 +35,7 @@ export interface StatusSnapshot {
   request_count: number;
   last_event: LastEvent | null;
   log_dir: string | null;
+  legacy_cleanup_in_progress: boolean;
   backend_url: string;
   companion_token_configured: boolean;
   backend_connected: boolean;

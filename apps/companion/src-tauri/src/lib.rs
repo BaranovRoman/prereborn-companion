@@ -112,6 +112,12 @@ pub fn run() {
             let handle = app.handle().clone();
 
             storage::init(&handle)?;
+            // One-shot safety net for installs that accumulated a legacy
+            // logs/payloads directory before write_payload_file() was
+            // removed from the normal GSI request path - never a periodic
+            // scan, just this one check at launch (cleanup_legacy_payloads
+            // itself is a no-op once nothing is left to clean).
+            storage::cleanup_legacy_payloads(&handle);
             tts::init(&handle);
             {
                 let state = handle.state::<AppState>();

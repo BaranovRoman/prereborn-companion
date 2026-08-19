@@ -1,6 +1,7 @@
 interface Props {
   busy: boolean;
   canOpenDotaFolder: boolean;
+  legacyCleanupInProgress: boolean;
   onInstallGsi: () => void;
   onPickFolder: () => void;
   onOpenDotaFolder: () => void;
@@ -12,6 +13,7 @@ interface Props {
 export function ActionButtons({
   busy,
   canOpenDotaFolder,
+  legacyCleanupInProgress,
   onInstallGsi,
   onPickFolder,
   onOpenDotaFolder,
@@ -33,8 +35,8 @@ export function ActionButtons({
       <button onClick={onOpenLogs} disabled={busy}>
         Открыть папку логов
       </button>
-      <button onClick={onClearLog} disabled={busy}>
-        Очистить лог
+      <button onClick={onClearLog} disabled={busy || legacyCleanupInProgress}>
+        {legacyCleanupInProgress ? "Очистка выполняется…" : "Очистить лог"}
       </button>
       <button onClick={onRefresh} disabled={busy}>
         Обновить статус
