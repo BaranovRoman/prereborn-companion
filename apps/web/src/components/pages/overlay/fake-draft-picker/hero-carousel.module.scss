@@ -55,6 +55,19 @@
     height: 100%;
 }
 
+// WK-77 follow-up (Fake Draft OBS perf) - replaces an animated `filter:
+// brightness()` that used to sit on the same element as the playing video
+// (see hero-carousel.tsx). A plain black layer whose opacity is driven by
+// distance produces the same visual dimming while staying compositor-only,
+// same as the transform/opacity already animated on .card.
+.dimOverlay {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: #000;
+    pointer-events: none;
+}
+
 .namePlate {
     position: absolute;
     left: 0;

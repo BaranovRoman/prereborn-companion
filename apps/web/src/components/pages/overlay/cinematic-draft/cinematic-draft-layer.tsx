@@ -73,6 +73,7 @@ export const CinematicDraftLayer = ({ payload }: CinematicDraftLayerProps) => {
                                                     videoSrc={slotHero.videoUrl}
                                                     imageSrc={slotHero.imageUrl}
                                                     title={slotHero.localizedName}
+                                                    loadingPresentation="neutral"
                                                 />
                                                 <span className={styles.name}>{slotHero.localizedName}</span>
                                             </motion.div>

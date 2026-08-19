@@ -105,7 +105,21 @@ const Panel = ({
     </section>
 );
 
-const PreloadedVideo = ({
+type PreloadStatus = "loading" | "ready" | "failed";
+
+// WK-77 follow-up (Between Matches hero-media regression): this used to call
+// setReady(false) on onWaiting/onStalled - the exact bug already fixed in
+// ../hero-media.tsx's sticky ready/failed status (see that file's invariant
+// comment). This component is a separate implementation (Between Matches
+// doesn't render HeroMedia at all) that never got the same fix, and - unlike
+// HeroMedia - its two real call sites (FeaturedMatch/FavoriteHeroes below)
+// had also lost their `poster` prop in a "simplify" pass, so there was no
+// fallback image to fall back to: a transient buffering event on an
+// already-playing video produced a fully blank card, not a portrait. Status
+// is monotonic - once "ready", only a genuine terminal `error` can leave it -
+// mirroring HeroMedia's invariant so both hero-media paths in this app agree
+// on what "stable" means.
+export const PreloadedVideo = ({
     src,
     poster,
     className,
@@ -114,11 +128,17 @@ const PreloadedVideo = ({
     poster?: string;
     className: string;
 }) => {
-    const [ready, setReady] = useState(false);
+    const [status, setStatus] = useState<PreloadStatus>("loading");
+
+    const markReady = () => setStatus((prev) => (prev === "failed" ? prev : "ready"));
+    const markFailed = () => setStatus("failed");
+
+    const showVideo = status === "ready";
+    const showPoster = !showVideo && Boolean(poster);
 
     return (
         <>
-            {poster && (
+            {showPoster && (
                 <img
                     className={`${className} ${styles.videoPosterLayer}`}
                     src={poster}
@@ -135,14 +155,12 @@ const PreloadedVideo = ({
                 loop
                 muted
                 playsInline
-                onLoadedData={() => setReady(true)}
-                onCanPlay={() => setReady(true)}
-                onPlaying={() => setReady(true)}
-                onWaiting={() => setReady(false)}
-                onStalled={() => setReady(false)}
-                onError={() => setReady(false)}
+                onLoadedData={markReady}
+                onCanPlay={markReady}
+                onPlaying={markReady}
+                onError={markFailed}
                 style={{
-                    opacity: ready ? 1 : 0,
+                    opacity: showVideo ? 1 : 0,
                     transition: "opacity 220ms ease",
                 }}
             />
@@ -279,6 +297,7 @@ const FeaturedMatch = ({ matches, title }: QueueDataProps & { title: string }) =
                     <PreloadedVideo
                         className={styles.featuredHeroImage}
                         src={hero.featuredVideoUrl}
+                        poster={hero.imageUrl}
                     />
                 ) : (
                     <div className={styles.emptyMatchHero}>
@@ -372,6 +391,7 @@ const FavoriteHeroes = ({
                                 {hero ? (
                                     <PreloadedVideo
                                         src={hero.favoriteVideoUrl}
+                                        poster={hero.imageUrl}
                                         className=""
                                     />
                                 ) : (
