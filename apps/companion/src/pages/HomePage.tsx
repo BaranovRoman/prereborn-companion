@@ -10,6 +10,7 @@ import { ObsScenePanel } from "../components/ObsScenePanel";
 import { StatusChecklist } from "../components/StatusChecklist";
 import { TwitchChatPage } from "../components/TwitchChatPage";
 import { UpdateBanner } from "../components/UpdateBanner";
+import { useTwitchChatSession } from "../chat/useTwitchChatSession";
 import { useDiagnostics } from "../hooks/useDiagnostics";
 import { useGsiEvents } from "../hooks/useGsiEvents";
 import { useStatus } from "../hooks/useStatus";
@@ -46,6 +47,10 @@ export function HomePage() {
   const history = useGsiEvents();
   const diagnostics = useDiagnostics();
   const updater = useUpdater();
+  // WK-78 - owned here (app root, always mounted) rather than inside
+  // TwitchChatPage, so chat polling/dedup and TTS keep running regardless
+  // of which tab is currently visible.
+  const chatSession = useTwitchChatSession();
   const [view, setView] = useState<View>("home");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -139,7 +144,7 @@ export function HomePage() {
           <li className={status?.obs_connected ? "is-complete" : ""}><strong>OBS</strong><span>{status?.obs_connected ? "WebSocket и сцены доступны" : status?.obs_state === "recovering" ? "Соединение восстанавливается" : "Настройте OBS WebSocket и сцены"}</span><ObsScenePanel status={status} onStatus={setStatus} /><button onClick={checkObs} disabled={busy || !status}>Проверить OBS</button></li>
         </ol>
         <div className="setup-guide__footer"><p>{ready ? "Все обязательные компоненты готовы." : "Завершение станет доступно, когда все обязательные проверки успешны."}</p><button className="button button--primary" onClick={finishSetup} disabled={!ready}>Завершить настройку</button></div>
-      </section> : view === "chat" ? <TwitchChatPage /> : view === "home" ? <>
+      </section> : view === "chat" ? <TwitchChatPage session={chatSession} /> : view === "home" ? <>
         <section className={`readiness ${ready ? "readiness--ok" : "readiness--warning"}`}>
           <div>
             <span className="readiness__label">Состояние эфира</span>
