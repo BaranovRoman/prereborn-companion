@@ -17,9 +17,12 @@ const asRecord = (value: unknown): Record<string, unknown> | null =>
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 // Generic membership check against DRAFT_PROTECTION_MODES rather than a
-// hardcoded `=== "off" || === "substitute"` whitelist - a mode added to the
-// tuple in types.ts is accepted here automatically instead of silently
-// falling back to "cover" until this file is also updated.
+// hardcoded `=== "off" || === "cover"` whitelist - a mode added to (or
+// removed from, e.g. WK-69's "substitute"/Fake Draft removal) the tuple in
+// types.ts is picked up here automatically. This is also the fail-closed
+// migration path for that removal: a persisted "substitute" value is no
+// longer in DRAFT_PROTECTION_MODES, so it falls back to "cover" below
+// exactly like any other invalid value - never to "off".
 const isDraftProtectionMode = (value: unknown): value is DraftProtectionMode =>
     (DRAFT_PROTECTION_MODES as readonly string[]).includes(value as string);
 

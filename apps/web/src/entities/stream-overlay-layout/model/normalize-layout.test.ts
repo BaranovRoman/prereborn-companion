@@ -38,9 +38,41 @@ describe("normalizeOverlayLayout", () => {
         expect(
             normalizeOverlayLayout({
                 version: 4,
+                draftProtection: { mode: "off" },
+            }).draftProtection.mode
+        ).toBe("off");
+        expect(
+            normalizeOverlayLayout({
+                version: 4,
+                draftProtection: { mode: "cover" },
+            }).draftProtection.mode
+        ).toBe("cover");
+    });
+
+    // WK-69 regression: Fake Draft ("substitute") was removed as a
+    // selectable mode, but layouts persisted before this change may still
+    // have it saved. Silently mapping it to "off" would strip protection
+    // from a stream the user explicitly protected, so it must fail closed
+    // to "cover" instead - same fallback as any other invalid value.
+    it("migrates the legacy substitute mode to cover instead of dropping protection", () => {
+        expect(
+            normalizeOverlayLayout({
+                version: 4,
                 draftProtection: { mode: "substitute" },
             }).draftProtection.mode
-        ).toBe("substitute");
+        ).toBe("cover");
+    });
+
+    // The reserved future "photorealism" mode has no renderer yet - it must
+    // not become persistable/selectable just because the string exists as a
+    // constant (RESERVED_FUTURE_DRAFT_PROTECTION_MODE).
+    it("does not accept the reserved future photorealism mode", () => {
+        expect(
+            normalizeOverlayLayout({
+                version: 4,
+                draftProtection: { mode: "photorealism" },
+            }).draftProtection.mode
+        ).toBe("cover");
     });
 
     it("migrates percentage camera coordinates to OBS pixels", () => {

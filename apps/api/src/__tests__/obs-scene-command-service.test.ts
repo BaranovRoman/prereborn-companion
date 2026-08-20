@@ -25,10 +25,10 @@ describe("OBS scene override (drives the live overlay's own activeScene)", () =>
     });
 
     it("carries the draftProtection.mode snapshot alongside the scene", () => {
-        enqueueObsSceneCommand("user-draft-mode", "draft", "substitute");
+        enqueueObsSceneCommand("user-draft-mode", "draft", "cover");
         expect(getObsSceneOverride("user-draft-mode")).toEqual({
             scene: "draft",
-            draftProtectionMode: "substitute",
+            draftProtectionMode: "cover",
         });
     });
 
@@ -51,7 +51,7 @@ describe("OBS scene override (drives the live overlay's own activeScene)", () =>
     it("expires after the TTL, same as the underlying test command", () => {
         vi.useFakeTimers();
         try {
-            enqueueObsSceneCommand("user-expiring", "draft", "substitute");
+            enqueueObsSceneCommand("user-expiring", "draft", "cover");
             expect(getObsSceneOverride("user-expiring")).not.toBeNull();
 
             vi.advanceTimersByTime(60_001);

@@ -12,17 +12,6 @@ export const PREVIEW_SESSION = { rating: 7205, sessionRatingDelta: 50, wins: 5, 
 export const PREVIEW_LAST_HERO_ID = 14; // Pudge
 export const PREVIEW_GAME_MODE = "ranked" as const;
 
-// Синтетический GSI-payload только для draftProtectionMode === "off" в
-// editor preview - на реальном /overlay/:token draftPayload всегда приходит
-// из настоящего data.companion.payload (см. overlay/index.tsx), это
-// подставное значение существует только чтобы hero video/render/fallback
-// в CinematicDraftLayer можно было визуально оценить в редакторе без живого
-// GSI (см. get-draft-signals.ts - те же поля, что она читает).
-export const PREVIEW_DRAFT_PAYLOAD = {
-    player: { team_name: "radiant" },
-    hero: { id: PREVIEW_LAST_HERO_ID },
-};
-
 const minutesAgo = (minutes: number) =>
     new Date(Date.now() - minutes * 60_000).toISOString();
 
