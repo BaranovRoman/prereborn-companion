@@ -4,9 +4,11 @@ mod diagnostics;
 mod gsi;
 mod obs;
 mod server;
+mod silero;
 mod state;
 mod storage;
 mod tts;
+mod tts_common;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -34,6 +36,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             }
             "quit" => {
                 tts::stop(app);
+                silero::stop(app);
                 app.exit(0);
             }
             _ => {}
@@ -108,6 +111,7 @@ pub fn run() {
         .manage(AppState::new())
         .manage(diagnostics::DiagnosticsState::new())
         .manage(tts::TtsState::new())
+        .manage(silero::SileroState::new())
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -119,6 +123,7 @@ pub fn run() {
             // itself is a no-op once nothing is left to clean).
             storage::cleanup_legacy_payloads(&handle);
             tts::init(&handle);
+            silero::init(&handle);
             {
                 let state = handle.state::<AppState>();
                 let mut inner = state.0.lock().unwrap();
@@ -168,6 +173,10 @@ pub fn run() {
             commands::get_tts_status,
             commands::set_tts_enabled,
             commands::synthesize_piper_tts,
+            commands::get_silero_status,
+            commands::set_silero_enabled,
+            commands::set_silero_voice,
+            commands::synthesize_silero_tts,
             commands::diagnostics_trace_tts_frontend,
         ])
         .run(tauri::generate_context!())

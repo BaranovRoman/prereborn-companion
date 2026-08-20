@@ -188,6 +188,19 @@ jobs:
         shell: powershell
         run: ./scripts/companion-build-piper-runtime.ps1
 
+      # WK-81 - builds the local Silero TTS sidecar Companion downloads on
+      # first opt-in (apps/companion/src-tauri/src/silero.rs): a
+      # self-contained Python 3.12 (embeddable package, not a venv - see
+      # docs/research/wk-81-silero-tts-feasibility.md for why a venv isn't
+      # redistributable) + PyTorch CPU + the sidecar script, plus the
+      # v5_5_ru model as a separate asset. No toolchain setup needed here -
+      # the script downloads its own portable Python. Independent of the
+      # Piper step above; a hard step failure like everything else in this
+      # job, not a silent skip.
+      - name: Build + package Silero TTS runtime and model
+        shell: powershell
+        run: ./scripts/companion-build-silero-runtime.ps1
+
       - name: Generate updater manifest (latest.json)
         shell: powershell
         run: >-
@@ -210,3 +223,5 @@ jobs:
             latest.json
             piper-dist/*.zip
             piper-dist/*.sha256
+            silero-dist/*.zip
+            silero-dist/*.sha256

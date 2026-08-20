@@ -56,6 +56,26 @@ export const setPiperTtsEnabled = (enabled: boolean) =>
 export const synthesizePiperTts = (text: string, messageId?: string) =>
   invoke<string>("synthesize_piper_tts", { text, messageId });
 
+// WK-81 - local Silero TTS sidecar, the primary synthesis engine (Piper
+// above is the fallback). Same shape as the Piper bindings for the same
+// reasons (base64 WAV transport, optional diagnostics messageId).
+export type SileroTtsEngineState = "notStarted" | "starting" | "ready" | "crashed" | "unavailable";
+export type SileroVoice = "aidar" | "baya" | "kseniya" | "xenia" | "eugene";
+export interface SileroTtsStatus {
+  enabled: boolean;
+  state: SileroTtsEngineState;
+  lastError: string | null;
+  resourcesReady: boolean;
+  voice: SileroVoice;
+}
+export const getSileroTtsStatus = () => invoke<SileroTtsStatus>("get_silero_status");
+export const setSileroTtsEnabled = (enabled: boolean) =>
+  invoke<SileroTtsStatus>("set_silero_enabled", { enabled });
+export const setSileroVoice = (voice: SileroVoice) =>
+  invoke<SileroTtsStatus>("set_silero_voice", { voice });
+export const synthesizeSileroTts = (text: string, voice: SileroVoice, messageId?: string) =>
+  invoke<string>("synthesize_silero_tts", { text, voice, messageId });
+
 // TTS pipeline diagnostics trace - the frontend-owned half (queue/playback
 // stage timestamps; the Rust/Piper side writes its own half directly from
 // tts.rs). No-op unless a diagnostics session is active

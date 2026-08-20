@@ -20,6 +20,7 @@ uploads/
 /apps/web/public/vendor/valve/video/
 /diagnostics/
 /piper-dist/
+/silero-dist/
 *.zip
 *.msi
 *.exe

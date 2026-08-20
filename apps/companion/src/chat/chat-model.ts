@@ -1,13 +1,20 @@
-import type { TwitchChatMessage } from "../services/dotaCompanionApi";
+import type { SileroVoice, TwitchChatMessage } from "../services/dotaCompanionApi";
 import { normalizeMessageForSpeech, parsePronunciationOverrides, resolveSpokenUsername } from "./tts-normalize";
 
-export type TtsEngine = "system" | "piper";
+// WK-81 - Silero is now the primary engine (see docs/research/wk-81-silero-tts-feasibility.md),
+// Piper the fallback, system speechSynthesis the last resort - the fallback
+// chain itself lives in useTwitchChatSession.ts, not here.
+export type TtsEngine = "system" | "piper" | "silero";
 export interface ChatSettings {
   soundEnabled: boolean;
   ttsEnabled: boolean;
   speakAuthor: boolean;
   maxLength: number;
   ttsEngine: TtsEngine;
+  // Only meaningful when ttsEngine === "silero" - which of the 5 named
+  // Silero voices to use, both for real messages and the settings-page
+  // preview button.
+  sileroVoice: SileroVoice;
   // Raw "username=spoken name" lines, one override per line - see
   // tts-normalize.ts's parsePronunciationOverrides. Deliberately a plain
   // string, not a structured list/editor.
@@ -18,7 +25,10 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   ttsEnabled: false,
   speakAuthor: true,
   maxLength: 180,
-  ttsEngine: "system",
+  ttsEngine: "silero",
+  // Neutral default, not a human-verified subjective pick - see the
+  // WK-81 feature report. All 5 voices remain selectable in settings.
+  sileroVoice: "xenia",
   usernamePronunciations: "",
 };
 export const nextUnreadCount = (current: number, isAtBottom: boolean, added: number) =>

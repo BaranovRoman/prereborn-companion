@@ -10,6 +10,9 @@ use std::io::{Read, Write};
 use tauri::{AppHandle, Manager};
 
 use crate::storage;
+use crate::tts_common::{read_completed_file, spawn_stdout_reader, sweep_stale_files, to_short_path};
+#[cfg(windows)]
+use crate::tts_common::CREATE_NO_WINDOW;
 
 // WK-75 - local neural TTS via a self-built OHF-Voice/piper1-gpl `libpiper`
 // CLI (piper_exe.exe), run strictly as a separate OS process. No piper-rs,
@@ -37,9 +40,6 @@ const RUNTIME_ASSET_URL: &str =
     "https://github.com/BaranovRoman/prereborn-companion/releases/latest/download/piper-runtime-win-x64.zip";
 const VOICE_ASSET_URL: &str =
     "https://github.com/BaranovRoman/prereborn-companion/releases/latest/download/piper-voice-ru_RU-dmitri-medium.zip";
-
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -223,104 +223,6 @@ impl SidecarPaths {
             output_dir: scratch_dir(app),
         }
     }
-}
-
-// An *explicit* --espeak_data path (as opposed to cwd/relative resolution)
-// turned out not to be enough on its own: espeak-ng's own file-reading code
-// chokes on any non-ASCII byte in the path itself ("Illegal byte sequence"
-// opening phontab), which app_data_dir() hits directly for any Windows
-// account with a Cyrillic username - this app's own primary audience.
-// Confirmed by reproducing against a real installed Companion's
-// app_data_dir() on a Cyrillic-username account, and confirmed fixed by
-// resolving to the legacy 8.3 short-path form first (pure ASCII by
-// construction, e.g. C:\Users\РОМА~1). Falls back to the original (long)
-// path if short names are unavailable (disabled via `fsutil 8dot3name`, or
-// the path doesn't exist yet) - Piper will fail the same way it did before
-// this fix in that case, not worse.
-#[cfg(windows)]
-fn to_short_path(path: &Path) -> PathBuf {
-    use std::ffi::OsString;
-    use std::os::windows::ffi::{OsStrExt, OsStringExt};
-
-    #[link(name = "kernel32")]
-    extern "system" {
-        fn GetShortPathNameW(long_path: *const u16, short_path: *mut u16, buffer_len: u32) -> u32;
-    }
-
-    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
-    let mut buffer = vec![0u16; 1024];
-    let len = unsafe { GetShortPathNameW(wide.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32) };
-    if len == 0 || len as usize >= buffer.len() {
-        return path.to_path_buf();
-    }
-    buffer.truncate(len as usize);
-    PathBuf::from(OsString::from_wide(&buffer))
-}
-#[cfg(not(windows))]
-fn to_short_path(path: &Path) -> PathBuf {
-    path.to_path_buf()
-}
-
-/// Best-effort delete of every file currently in `dir` - sweeps up anything
-/// left behind by a previous process lifetime that was killed/crashed
-/// mid-write. Purely hygiene (stops the scratch dir from growing forever
-/// across restarts): correctness no longer depends on this at all, since
-/// `synthesize()` reads back exactly the path Piper's own stdout names for
-/// this call, never anything inferred from directory contents.
-fn sweep_stale_files(dir: &Path) {
-    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
-        let _ = fs::remove_file(entry.path());
-    }
-}
-
-/// Reads `path` once it's actually there, retrying briefly rather than
-/// assuming the read immediately following Piper's stdout completion line
-/// can never race the filesystem. Deliberately not the old "wait for size
-/// to stop changing across polls" heuristic (WK-79): that heuristic really
-/// did treat a momentary pause mid-write (e.g. between sentences of a
-/// multi-sentence message) as "finished", silently returning a truncated
-/// file while Piper kept appending to it afterwards. Reading only after
-/// Piper's own stdout line confirms the file is fully closed removes the
-/// need to guess at "stable" at all; this retry loop exists solely for a
-/// theoretical cross-process filesystem-visibility lag, not for synthesis
-/// progress.
-fn read_completed_file(path: &Path, deadline: Instant) -> Result<Vec<u8>, String> {
-    loop {
-        if let Ok(bytes) = fs::read(path) {
-            if !bytes.is_empty() {
-                return Ok(bytes);
-            }
-        }
-        if Instant::now() >= deadline {
-            return Err(format!("Piper output file never became readable: {}", path.display()));
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    }
-}
-
-/// Reads `stdout` line-by-line on a background thread, forwarding each
-/// line to the returned channel - lets `synthesize()` wait for the next
-/// completion line with a timeout (`recv_timeout`), which plain blocking
-/// reads on `ChildStdout` don't support. The thread exits on its own once
-/// `stdout` EOFs (the child process exited), dropping the sender so
-/// `recv_timeout` on the other end reports `Disconnected` instead of
-/// hanging.
-fn spawn_stdout_reader(stdout: std::process::ChildStdout) -> std::sync::mpsc::Receiver<String> {
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let reader = std::io::BufReader::new(stdout);
-        for line in std::io::BufRead::lines(reader) {
-            match line {
-                Ok(line) => {
-                    if tx.send(line).is_err() {
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-    });
-    rx
 }
 
 impl Sidecar {
@@ -775,74 +677,10 @@ mod tests {
         assert_eq!(not_riff, copy);
     }
 
-    #[test]
-    fn to_short_path_falls_back_when_path_does_not_exist() {
-        // GetShortPathNameW (Windows) can only resolve a path that already
-        // exists on disk; a nonexistent path must fall back to itself
-        // unchanged rather than erroring or panicking.
-        let missing = std::path::PathBuf::from("Z:\\this\\path\\does\\not\\exist\\at\\all");
-        assert_eq!(to_short_path(&missing), missing);
-    }
-
-    // WK-79 regression coverage. The original bug was directory-guessing:
-    // synthesize() used to grab "the first file that looks new" out of
-    // output_dir, which could return a *previous* call's leftover output
-    // (playback shifted one message behind) or, for a multi-sentence
-    // message, declare a momentary pause mid-write "finished" and silently
-    // truncate it. The fix removes directory-guessing entirely - Piper's
-    // own stdout names the exact completed file per request (see
-    // `synthesize`'s doc comment) - so these tests exercise the one piece
-    // of logic that's still directory/filesystem-shaped: reading back
-    // exactly the path handed to it, never anything else nearby.
-
-    #[test]
-    fn read_completed_file_ignores_other_files_in_the_same_directory() {
-        let dir = tempfile::tempdir().unwrap();
-        // A stale leftover from an earlier call/process lifetime, and even
-        // a *decoy* that looks more "current" by name - neither is the
-        // path we were told to read, so neither may be returned.
-        fs::write(dir.path().join("000000000000001.wav"), b"old leftover").unwrap();
-        fs::write(dir.path().join("000000000000099.wav"), b"decoy, not ours").unwrap();
-        let ours = dir.path().join("000000000000002.wav");
-        fs::write(&ours, b"this call's real output").unwrap();
-
-        let deadline = Instant::now() + Duration::from_secs(1);
-        let bytes = read_completed_file(&ours, deadline).unwrap();
-        assert_eq!(bytes, b"this call's real output");
-    }
-
-    #[test]
-    fn read_completed_file_waits_for_the_file_to_actually_exist() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("delayed.wav");
-        let path_for_writer = path.clone();
-        let writer = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(60));
-            fs::write(&path_for_writer, b"arrived late").unwrap();
-        });
-        let deadline = Instant::now() + Duration::from_secs(2);
-        let bytes = read_completed_file(&path, deadline).expect("must wait rather than fail on first miss");
-        writer.join().unwrap();
-        assert_eq!(bytes, b"arrived late");
-    }
-
-    #[test]
-    fn read_completed_file_times_out_if_the_path_never_appears() {
-        let dir = tempfile::tempdir().unwrap();
-        let never_written = dir.path().join("nope.wav");
-        let deadline = Instant::now() + Duration::from_millis(80);
-        assert!(read_completed_file(&never_written, deadline).is_err());
-    }
-
-    #[test]
-    fn sweep_stale_files_clears_leftovers_from_a_previous_process_lifetime() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join("old1.wav"), b"1").unwrap();
-        fs::write(dir.path().join("old2.wav"), b"2").unwrap();
-        sweep_stale_files(dir.path());
-        let remaining: Vec<_> = fs::read_dir(dir.path()).unwrap().collect();
-        assert!(remaining.is_empty(), "sweep must clear every stale file, e.g. on sidecar (re)spawn");
-    }
+    // WK-79 regression coverage for the directory-guessing bug class lives
+    // in tts_common.rs now (to_short_path, read_completed_file,
+    // sweep_stale_files are shared with silero.rs, WK-81) - see that
+    // module's tests. What's left here is Piper-specific.
 
     // Real subprocess IPC test against an actual local libpiper build - not
     // run by default (no such build exists in CI/dev checkouts) and needs
