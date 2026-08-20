@@ -28,16 +28,26 @@ const URL_PATTERN = /https?:\/\/\S+|www\.\S+/gi;
 const REPEATED_PATTERN = /(.)\1{7,}/iu;
 const ALLOWED_TYPES = new Set(["text", "channel_points_highlighted", "user_intro"]);
 
-// Builds a speech-only representation of the message - never affects what's
-// rendered in the chat UI (TwitchChatPage.tsx renders message.text/
-// message.author straight from the original TwitchChatMessage, not this
-// output). WK-66's safety filters (type allowlist, repeated-character spam
-// drop) run first and unchanged, against the raw message text, so a message
-// this function would otherwise mangle never reaches it in the first place.
-export const prepareTtsText = (
-  message: TwitchChatMessage,
-  settings: ChatSettings,
-): string | null => {
+interface SpeechParts {
+  // Identity used to detect "same author as the previous spoken message"
+  // (see BoundedTtsQueue below) - Twitch's stable chatter_user_id when
+  // present, else the trimmed/lowercased display name. `null` only when
+  // `speakAuthor` is off, i.e. no name is ever spoken so there's nothing to
+  // track. Deliberately not derived from `authorLogin`: two viewers could in
+  // principle share how their login reads case-insensitively only by
+  // coincidence, whereas chatter_user_id is Twitch's own unique identity.
+  authorKey: string | null;
+  speechAuthor: string | null;
+  speechText: string;
+}
+
+// Shared filtering/normalization core for both prepareTtsText (below - the
+// simple "just give me the full spoken string" call site used by tests and
+// anything that doesn't care about cross-message state) and
+// BoundedTtsQueue.enqueue (which needs speechAuthor/speechText kept apart so
+// takeNext() can decide whether to prefix the name *after* queue drops have
+// already happened - see the class comment).
+const buildSpeechParts = (message: TwitchChatMessage, settings: ChatSettings): SpeechParts | null => {
   if (!ALLOWED_TYPES.has(message.messageType) || REPEATED_PATTERN.test(message.text)) return null;
   let text = message.text.replace(URL_PATTERN, " ссылка ").replace(/\s+/g, " ").trim();
   if (!text || text === "ссылка") return null;
@@ -46,17 +56,46 @@ export const prepareTtsText = (
   }
   const speechText = normalizeMessageForSpeech(text);
   if (!speechText) return null;
-  if (!settings.speakAuthor) return speechText;
+  if (!settings.speakAuthor) return { authorKey: null, speechAuthor: null, speechText };
   const overrides = parsePronunciationOverrides(settings.usernamePronunciations);
-  const speechAuthor = resolveSpokenUsername(message.author, overrides);
-  return `${speechAuthor}: ${speechText}`;
+  const speechAuthor = resolveSpokenUsername(message.author, overrides, message.authorLogin);
+  const authorKey = message.authorId?.trim() || message.author.trim().toLowerCase();
+  return { authorKey, speechAuthor, speechText };
 };
 
-interface QueueEntry { id: string; text: string; receivedAt: number }
+// Builds a speech-only representation of the message - never affects what's
+// rendered in the chat UI (TwitchChatPage.tsx renders message.text/
+// message.author straight from the original TwitchChatMessage, not this
+// output). WK-66's safety filters (type allowlist, repeated-character spam
+// drop) run first and unchanged, against the raw message text, so a message
+// this function would otherwise mangle never reaches it in the first place.
+// Always includes the author (when `speakAuthor` is on) - the
+// consecutive-author name suppression only happens inside BoundedTtsQueue,
+// which has the cross-message state this function intentionally doesn't.
+export const prepareTtsText = (
+  message: TwitchChatMessage,
+  settings: ChatSettings,
+): string | null => {
+  const parts = buildSpeechParts(message, settings);
+  if (!parts) return null;
+  return parts.speechAuthor ? `${parts.speechAuthor}: ${parts.speechText}` : parts.speechText;
+};
+
+interface QueueEntry { id: string; authorKey: string | null; speechAuthor: string | null; speechText: string; receivedAt: number }
 
 export class BoundedTtsQueue {
   private readonly queue: QueueEntry[] = [];
   private readonly seen = new Set<string>();
+  // Author of the most recently *actually taken* (takeNext()'d) entry - not
+  // the most recently enqueued one. Deliberately updated only inside
+  // takeNext(), not enqueue(): a message can be enqueued and then dropped
+  // before ever reaching synthesis (bounded-size overflow shift below, or
+  // maxAgeMs staleness eviction in takeNext() itself) without ever being
+  // spoken, and a dropped message must not suppress the name on whatever
+  // does end up spoken next for that author. null means "nothing spoken
+  // yet" (fresh queue, or since the last clear()) - the next name is always
+  // announced.
+  private lastSpokenAuthorKey: string | null = null;
   constructor(private readonly limit = 3, private readonly maxAgeMs = 15_000) {}
 
   enqueue(message: TwitchChatMessage, settings: ChatSettings, now = Date.now()) {
@@ -66,22 +105,35 @@ export class BoundedTtsQueue {
       const id = this.seen.values().next().value;
       if (id) this.seen.delete(id);
     }
-    const text = prepareTtsText(message, settings);
-    if (!text) return false;
+    const parts = buildSpeechParts(message, settings);
+    if (!parts) return false;
     if (this.queue.length >= this.limit) this.queue.shift();
-    this.queue.push({ id: message.id, text, receivedAt: now });
+    this.queue.push({ id: message.id, ...parts, receivedAt: now });
     return true;
   }
 
   // Returns the whole entry (not just `text`) so callers can correlate TTS
   // diagnostics trace events with the originating message id - see
-  // TwitchChatPage.tsx's drainTts().
+  // TwitchChatPage.tsx's drainTts(). This is also the single point where a
+  // queued entry's author is compared against lastSpokenAuthorKey and the
+  // name is prefixed only on a change - see the field comment above for why
+  // that decision lives here (after drops) rather than in enqueue().
   takeNext(now = Date.now()): { id: string; text: string } | null {
     while (this.queue[0] && now - this.queue[0].receivedAt > this.maxAgeMs) this.queue.shift();
     const entry = this.queue.shift();
-    return entry ? { id: entry.id, text: entry.text } : null;
+    if (!entry) return null;
+    let text = entry.speechText;
+    if (entry.speechAuthor !== null) {
+      if (entry.authorKey !== this.lastSpokenAuthorKey) text = `${entry.speechAuthor}: ${entry.speechText}`;
+      this.lastSpokenAuthorKey = entry.authorKey;
+    }
+    return { id: entry.id, text };
   }
 
-  clear() { this.queue.length = 0; }
+  // Also resets the consecutive-author tracker - clear() is only ever called
+  // when TTS is stopped/disabled (see useTwitchChatSession.ts) or a fresh
+  // queue is constructed (app restart), both natural "start announcing names
+  // again" points per spec, not mid-session churn.
+  clear() { this.queue.length = 0; this.lastSpokenAuthorKey = null; }
   get size() { return this.queue.length; }
 }

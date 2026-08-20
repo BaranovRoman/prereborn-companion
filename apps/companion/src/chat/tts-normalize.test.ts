@@ -85,6 +85,72 @@ describe("pronunciation overrides", () => {
     const overrides = parsePronunciationOverrides("romaromych=Ромчик");
     expect(resolveSpokenUsername("imwisp", overrides)).toBe("имвисп");
   });
+
+  // Root-cause regression coverage (see chat-model.ts's SpeechParts comment
+  // and the WK-XX writeup): the lookup key a streamer types is naturally
+  // their viewer's Twitch *login* ("romaromych", from the channel URL), but
+  // the value actually spoken as the author used to be matched only against
+  // the *display name* (chatter_user_name) - which is a separate, cosmetic
+  // field a viewer can set independently of their login. Whenever the two
+  // differ, matching only on display name makes a correctly-configured
+  // override silently never fire. resolveSpokenUsername's optional third
+  // argument is the login; it must be tried first.
+  it("uses ROMAROMYCH=ромаромыч, matched exactly as the motivating example", () => {
+    const overrides = parsePronunciationOverrides("romaromych=ромаромыч");
+    expect(resolveSpokenUsername("romaromych", overrides)).toBe("ромаромыч");
+  });
+
+  it("matches the username case-insensitively (ROMAROMYCH uppercase lookup)", () => {
+    const overrides = parsePronunciationOverrides("romaromych=ромаромыч");
+    expect(resolveSpokenUsername("ROMAROMYCH", overrides)).toBe("ромаромыч");
+  });
+
+  it("matches an override by Twitch login even when the display name differs entirely", () => {
+    const overrides = parsePronunciationOverrides("romaromych=Ромаромыч");
+    // Display name ("Somebody") doesn't match any override on its own -
+    // only the login does. Without login-aware matching this would fall
+    // through to automatic transliteration of "Somebody" instead.
+    expect(resolveSpokenUsername("Somebody", overrides, "romaromych")).toBe("Ромаромыч");
+  });
+
+  it("still matches by display name when no login is available", () => {
+    const overrides = parsePronunciationOverrides("romaromych=Ромаромыч");
+    expect(resolveSpokenUsername("romaromych", overrides, null)).toBe("Ромаромыч");
+    expect(resolveSpokenUsername("romaromych", overrides, undefined)).toBe("Ромаромыч");
+  });
+
+  it("tolerates spaces around the '=' separator and around both sides", () => {
+    const overrides = parsePronunciationOverrides("  romaromych   =   ромаромыч  ");
+    expect(overrides).toEqual({ romaromych: "ромаромыч" });
+  });
+
+  it("parses several mappings, one per line", () => {
+    const overrides = parsePronunciationOverrides("romaromych=ромаромыч\nimwisp=имвисп\nAlex=Алехандро");
+    expect(overrides).toEqual({ romaromych: "ромаромыч", imwisp: "имвисп", alex: "Алехандро" });
+  });
+
+  it("safely ignores malformed lines instead of throwing or producing a bad entry", () => {
+    const overrides = parsePronunciationOverrides(
+      "romaromych=ромаромыч\nno equals sign here\n=missing username\njustusername=\n\nimwisp=имвисп",
+    );
+    // Only the two well-formed lines survive: no "=", "=" at position 0
+    // (empty username), and an empty spoken value are all dropped rather
+    // than producing a garbage key/value.
+    expect(overrides).toEqual({ romaromych: "ромаромыч", imwisp: "имвисп" });
+  });
+
+  it("survives a restart: the raw setting round-trips through JSON (localStorage) and still resolves", () => {
+    // useTwitchChatSession persists ChatSettings.usernamePronunciations as
+    // one field of a JSON.stringify'd object (localStorage) and re-parses it
+    // with parsePronunciationOverrides on next load - exercise exactly that
+    // round trip, including a Unicode spoken value, rather than trusting
+    // JSON.stringify/parse to be lossless by assumption.
+    const persisted = JSON.stringify({ usernamePronunciations: "romaromych=Ромаромыч\nimwisp=Имвисп" });
+    const reloaded = JSON.parse(persisted) as { usernamePronunciations: string };
+    const overrides = parsePronunciationOverrides(reloaded.usernamePronunciations);
+    expect(resolveSpokenUsername("romaromych", overrides)).toBe("Ромаромыч");
+    expect(resolveSpokenUsername("imwisp", overrides)).toBe("Имвисп");
+  });
 });
 
 describe("normalizeMessageForSpeech", () => {

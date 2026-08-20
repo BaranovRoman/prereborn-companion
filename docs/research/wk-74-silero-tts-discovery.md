@@ -146,6 +146,47 @@ as a sidecar), but it hasn't been prototyped. Before committing to it:
 This is scoped as a **new follow-up ticket**, not folded into WK-74, since
 it's a different engine with different voices and its own risk profile.
 
+## 2026-08-20 reconfirmation
+
+Re-checked both blockers from scratch (not assumed carried-forward) as part
+of a Piper voice-quality follow-up that also touched Silero as a
+comparison point — see
+[companion-tts-voice-comparison.md](companion-tts-voice-comparison.md).
+Neither has changed:
+
+- **License is still non-commercial.** The PyPI `silero` package page is
+  easy to misread here — it states the Python *wrapper package* is MIT, which
+  is true but irrelevant: the page's own model table separately states "All
+  of the models are published under the main repo license (i.e. CC-NC-BY)
+  except for the `base` cis-tts models, which are under MIT" — and `base` is
+  a different, non-`v5_ru` model family. `v5_ru` (the `aidar`/`baya`/
+  `kseniya`/`xenia`/`eugene` speakers this doc and the ticket are about)
+  stays under `snakers4/silero-models`' repo-level CC BY-NC-SA 4.0, per the
+  same license text cited in the original discovery above. A maintainer
+  discussion thread ([snakers4/silero-models#259](https://github.com/snakers4/silero-models/discussions/259))
+  confirms this NC restriction is deliberate ("This is by design," per the
+  maintainer, in response to a request to relax it for free-software
+  compatibility) — not a licensing oversight likely to be fixed.
+- **No ONNX (or other non-PyTorch) inference path exists for Silero TTS.**
+  [snakers4/silero-models#283](https://github.com/snakers4/silero-models/issues/283)
+  ("How to convert TTS models to ONNX?") is still open with no working
+  solution. The only Silero model family with real community ONNX ports is
+  **VAD** (voice activity detection — a different, much smaller model, not
+  TTS) — several `*-ONNX` repos exist for that on Hugging Face, which is easy
+  to mistake for progress on TTS specifically if you don't check which model
+  they actually cover.
+
+Both blockers are independent and either alone is sufficient to stop here,
+same as the original discovery's conclusion. Since the license blocker in
+particular isn't a distribution-engineering problem that better tooling
+would fix, standing up the full Python/PyTorch/`torch.package` stack solely
+to gather cold/warm-latency, RAM, and CPU numbers wasn't done in this pass
+either — that would mean doing the heavy, license-blocked integration work
+just to benchmark something not currently shippable, the same inversion the
+original discovery flagged. If Silero's licensing terms ever change (or a
+commercial Enterprise Edition agreement is pursued directly with Silero),
+*that's* the point to redo this with real measurements — not before.
+
 ## Sources
 
 - [snakers4/silero-models — models.yml](https://github.com/snakers4/silero-models/blob/master/models.yml)
@@ -156,3 +197,6 @@ it's a different engine with different voices and its own risk profile.
 - [rhasspy/piper-voices — ru/ru_RU on Hugging Face](https://huggingface.co/rhasspy/piper-voices/tree/main/ru/ru_RU)
 - [piper-rs on crates.io](https://crates.io/crates/piper-rs)
 - [piper1-rs on crates.io](https://crates.io/crates/piper1-rs)
+- [silero on PyPI](https://pypi.org/project/silero/) (2026-08-20 reconfirmation — package-vs-model-weights license distinction)
+- [snakers4/silero-models discussion #259 — "Free Software licence?"](https://github.com/snakers4/silero-models/discussions/259)
+- [snakers4/silero-models issue #283 — "How to convert TTS models to ONNX?"](https://github.com/snakers4/silero-models/issues/283) (open, unresolved)

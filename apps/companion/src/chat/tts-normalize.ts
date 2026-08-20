@@ -143,8 +143,24 @@ export const parsePronunciationOverrides = (raw: string): Record<string, string>
 
 // An override always wins over automatic transliteration/cleanup - it's an
 // explicit human correction, not another heuristic to blend in.
-export const resolveSpokenUsername = (username: string, overrides: Record<string, string>): string =>
-  overrides[username.trim().toLowerCase()] ?? normalizeUsernameForSpeech(username);
+//
+// `login` (Twitch's stable chatter_user_login, e.g. "romaromych" - the
+// handle from the channel URL) is checked before `username` (the cosmetic
+// chatter_user_name/display name shown in chat, e.g. "RomaRomych_TV" or a
+// since-renamed display name). A streamer configuring an override naturally
+// types the login they know the viewer by, not whatever display name that
+// viewer's chat client happens to render this message with - matching only
+// `username` silently misses every viewer whose display name isn't a plain
+// case-variant of their login. Both sides of the comparison are
+// trimmed/lowercased, same as the username side.
+export const resolveSpokenUsername = (
+  username: string,
+  overrides: Record<string, string>,
+  login?: string | null,
+): string =>
+  (login ? overrides[login.trim().toLowerCase()] : undefined) ??
+  overrides[username.trim().toLowerCase()] ??
+  normalizeUsernameForSpeech(username);
 
 // Matches runs of "ха"/"ах"/"хи" syllables (3+ repeats, the shape of
 // Cyrillic laughter) and Latin "ha"/"he" laughter, case-insensitively.

@@ -3,7 +3,8 @@ import { BoundedTtsQueue, DEFAULT_CHAT_SETTINGS, nextUnreadCount, prepareTtsText
 import type { TwitchChatMessage } from "../services/dotaCompanionApi";
 
 const message = (id: string, text = "hello", messageType = "text"): TwitchChatMessage => ({
-  id, text, messageType, author: "Viewer", color: null, badges: [], receivedAt: "2026-08-12T00:00:00Z",
+  id, text, messageType, author: "Viewer", authorId: null, authorLogin: null, color: null, badges: [],
+  receivedAt: "2026-08-12T00:00:00Z",
 });
 const enabled = { ...DEFAULT_CHAT_SETTINGS, ttsEnabled: true };
 
@@ -79,5 +80,96 @@ describe("chat model", () => {
     queue.enqueue(message("1", "hi there"), enabled, 0);
     expect(queue.takeNext(0)).toEqual({ id: "1", text: "Виевер: hi there" });
     expect(queue.takeNext(0)).toBeNull();
+  });
+
+  describe("consecutive-author name suppression", () => {
+    const from = (id: string, text: string, authorId: string, author = "Roma"): TwitchChatMessage => ({
+      id, text, messageType: "text", author, authorId, authorLogin: null, color: null, badges: [],
+      receivedAt: "2026-08-12T00:00:00Z",
+    });
+
+    it("speaks the name only before the first of several consecutive messages from the same author", () => {
+      const queue = new BoundedTtsQueue(10);
+      queue.enqueue(from("1", "первое", "u1"), enabled, 0);
+      queue.enqueue(from("2", "второе", "u1"), enabled, 0);
+      queue.enqueue(from("3", "третье", "u1"), enabled, 0);
+      expect(queue.takeNext(0)?.text).toBe("Рома: первое");
+      expect(queue.takeNext(0)?.text).toBe("второе");
+      expect(queue.takeNext(0)?.text).toBe("третье");
+    });
+
+    it("re-announces the name once a different author speaks, and again when the original author returns", () => {
+      const queue = new BoundedTtsQueue(10);
+      queue.enqueue(from("1", "первое", "u1", "Roma"), enabled, 0);
+      queue.enqueue(from("2", "второе", "u1", "Roma"), enabled, 0);
+      queue.enqueue(from("3", "привет", "u2", "Wisp"), enabled, 0);
+      queue.enqueue(from("4", "снова", "u1", "Roma"), enabled, 0);
+      expect(queue.takeNext(0)?.text).toBe("Рома: первое");
+      expect(queue.takeNext(0)?.text).toBe("второе");
+      expect(queue.takeNext(0)?.text).toBe("Висп: привет"); // transliteration heuristic, not the point of this test
+      expect(queue.takeNext(0)?.text).toBe("Рома: снова");
+    });
+
+    it("keys consecutiveness on the stable Twitch user id, not the display name", () => {
+      // Same authorId, display name changes mid-run (e.g. a live rename) -
+      // still treated as the same speaker, name suppressed on the second.
+      const queue = new BoundedTtsQueue(10);
+      queue.enqueue(from("1", "первое", "u1", "OldName"), enabled, 0);
+      queue.enqueue(from("2", "второе", "u1", "NewName"), enabled, 0);
+      expect(queue.takeNext(0)?.text).toBe("Олднаме: первое");
+      expect(queue.takeNext(0)?.text).toBe("второе");
+    });
+
+    it("falls back to the display name as the identity key when no authorId is present", () => {
+      const noId = (id: string, text: string, author: string): TwitchChatMessage => ({
+        id, text, messageType: "text", author, authorId: null, authorLogin: null, color: null, badges: [],
+        receivedAt: "2026-08-12T00:00:00Z",
+      });
+      const queue = new BoundedTtsQueue(10);
+      queue.enqueue(noId("1", "первое", "Roma"), enabled, 0);
+      queue.enqueue(noId("2", "второе", "roma"), enabled, 0); // same person, different casing
+      expect(queue.takeNext(0)?.text).toBe("Рома: первое");
+      expect(queue.takeNext(0)?.text).toBe("второе");
+    });
+
+    it("a message dropped by bounded-size overflow before being spoken does not suppress the name on what comes next", () => {
+      // limit=1: enqueueing "2" evicts "1" (an unrelated author) before "1"
+      // is ever taken - "1" must never be able to influence lastSpokenAuthor
+      // for a still-unspoken queue.
+      const queue = new BoundedTtsQueue(1);
+      queue.enqueue(from("1", "никогда не прозвучит", "unrelated"), enabled, 0);
+      queue.enqueue(from("2", "первое от ромы", "u1", "Roma"), enabled, 0);
+      expect(queue.size).toBe(1); // "1" was evicted by the overflow policy
+      expect(queue.takeNext(0)?.text).toBe("Рома: первое от ромы");
+    });
+
+    it("a message dropped by maxAgeMs staleness expiry before being taken does not suppress the name on what comes next", () => {
+      const queue = new BoundedTtsQueue(10, 100);
+      queue.enqueue(from("1", "устареет", "u1", "Roma"), enabled, 0);
+      // Never taken before it goes stale - a later takeNext() call (for a
+      // second, fresh message from the same author) must still speak the
+      // name, proving the stale entry's eviction never touched
+      // lastSpokenAuthorKey.
+      queue.enqueue(from("2", "новое", "u1", "Roma"), enabled, 500);
+      expect(queue.takeNext(500)?.text).toBe("Рома: новое");
+    });
+
+    it("resets on clear() (TTS stop/disable), so the next speaker's name is announced again", () => {
+      const queue = new BoundedTtsQueue(10);
+      queue.enqueue(from("1", "первое", "u1", "Roma"), enabled, 0);
+      expect(queue.takeNext(0)?.text).toBe("Рома: первое");
+      queue.clear();
+      queue.enqueue(from("2", "снова", "u1", "Roma"), enabled, 0);
+      expect(queue.takeNext(0)?.text).toBe("Рома: снова");
+    });
+
+    it("never prefixes a name at all when speakAuthor is off, regardless of author", () => {
+      const off = { ...enabled, speakAuthor: false };
+      const queue = new BoundedTtsQueue(10);
+      queue.enqueue(from("1", "первое", "u1", "Roma"), off, 0);
+      queue.enqueue(from("2", "привет", "u2", "Wisp"), off, 0);
+      expect(queue.takeNext(0)?.text).toBe("первое");
+      expect(queue.takeNext(0)?.text).toBe("привет");
+    });
   });
 });

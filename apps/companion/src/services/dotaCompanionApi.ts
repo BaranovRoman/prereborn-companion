@@ -2,6 +2,12 @@
 export interface TwitchChatMessage {
   id: string;
   author: string;
+  // Stable Twitch identity for this chatter, independent of the cosmetic
+  // display name in `author` - see the matching comment in
+  // apps/api's twitch-eventsub-chat.ts. Nullable: older cached
+  // messages/backends may not carry these yet.
+  authorId: string | null;
+  authorLogin: string | null;
   color: string | null;
   text: string;
   badges: string[];

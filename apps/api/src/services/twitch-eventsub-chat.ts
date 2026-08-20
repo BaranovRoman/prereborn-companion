@@ -3,6 +3,17 @@ import WebSocket from "ws";
 export interface TwitchChatMessage {
     id: string;
     author: string;
+    // Stable identity, independent of the mutable/cosmetic display name in
+    // `author` - Twitch's own chatter_user_id (never changes, even across a
+    // rename) and chatter_user_login (the lowercase ASCII handle, e.g. from
+    // the channel URL - what a streamer actually types into pronunciation
+    // overrides). Nullable rather than required: Twitch has always sent
+    // these alongside chatter_user_name on channel.chat.message, but nothing
+    // upstream depends on that continuing, so a payload missing them still
+    // produces a usable message (falls back to `author`) instead of being
+    // dropped.
+    authorId: string | null;
+    authorLogin: string | null;
     color: string | null;
     text: string;
     badges: string[];
@@ -17,6 +28,8 @@ type Envelope = {
         subscription?: { type?: string };
         event?: {
             message_id?: string;
+            chatter_user_id?: string;
+            chatter_user_login?: string;
             chatter_user_name?: string;
             color?: string;
             message_type?: string;
@@ -84,6 +97,8 @@ export const parseChatNotification = (value: Envelope, seen: Set<string>): Twitc
     return {
         id: event.message_id,
         author: event.chatter_user_name,
+        authorId: event.chatter_user_id || null,
+        authorLogin: event.chatter_user_login || null,
         color: event.color || null,
         text: event.message.text,
         messageType: event.message_type || "text",
