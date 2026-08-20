@@ -7,6 +7,7 @@ use crate::backend;
 use crate::diagnostics::{self, DiagnosticsStatusSnapshot};
 use crate::gsi::{config, finder};
 use crate::obs::{self, BroadcastScene, ObsConfig};
+use crate::silero::{self, SileroStatus, SileroVoice};
 use crate::state::{AppState, StatusSnapshot, DEFAULT_WEB_ORIGIN};
 use crate::storage;
 use crate::tts::{self, TtsStatus};
@@ -347,6 +348,35 @@ pub async fn set_tts_enabled(app: AppHandle, enabled: bool) -> Result<TtsStatus,
 #[tauri::command]
 pub async fn synthesize_piper_tts(app: AppHandle, text: String, message_id: Option<String>) -> Result<String, String> {
     tts::synthesize_base64(&app, &text, message_id.as_deref())
+}
+
+// WK-81 - local Silero TTS sidecar (see src-tauri/src/silero.rs), the
+// primary synthesis engine; Piper above remains the fallback. Same
+// async-for-download/synthesis-latency reasoning as the Piper commands.
+
+#[tauri::command]
+pub fn get_silero_status(app: AppHandle) -> SileroStatus {
+    silero::status(&app)
+}
+
+#[tauri::command]
+pub async fn set_silero_enabled(app: AppHandle, enabled: bool) -> Result<SileroStatus, String> {
+    silero::set_enabled(&app, enabled).await
+}
+
+#[tauri::command]
+pub fn set_silero_voice(app: AppHandle, voice: SileroVoice) -> Result<SileroStatus, String> {
+    silero::set_voice(&app, voice)
+}
+
+#[tauri::command]
+pub async fn synthesize_silero_tts(
+    app: AppHandle,
+    text: String,
+    voice: SileroVoice,
+    message_id: Option<String>,
+) -> Result<String, String> {
+    silero::synthesize_base64(&app, &text, voice, message_id.as_deref())
 }
 
 /// Frontend-owned half of the TTS diagnostics trace (see

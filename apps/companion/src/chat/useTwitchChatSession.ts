@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BoundedTtsQueue, DEFAULT_CHAT_SETTINGS, nextUnreadCount, type ChatSettings } from "./chat-model";
 import {
-  diagnosticsTraceTtsFrontend, getPiperTtsStatus, getTwitchChat, setPiperTtsEnabled,
-  synthesizePiperTts, type PiperTtsStatus, type TwitchChatStatus,
+  diagnosticsTraceTtsFrontend, getPiperTtsStatus, getSileroTtsStatus, getTwitchChat, setPiperTtsEnabled,
+  setSileroTtsEnabled, synthesizePiperTts, synthesizeSileroTts, type PiperTtsStatus, type SileroTtsStatus,
+  type SileroVoice, type TwitchChatStatus,
 } from "../services/dotaCompanionApi";
+
+// Short, fixed conversational phrase for the settings page's "Прослушать"
+// preview button (WK-81) - deliberately not user-editable text, so preview
+// always exercises the same, representative synthesis.
+export const SILERO_PREVIEW_PHRASE = "го дальше, потом фарм, го вп го";
 
 // WK-78 - this used to live entirely inside TwitchChatPage.tsx, so the
 // EventSub poll loop, dedup, unread counter and TTS queue/playback all
@@ -29,6 +35,10 @@ export interface TwitchChatSession {
   settings: ChatSettings;
   piperStatus: PiperTtsStatus | null;
   piperBusy: boolean;
+  sileroStatus: SileroTtsStatus | null;
+  sileroBusy: boolean;
+  previewBusy: boolean;
+  previewSileroVoice: (voice: SileroVoice) => void;
   updateSetting: <K extends keyof ChatSettings>(key: K, value: ChatSettings[K]) => void;
   stopTts: () => void;
   isSpeaking: () => boolean;
@@ -43,6 +53,9 @@ export function useTwitchChatSession(): TwitchChatSession {
   const [unread, setUnread] = useState(0);
   const [piperStatus, setPiperStatus] = useState<PiperTtsStatus | null>(null);
   const [piperBusy, setPiperBusy] = useState(false);
+  const [sileroStatus, setSileroStatus] = useState<SileroTtsStatus | null>(null);
+  const [sileroBusy, setSileroBusy] = useState(false);
+  const [previewBusy, setPreviewBusy] = useState(false);
 
   const initialized = useRef(false);
   const known = useRef(new Set<string>());
@@ -62,6 +75,11 @@ export function useTwitchChatSession(): TwitchChatSession {
 
   const refreshPiperStatus = useCallback(async () => {
     try { setPiperStatus(await getPiperTtsStatus()); }
+    catch { /* transient IPC hiccup - next poll/attempt will retry */ }
+  }, []);
+
+  const refreshSileroStatus = useCallback(async () => {
+    try { setSileroStatus(await getSileroTtsStatus()); }
     catch { /* transient IPC hiccup - next poll/attempt will retry */ }
   }, []);
 
@@ -104,12 +122,18 @@ export function useTwitchChatSession(): TwitchChatSession {
     window.speechSynthesis.speak(utterance);
   };
 
-  const speakWithPiper = async (text: string, messageId: string, trace: TtsTraceBuilder, done: () => void) => {
+  const speakWithPiper = async (
+    text: string,
+    messageId: string,
+    trace: TtsTraceBuilder,
+    done: () => void,
+    engineLabel: string = "piper",
+  ) => {
     const myGeneration = generation.current;
     trace.stages.synthesisRequestedAt = performance.now();
     try {
       const base64 = await synthesizePiperTts(text, messageId);
-      trace.detail.engine = "piper";
+      trace.detail.engine = engineLabel;
       void refreshPiperStatus();
       if (myGeneration !== generation.current) return done();
       const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
@@ -132,10 +156,51 @@ export function useTwitchChatSession(): TwitchChatSession {
     } catch {
       // Piper unavailable/crashed for this message - read it with the
       // system voice instead of dropping it silently.
-      trace.detail.engine = "piper-fallback-system";
+      trace.detail.engine = `${engineLabel}-fallback-system`;
       void refreshPiperStatus();
       if (myGeneration !== generation.current) return done();
       speakWithSystem(text, trace, done);
+    }
+  };
+
+  // WK-81 fallback chain: Silero (primary) -> Piper -> system speechSynthesis.
+  // Each engine's own catch block below hands off to the next one on
+  // failure rather than dropping the message - the queue/generation/done()
+  // contract is identical regardless of which engine actually ends up
+  // speaking a given message.
+  const speakWithSilero = async (text: string, messageId: string, trace: TtsTraceBuilder, done: () => void) => {
+    const myGeneration = generation.current;
+    const voice = settingsRef.current.sileroVoice;
+    trace.stages.synthesisRequestedAt = performance.now();
+    try {
+      const base64 = await synthesizeSileroTts(text, voice, messageId);
+      trace.detail.engine = `silero-${voice}`;
+      void refreshSileroStatus();
+      if (myGeneration !== generation.current) return done();
+      const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+      const url = URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
+      trace.stages.audioReadyAt = performance.now();
+      const audio = new Audio(url);
+      currentAudio.current = audio;
+      const cleanup = () => {
+        URL.revokeObjectURL(url);
+        if (currentAudio.current === audio) currentAudio.current = null;
+        done();
+      };
+      audio.onended = cleanup;
+      audio.onerror = cleanup;
+      audio.onplaying = () => {
+        if (trace.stages.actualPlaybackStartedAt === undefined) trace.stages.actualPlaybackStartedAt = performance.now();
+      };
+      trace.stages.playbackRequestedAt = performance.now();
+      await audio.play().catch(cleanup);
+    } catch {
+      // Silero unavailable/crashed/cooling down for this message - fall
+      // back to Piper rather than dropping it silently. Piper's own catch
+      // falls back to system speechSynthesis in turn.
+      void refreshSileroStatus();
+      if (myGeneration !== generation.current) return done();
+      void speakWithPiper(text, messageId, trace, done, "silero-fallback-piper");
     }
   };
 
@@ -157,7 +222,8 @@ export function useTwitchChatSession(): TwitchChatSession {
       flushTrace(messageId, trace);
       drainTts();
     };
-    if (settingsRef.current.ttsEngine === "piper") void speakWithPiper(text, messageId, trace, done);
+    if (settingsRef.current.ttsEngine === "silero") void speakWithSilero(text, messageId, trace, done);
+    else if (settingsRef.current.ttsEngine === "piper") void speakWithPiper(text, messageId, trace, done);
     else speakWithSystem(text, trace, done);
   };
 
@@ -191,7 +257,10 @@ export function useTwitchChatSession(): TwitchChatSession {
     }
   }, [settings]);
 
-  const piperActive = settings.ttsEnabled && settings.ttsEngine === "piper";
+  // Piper stays enabled whenever Silero is the active engine too, since
+  // Silero's own fallback chain needs Piper's resources/sidecar ready to
+  // actually fall back to it rather than skipping straight to system TTS.
+  const piperActive = settings.ttsEnabled && (settings.ttsEngine === "piper" || settings.ttsEngine === "silero");
   useEffect(() => {
     let active = true;
     setPiperBusy(true);
@@ -205,6 +274,21 @@ export function useTwitchChatSession(): TwitchChatSession {
       .finally(() => { if (active) setPiperBusy(false); });
     return () => { active = false; };
   }, [piperActive]);
+
+  const sileroActive = settings.ttsEnabled && settings.ttsEngine === "silero";
+  useEffect(() => {
+    let active = true;
+    setSileroBusy(true);
+    setSileroTtsEnabled(sileroActive)
+      .then((next) => { if (active) setSileroStatus(next); })
+      .catch((cause) => {
+        if (active) setSileroStatus((prev) => prev
+          ? { ...prev, state: "crashed", lastError: String(cause) }
+          : { enabled: sileroActive, state: "crashed", lastError: String(cause), resourcesReady: false, voice: settingsRef.current.sileroVoice });
+      })
+      .finally(() => { if (active) setSileroBusy(false); });
+    return () => { active = false; };
+  }, [sileroActive]);
 
   useEffect(() => {
     let active = true;
@@ -283,8 +367,32 @@ export function useTwitchChatSession(): TwitchChatSession {
 
   const markRead = useCallback(() => setUnread(0), []);
 
+  // Settings-page "Прослушать" button (WK-81) - synthesizes the fixed
+  // preview phrase with an explicit voice (independent of the currently
+  // saved sileroVoice setting, so a user can audition a voice before
+  // committing to it) and plays it directly, outside the chat queue.
+  const previewSileroVoice = useCallback((voice: SileroVoice) => {
+    setPreviewBusy(true);
+    synthesizeSileroTts(SILERO_PREVIEW_PHRASE, voice)
+      .then((base64) => {
+        const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+        const url = URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
+        const audio = new Audio(url);
+        currentAudio.current = audio;
+        const cleanup = () => {
+          URL.revokeObjectURL(url);
+          if (currentAudio.current === audio) currentAudio.current = null;
+          setPreviewBusy(false);
+        };
+        audio.onended = cleanup;
+        audio.onerror = cleanup;
+        void audio.play().catch(cleanup);
+      })
+      .catch(() => setPreviewBusy(false));
+  }, []);
+
   return {
-    status, error, unread, settings, piperStatus, piperBusy,
+    status, error, unread, settings, piperStatus, piperBusy, sileroStatus, sileroBusy, previewBusy, previewSileroVoice,
     updateSetting, stopTts, isSpeaking, setViewerAtBottom, markRead,
   };
 }

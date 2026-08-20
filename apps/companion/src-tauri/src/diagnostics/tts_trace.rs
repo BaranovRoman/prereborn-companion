@@ -24,6 +24,7 @@ use serde_json::Value;
 pub enum TtsTraceSource {
     Frontend,
     PiperSidecar,
+    SileroSidecar,
 }
 
 /// One record per (message_id, source) - e.g. one message that used Piper

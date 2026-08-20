@@ -18,6 +18,13 @@ describe("chat model", () => {
     expect(queue.enqueue(message("1"), DEFAULT_CHAT_SETTINGS)).toBe(false);
     expect(queue.size).toBe(0);
   });
+  // WK-81: Silero is the primary engine now (Piper/system remain
+  // available as fallbacks - see useTwitchChatSession.ts), with a neutral,
+  // not human-verified voice default (see the feature report).
+  it("defaults to the Silero engine with the xenia voice", () => {
+    expect(DEFAULT_CHAT_SETTINGS.ttsEngine).toBe("silero");
+    expect(DEFAULT_CHAT_SETTINGS.sileroVoice).toBe("xenia");
+  });
   it("filters system, URL-only and repeated-character spam", () => {
     expect(prepareTtsText(message("1", "https://example.com"), enabled)).toBeNull();
     expect(prepareTtsText(message("2", "aaaaaaaaaaaa"), enabled)).toBeNull();

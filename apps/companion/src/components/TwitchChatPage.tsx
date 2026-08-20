@@ -1,14 +1,29 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatSettings } from "../chat/chat-model";
 import type { TwitchChatSession } from "../chat/useTwitchChatSession";
-import { openTwitchSettings, type TwitchChatMessage } from "../services/dotaCompanionApi";
+import { openTwitchSettings, type SileroVoice, type TwitchChatMessage } from "../services/dotaCompanionApi";
+
+// WK-81 - the 5 Silero v5_5_ru voices this integration supports. Labels
+// are just the voice names (no Russian-quality/gender descriptions were
+// human-verified - see the feature report), kept in a fixed, sensible
+// order rather than alphabetical.
+const SILERO_VOICES: { value: SileroVoice; label: string }[] = [
+  { value: "xenia", label: "Xenia" },
+  { value: "baya", label: "Baya" },
+  { value: "kseniya", label: "Kseniya" },
+  { value: "aidar", label: "Aidar" },
+  { value: "eugene", label: "Eugene" },
+];
 
 // WK-78 - polling, dedup, the TTS queue/playback and unread counting used to
 // live here and stopped the moment this page unmounted (e.g. switching to
 // another tab). All of that now lives in useTwitchChatSession, owned once at
 // the app root (HomePage) - this component is just a UI consumer of it.
 export function TwitchChatPage({ session }: { session: TwitchChatSession }) {
-  const { status, error, unread, settings, piperStatus, piperBusy, updateSetting, stopTts, isSpeaking, setViewerAtBottom, markRead } = session;
+  const {
+    status, error, unread, settings, piperStatus, piperBusy, sileroStatus, sileroBusy, previewBusy, previewSileroVoice,
+    updateSetting, stopTts, isSpeaking, setViewerAtBottom, markRead,
+  } = session;
   const listRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
 
@@ -87,9 +102,38 @@ export function TwitchChatPage({ session }: { session: TwitchChatSession }) {
         <label><input type="checkbox" checked={settings.soundEnabled} onChange={(event) => update("soundEnabled", event.target.checked)} /> Звук нового сообщения</label>
         <label><input type="checkbox" checked={settings.ttsEnabled} onChange={(event) => update("ttsEnabled", event.target.checked)} /> Озвучивать сообщения</label>
         <div className={`tts-engine-choice ${!settings.ttsEnabled ? "is-disabled" : ""}`}>
-          <label><input type="radio" name="ttsEngine" disabled={!settings.ttsEnabled} checked={settings.ttsEngine === "system"} onChange={() => update("ttsEngine", "system")} /> Системный голос</label>
+          <label><input type="radio" name="ttsEngine" disabled={!settings.ttsEnabled} checked={settings.ttsEngine === "silero"} onChange={() => update("ttsEngine", "silero")} /> Silero (локальный, офлайн, рекомендуется)</label>
           <label><input type="radio" name="ttsEngine" disabled={!settings.ttsEnabled} checked={settings.ttsEngine === "piper"} onChange={() => update("ttsEngine", "piper")} /> Piper (локальный, офлайн)</label>
+          <label><input type="radio" name="ttsEngine" disabled={!settings.ttsEnabled} checked={settings.ttsEngine === "system"} onChange={() => update("ttsEngine", "system")} /> Системный голос</label>
         </div>
+        {settings.ttsEnabled && settings.ttsEngine === "silero" && <>
+          <label>Голос
+            <select
+              value={settings.sileroVoice}
+              onChange={(event) => update("sileroVoice", event.target.value as SileroVoice)}
+            >
+              {SILERO_VOICES.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <button
+            type="button"
+            className="button"
+            onClick={() => previewSileroVoice(settings.sileroVoice)}
+            disabled={previewBusy || !sileroStatus?.resourcesReady}
+          >
+            {previewBusy ? "Синтез…" : "Прослушать"}
+          </button>
+          <p className="tts-piper-status">
+            {sileroBusy || sileroStatus?.state === "starting" ? "Silero: загрузка/запуск…"
+              : sileroStatus?.state === "ready" ? "Silero: готов"
+              : sileroStatus?.state === "crashed" || sileroStatus?.state === "unavailable"
+                ? `Silero недоступен, читаем через Piper/системный голос: ${sileroStatus.lastError ?? "неизвестная ошибка"}`
+                : "Silero: ожидание первого сообщения"}
+          </p>
+          <p className="tts-license-note">
+            Silero <code>v5_5_ru</code> (<a href="https://github.com/snakers4/silero-models/blob/master/LICENSE" target="_blank" rel="noreferrer">CC BY-NC-SA 4.0, некоммерческая лицензия</a>) — используется только пока Companion остаётся некоммерческим продуктом. Запускается отдельным процессом (Python + PyTorch), не встроен в приложение. При недоступности автоматически переключаемся на Piper, затем на системный голос.
+          </p>
+        </>}
         {settings.ttsEnabled && settings.ttsEngine === "piper" && <p className="tts-piper-status">
           {piperBusy || piperStatus?.state === "starting" ? "Piper: загрузка/запуск…"
             : piperStatus?.state === "ready" ? "Piper: готов"
