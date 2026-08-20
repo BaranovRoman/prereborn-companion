@@ -1,5 +1,5 @@
 // inset 0 - границы отскока это реальные края viewport, а не safe-area
-// (для "Полное перекрытие" safe-area намеренно не применяется, см. задачу
+// (для "Заглушка" safe-area намеренно не применяется, см. задачу
 // WK-77 follow-up "убрать safe-area у bouncing-логотипа"). Границы отскока
 // считаются от clientWidth/clientHeight этого элемента - см. bouncing-logo.tsx.
 .viewport {

@@ -36,9 +36,9 @@ afterEach(() => {
 });
 
 describe("DraftProtectionLayer", () => {
-    it("renders the cinematic draft scene when protection is off", () => {
-        const { getByTestId } = render(<DraftProtectionLayer mode="off" payload={null} />);
-        expect(getByTestId("cinematic-draft-layer")).toBeTruthy();
+    it("renders nothing for mode off - a literal no-op over the real Dota UI", () => {
+        const { container } = render(<DraftProtectionLayer mode="off" />);
+        expect(container.innerHTML).toBe("");
     });
 
     it("renders a text-free, data-free screensaver for full cover", () => {
@@ -48,15 +48,5 @@ describe("DraftProtectionLayer", () => {
         // the bouncing Prereborn logo (see full-cover-view.tsx).
         expect(layer.textContent).toBe("");
         expect(layer.querySelector("img")).toBeTruthy();
-    });
-
-    it("renders the fake draft picker for the substitute mode", () => {
-        const { getByTestId } = render(
-            <DraftProtectionLayer mode="substitute" payload={null} />
-        );
-        expect(getByTestId("fake-draft-picker")).toBeTruthy();
-        // enter state starts with nothing focused yet - carousel/showcase
-        // populate once the controller advances past "enter".
-        expect(getByTestId("fake-countdown").textContent).toMatch(/^\d{2}$/);
     });
 });

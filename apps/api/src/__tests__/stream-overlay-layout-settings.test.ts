@@ -28,3 +28,40 @@ describe("Recent Games layout settings", () => {
         expect(layout.scenes.gameplay.widgets.recentMatches.recentMatches).toMatchObject({ limit: 5, source: "current-stream" });
     });
 });
+
+describe("Draft protection mode normalization", () => {
+    // WK-69: "substitute" (Fake Draft) was removed as a selectable mode.
+    // Layouts saved before this change may still have it persisted - it must
+    // fail closed to "cover" (still protected), never to "off" (unprotected).
+    it("migrates the legacy substitute mode to cover", () => {
+        const layout = normalizeOverlayLayout({
+            version: 4,
+            draftProtection: { mode: "substitute" },
+        });
+        expect(layout.draftProtection.mode).toBe("cover");
+    });
+
+    it("preserves an existing cover config unchanged", () => {
+        const layout = normalizeOverlayLayout({
+            version: 4,
+            draftProtection: { mode: "cover" },
+        });
+        expect(layout.draftProtection.mode).toBe("cover");
+    });
+
+    it("preserves an explicit off config", () => {
+        const layout = normalizeOverlayLayout({
+            version: 4,
+            draftProtection: { mode: "off" },
+        });
+        expect(layout.draftProtection.mode).toBe("off");
+    });
+
+    it("does not accept the reserved future photorealism mode", () => {
+        const layout = normalizeOverlayLayout({
+            version: 4,
+            draftProtection: { mode: "photorealism" },
+        });
+        expect(layout.draftProtection.mode).toBe("cover");
+    });
+});

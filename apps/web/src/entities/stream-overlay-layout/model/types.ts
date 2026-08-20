@@ -132,7 +132,16 @@ export interface OverlaySceneLayout {
     minimapCover: MinimapCoverSettings;
 }
 
-export const DRAFT_PROTECTION_MODES = ["off", "cover", "substitute"] as const;
+// WK-69 follow-up (visual review): Cinematic Draft (`off`'s old renderer)
+// and Fake Draft (`substitute`) were both removed - Cinematic Draft never had
+// enough real GSI data for a full 5x5, and Fake Draft's carousel didn't hold
+// up on visual review and added real media/performance cost for a mode
+// nobody wanted. `off` is now a literal no-op: no renderer, no hero
+// cards/video, nothing drawn over the real Dota UI. `substitute` is gone as
+// a selectable value; normalizeOverlayLayout still recognizes the legacy
+// string on read and fails closed to "cover" (see normalize-layout.ts) so an
+// old persisted layout can never silently lose its protection.
+export const DRAFT_PROTECTION_MODES = ["off", "cover"] as const;
 export type DraftProtectionMode = (typeof DRAFT_PROTECTION_MODES)[number];
 
 // Single source of truth for user-facing mode labels - the editor's mode
@@ -141,8 +150,7 @@ export type DraftProtectionMode = (typeof DRAFT_PROTECTION_MODES)[number];
 // a missing label the moment DRAFT_PROTECTION_MODES grows.
 export const DRAFT_PROTECTION_MODE_LABELS: Record<DraftProtectionMode, string> = {
     off: "Без защиты",
-    cover: "Полное перекрытие",
-    substitute: "Фейковый драфт",
+    cover: "Заглушка",
 };
 
 // Reserved identifier for a future "Фотореализм" mode: a decoy Dota draft UI
@@ -156,9 +164,10 @@ export const DRAFT_PROTECTION_MODE_LABELS: Record<DraftProtectionMode, string> =
 // the explicit safe fake pool, prepared templates, and an independent
 // randomization/state machine - it must NEVER be derived from or correlated
 // with the real hero/pick/ban (no "real pick -> similar-looking fake pick").
-// This mirrors why `substitute` and `off` today only ever read the local
-// player's own team/hero via get-draft-signals.ts - see
-// docs/draft-gsi-contract.md.
+// The removed Fake Draft mode observed this same rule for one field only
+// (excluding the player's own real hero id from its fake pool) - see
+// docs/draft-gsi-contract.md for why even that is no longer needed now that
+// `off` and `substitute` are both gone.
 //
 // To implement: add the value to DRAFT_PROTECTION_MODES, a label above, a
 // renderer entry in draft-protection-layer.tsx's registry, and an option in
