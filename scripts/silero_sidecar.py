@@ -61,8 +61,12 @@ def main():
         except Exception as exc:
             # No request id could be parsed - nothing to correlate a
             # response to, so this is reported without one rather than
-            # guessed at.
-            print(json.dumps({"ok": False, "error": f"bad request: {exc}"}), flush=True)
+            # guessed at. `raw` (repr, not the bare string) makes an empty
+            # line, a BOM/encoding artifact, and a genuinely malformed
+            # payload distinguishable from each other in the caller's logs,
+            # instead of all three collapsing into the same generic
+            # "Expecting value: char 0"-shaped message.
+            print(json.dumps({"ok": False, "error": f"bad request: {exc}", "raw": repr(line)}), flush=True)
             continue
 
         try:

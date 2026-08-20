@@ -95,6 +95,7 @@ $psi.UseShellExecute = $false
 $proc = [System.Diagnostics.Process]::Start($psi)
 
 $readyLine = $proc.StandardOutput.ReadLine()
+Write-Host "Ready line: $readyLine"
 $ready = $readyLine | ConvertFrom-Json
 if (-not $ready.ready) { throw "Silero sidecar did not report ready: $readyLine" }
 
@@ -110,9 +111,12 @@ $request = @{ id = "smoke-1"; text = $smokePhrase; speaker = "xenia" } | Convert
 # whichever encoding the StreamWriter would have picked, in any host.
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $requestBytes = $utf8NoBom.GetBytes("$request`n")
+Write-Host "Request string: $request"
+Write-Host "Request first 8 bytes (hex): $(($requestBytes[0..7] | ForEach-Object { $_.ToString('x2') }) -join ' ')"
 $proc.StandardInput.BaseStream.Write($requestBytes, 0, $requestBytes.Length)
 $proc.StandardInput.BaseStream.Flush()
 $responseLine = $proc.StandardOutput.ReadLine()
+Write-Host "Response line: $responseLine"
 $response = $responseLine | ConvertFrom-Json
 if (-not $response.ok) { throw "Silero smoke-test synthesis failed: $responseLine" }
 if ($response.id -ne "smoke-1") { throw "Silero smoke-test response id mismatch: $responseLine" }
