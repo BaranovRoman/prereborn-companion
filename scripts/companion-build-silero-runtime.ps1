@@ -99,8 +99,19 @@ $ready = $readyLine | ConvertFrom-Json
 if (-not $ready.ready) { throw "Silero sidecar did not report ready: $readyLine" }
 
 $request = @{ id = "smoke-1"; text = $smokePhrase; speaker = "xenia" } | ConvertTo-Json -Compress
-$proc.StandardInput.WriteLine($request)
-$proc.StandardInput.Flush()
+# NOT $proc.StandardInput.WriteLine() - that StreamWriter picks its text
+# encoding from the current PowerShell host's Console.OutputEncoding,
+# which differs between environments; on GitHub Actions' windows-latest
+# runner (unlike this script's own local dev-machine test run) it wrote a
+# UTF-8 BOM as the very first bytes of stdin, which the sidecar's
+# json.loads() doesn't strip - producing "Expecting value: line 1 column 1
+# (char 0)" on a request PowerShell itself constructed correctly. Writing
+# raw UTF8-no-BOM bytes directly to the underlying stream sidesteps
+# whichever encoding the StreamWriter would have picked, in any host.
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+$requestBytes = $utf8NoBom.GetBytes("$request`n")
+$proc.StandardInput.BaseStream.Write($requestBytes, 0, $requestBytes.Length)
+$proc.StandardInput.BaseStream.Flush()
 $responseLine = $proc.StandardOutput.ReadLine()
 $response = $responseLine | ConvertFrom-Json
 if (-not $response.ok) { throw "Silero smoke-test synthesis failed: $responseLine" }
