@@ -166,13 +166,22 @@ fn fix_wav_chunk_sizes(bytes: &mut [u8]) {
 struct Sidecar {
     child: Child,
     stdin: ChildStdin,
+    /// Fed by a background thread reading `child`'s stdout line-by-line (see
+    /// `spawn_stdout_reader`) - each line is the absolute path Piper just
+    /// finished writing, in the same order lines were sent on stdin (WK-79:
+    /// discovered by probing the real CLI - it was never `Stdio::null()`'d
+    /// for a good reason, that was just an oversight). This is the exact,
+    /// unambiguous per-request completion signal that used to be guessed at
+    /// by polling `output_dir` for "the first file that looks new", which
+    /// could - and did - grab a different call's output (see `synthesize`'s
+    /// doc comment).
+    stdout_lines: std::sync::mpsc::Receiver<String>,
     stderr: ChildStderr,
-    output_dir: PathBuf,
     spawned_at: Instant,
     call_count: u64,
 }
 
-/// Per-call timing/counters from one `Sidecar::synthesize()`, for the TTS
+/// Per-call timing from one `Sidecar::synthesize()`, for the TTS
 /// diagnostics trace (see diagnostics/tts_trace.rs). Deliberately returned
 /// alongside the audio bytes rather than logged from inside `Sidecar`
 /// itself - `Sidecar` has no `AppHandle` and stays fully decoupled/testable
@@ -183,17 +192,9 @@ struct Sidecar {
 struct SynthesisTrace {
     text_len: usize,
     stdin_write_ms: f64,
-    /// Time+poll-count waiting for Piper's output file to appear at all.
-    file_appear_wait_ms: f64,
-    file_appear_polls: u32,
-    /// Time+poll-count waiting for that file's size to stop changing
-    /// (Windows shows the directory entry before Piper finishes writing).
-    size_stable_wait_ms: f64,
-    size_stable_polls: u32,
-    /// How many files were in output_dir at the moment one was picked -
-    /// >1 would mean a previous call's file wasn't cleaned up, which the
-    /// "at most one file exists" comment in spawn() assumes never happens.
-    dir_entries_seen_at_pick: usize,
+    /// Time waiting for Piper's stdout line naming the completed WAV for
+    /// *this* line - i.e. the actual synthesis time.
+    completion_wait_ms: f64,
     wav_bytes_len: usize,
     /// (bytes - 44-byte header) / 4 bytes-per-sample / 22050Hz - the WAV
     /// format was measured byte-exact (22050Hz mono 32-bit float) during
@@ -260,15 +261,75 @@ fn to_short_path(path: &Path) -> PathBuf {
     path.to_path_buf()
 }
 
+/// Best-effort delete of every file currently in `dir` - sweeps up anything
+/// left behind by a previous process lifetime that was killed/crashed
+/// mid-write. Purely hygiene (stops the scratch dir from growing forever
+/// across restarts): correctness no longer depends on this at all, since
+/// `synthesize()` reads back exactly the path Piper's own stdout names for
+/// this call, never anything inferred from directory contents.
+fn sweep_stale_files(dir: &Path) {
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let _ = fs::remove_file(entry.path());
+    }
+}
+
+/// Reads `path` once it's actually there, retrying briefly rather than
+/// assuming the read immediately following Piper's stdout completion line
+/// can never race the filesystem. Deliberately not the old "wait for size
+/// to stop changing across polls" heuristic (WK-79): that heuristic really
+/// did treat a momentary pause mid-write (e.g. between sentences of a
+/// multi-sentence message) as "finished", silently returning a truncated
+/// file while Piper kept appending to it afterwards. Reading only after
+/// Piper's own stdout line confirms the file is fully closed removes the
+/// need to guess at "stable" at all; this retry loop exists solely for a
+/// theoretical cross-process filesystem-visibility lag, not for synthesis
+/// progress.
+fn read_completed_file(path: &Path, deadline: Instant) -> Result<Vec<u8>, String> {
+    loop {
+        if let Ok(bytes) = fs::read(path) {
+            if !bytes.is_empty() {
+                return Ok(bytes);
+            }
+        }
+        if Instant::now() >= deadline {
+            return Err(format!("Piper output file never became readable: {}", path.display()));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Reads `stdout` line-by-line on a background thread, forwarding each
+/// line to the returned channel - lets `synthesize()` wait for the next
+/// completion line with a timeout (`recv_timeout`), which plain blocking
+/// reads on `ChildStdout` don't support. The thread exits on its own once
+/// `stdout` EOFs (the child process exited), dropping the sender so
+/// `recv_timeout` on the other end reports `Disconnected` instead of
+/// hanging.
+fn spawn_stdout_reader(stdout: std::process::ChildStdout) -> std::sync::mpsc::Receiver<String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let reader = std::io::BufReader::new(stdout);
+        for line in std::io::BufRead::lines(reader) {
+            match line {
+                Ok(line) => {
+                    if tx.send(line).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    rx
+}
+
 impl Sidecar {
     fn spawn(paths: &SidecarPaths) -> Result<Self, String> {
         let output_dir = paths.output_dir.clone();
         fs::create_dir_all(&output_dir).map_err(|e| format!("Piper scratch dir: {e}"))?;
         // Clear anything left over from a previous crashed/killed run so the
         // "exactly one new file per synthesize() call" invariant holds.
-        for entry in fs::read_dir(&output_dir).into_iter().flatten().flatten() {
-            let _ = fs::remove_file(entry.path());
-        }
+        sweep_stale_files(&output_dir);
 
         let mut cmd = Command::new(&paths.exe);
         cmd.arg("--model")
@@ -280,7 +341,7 @@ impl Sidecar {
             .arg("--output_dir")
             .arg(to_short_path(&output_dir))
             .stdin(Stdio::piped())
-            .stdout(Stdio::null())
+            .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         #[cfg(windows)]
         {
@@ -296,13 +357,44 @@ impl Sidecar {
             .stdin
             .take()
             .ok_or_else(|| "Piper stdin unavailable".to_string())?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| "Piper stdout unavailable".to_string())?;
         let stderr = child
             .stderr
             .take()
             .ok_or_else(|| "Piper stderr unavailable".to_string())?;
-        Ok(Self { child, stdin, stderr, output_dir, spawned_at: Instant::now(), call_count: 0 })
+        let stdout_lines = spawn_stdout_reader(stdout);
+        Ok(Self { child, stdin, stdout_lines, stderr, spawned_at: Instant::now(), call_count: 0 })
     }
 
+    /// Writes one line to Piper's stdin and returns exactly the WAV that
+    /// line produced.
+    ///
+    /// WK-79: this used to poll `output_dir` and grab "the first file that
+    /// looks like it wasn't there before", because `piper_exe`'s stdout was
+    /// `Stdio::null()`'d. Two real bugs came from that: (1) Piper finishes
+    /// writing a request's WAV asynchronously, not synchronously before
+    /// accepting the next stdin line, so that heuristic could grab a
+    /// *previous* call's leftover output and hand it back as this call's
+    /// result - a real chat session showed this as playback shifted one
+    /// message behind, with the very first call sometimes even picking up a
+    /// leftover from an earlier process lifetime; (2) the "wait for file
+    /// size to stop changing across two polls" completion heuristic could
+    /// mistake a momentary pause mid-write (observed: between sentences of
+    /// a multi-sentence message) for "done", silently truncating a longer
+    /// message and leaving Piper still writing to that same (already
+    /// "consumed") file afterwards.
+    ///
+    /// Probing the real CLI (`piper_exe --help`) during this investigation
+    /// found the actual fix: undocumented, but every build tested prints
+    /// the absolute path of each completed WAV to stdout, one line per
+    /// stdin line received, strictly in order - even for multi-sentence
+    /// input, which one real file, not several. That's an exact,
+    /// unambiguous per-request completion signal, so this now waits for
+    /// exactly one such line instead of inferring anything from directory
+    /// contents.
     fn synthesize(&mut self, text: &str) -> Result<(Vec<u8>, SynthesisTrace), String> {
         self.call_count += 1;
 
@@ -314,59 +406,29 @@ impl Sidecar {
         self.stdin.flush().map_err(|e| format!("Piper stdin: {e}"))?;
         let stdin_write_ms = stdin_write_started.elapsed().as_secs_f64() * 1000.0;
 
-        let file_appear_started = Instant::now();
+        let completion_started = Instant::now();
         let deadline = Instant::now() + SYNTH_TIMEOUT;
-        let mut file_appear_polls: u32 = 0;
-        let (path, dir_entries_seen_at_pick) = loop {
+        let path = loop {
             if let Ok(Some(status)) = self.child.try_wait() {
                 let stderr = self.drain_stderr();
                 let detail = if stderr.is_empty() { String::new() } else { format!(": {stderr}") };
                 return Err(format!("Piper завершился неожиданно ({status}){detail}"));
             }
-            let mut names: Vec<_> = fs::read_dir(&self.output_dir)
-                .map_err(|e| format!("Piper output dir: {e}"))?
-                .filter_map(|e| e.ok())
-                .map(|e| e.path())
-                .collect();
-            // Filenames are monotonic nanosecond timestamps from piper
-            // itself - sorting gives write order, though in practice at
-            // most one file exists (see spawn(), invariant enforced there).
-            names.sort();
-            let entries_seen = names.len();
-            if let Some(path) = names.into_iter().next() {
-                break (path, entries_seen);
+            match self.stdout_lines.recv_timeout(Duration::from_millis(50)) {
+                Ok(reported_path) => break PathBuf::from(reported_path.trim()),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                // stdout EOF'd (process exiting) - let the try_wait check
+                // above catch and report the real exit status/stderr on the
+                // next spin rather than racing it here.
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {}
             }
-            file_appear_polls += 1;
             if Instant::now() >= deadline {
                 return Err("Piper synthesis timed out".to_string());
             }
-            std::thread::sleep(Duration::from_millis(20));
         };
-        let file_appear_wait_ms = file_appear_started.elapsed().as_secs_f64() * 1000.0;
+        let completion_wait_ms = completion_started.elapsed().as_secs_f64() * 1000.0;
 
-        // Windows makes the directory entry visible as soon as the file is
-        // created, before Piper has finished writing/flushing its contents
-        // - reading immediately on first sight can race and return a
-        // truncated (or 0-byte) file. Wait for the size to stop changing
-        // across two consecutive polls before treating it as complete.
-        let size_stable_started = Instant::now();
-        let mut size_stable_polls: u32 = 0;
-        let mut last_size: Option<u64> = None;
-        loop {
-            let size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-            if size > 0 && last_size == Some(size) {
-                break;
-            }
-            last_size = Some(size);
-            size_stable_polls += 1;
-            if Instant::now() >= deadline {
-                return Err("Piper output file never finished writing".to_string());
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        let size_stable_wait_ms = size_stable_started.elapsed().as_secs_f64() * 1000.0;
-
-        let mut bytes = fs::read(&path).map_err(|e| format!("Piper output file: {e}"))?;
+        let mut bytes = read_completed_file(&path, deadline)?;
         let _ = fs::remove_file(&path);
         fix_wav_chunk_sizes(&mut bytes);
 
@@ -379,11 +441,7 @@ impl Sidecar {
         let trace = SynthesisTrace {
             text_len: text.chars().count(),
             stdin_write_ms,
-            file_appear_wait_ms,
-            file_appear_polls,
-            size_stable_wait_ms,
-            size_stable_polls,
-            dir_entries_seen_at_pick,
+            completion_wait_ms,
             wav_bytes_len: bytes.len(),
             output_wav_duration_ms,
         };
@@ -526,11 +584,10 @@ fn build_tts_trace_event(
     use crate::diagnostics::tts_trace::{TtsTraceEvent, TtsTraceSource};
     let mut stages = std::collections::BTreeMap::new();
     stages.insert("sidecarWriteMs".to_string(), trace.stdin_write_ms);
-    stages.insert("fileAppearWaitMs".to_string(), trace.file_appear_wait_ms);
-    stages.insert("sizeStableWaitMs".to_string(), trace.size_stable_wait_ms);
+    stages.insert("completionWaitMs".to_string(), trace.completion_wait_ms);
     stages.insert(
         "synthesisTotalMs".to_string(),
-        trace.stdin_write_ms + trace.file_appear_wait_ms + trace.size_stable_wait_ms,
+        trace.stdin_write_ms + trace.completion_wait_ms,
     );
     TtsTraceEvent {
         message_id: message_id.to_string(),
@@ -540,9 +597,6 @@ fn build_tts_trace_event(
         stages,
         detail: serde_json::json!({
             "textLen": trace.text_len,
-            "fileAppearPolls": trace.file_appear_polls,
-            "sizeStablePolls": trace.size_stable_polls,
-            "dirEntriesSeenAtPick": trace.dir_entries_seen_at_pick,
             "wavBytesLen": trace.wav_bytes_len,
             "outputWavDurationMs": trace.output_wav_duration_ms,
             "sidecarRespawnedThisCall": respawned,
@@ -730,6 +784,66 @@ mod tests {
         assert_eq!(to_short_path(&missing), missing);
     }
 
+    // WK-79 regression coverage. The original bug was directory-guessing:
+    // synthesize() used to grab "the first file that looks new" out of
+    // output_dir, which could return a *previous* call's leftover output
+    // (playback shifted one message behind) or, for a multi-sentence
+    // message, declare a momentary pause mid-write "finished" and silently
+    // truncate it. The fix removes directory-guessing entirely - Piper's
+    // own stdout names the exact completed file per request (see
+    // `synthesize`'s doc comment) - so these tests exercise the one piece
+    // of logic that's still directory/filesystem-shaped: reading back
+    // exactly the path handed to it, never anything else nearby.
+
+    #[test]
+    fn read_completed_file_ignores_other_files_in_the_same_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        // A stale leftover from an earlier call/process lifetime, and even
+        // a *decoy* that looks more "current" by name - neither is the
+        // path we were told to read, so neither may be returned.
+        fs::write(dir.path().join("000000000000001.wav"), b"old leftover").unwrap();
+        fs::write(dir.path().join("000000000000099.wav"), b"decoy, not ours").unwrap();
+        let ours = dir.path().join("000000000000002.wav");
+        fs::write(&ours, b"this call's real output").unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let bytes = read_completed_file(&ours, deadline).unwrap();
+        assert_eq!(bytes, b"this call's real output");
+    }
+
+    #[test]
+    fn read_completed_file_waits_for_the_file_to_actually_exist() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("delayed.wav");
+        let path_for_writer = path.clone();
+        let writer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(60));
+            fs::write(&path_for_writer, b"arrived late").unwrap();
+        });
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let bytes = read_completed_file(&path, deadline).expect("must wait rather than fail on first miss");
+        writer.join().unwrap();
+        assert_eq!(bytes, b"arrived late");
+    }
+
+    #[test]
+    fn read_completed_file_times_out_if_the_path_never_appears() {
+        let dir = tempfile::tempdir().unwrap();
+        let never_written = dir.path().join("nope.wav");
+        let deadline = Instant::now() + Duration::from_millis(80);
+        assert!(read_completed_file(&never_written, deadline).is_err());
+    }
+
+    #[test]
+    fn sweep_stale_files_clears_leftovers_from_a_previous_process_lifetime() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("old1.wav"), b"1").unwrap();
+        fs::write(dir.path().join("old2.wav"), b"2").unwrap();
+        sweep_stale_files(dir.path());
+        let remaining: Vec<_> = fs::read_dir(dir.path()).unwrap().collect();
+        assert!(remaining.is_empty(), "sweep must clear every stale file, e.g. on sidecar (re)spawn");
+    }
+
     // Real subprocess IPC test against an actual local libpiper build - not
     // run by default (no such build exists in CI/dev checkouts) and needs
     // no AppHandle, only plain paths. Point the four PIPER_TEST_* env vars
@@ -770,6 +884,58 @@ mod tests {
         assert_eq!(sidecar.child.id(), pid_before, "sidecar respawned instead of being reused");
         assert!(second.len() > 500);
         assert_eq!(&second[0..4], b"RIFF");
+
+        sidecar.kill();
+    }
+
+    // WK-79: end-to-end proof, against a real persistent sidecar, that
+    // A -> B -> C stdin calls each get back their own output, not a
+    // one-request-behind shift. Distinguishes short vs. long texts so a
+    // regression (call N returning call N-1's audio) would be visible even
+    // without decoding the WAVs: a shifted result would make wav A's
+    // duration match B's much-longer text instead of A's own short one, and
+    // C's poll would either time out (nothing new yet) or wrongly return B's
+    // leftover. Run with the same env vars as the test above:
+    //   cargo test --manifest-path apps/companion/src-tauri/Cargo.toml \
+    //     tts::tests::persistent_sidecar_never_shifts_output_by_one_message -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn persistent_sidecar_never_shifts_output_by_one_message() {
+        let Ok(exe) = std::env::var("PIPER_TEST_EXE") else {
+            panic!("set PIPER_TEST_EXE/_MODEL/_CONFIG/_ESPEAK_DATA to run this test");
+        };
+        let model = std::env::var("PIPER_TEST_MODEL").unwrap();
+        let config = std::env::var("PIPER_TEST_CONFIG").unwrap();
+        let espeak_data = std::env::var("PIPER_TEST_ESPEAK_DATA").unwrap();
+        let output_dir = tempfile::tempdir().unwrap();
+
+        let paths = SidecarPaths {
+            exe: exe.into(),
+            model: model.into(),
+            config: config.into(),
+            espeak_data: espeak_data.into(),
+            output_dir: output_dir.path().to_path_buf(),
+        };
+        let mut sidecar = Sidecar::spawn(&paths).expect("spawn");
+
+        let (_, trace_a) = sidecar.synthesize("Раз").expect("A");
+        let (_, trace_b) = sidecar
+            .synthesize("Сообщение номер два содержит гораздо больше слов чем первое или третье сообщение")
+            .expect("B");
+        let (_, trace_c) = sidecar.synthesize("Три").expect("C");
+
+        println!(
+            "A: {:.0}ms, B: {:.0}ms, C: {:.0}ms (dur)",
+            trace_a.output_wav_duration_ms, trace_b.output_wav_duration_ms, trace_c.output_wav_duration_ms,
+        );
+
+        assert!(
+            trace_b.output_wav_duration_ms > trace_a.output_wav_duration_ms * 2.0
+                && trace_b.output_wav_duration_ms > trace_c.output_wav_duration_ms * 2.0,
+            "B's text is much longer than A's or C's - if B's call actually returned A's short leftover audio \
+             (the one-message-behind bug), this proportion would be violated: A={:.0}ms B={:.0}ms C={:.0}ms",
+            trace_a.output_wav_duration_ms, trace_b.output_wav_duration_ms, trace_c.output_wav_duration_ms,
+        );
 
         sidecar.kill();
     }
