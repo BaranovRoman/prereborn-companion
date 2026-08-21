@@ -50,7 +50,18 @@ def main():
     print(json.dumps({"ready": True}), flush=True)
 
     for line in sys.stdin:
-        line = line.strip()
+        # .NET's Process class (every known caller: silero.rs's
+        # Sidecar::spawn, companion-build-silero-runtime.ps1's smoke test)
+        # constructs StandardInput with a UTF-8-with-preamble encoding by
+        # default and writes that preamble to the pipe the moment it opens
+        # - before the caller's own code ever runs, regardless of what
+        # encoding the caller itself writes with. Confirmed directly (not
+        # guessed) via a raw-bytes dump during the WK-81 release
+        # investigation: the leading byte was a literal BOM character even
+        # after switching the caller's own write to an explicitly
+        # no-preamble encoding. str.strip() does not remove U+FEFF (it's
+        # not classified as whitespace), so it survives to here otherwise.
+        line = line.strip().lstrip("\ufeff")
         if not line:
             continue
         try:
@@ -80,7 +91,13 @@ def main():
                 wav_file.writeframes(pcm16.tobytes())
             print(json.dumps({"id": request_id, "ok": True, "wav": wav_path}), flush=True)
         except Exception as exc:
-            print(json.dumps({"id": request_id, "ok": False, "error": str(exc)}), flush=True)
+            # str(exc) alone can be an empty string for some exception
+            # types (e.g. a bare AssertionError/RuntimeError raised with no
+            # message) - type name + traceback makes the failure
+            # diagnosable instead of reporting a blank error.
+            import traceback
+            detail = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+            print(json.dumps({"id": request_id, "ok": False, "error": detail, "traceback": traceback.format_exc()}), flush=True)
 
 
 if __name__ == "__main__":

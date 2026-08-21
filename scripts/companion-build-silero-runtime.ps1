@@ -92,41 +92,42 @@ $psi.RedirectStandardInput = $true
 $psi.RedirectStandardOutput = $true
 $psi.RedirectStandardError = $true
 $psi.UseShellExecute = $false
-# Root cause of the earlier smoke-test failures (confirmed via the raw
-# bytes the sidecar reported back, not guessed): Windows Python only
-# defaults to UTF-8 stdio for an actual interactive console (PEP 528) - a
-# piped/redirected stdin like this one falls back to the system's legacy
-# ANSI codepage, silently mangling the Cyrillic smoke phrase (and the
-# no-BOM write below, without this, still wouldn't help - the sidecar
-# would still mis-decode the following bytes). PYTHONUTF8=1 forces UTF-8
-# mode regardless of host locale - same fix applied to the real production
-# sidecar spawn in silero.rs, not a smoke-test-only workaround.
+# Three independent, all-necessary fixes for this pipe, each confirmed
+# directly via raw-bytes/traceback dumps during the WK-81 release
+# investigation - not assumed, and not each other's substitute:
+#
+# 1. Windows Python only defaults to UTF-8 stdio for an actual interactive
+#    console (PEP 528) - a piped/redirected stdin like this one falls back
+#    to the system's legacy ANSI codepage. PYTHONUTF8=1 forces UTF-8 mode
+#    on the READ side, regardless of host locale - same fix applied to the
+#    real production sidecar spawn in silero.rs.
+# 2. .NET's StreamWriter (what $proc.StandardInput.WriteLine() uses)
+#    separately encodes the WRITE side using the host's own default
+#    encoding, not UTF-8 - once (1) forces Python to expect real UTF-8
+#    bytes, a WriteLine()-based write becomes a mismatch instead of the
+#    accidental match it was before, corrupting Cyrillic text into
+#    something JSON-structurally valid but content-wise garbage (the
+#    model's own text validation then raises on it). Writing explicit
+#    UTF8Encoding($false)-encoded bytes to the raw stream fixes the WRITE
+#    side to actually match.
+# 3. .NET's Process class also writes a UTF-8 BOM as the very first stdin
+#    byte(s) itself, before this script's own code ever runs, regardless
+#    of which write API is used afterward - handled by having the sidecar
+#    strip a leading BOM itself (silero_sidecar.py), not by fighting
+#    .NET's internals here.
 $psi.EnvironmentVariables["PYTHONUTF8"] = "1"
 $proc = [System.Diagnostics.Process]::Start($psi)
 
 $readyLine = $proc.StandardOutput.ReadLine()
-Write-Host "Ready line: $readyLine"
 $ready = $readyLine | ConvertFrom-Json
 if (-not $ready.ready) { throw "Silero sidecar did not report ready: $readyLine" }
 
 $request = @{ id = "smoke-1"; text = $smokePhrase; speaker = "xenia" } | ConvertTo-Json -Compress
-# NOT $proc.StandardInput.WriteLine() - that StreamWriter picks its text
-# encoding from the current PowerShell host's Console.OutputEncoding,
-# which differs between environments; on GitHub Actions' windows-latest
-# runner (unlike this script's own local dev-machine test run) it wrote a
-# UTF-8 BOM as the very first bytes of stdin, which the sidecar's
-# json.loads() doesn't strip - producing "Expecting value: line 1 column 1
-# (char 0)" on a request PowerShell itself constructed correctly. Writing
-# raw UTF8-no-BOM bytes directly to the underlying stream sidesteps
-# whichever encoding the StreamWriter would have picked, in any host.
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 $requestBytes = $utf8NoBom.GetBytes("$request`n")
-Write-Host "Request string: $request"
-Write-Host "Request first 8 bytes (hex): $(($requestBytes[0..7] | ForEach-Object { $_.ToString('x2') }) -join ' ')"
 $proc.StandardInput.BaseStream.Write($requestBytes, 0, $requestBytes.Length)
 $proc.StandardInput.BaseStream.Flush()
 $responseLine = $proc.StandardOutput.ReadLine()
-Write-Host "Response line: $responseLine"
 $response = $responseLine | ConvertFrom-Json
 if (-not $response.ok) { throw "Silero smoke-test synthesis failed: $responseLine" }
 if ($response.id -ne "smoke-1") { throw "Silero smoke-test response id mismatch: $responseLine" }
