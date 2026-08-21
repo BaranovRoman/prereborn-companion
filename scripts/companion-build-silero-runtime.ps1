@@ -92,6 +92,16 @@ $psi.RedirectStandardInput = $true
 $psi.RedirectStandardOutput = $true
 $psi.RedirectStandardError = $true
 $psi.UseShellExecute = $false
+# Root cause of the earlier smoke-test failures (confirmed via the raw
+# bytes the sidecar reported back, not guessed): Windows Python only
+# defaults to UTF-8 stdio for an actual interactive console (PEP 528) - a
+# piped/redirected stdin like this one falls back to the system's legacy
+# ANSI codepage, silently mangling the Cyrillic smoke phrase (and the
+# no-BOM write below, without this, still wouldn't help - the sidecar
+# would still mis-decode the following bytes). PYTHONUTF8=1 forces UTF-8
+# mode regardless of host locale - same fix applied to the real production
+# sidecar spawn in silero.rs, not a smoke-test-only workaround.
+$psi.EnvironmentVariables["PYTHONUTF8"] = "1"
 $proc = [System.Diagnostics.Process]::Start($psi)
 
 $readyLine = $proc.StandardOutput.ReadLine()

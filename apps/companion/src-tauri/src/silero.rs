@@ -251,6 +251,20 @@ impl SileroSidecar {
         cmd.arg(to_short_path(&paths.sidecar_script))
             .arg(to_short_path(&paths.model))
             .arg(to_short_path(&output_dir))
+            // Critical, not cosmetic: Windows Python only defaults to
+            // UTF-8 stdio for an actual interactive console (PEP 528) - a
+            // piped/redirected stdin like this one falls back to the
+            // system's legacy ANSI codepage instead. On a non-UTF-8-locale
+            // Windows machine (confirmed directly: reproduced on GitHub
+            // Actions' windows-latest runner, see
+            // docs/research/wk-81-silero-tts-feasibility.md's CI-failure
+            // note) that silently mangles any non-ASCII byte sent over
+            // stdin - Cyrillic chat text, and the BOM PowerShell's smoke
+            // test happened to also send, both turned into garbage the
+            // sidecar's json.loads() rejected. PYTHONUTF8=1 (PEP 540)
+            // forces UTF-8 mode regardless of the host's locale/codepage -
+            // this is the actual fix, not a smoke-test-only workaround.
+            .env("PYTHONUTF8", "1")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
