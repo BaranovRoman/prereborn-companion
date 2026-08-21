@@ -114,7 +114,7 @@ export function HomePage() {
       <header className="app-header">
         <div className="app__brand">
           <img className="app__logo" src="/logo-new.png" alt="" width="52" height="52" />
-          <div><span className="app__eyebrow">Desktop Companion</span><h1>PreReborn</h1></div>
+          <div><span className="app__eyebrow">Desktop Companion</span><h1>PreReborn{status?.companion_version && <span className="app__version"> v{status.companion_version}</span>}</h1></div>
         </div>
         <nav className="app-nav" aria-label="Разделы приложения">
           <button className={view === "home" ? "is-active" : ""} onClick={() => setView("home")}>Главная</button>

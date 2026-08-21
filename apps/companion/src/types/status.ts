@@ -46,6 +46,7 @@ export interface StatusSnapshot {
   obs_state: ConnectionState;
   obs_active_scene: "betweenMatches" | "draft" | "gameplay" | null;
   obs_last_error: string | null;
+  companion_version: string;
 }
 
 export interface ObsConfig {
