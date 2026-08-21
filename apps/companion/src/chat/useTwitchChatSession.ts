@@ -38,6 +38,7 @@ export interface TwitchChatSession {
   sileroStatus: SileroTtsStatus | null;
   sileroBusy: boolean;
   previewBusy: boolean;
+  previewError: string | null;
   previewSileroVoice: (voice: SileroVoice) => void;
   updateSetting: <K extends keyof ChatSettings>(key: K, value: ChatSettings[K]) => void;
   stopTts: () => void;
@@ -56,6 +57,7 @@ export function useTwitchChatSession(): TwitchChatSession {
   const [sileroStatus, setSileroStatus] = useState<SileroTtsStatus | null>(null);
   const [sileroBusy, setSileroBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   const initialized = useRef(false);
   const known = useRef(new Set<string>());
@@ -371,10 +373,22 @@ export function useTwitchChatSession(): TwitchChatSession {
   // preview phrase with an explicit voice (independent of the currently
   // saved sileroVoice setting, so a user can audition a voice before
   // committing to it) and plays it directly, outside the chat queue.
+  //
+  // Bug fix: this used to never call refreshSileroStatus() on either branch,
+  // unlike speakWithSilero (which does on both success and failure) - the
+  // settings-page status line is driven entirely by sileroStatus, so a user
+  // who only ever clicked "Прослушать" (never actually had a chat message
+  // spoken) saw it frozen on the "waiting for first message" default
+  // forever, with zero feedback either way: a successful preview played
+  // audio but never updated the label, and a failed one was swallowed
+  // silently by `.catch(() => setPreviewBusy(false))` with no visible error
+  // at all - indistinguishable from the button "doing nothing".
   const previewSileroVoice = useCallback((voice: SileroVoice) => {
     setPreviewBusy(true);
+    setPreviewError(null);
     synthesizeSileroTts(SILERO_PREVIEW_PHRASE, voice)
       .then((base64) => {
+        void refreshSileroStatus();
         const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
         const url = URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
         const audio = new Audio(url);
@@ -388,11 +402,15 @@ export function useTwitchChatSession(): TwitchChatSession {
         audio.onerror = cleanup;
         void audio.play().catch(cleanup);
       })
-      .catch(() => setPreviewBusy(false));
-  }, []);
+      .catch((cause) => {
+        void refreshSileroStatus();
+        setPreviewError(String(cause));
+        setPreviewBusy(false);
+      });
+  }, [refreshSileroStatus]);
 
   return {
-    status, error, unread, settings, piperStatus, piperBusy, sileroStatus, sileroBusy, previewBusy, previewSileroVoice,
-    updateSetting, stopTts, isSpeaking, setViewerAtBottom, markRead,
+    status, error, unread, settings, piperStatus, piperBusy, sileroStatus, sileroBusy, previewBusy, previewError,
+    previewSileroVoice, updateSetting, stopTts, isSpeaking, setViewerAtBottom, markRead,
   };
 }

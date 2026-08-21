@@ -22,7 +22,7 @@ vi.mock("../services/dotaCompanionApi", () => ({
 }));
 
 // eslint-disable-next-line import/order
-import { getTwitchChat, synthesizePiperTts, synthesizeSileroTts } from "../services/dotaCompanionApi";
+import { getSileroTtsStatus, getTwitchChat, synthesizePiperTts, synthesizeSileroTts } from "../services/dotaCompanionApi";
 // eslint-disable-next-line import/order
 import type { TwitchChatSession } from "./useTwitchChatSession";
 
@@ -123,4 +123,64 @@ describe("useTwitchChatSession", () => {
 
     unmount();
   }, 15000);
+
+  // Regression for the reported "Прослушать" bug: clicking preview appeared
+  // to do nothing and the settings-page status line stayed stuck on
+  // "waiting for first message" forever, even after a successful preview -
+  // previewSileroVoice never called refreshSileroStatus() on either branch,
+  // unlike speakWithSilero (the real chat-message path) which does on both.
+  describe("previewSileroVoice", () => {
+    it("refreshes sileroStatus after a successful preview, so the status line moves off its default", async () => {
+      // jsdom doesn't implement HTMLMediaElement.play() - stub it so the
+      // success branch's `new Audio(url).play()` resolves instead of
+      // throwing, same as a real browser. This is the first test in this
+      // file to exercise Silero's success path (the existing fallback test
+      // only ever rejects synthesizeSileroTts, so it never reaches here).
+      vi.spyOn(window.HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+      vi.mocked(synthesizeSileroTts).mockReset().mockResolvedValue(btoa("not a real wav but bytes are enough"));
+      // Only previewSileroVoice's refreshSileroStatus() calls this in this
+      // test (settings never enable TTS/switch engines, so no chat-message
+      // synthesis or its own status refresh happens) - one resolved value is
+      // enough to prove the post-preview refresh happened and landed.
+      vi.mocked(getSileroTtsStatus).mockReset()
+        .mockResolvedValue({ enabled: true, state: "ready", lastError: null, resourcesReady: true, voice: "aidar" });
+
+      let session: TwitchChatSession | undefined;
+      render(<Harness showChat={true} onSession={(s) => { session = s; }} />);
+      await waitFor(() => expect(session).toBeDefined());
+      // Let the mount-time enable-effect's own getSileroTtsStatus-unrelated
+      // setup settle first, so the call-count delta below is attributable
+      // only to the preview itself.
+      await waitFor(() => expect(session!.sileroStatus).not.toBeNull());
+      const callsBeforePreview = vi.mocked(getSileroTtsStatus).mock.calls.length;
+
+      session!.previewSileroVoice("aidar");
+      await waitFor(() => expect(session!.previewBusy).toBe(false));
+
+      // The regression: previewSileroVoice must call refreshSileroStatus()
+      // (i.e. getSileroTtsStatus()) on success, same as speakWithSilero
+      // already does - this is what moves the settings-page status line off
+      // its permanent "waiting for first message" default.
+      expect(vi.mocked(getSileroTtsStatus).mock.calls.length).toBeGreaterThan(callsBeforePreview);
+      await waitFor(() => expect(session!.sileroStatus?.state).toBe("ready"));
+      expect(session!.previewError).toBeNull();
+    });
+
+    it("surfaces a visible error and still refreshes sileroStatus when preview synthesis fails", async () => {
+      vi.mocked(synthesizeSileroTts).mockReset().mockRejectedValue(new Error("Silero недоступен"));
+      vi.mocked(getSileroTtsStatus).mockReset().mockResolvedValue({
+        enabled: true, state: "crashed", lastError: "boom", resourcesReady: true, voice: "aidar",
+      });
+
+      let session: TwitchChatSession | undefined;
+      render(<Harness showChat={true} onSession={(s) => { session = s; }} />);
+      await waitFor(() => expect(session).toBeDefined());
+
+      session!.previewSileroVoice("aidar");
+      await waitFor(() => expect(session!.previewBusy).toBe(false));
+
+      expect(session!.previewError).toContain("Silero недоступен");
+      await waitFor(() => expect(session!.sileroStatus?.state).toBe("crashed"));
+    });
+  });
 });

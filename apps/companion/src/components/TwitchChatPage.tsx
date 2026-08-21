@@ -21,8 +21,8 @@ const SILERO_VOICES: { value: SileroVoice; label: string }[] = [
 // the app root (HomePage) - this component is just a UI consumer of it.
 export function TwitchChatPage({ session }: { session: TwitchChatSession }) {
   const {
-    status, error, unread, settings, piperStatus, piperBusy, sileroStatus, sileroBusy, previewBusy, previewSileroVoice,
-    updateSetting, stopTts, isSpeaking, setViewerAtBottom, markRead,
+    status, error, unread, settings, piperStatus, piperBusy, sileroStatus, sileroBusy, previewBusy, previewError,
+    previewSileroVoice, updateSetting, stopTts, isSpeaking, setViewerAtBottom, markRead,
   } = session;
   const listRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
@@ -123,6 +123,7 @@ export function TwitchChatPage({ session }: { session: TwitchChatSession }) {
           >
             {previewBusy ? "Синтез…" : "Прослушать"}
           </button>
+          {previewError && <p className="app__error">Не удалось синтезировать пример: {previewError}</p>}
           <p className="tts-piper-status">
             {sileroBusy || sileroStatus?.state === "starting" ? "Silero: загрузка/запуск…"
               : sileroStatus?.state === "ready" ? "Silero: готов"
