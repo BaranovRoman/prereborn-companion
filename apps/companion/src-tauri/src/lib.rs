@@ -2,6 +2,7 @@ mod backend;
 mod commands;
 mod diagnostics;
 mod gsi;
+mod hotkeys;
 mod obs;
 mod server;
 mod silero;
@@ -37,6 +38,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             "quit" => {
                 tts::stop(app);
                 silero::stop(app);
+                hotkeys::stop(app);
                 app.exit(0);
             }
             _ => {}
@@ -108,10 +110,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(AppState::new())
         .manage(diagnostics::DiagnosticsState::new())
         .manage(tts::TtsState::new())
         .manage(silero::SileroState::new())
+        .manage(hotkeys::HotkeysState::new())
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -124,6 +128,7 @@ pub fn run() {
             storage::cleanup_legacy_payloads(&handle);
             tts::init(&handle);
             silero::init(&handle);
+            hotkeys::init(&handle);
             {
                 let state = handle.state::<AppState>();
                 let mut inner = state.0.lock().unwrap();
@@ -178,6 +183,8 @@ pub fn run() {
             commands::set_silero_voice,
             commands::synthesize_silero_tts,
             commands::diagnostics_trace_tts_frontend,
+            commands::get_skip_hotkey_status,
+            commands::set_skip_hotkey,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -39,6 +39,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 tungstenite = "0.26"
 sha2 = "0.10"
 base64 = "0.22"
+tauri-plugin-global-shortcut = "2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

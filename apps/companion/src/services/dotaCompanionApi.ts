@@ -100,6 +100,20 @@ export const testObsConnection = () =>
 export const switchObsScene = (scene: "betweenMatches" | "draft" | "gameplay") =>
   invoke<StatusSnapshot>("switch_obs_scene", { scene });
 
+// Global "skip current TTS" hotkey (WK-83 - see src-tauri/src/hotkeys.rs).
+// The hotkey press itself arrives as a "hotkeys://skip-tts" event (listened
+// for in useTwitchChatSession.ts), not through these commands - these only
+// read/change which combo is registered.
+export interface SkipHotkeyStatus {
+  enabled: boolean;
+  shortcut: string;
+  registered: boolean;
+  lastError: string | null;
+}
+export const getSkipHotkeyStatus = () => invoke<SkipHotkeyStatus>("get_skip_hotkey_status");
+export const setSkipHotkey = (enabled: boolean, shortcut: string) =>
+  invoke<SkipHotkeyStatus>("set_skip_hotkey", { enabled, shortcut });
+
 // Diagnostic-mode GSI capture - off by default, see src-tauri/src/diagnostics.
 export const diagnosticsGetStatus = () =>
   invoke<DiagnosticsStatusSnapshot>("diagnostics_get_status");

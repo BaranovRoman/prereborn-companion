@@ -19,8 +19,10 @@ describe("chat model", () => {
     expect(queue.size).toBe(0);
   });
   // WK-81: Silero is the primary engine now (Piper/system remain
-  // available as fallbacks - see useTwitchChatSession.ts), with a neutral,
-  // not human-verified voice default (see the feature report).
+  // available as fallbacks - see useTwitchChatSession.ts). WK-82 TTS
+  // follow-up: xenia confirmed as default by a human blind-listening test
+  // across all 63 available voice/model combinations (baya rated second,
+  // still fully selectable - see silero.rs's SileroVoice::default comment).
   it("defaults to the Silero engine with the xenia voice", () => {
     expect(DEFAULT_CHAT_SETTINGS.ttsEngine).toBe("silero");
     expect(DEFAULT_CHAT_SETTINGS.sileroVoice).toBe("xenia");
@@ -250,6 +252,24 @@ describe("chat model", () => {
       queue.clear();
       queue.enqueue(from("2", "снова", "u1", "Roma"), enabled, 0);
       expect(queue.takeNext(0)?.text).toBe("Рома: снова");
+    });
+
+    // WK-83: Skip is a playback-layer concern (useTwitchChatSession.ts) that
+    // never calls back into the queue - a skipped message was still taken
+    // via takeNext() (and so already marked "processed" for consecutive-
+    // author purposes) exactly like a message that played to completion.
+    // This locks in that a message being skipped, rather than fully spoken,
+    // must not change whether the next same-author message announces the
+    // name - the two paths are indistinguishable from the queue's view.
+    it("a skipped message (still taken via takeNext, just never fully played) suppresses the name on the next same-author message exactly like a fully-played one would", () => {
+      const queue = new BoundedTtsQueue(10);
+      queue.enqueue(from("1", "это пропустят", "u1", "Roma"), enabled, 0);
+      queue.enqueue(from("2", "тоже от ромы", "u1", "Roma"), enabled, 0);
+      const taken = queue.takeNext(0);
+      expect(taken?.text).toBe("Рома: это пропустят");
+      // Simulate skipping "1" here: no queue method exists for this, on
+      // purpose - skipTts() never touches BoundedTtsQueue at all.
+      expect(queue.takeNext(0)?.text).toBe("тоже от ромы"); // name still suppressed
     });
 
     it("never prefixes a name at all when speakAuthor is off, regardless of author", () => {

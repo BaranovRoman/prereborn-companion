@@ -1,15 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { BoundedTtsQueue, DEFAULT_CHAT_SETTINGS, nextUnreadCount, type ChatSettings } from "./chat-model";
 import {
-  diagnosticsTraceTtsFrontend, getPiperTtsStatus, getSileroTtsStatus, getTwitchChat, setPiperTtsEnabled,
-  setSileroTtsEnabled, synthesizePiperTts, synthesizeSileroTts, type PiperTtsStatus, type SileroTtsStatus,
-  type SileroVoice, type TwitchChatStatus,
+  diagnosticsTraceTtsFrontend, getPiperTtsStatus, getSileroTtsStatus, getSkipHotkeyStatus, getTwitchChat,
+  setPiperTtsEnabled, setSileroTtsEnabled, setSkipHotkey, synthesizePiperTts, synthesizeSileroTts,
+  type PiperTtsStatus, type SileroTtsStatus, type SileroVoice, type SkipHotkeyStatus, type TwitchChatStatus,
 } from "../services/dotaCompanionApi";
 
 // Short, fixed conversational phrase for the settings page's "Прослушать"
 // preview button (WK-81) - deliberately not user-editable text, so preview
 // always exercises the same, representative synthesis.
 export const SILERO_PREVIEW_PHRASE = "го дальше, потом фарм, го вп го";
+
+// Global "skip current TTS" hotkey (WK-83, see src-tauri/src/hotkeys.rs) -
+// the Rust side only registers the OS-level combo and emits this event on
+// press; everything about *how* to skip (stop playback, cancel an
+// in-flight synthesis without killing the sidecar, never make a sound)
+// lives here, since this is the only place that holds the playback state
+// needed to do it safely (currentAudio, generation, the queue itself).
+const SKIP_TTS_EVENT = "hotkeys://skip-tts";
 
 // WK-78 - this used to live entirely inside TwitchChatPage.tsx, so the
 // EventSub poll loop, dedup, unread counter and TTS queue/playback all
@@ -45,6 +54,12 @@ export interface TwitchChatSession {
   isSpeaking: () => boolean;
   setViewerAtBottom: (atBottom: boolean) => void;
   markRead: () => void;
+  // Skip-current-TTS hotkey (WK-83).
+  skipTts: () => void;
+  lastSkipAt: number | null;
+  skipHotkeyStatus: SkipHotkeyStatus | null;
+  skipHotkeyBusy: boolean;
+  updateSkipHotkey: (enabled: boolean, shortcut: string) => Promise<void>;
 }
 
 export function useTwitchChatSession(): TwitchChatSession {
@@ -58,6 +73,9 @@ export function useTwitchChatSession(): TwitchChatSession {
   const [sileroBusy, setSileroBusy] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [skipHotkeyStatus, setSkipHotkeyStatus] = useState<SkipHotkeyStatus | null>(null);
+  const [skipHotkeyBusy, setSkipHotkeyBusy] = useState(false);
+  const [lastSkipAt, setLastSkipAt] = useState<number | null>(null);
 
   const initialized = useRef(false);
   const known = useRef(new Set<string>());
@@ -74,6 +92,14 @@ export function useTwitchChatSession(): TwitchChatSession {
   const generation = useRef(0);
   const traces = useRef(new Map<string, TtsTraceBuilder>());
   const lastPlaybackEndedAt = useRef<number | null>(null);
+  // Set only once the currently-speaking entry has something actually
+  // cancellable (audio already created, or a system-voice utterance already
+  // dispatched) - null while a message is still awaiting synthesis over IPC,
+  // in which case skipTts() below only bumps `generation` and lets that
+  // call's own generation check (already present in speakWithSilero/Piper)
+  // discard the result once it resolves, instead of calling `done()` a
+  // second time itself.
+  const activeCancel = useRef<(() => void) | null>(null);
 
   const refreshPiperStatus = useCallback(async () => {
     try { setPiperStatus(await getPiperTtsStatus()); }
@@ -120,6 +146,10 @@ export function useTwitchChatSession(): TwitchChatSession {
     utterance.onstart = () => { trace.stages.actualPlaybackStartedAt = performance.now(); };
     utterance.onend = done;
     utterance.onerror = done;
+    // speechSynthesis.cancel() fires the utterance's own onerror (wired to
+    // `done` above) - skipTts() below doesn't need to call done() itself
+    // for this engine, just trigger the cancellation.
+    activeCancel.current = () => window.speechSynthesis.cancel();
     trace.stages.playbackRequestedAt = performance.now();
     window.speechSynthesis.speak(utterance);
   };
@@ -153,6 +183,10 @@ export function useTwitchChatSession(): TwitchChatSession {
       audio.onplaying = () => {
         if (trace.stages.actualPlaybackStartedAt === undefined) trace.stages.actualPlaybackStartedAt = performance.now();
       };
+      // Now cancellable - skipTts() pauses the audio directly (pause()
+      // doesn't fire onended/onerror on its own) and runs the same
+      // cleanup/done() path a natural end would.
+      activeCancel.current = () => { audio.pause(); cleanup(); };
       trace.stages.playbackRequestedAt = performance.now();
       await audio.play().catch(cleanup);
     } catch {
@@ -194,6 +228,8 @@ export function useTwitchChatSession(): TwitchChatSession {
       audio.onplaying = () => {
         if (trace.stages.actualPlaybackStartedAt === undefined) trace.stages.actualPlaybackStartedAt = performance.now();
       };
+      // Now cancellable - see the matching comment in speakWithPiper.
+      activeCancel.current = () => { audio.pause(); cleanup(); };
       trace.stages.playbackRequestedAt = performance.now();
       await audio.play().catch(cleanup);
     } catch {
@@ -212,12 +248,17 @@ export function useTwitchChatSession(): TwitchChatSession {
     if (!next) return;
     const { id: messageId, text } = next;
     speaking.current = true;
+    // Nothing cancellable yet - still (about to be) synthesizing. Each
+    // speakWith* function sets this once it has something skipTts() can
+    // actually act on (an Audio element or a dispatched system utterance).
+    activeCancel.current = null;
     const trace = traceFor(messageId);
     trace.stages.drainPickedAt = performance.now();
     trace.detail.queueSizeAfterDrainPick = queue.current.size;
     trace.detail.secondsSincePreviousTts =
       lastPlaybackEndedAt.current !== null ? (performance.now() - lastPlaybackEndedAt.current) / 1000 : null;
     const done = () => {
+      activeCancel.current = null;
       trace.stages.playbackEndedAt = performance.now();
       lastPlaybackEndedAt.current = trace.stages.playbackEndedAt;
       speaking.current = false;
@@ -228,6 +269,34 @@ export function useTwitchChatSession(): TwitchChatSession {
     else if (settingsRef.current.ttsEngine === "piper") void speakWithPiper(text, messageId, trace, done);
     else speakWithSystem(text, trace, done);
   };
+
+  // WK-83 - global "skip current TTS" hotkey handler (also used by the
+  // settings-page "Пропустить" button). Never plays any audio/beep itself -
+  // Companion's TTS goes out over Desktop Audio in OBS, so a sound here
+  // would be heard by the whole stream; any feedback is purely visual (see
+  // `lastSkipAt`, rendered as a transient on-screen note in TwitchChatPage).
+  //
+  // - Nothing speaking/synthesizing right now: no-op (queue/settings
+  //   untouched).
+  // - Audio already playing (or a system utterance already dispatched):
+  //   stop it immediately via `activeCancel`, which itself calls `done()`
+  //   and so advances straight to the next queued message.
+  // - Still awaiting a Silero/Piper synthesis IPC call: only bumps
+  //   `generation` - the sidecar keeps running (never killed here), and
+  //   that in-flight call's own generation check (already in
+  //   speakWithSilero/speakWithPiper) discards its result instead of
+  //   playing it once it resolves, calling `done()` itself exactly once.
+  //   This is also what makes rapid repeated presses safe: each press only
+  //   ever triggers at most one `done()` call, either synchronously here or
+  //   once by the in-flight call later, never both.
+  const skipTts = useCallback(() => {
+    if (!speaking.current) return;
+    setLastSkipAt(Date.now());
+    generation.current += 1;
+    const cancel = activeCancel.current;
+    activeCancel.current = null;
+    cancel?.();
+  }, []);
 
   const beep = () => {
     const Context = window.AudioContext;
@@ -250,6 +319,7 @@ export function useTwitchChatSession(): TwitchChatSession {
       generation.current += 1;
       queue.current.clear();
       speaking.current = false;
+      activeCancel.current = null;
       window.speechSynthesis?.cancel();
       if (currentAudio.current) { currentAudio.current.pause(); currentAudio.current = null; }
       // Messages still mid-flight (queued/drained but not yet finished) never
@@ -357,6 +427,7 @@ export function useTwitchChatSession(): TwitchChatSession {
     setSettings((value) => ({ ...value, ttsEnabled: false }));
     queue.current.clear();
     speaking.current = false;
+    activeCancel.current = null;
     window.speechSynthesis?.cancel();
     if (currentAudio.current) { currentAudio.current.pause(); currentAudio.current = null; }
   }, []);
@@ -409,8 +480,36 @@ export function useTwitchChatSession(): TwitchChatSession {
       });
   }, [refreshSileroStatus]);
 
+  // WK-83 - loads the persisted skip-hotkey status once at startup (mirrors
+  // the piper/silero status effects above) and listens for the global
+  // shortcut's press event for as long as the session is mounted (i.e. the
+  // whole app lifetime, per the WK-78 hoisting rationale at the top of this
+  // file) - the hotkey must keep working from any tab, not just Chat.
+  useEffect(() => {
+    let active = true;
+    getSkipHotkeyStatus().then((next) => { if (active) setSkipHotkeyStatus(next); }).catch(() => { /* transient IPC hiccup */ });
+    const unlistenPromise = listen(SKIP_TTS_EVENT, () => skipTts());
+    return () => { active = false; void unlistenPromise.then((unlisten) => unlisten()); };
+  }, [skipTts]);
+
+  const updateSkipHotkey = useCallback(async (enabled: boolean, shortcut: string) => {
+    setSkipHotkeyBusy(true);
+    try {
+      setSkipHotkeyStatus(await setSkipHotkey(enabled, shortcut));
+    } catch (cause) {
+      // A failed attempt never touches the previous working combo on the
+      // Rust side (see hotkeys.rs's rollback) - refresh from there instead
+      // of guessing at the resulting state ourselves.
+      try { setSkipHotkeyStatus(await getSkipHotkeyStatus()); } catch { /* transient IPC hiccup */ }
+      throw cause;
+    } finally {
+      setSkipHotkeyBusy(false);
+    }
+  }, []);
+
   return {
     status, error, unread, settings, piperStatus, piperBusy, sileroStatus, sileroBusy, previewBusy, previewError,
     previewSileroVoice, updateSetting, stopTts, isSpeaking, setViewerAtBottom, markRead,
+    skipTts, lastSkipAt, skipHotkeyStatus, skipHotkeyBusy, updateSkipHotkey,
   };
 }
