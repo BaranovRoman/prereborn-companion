@@ -129,11 +129,14 @@ breaks the app):
 - `BACKEND_URL` — set directly in `ecosystem.config.cjs` for the web PM2
   process, not sourced from `.env`.
 - `UPLOADS_DIR` — WK-80: absolute path to user-uploaded files, deliberately
-  outside the versioned `releases/<sha>/` tree (`shared/apps-api-uploads`).
-  Falls back to `process.cwd()`-relative `uploads/` when unset (local dev
-  only) - never falls back like that in production, since `process.cwd()`
-  under a release directory would silently scope uploads to one release and
-  orphan them on the next deploy switch. See
+  outside the versioned `releases/<sha>/` tree. Set to the same
+  `apps/api/uploads` path (directly under the deploy root) that
+  `nginx.production.conf`'s `/uploads/` alias and pre-WK-80 deploys already
+  used - not moved under `shared/`, so no nginx change or data migration was
+  needed. Falls back to `process.cwd()`-relative `uploads/` when unset
+  (local dev only) - never falls back like that in production, since
+  `process.cwd()` under a release directory would silently scope uploads to
+  one release and orphan them on the next deploy switch. See
   `apps/api/src/config/env.ts` and
   `docs/research/wk-80-build-outside-production.md`.
 

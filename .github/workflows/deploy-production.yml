@@ -71,7 +71,7 @@ jobs:
             -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
             'mkdir -p /var/www/www-root/data/www/prereborn.ru/releases \
                /var/www/www-root/data/www/prereborn.ru/shared/logs \
-               /var/www/www-root/data/www/prereborn.ru/shared/apps-api-uploads \
+               /var/www/www-root/data/www/prereborn.ru/apps/api/uploads \
                /var/www/www-root/data/www/prereborn.ru/incoming'
 
       - name: Upload artifact and release script
@@ -146,7 +146,12 @@ jobs:
             printf 'BACKEND_URL=http://127.0.0.1:5102\n'
             # WK-80 - fixed, non-versioned uploads location; must never live
             # inside a `releases/<sha>/` directory (see apps/api/src/config/env.ts).
-            printf 'UPLOADS_DIR=/var/www/www-root/data/www/prereborn.ru/shared/apps-api-uploads\n'
+            # Deliberately the SAME absolute path nginx.production.conf's
+            # /uploads/ alias already points at (unchanged by this migration)
+            # and where uploads already lived before WK-80 - not moved under
+            # shared/, so no nginx config change and no data migration are
+            # needed for existing uploaded files to keep resolving.
+            printf 'UPLOADS_DIR=/var/www/www-root/data/www/prereborn.ru/apps/api/uploads\n'
             printf 'NEXT_PUBLIC_API_URL=/api\n'
             printf 'NEXT_PUBLIC_SITE_URL=https://prereborn.ru\n'
             printf 'NEXT_PUBLIC_MEDIA_BASE_URL=https://prereborn.ru/media\n'

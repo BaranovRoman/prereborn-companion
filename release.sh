@@ -56,7 +56,7 @@ CURRENT_LINK="$DEPLOY_ROOT/current"
 
 log() { printf '[release.sh] %s\n' "$*"; }
 
-mkdir -p "$RELEASES_DIR" "$SHARED_DIR/logs" "$SHARED_DIR/apps-api-uploads"
+mkdir -p "$RELEASES_DIR" "$SHARED_DIR/logs" "$DEPLOY_ROOT/apps/api/uploads"
 test -f "$SHARED_DIR/.env" || {
   echo "Missing $SHARED_DIR/.env - run the 'Install production environment' step first."
   exit 1
@@ -116,7 +116,7 @@ set -a
 # shellcheck disable=SC1091
 source "$SHARED_DIR/.env"
 set +a
-export UPLOADS_DIR="${UPLOADS_DIR:-$SHARED_DIR/apps-api-uploads}"
+export UPLOADS_DIR="${UPLOADS_DIR:-$DEPLOY_ROOT/apps/api/uploads}"
 if ! node "$RELEASE_DIR/api/dist/db/migrate-cli.js"; then
   echo "Migration failed for releases/$SHA - current release (${PREVIOUS_SHA:-none}) left untouched and still serving."
   exit 1
