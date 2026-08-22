@@ -18,13 +18,20 @@ On every deploy (`.github/workflows/deploy-production.yml`, triggered after
    their values in logs).
 2. Assembles them, plus a small set of stable public values (URLs, ports),
    into a full `.env` file content.
-3. Writes it directly over SSH with `umask 077` (`cat > .env`, mode `600`),
-   **replacing the file on the server completely** — it never appends or
-   merges with whatever was there before.
-4. Runs `deploy.sh` on the server, which sources that `.env`, rebuilds
-   `apps/web` and `apps/api` (so `NEXT_PUBLIC_*` values get inlined), applies
-   migrations, and reloads both PM2 processes with `--update-env` so they
+3. Writes it directly over SSH with `umask 077` (`cat > shared/.env`, mode
+   `600`), **replacing the file on the server completely** — it never
+   appends or merges with whatever was there before.
+4. Runs `release.sh` on the server, which sources `shared/.env`, applies
+   migrations against the already-built release, atomically switches
+   `current`, and reloads both PM2 processes with `--update-env` so they
    pick up the fresh values.
+
+**WK-80 build-time note:** `NEXT_PUBLIC_*` values are inlined into the web
+build *before* this step even runs - the "Build release artifact" step
+earlier in the same workflow sets them directly as its own (non-secret)
+step env, not from `shared/.env`. See
+[docs/research/wk-80-build-outside-production.md](../research/wk-80-build-outside-production.md)
+for the full build-time/runtime split.
 
 **The list of variables written in step 2 is the single source of truth for
 what reaches production.** `.env.example` / `env.production.example` in the
@@ -76,10 +83,12 @@ See also the short rule in [AGENTS.MD](../../AGENTS.MD).
 ## How secrets reach runtime
 
 GitHub `production` environment secret → workflow step env var (masked in
-logs by GitHub) → piped into an SSH `cat > .env` heredoc (never written to
-the Actions runner's disk, never echoed) → sourced by `deploy.sh` on the
-server → exported to the build step (for `NEXT_PUBLIC_*` inlining) and to PM2
-via `ecosystem.config.cjs` + `pm2 startOrReload/restart --update-env`.
+logs by GitHub) → piped into an SSH `cat > shared/.env` heredoc (never
+written to the Actions runner's disk, never echoed) → sourced by
+`release.sh` on the server → used for migrations and exported to PM2 via
+`ecosystem.config.cjs` + `pm2 reload/restart --update-env`. Secrets never
+reach the build step - `NEXT_PUBLIC_*` inlining happens earlier, on the
+GitHub runner, from non-secret step env only (see WK-80).
 
 ## Current variable inventory
 
@@ -119,6 +128,14 @@ breaks the app):
   have safe fallbacks in `apps/web/src/shared/config/*`.
 - `BACKEND_URL` — set directly in `ecosystem.config.cjs` for the web PM2
   process, not sourced from `.env`.
+- `UPLOADS_DIR` — WK-80: absolute path to user-uploaded files, deliberately
+  outside the versioned `releases/<sha>/` tree (`shared/apps-api-uploads`).
+  Falls back to `process.cwd()`-relative `uploads/` when unset (local dev
+  only) - never falls back like that in production, since `process.cwd()`
+  under a release directory would silently scope uploads to one release and
+  orphan them on the next deploy switch. See
+  `apps/api/src/config/env.ts` and
+  `docs/research/wk-80-build-outside-production.md`.
 
 ## One-time migration: `ADMIN_EMAILS`
 
