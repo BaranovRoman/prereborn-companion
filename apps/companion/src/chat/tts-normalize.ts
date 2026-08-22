@@ -175,10 +175,175 @@ const EXCESSIVE_PUNCTUATION = /[!?.,]{2,}/gu;
 // spoken, per the "skip, don't build a description system" scope.
 const EMOJI_PATTERN = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}️‍]/gu;
 
+// WK-82 - message-body counterpart to the username handling above, but for
+// a completely different reason than "espeak-ng phonemizes Latin badly"
+// (WK-77's motivation). Confirmed directly against the real shipped model
+// (torch.package-loaded v5_5_ru, apply_tts run for real, not guessed):
+// Silero's own PartTTSModelMultiAcc_v3.prepare_text_input() runs a hard
+// character whitelist - `self.symbols` is Cyrillic letters + punctuation +
+// space ONLY - before any phonemization happens, and silently *deletes*
+// every digit and every Latin letter in the input, unconditionally,
+// regardless of spacing or context. "RTX 5060 Ti норм" reaches Silero as
+// "норм"; "HTTP 500"/"Windows 11"/"FPS 144" reach it as "" (empty), which
+// throws inside apply_tts and drops the whole utterance (silently
+// triggering the Piper fallback, or a spurious step toward Silero's
+// consecutive-failure cooldown, for a perfectly healthy sidecar). This is
+// not a phonemization quality problem the way raw Latin usernames were for
+// Piper - it's outright character deletion, so "make the pronunciation
+// nicer" fixes (spacing, phonetic hints) can't help; every digit and Latin
+// letter that must survive has to already be Cyrillic+punctuation by the
+// time it reaches the engine. Piper/espeak-ng already speaks plain
+// Cyrillic text (including Russian number words) correctly, so the same
+// rewritten text works for both engines - no per-engine branching needed.
+//
+// Only ASCII letter/digit runs match below; Cyrillic text (the overwhelming
+// majority of real messages) never matches this pattern and passes through
+// completely untouched.
+const MIXED_TOKEN = /[A-Za-z0-9]+(?:[-_./:][A-Za-z0-9]+)*/g;
+
+const insertLetterDigitBoundaries = (token: string): string =>
+  token.replace(/([A-Za-z])(\d)/g, "$1 $2").replace(/(\d)([A-Za-z])/g, "$1 $2");
+
+// A short, entirely-uppercase run reads as an initialism (RTX, OBS, HTTP,
+// WK, GG, FPS) rather than a word - blending it through the same
+// digraph/letter transliteration used for ordinary words would produce an
+// unpronounceable vowel-less consonant cluster (confirmed directly: Silero
+// keeps "RTX" pre-transliterated to "РТХ" as literal "ртх", not something
+// resembling the initialism read aloud). Mixed- or lower-case runs
+// (Windows, hello, iPhone) are treated as ordinary words instead - this is
+// a surface-form heuristic, not semantic acronym detection, so a
+// shout-cased ordinary word is a known, accepted edge case.
+const MAX_ACRONYM_LENGTH = 6;
+const isLatinAcronym = (run: string) => /^[A-Z]+$/.test(run) && run.length <= MAX_ACRONYM_LENGTH;
+
+// Standard "English letter name, transliterated to Russian" table - the
+// same convention used whenever Russian speech spells out a Latin
+// initialism letter by letter (e.g. "USB" -> "ю-эс-би").
+const LATIN_LETTER_NAMES: Record<string, string> = {
+  a: "эй", b: "би", c: "си", d: "ди", e: "и", f: "эф", g: "джи", h: "эйч",
+  i: "ай", j: "джей", k: "кей", l: "эл", m: "эм", n: "эн", o: "оу", p: "пи",
+  q: "кью", r: "ар", s: "эс", t: "ти", u: "ю", v: "ви", w: "дабл-ю",
+  x: "икс", y: "уай", z: "зед",
+};
+const spellOutLatinLetters = (run: string): string =>
+  run
+    .toLowerCase()
+    .split("")
+    .map((letter) => LATIN_LETTER_NAMES[letter] ?? letter)
+    .join("-");
+
+// Ordinary Latin words/word-fragments reuse the exact same
+// digraph/letter transliteration already proven (WK-77) to give Piper's
+// espeak-ng phonemizer something it can read - "phonetically odd but
+// deterministic and readable, not silently dropped" applies here just as
+// much as it does to usernames.
+const speakLatinPiece = (run: string): string =>
+  isLatinAcronym(run) ? spellOutLatinLetters(run) : transliterateLatinRun(run);
+
+const CARDINAL_ONES = ["", "один", "два", "три", "четыре", "пять", "шесть", "семь", "восемь", "девять"];
+const CARDINAL_ONES_FEM = ["", "одна", "две", "три", "четыре", "пять", "шесть", "семь", "восемь", "девять"];
+const CARDINAL_TEENS = [
+  "десять", "одиннадцать", "двенадцать", "тринадцать", "четырнадцать",
+  "пятнадцать", "шестнадцать", "семнадцать", "восемнадцать", "девятнадцать",
+];
+const CARDINAL_TENS = [
+  "", "", "двадцать", "тридцать", "сорок", "пятьдесят", "шестьдесят", "семьдесят", "восемьдесят", "девяносто",
+];
+const CARDINAL_HUNDREDS = [
+  "", "сто", "двести", "триста", "четыреста", "пятьсот", "шестьсот", "семьсот", "восемьсот", "девятьсот",
+];
+const DIGIT_NAMES = ["ноль", "один", "два", "три", "четыре", "пять", "шесть", "семь", "восемь", "девять"];
+
+// Standard Russian numeral agreement for scale words (тысяча/тысячи/тысяч
+// and the million/billion equivalents): singular for values ending in 1
+// (except 11), "few" for 2-4 (except 12-14), "many" otherwise.
+const pluralFormIndex = (n: number): 0 | 1 | 2 => {
+  const mod100 = n % 100;
+  if (mod100 >= 11 && mod100 <= 14) return 2;
+  const mod10 = n % 10;
+  if (mod10 === 1) return 0;
+  if (mod10 >= 2 && mod10 <= 4) return 1;
+  return 2;
+};
+
+const groupToWords = (n: number, feminine: boolean): string => {
+  const words: string[] = [];
+  const hundreds = Math.floor(n / 100);
+  const rest = n % 100;
+  if (hundreds) words.push(CARDINAL_HUNDREDS[hundreds]);
+  if (rest >= 10 && rest < 20) {
+    words.push(CARDINAL_TEENS[rest - 10]);
+  } else {
+    const tens = Math.floor(rest / 10);
+    const ones = rest % 10;
+    if (tens) words.push(CARDINAL_TENS[tens]);
+    if (ones) words.push((feminine ? CARDINAL_ONES_FEM : CARDINAL_ONES)[ones]);
+  }
+  return words.join(" ");
+};
+
+// Thousand is grammatically feminine (одна тысяча, две тысячи); million and
+// billion are masculine, same as the bare cardinal.
+const SCALES: { forms: [string, string, string]; feminine: boolean }[] = [
+  { forms: ["тысяча", "тысячи", "тысяч"], feminine: true },
+  { forms: ["миллион", "миллиона", "миллионов"], feminine: false },
+  { forms: ["миллиард", "миллиарда", "миллиардов"], feminine: false },
+];
+
+// Beyond this many digits there's no scale word left in SCALES to name the
+// group correctly (and a run this long in chat is far more likely to be an
+// opaque id than a number anyone wants read as a magnitude) - fall back to
+// reading one digit at a time rather than guessing.
+const MAX_CARDINAL_DIGITS = 12;
+
+// Silero's character whitelist strips every digit outright (see the
+// MIXED_TOKEN comment above) - unlike Piper/espeak-ng, which already
+// expands numbers on its own, Silero has no number-to-words logic
+// anywhere in its pipeline. Spelling the number out here is not optional
+// for Silero, and does no harm for Piper (plain Cyrillic number words are
+// just more Cyrillic text).
+const numberToRussianWords = (raw: string): string => {
+  if (raw.length > MAX_CARDINAL_DIGITS) {
+    return raw.split("").map((d) => DIGIT_NAMES[Number(d)]).join(" ");
+  }
+  const n = Number(raw);
+  if (n === 0) return "ноль";
+  const groups: number[] = [];
+  let remaining = n;
+  while (remaining > 0) {
+    groups.push(remaining % 1000);
+    remaining = Math.floor(remaining / 1000);
+  }
+  const parts: string[] = [];
+  for (let i = groups.length - 1; i >= 0; i--) {
+    const value = groups[i];
+    if (value === 0) continue;
+    const scale = i > 0 ? SCALES[i - 1] : undefined;
+    const words = groupToWords(value, scale?.feminine ?? false);
+    if (words) parts.push(words);
+    if (scale) parts.push(scale.forms[pluralFormIndex(value)]);
+  }
+  return parts.join(" ");
+};
+
+// One matched MIXED_TOKEN span (an acronym, a version string, a plain
+// number, a glued letter+digit id - "WK-81", "v5_5_ru", "OBS2", "4455")
+// gets split at letter/digit boundaries and existing separators alike,
+// each piece converted on its own, then rejoined with spaces - the
+// original separator characters are discarded rather than preserved,
+// since Silero doesn't need them back and Piper doesn't need them either.
+const normalizeCodeLikeToken = (token: string): string =>
+  insertLetterDigitBoundaries(token)
+    .split(/[\s\-_./:]+/)
+    .filter(Boolean)
+    .map((piece) => (/^\d+$/.test(piece) ? numberToRussianWords(piece) : speakLatinPiece(piece)))
+    .join(" ");
+
 export const normalizeMessageForSpeech = (text: string): string =>
   text
     .replace(EMOJI_PATTERN, " ")
     .replace(LAUGHTER_PATTERN, "ха-ха")
+    .replace(MIXED_TOKEN, normalizeCodeLikeToken)
     .replace(EXCESSIVE_PUNCTUATION, (run) => (/^(.)\1*$/.test(run) ? run[0] : run.slice(0, 2)))
     .replace(/(.)\1{2,}/gu, "$1$1")
     .replace(/\s+/g, " ")

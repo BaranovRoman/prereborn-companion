@@ -29,10 +29,15 @@ describe("chat model", () => {
     expect(prepareTtsText(message("1", "https://example.com"), enabled)).toBeNull();
     expect(prepareTtsText(message("2", "aaaaaaaaaaaa"), enabled)).toBeNull();
     expect(prepareTtsText(message("3", "notice", "system"), enabled)).toBeNull();
-    expect(prepareTtsText(message("4", "see https://example.com now"), enabled)).toBe("Виевер: see ссылка now");
+    // WK-82: "see"/"now" are ordinary Latin words in the message body, now
+    // transliterated the same way a Latin username fragment already was -
+    // Silero's character whitelist deletes raw Latin outright (see
+    // tts-normalize.ts's normalizeMessageForSpeech comment), so leaving
+    // them as literal English would mean Silero never speaks them at all.
+    expect(prepareTtsText(message("4", "see https://example.com now"), enabled)).toBe("Виевер: сее ссылка нов");
   });
   it("limits length and optionally omits author", () => {
-    expect(prepareTtsText(message("1", "abcdefghij"), { ...enabled, speakAuthor: false, maxLength: 6 })).toBe("abcde…");
+    expect(prepareTtsText(message("1", "abcdefghij"), { ...enabled, speakAuthor: false, maxLength: 6 })).toBe("абкде…");
   });
   it("normalizes the username and message for speech without touching the displayed message", () => {
     const raw = message("5", "хахахахахаха го дальше 🔥", "text");
@@ -63,6 +68,20 @@ describe("chat model", () => {
     expect(result?.endsWith("бабочка?")).toBe(true);
   });
 
+  // WK-82: pipeline-level regression - proves the exact final string handed
+  // to speakWithSilero/speakWithPiper (useTwitchChatSession.ts) survives
+  // Silero's character-whitelist deletion, not just that the isolated
+  // tts-normalize.ts helper does. Goes through prepareTtsText end to end
+  // (author resolution + speechText assembly), the same call site
+  // useTwitchChatSession.ts uses.
+  it("produces a final speech string with no digits/Latin lost to Silero's character whitelist", () => {
+    const raw = message("1", "RTX 5060 Ti норм, WK-81 готов, порт 4455");
+    raw.author = "Wisp";
+    expect(prepareTtsText(raw, enabled)).toBe(
+      "Висп: ар-ти-икс пять тысяч шестьдесят Ти норм, дабл-ю-кей восемьдесят один готов, порт четыре тысячи четыреста пятьдесят пять",
+    );
+  });
+
   it("truncation only kicks in at the character limit, never at sentence punctuation", () => {
     const raw = "первое предложение. второе предложение. третье предложение.";
     expect(prepareTtsText(message("1", raw), { ...enabled, speakAuthor: false, maxLength: 300 })).toBe(raw);
@@ -85,7 +104,10 @@ describe("chat model", () => {
   it("takeNext returns the message id alongside the text for trace correlation", () => {
     const queue = new BoundedTtsQueue();
     queue.enqueue(message("1", "hi there"), enabled, 0);
-    expect(queue.takeNext(0)).toEqual({ id: "1", text: "Виевер: hi there" });
+    // WK-82: "hi there" is ordinary Latin text in the message body - see
+    // the comment on the "see .../now" case above for why it's now
+    // transliterated rather than left raw.
+    expect(queue.takeNext(0)).toEqual({ id: "1", text: "Виевер: хи тхере" });
     expect(queue.takeNext(0)).toBeNull();
   });
 

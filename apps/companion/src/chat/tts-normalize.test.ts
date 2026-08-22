@@ -158,8 +158,19 @@ describe("normalizeMessageForSpeech", () => {
     expect(normalizeMessageForSpeech("го на следующую катку")).toBe("го на следующую катку");
   });
 
-  it("does not mangle a mixed Cyrillic/Latin message", () => {
-    expect(normalizeMessageForSpeech("го play дальше ливай")).toBe("го play дальше ливай");
+  // WK-82: this test's original contract ("mixed Cyrillic/Latin message
+  // survives byte-for-byte") turned out to protect the wrong thing.
+  // Confirmed directly against the real shipped v5_5_ru model: Silero's own
+  // prepare_text_input() runs a hard Cyrillic+punctuation+space character
+  // whitelist and unconditionally *deletes* every digit and Latin letter
+  // before synthesis - "leave it untouched" was actually leaving it to be
+  // silently destroyed by the engine. The safety property worth protecting
+  // was never "bit-identical text", it was "the TTS engine actually speaks
+  // this content" - see the table-driven suite below for the replacement
+  // contract, and normalizeMessageForSpeech's own comment for the full
+  // root-cause writeup.
+  it("transliterates an ordinary Latin word in a mixed message instead of leaving it for Silero to silently delete", () => {
+    expect(normalizeMessageForSpeech("го play дальше ливай")).toBe("го плаы дальше ливай");
   });
 
   it("shortens long laughter", () => {
@@ -206,5 +217,90 @@ describe("normalizeMessageForSpeech", () => {
     expect(normalizeMessageForSpeech(periods)).toBe(periods);
     const mixed = "серьёзно? ты уверен?! точно да!";
     expect(normalizeMessageForSpeech(mixed)).toBe(mixed);
+  });
+});
+
+// WK-82: table-driven regression coverage for mixed Cyrillic/Latin/digit
+// message bodies. Every case here is grounded in a real, directly-confirmed
+// finding (not a guess): Silero's shipped v5_5_ru model runs a hard
+// Cyrillic+punctuation+space character whitelist before synthesis and
+// unconditionally deletes every digit and Latin letter it finds - "RTX 5060
+// Ti норм" reaches the real engine as bare "норм", "HTTP 500" reaches it as
+// "" (which throws and drops the whole utterance). See
+// normalizeMessageForSpeech's own comment for the full writeup and the
+// general rules (token classification, acronym-vs-word, number-to-words)
+// this table exercises - none of these strings are individually
+// special-cased in the implementation.
+describe("normalizeMessageForSpeech - mixed-script/digit regression table (WK-82)", () => {
+  const cases: [string, string][] = [
+    // Bare version/ticket-style codes - acronym spelled out letter by
+    // letter, number spelled out in full, hyphen dropped in favour of a
+    // word boundary.
+    ["WK-81 уже готов", "дабл-ю-кей восемьдесят один уже готов"],
+    ["WK79", "дабл-ю-кей семьдесят девять"],
+    // Spaced acronym + number + ordinary mixed-case word (Ti isn't
+    // all-caps, so it's transliterated as a word, not spelled out).
+    ["RTX 5060 Ti норм", "ар-ти-икс пять тысяч шестьдесят Ти норм"],
+    ["RTX 5060", "ар-ти-икс пять тысяч шестьдесят"],
+    // Underscore/dot-separated version-like token: single-letter prefix,
+    // two digit groups, ordinary trailing word.
+    ["v5_5_ru работает", "в пять пять ру работает"],
+    // A username-shaped word inside the message body (not the author
+    // field) - ordinary-word transliteration, same table as usernames.
+    ["imwisp2 написал 2 сообщения", "имвисп два написал два сообщения"],
+    // Acronym glued directly to a digit, no space.
+    ["OBS2 подключён к порту 4455", "оу-би-эс два подключён к порту четыре тысячи четыреста пятьдесят пять"],
+    // Acronym + number that would otherwise leave Silero literally nothing
+    // to synthesize (confirmed: this exact pair throws inside apply_tts).
+    ["HTTP 500", "эйч-ти-ти-пи пятьсот"],
+    ["Windows 11", "Виндовс одиннадцать"],
+    ["FPS 144", "эф-пи-эс сто сорок четыре"],
+    ["OBS WebSocket 4455", "оу-би-эс Вебсоккет четыре тысячи четыреста пятьдесят пять"],
+    // Digit+letter glued token, single lowercase letter kept as-is (not
+    // expanded to "thousand" - no semantic slang expansion, by design).
+    ["3D модель", "три ди модель"],
+    ["2k рейтинга", "два к рейтинга"],
+    // Digit-hyphen-digit score.
+    ["GG 2-0", "джи-джи два ноль"],
+    // Bare numbers in an otherwise plain Cyrillic sentence - these were
+    // silently deleted by Silero before this fix, with no other symptom.
+    ["порт 0", "порт ноль"],
+    ["счёт 2-0 в нашу пользу", "счёт два ноль в нашу пользу"],
+  ];
+
+  it.each(cases)("%s -> %s", (input, expected) => {
+    expect(normalizeMessageForSpeech(input)).toBe(expected);
+  });
+
+  it("never touches a Cyrillic-only message, even one with a hyphenated compound word", () => {
+    expect(normalizeMessageForSpeech("какой-то результат")).toBe("какой-то результат");
+    expect(normalizeMessageForSpeech("сегодня сыграл три игры подряд")).toBe("сегодня сыграл три игры подряд");
+  });
+
+  it("distinguishes an ordinary Latin word from a short all-caps acronym", () => {
+    // Ordinary words (mixed/lower case) get whole-word phonetic
+    // transliteration, same table as usernames - not spelled out letter by
+    // letter.
+    expect(normalizeMessageForSpeech("hello")).toBe("хелло");
+    expect(normalizeMessageForSpeech("iPhone")).toBe("ипхоне");
+    expect(normalizeMessageForSpeech("Windows")).toBe("Виндовс");
+    // Short all-caps runs are spelled out letter by letter instead, since
+    // blending them the same way produces an unpronounceable consonant
+    // cluster (confirmed: Silero keeps "RTX" pre-transliterated to "РТХ"
+    // as literal "ртх", not something resembling the acronym read aloud).
+    expect(normalizeMessageForSpeech("RTX")).toBe("ар-ти-икс");
+    expect(normalizeMessageForSpeech("OBS")).toBe("оу-би-эс");
+    expect(normalizeMessageForSpeech("HTTP")).toBe("эйч-ти-ти-пи");
+    expect(normalizeMessageForSpeech("USB")).toBe("ю-эс-би");
+  });
+
+  it("keeps a trailing punctuation mark attached to a number token", () => {
+    expect(normalizeMessageForSpeech("порт 4455?")).toBe("порт четыре тысячи четыреста пятьдесят пять?");
+  });
+
+  it("spells out a large digit run rather than dropping it, without needing a special case", () => {
+    expect(normalizeMessageForSpeech("id 48210394 забанен")).toBe(
+      "ид сорок восемь миллионов двести десять тысяч триста девяносто четыре забанен",
+    );
   });
 });
