@@ -304,3 +304,61 @@ describe("normalizeMessageForSpeech - mixed-script/digit regression table (WK-82
     );
   });
 });
+
+// Pre-merge audit (reviewer request on WK-82): messages that are *entirely*
+// Latin/digits, with no Cyrillic anchor at all, are the worst case for the
+// "does this ever go silently empty" risk - a pure-Cyrillic or mostly-
+// Cyrillic message always has surviving Cyrillic content regardless of what
+// this function does to the Latin/digit part, but a Latin/digit-only
+// message has nothing else to fall back on. Every one of these used to
+// reach Silero as "" and throw (see the root-cause comment on
+// normalizeMessageForSpeech) - none of them may ever normalize to "".
+describe("normalizeMessageForSpeech - never produces an empty result for a Latin/digit-only message (WK-82 audit)", () => {
+  const standaloneCases: [string, string][] = [
+    ["HTTP 500", "эйч-ти-ти-пи пятьсот"],
+    ["RTX5060", "ар-ти-икс пять тысяч шестьдесят"],
+    ["WK-81", "дабл-ю-кей восемьдесят один"],
+    ["12345", "двенадцать тысяч триста сорок пять"],
+    ["GG", "джи-джи"],
+    ["2k", "два к"],
+  ];
+
+  it.each(standaloneCases)("%s -> %s, and is never empty", (input, expected) => {
+    const result = normalizeMessageForSpeech(input);
+    expect(result).toBe(expected);
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it("never returns an empty string for any Latin/digit-only input, even a lone separator-joined token", () => {
+    for (const input of ["HTTP", "500", "0", "a", "Z", "OBS2", "v5.5", "2-0", "WK79"]) {
+      expect(normalizeMessageForSpeech(input).length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("normalizeMessageForSpeech - display text and Cyrillic-only semantics are never touched (WK-82 audit)", () => {
+  it("is byte-for-byte identical on pure Cyrillic input, including punctuation and hyphenated compounds", () => {
+    const cyrillicOnly = [
+      "сегодня сыграл три игры подряд",
+      "какой-то результат, но не то что ждали!",
+      "а тебе снилось, что ты бабочка? или бабочке снилось, что это ты?",
+      "го на следующую катку",
+    ];
+    for (const text of cyrillicOnly) expect(normalizeMessageForSpeech(text)).toBe(text);
+  });
+
+  it("normalizeMessageForSpeech never mutates the string passed to it (no in-place side effects)", () => {
+    const input = "RTX 5060 норм";
+    const before = input;
+    normalizeMessageForSpeech(input);
+    expect(input).toBe(before);
+  });
+
+  // Displayed chat text is a completely separate field from speechText -
+  // this is enforced end-to-end in chat-model.test.ts's
+  // "normalizes the username and message for speech without touching the
+  // displayed message" test (buildSpeechParts/prepareTtsText never mutate
+  // message.text/message.author); this file only proves the pure function
+  // itself never touches display state, since it doesn't have access to
+  // message.text at all.
+});

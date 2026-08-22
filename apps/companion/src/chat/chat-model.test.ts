@@ -92,6 +92,66 @@ describe("chat model", () => {
     expect(truncated?.endsWith("…")).toBe(true);
   });
 
+  // WK-82 pre-merge audit: messages that are entirely Latin/digits, no
+  // Cyrillic anchor at all - the worst case for silently going empty, since
+  // there's no leftover Cyrillic content to fall back on. All six used to
+  // reach Silero as "" (HTTP 500/RTX5060/WK-81/12345/GG/2k all hit the
+  // character-whitelist deletion described on normalizeMessageForSpeech)
+  // and throw inside apply_tts, dropping the whole utterance. None of them
+  // may ever produce a null/empty prepareTtsText result through the full
+  // pipeline (message-type/spam filters -> truncation -> normalization ->
+  // author prefix), not just through the isolated normalizeMessageForSpeech
+  // helper (see tts-normalize.test.ts for that half).
+  it.each([
+    ["HTTP 500"], ["RTX5060"], ["WK-81"], ["12345"], ["GG"], ["2k"],
+  ] as const)("prepareTtsText never nulls out or empties a Latin/digit-only message: %s", ([text]) => {
+    const result = prepareTtsText(message("1", text), { ...enabled, speakAuthor: false });
+    expect(result).not.toBeNull();
+    expect(result).not.toBe("");
+    expect(result?.length).toBeGreaterThan(0);
+  });
+
+  // WK-82 pre-merge audit: maxLength truncates settings.maxLength characters
+  // of the *raw* message text, BEFORE normalizeMessageForSpeech runs (see
+  // buildSpeechParts above - truncation happens at the `text.slice(...)`
+  // step, and speechText is computed from that already-truncated string).
+  // This ordering is unchanged by WK-82 - only normalizeMessageForSpeech's
+  // internals changed, not where/how buildSpeechParts calls it. What IS new
+  // is that normalizeMessageForSpeech can now *expand* text (an acronym
+  // becomes several spelled-out letter names, a number becomes several
+  // words) where it previously only ever shrank or preserved length -  so
+  // "final spoken text length <= maxLength" was never a real guarantee to
+  // begin with for Latin content, it was just incidentally true before this
+  // fix because the old normalizeMessageForSpeech was a no-op on Latin/
+  // digits. maxLength still does exactly what it always did: bound how much
+  // of the *raw* message gets read at all, protecting against pathological
+  // raw input (e.g. a giant paste) - it was never a bound on synthesized
+  // audio duration, and this PR doesn't change that contract or introduce a
+  // new one. Extreme all-digit spam is still caught upstream by
+  // REPEATED_PATTERN (8+ repeats of the same character) before maxLength or
+  // normalization ever run.
+  it("truncates the raw message before normalization, so expansion from acronym/number spelling is not double-counted against maxLength", () => {
+    // Raw text is short (13 chars, well under maxLength=180) but expands
+    // significantly once normalized - truncation must not kick in at all
+    // here, since it's measured against the raw length, not the eventual
+    // spoken length.
+    const raw = "WK-81 RTX 5060";
+    expect(raw.length).toBeLessThan(enabled.maxLength);
+    const result = prepareTtsText(message("1", raw), { ...enabled, speakAuthor: false });
+    expect(result).toBe("дабл-ю-кей восемьдесят один ар-ти-икс пять тысяч шестьдесят");
+    expect(result!.length).toBeGreaterThan(raw.length); // expansion happened, and that's expected/fine
+
+    // A tight maxLength still truncates the *raw* text exactly as before -
+    // the cut lands mid-token ("WK-81 RTX 50" cut from "WK-81 RTX 5060"),
+    // and normalization then reads whatever raw fragment survived
+    // (including a differently-truncated number) rather than the original
+    // untruncated token - a pre-existing, non-regressive property of
+    // character-count truncation applied before any semantic step, not
+    // something WK-82 introduced.
+    const tight = prepareTtsText(message("2", raw), { ...enabled, speakAuthor: false, maxLength: 13 });
+    expect(tight).toBe("дабл-ю-кей восемьдесят один ар-ти-икс пятьдесят…");
+  });
+
   it("deduplicates, bounds and expires the queue", () => {
     const queue = new BoundedTtsQueue(2, 100);
     expect(queue.enqueue(message("1"), enabled, 0)).toBe(true);
