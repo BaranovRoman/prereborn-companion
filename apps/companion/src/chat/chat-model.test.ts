@@ -29,10 +29,15 @@ describe("chat model", () => {
     expect(prepareTtsText(message("1", "https://example.com"), enabled)).toBeNull();
     expect(prepareTtsText(message("2", "aaaaaaaaaaaa"), enabled)).toBeNull();
     expect(prepareTtsText(message("3", "notice", "system"), enabled)).toBeNull();
-    expect(prepareTtsText(message("4", "see https://example.com now"), enabled)).toBe("Виевер: see ссылка now");
+    // WK-82: "see"/"now" are ordinary Latin words in the message body, now
+    // transliterated the same way a Latin username fragment already was -
+    // Silero's character whitelist deletes raw Latin outright (see
+    // tts-normalize.ts's normalizeMessageForSpeech comment), so leaving
+    // them as literal English would mean Silero never speaks them at all.
+    expect(prepareTtsText(message("4", "see https://example.com now"), enabled)).toBe("Виевер: сее ссылка нов");
   });
   it("limits length and optionally omits author", () => {
-    expect(prepareTtsText(message("1", "abcdefghij"), { ...enabled, speakAuthor: false, maxLength: 6 })).toBe("abcde…");
+    expect(prepareTtsText(message("1", "abcdefghij"), { ...enabled, speakAuthor: false, maxLength: 6 })).toBe("абкде…");
   });
   it("normalizes the username and message for speech without touching the displayed message", () => {
     const raw = message("5", "хахахахахаха го дальше 🔥", "text");
@@ -63,6 +68,20 @@ describe("chat model", () => {
     expect(result?.endsWith("бабочка?")).toBe(true);
   });
 
+  // WK-82: pipeline-level regression - proves the exact final string handed
+  // to speakWithSilero/speakWithPiper (useTwitchChatSession.ts) survives
+  // Silero's character-whitelist deletion, not just that the isolated
+  // tts-normalize.ts helper does. Goes through prepareTtsText end to end
+  // (author resolution + speechText assembly), the same call site
+  // useTwitchChatSession.ts uses.
+  it("produces a final speech string with no digits/Latin lost to Silero's character whitelist", () => {
+    const raw = message("1", "RTX 5060 Ti норм, WK-81 готов, порт 4455");
+    raw.author = "Wisp";
+    expect(prepareTtsText(raw, enabled)).toBe(
+      "Висп: ар-ти-икс пять тысяч шестьдесят Ти норм, дабл-ю-кей восемьдесят один готов, порт четыре тысячи четыреста пятьдесят пять",
+    );
+  });
+
   it("truncation only kicks in at the character limit, never at sentence punctuation", () => {
     const raw = "первое предложение. второе предложение. третье предложение.";
     expect(prepareTtsText(message("1", raw), { ...enabled, speakAuthor: false, maxLength: 300 })).toBe(raw);
@@ -71,6 +90,66 @@ describe("chat model", () => {
     const truncated = prepareTtsText(message("2", raw), { ...enabled, speakAuthor: false, maxLength: 20 });
     expect(truncated).toHaveLength(20);
     expect(truncated?.endsWith("…")).toBe(true);
+  });
+
+  // WK-82 pre-merge audit: messages that are entirely Latin/digits, no
+  // Cyrillic anchor at all - the worst case for silently going empty, since
+  // there's no leftover Cyrillic content to fall back on. All six used to
+  // reach Silero as "" (HTTP 500/RTX5060/WK-81/12345/GG/2k all hit the
+  // character-whitelist deletion described on normalizeMessageForSpeech)
+  // and throw inside apply_tts, dropping the whole utterance. None of them
+  // may ever produce a null/empty prepareTtsText result through the full
+  // pipeline (message-type/spam filters -> truncation -> normalization ->
+  // author prefix), not just through the isolated normalizeMessageForSpeech
+  // helper (see tts-normalize.test.ts for that half).
+  it.each([
+    ["HTTP 500"], ["RTX5060"], ["WK-81"], ["12345"], ["GG"], ["2k"],
+  ] as const)("prepareTtsText never nulls out or empties a Latin/digit-only message: %s", ([text]) => {
+    const result = prepareTtsText(message("1", text), { ...enabled, speakAuthor: false });
+    expect(result).not.toBeNull();
+    expect(result).not.toBe("");
+    expect(result?.length).toBeGreaterThan(0);
+  });
+
+  // WK-82 pre-merge audit: maxLength truncates settings.maxLength characters
+  // of the *raw* message text, BEFORE normalizeMessageForSpeech runs (see
+  // buildSpeechParts above - truncation happens at the `text.slice(...)`
+  // step, and speechText is computed from that already-truncated string).
+  // This ordering is unchanged by WK-82 - only normalizeMessageForSpeech's
+  // internals changed, not where/how buildSpeechParts calls it. What IS new
+  // is that normalizeMessageForSpeech can now *expand* text (an acronym
+  // becomes several spelled-out letter names, a number becomes several
+  // words) where it previously only ever shrank or preserved length -  so
+  // "final spoken text length <= maxLength" was never a real guarantee to
+  // begin with for Latin content, it was just incidentally true before this
+  // fix because the old normalizeMessageForSpeech was a no-op on Latin/
+  // digits. maxLength still does exactly what it always did: bound how much
+  // of the *raw* message gets read at all, protecting against pathological
+  // raw input (e.g. a giant paste) - it was never a bound on synthesized
+  // audio duration, and this PR doesn't change that contract or introduce a
+  // new one. Extreme all-digit spam is still caught upstream by
+  // REPEATED_PATTERN (8+ repeats of the same character) before maxLength or
+  // normalization ever run.
+  it("truncates the raw message before normalization, so expansion from acronym/number spelling is not double-counted against maxLength", () => {
+    // Raw text is short (13 chars, well under maxLength=180) but expands
+    // significantly once normalized - truncation must not kick in at all
+    // here, since it's measured against the raw length, not the eventual
+    // spoken length.
+    const raw = "WK-81 RTX 5060";
+    expect(raw.length).toBeLessThan(enabled.maxLength);
+    const result = prepareTtsText(message("1", raw), { ...enabled, speakAuthor: false });
+    expect(result).toBe("дабл-ю-кей восемьдесят один ар-ти-икс пять тысяч шестьдесят");
+    expect(result!.length).toBeGreaterThan(raw.length); // expansion happened, and that's expected/fine
+
+    // A tight maxLength still truncates the *raw* text exactly as before -
+    // the cut lands mid-token ("WK-81 RTX 50" cut from "WK-81 RTX 5060"),
+    // and normalization then reads whatever raw fragment survived
+    // (including a differently-truncated number) rather than the original
+    // untruncated token - a pre-existing, non-regressive property of
+    // character-count truncation applied before any semantic step, not
+    // something WK-82 introduced.
+    const tight = prepareTtsText(message("2", raw), { ...enabled, speakAuthor: false, maxLength: 13 });
+    expect(tight).toBe("дабл-ю-кей восемьдесят один ар-ти-икс пятьдесят…");
   });
 
   it("deduplicates, bounds and expires the queue", () => {
@@ -85,7 +164,10 @@ describe("chat model", () => {
   it("takeNext returns the message id alongside the text for trace correlation", () => {
     const queue = new BoundedTtsQueue();
     queue.enqueue(message("1", "hi there"), enabled, 0);
-    expect(queue.takeNext(0)).toEqual({ id: "1", text: "Виевер: hi there" });
+    // WK-82: "hi there" is ordinary Latin text in the message body - see
+    // the comment on the "see .../now" case above for why it's now
+    // transliterated rather than left raw.
+    expect(queue.takeNext(0)).toEqual({ id: "1", text: "Виевер: хи тхере" });
     expect(queue.takeNext(0)).toBeNull();
   });
 
