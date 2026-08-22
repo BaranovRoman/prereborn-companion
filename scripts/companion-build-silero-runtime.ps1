@@ -16,8 +16,8 @@
 # install's DLLs) - the official "embeddable package" from python.org is
 # the correct, genuinely self-contained mechanism. Also validated there:
 # `pip install torch` fails under Windows' MAX_PATH limit unless the build
-# root is short - same class of problem companion-build-piper-runtime.ps1
-# already works around with its own short `C:\pb` root.
+# root is short - the same class of problem the (now-removed, WK-80)
+# Piper build script used to work around with its own short `C:\pb` root.
 $ErrorActionPreference = "Stop"
 
 $PythonVersion = "3.12.10"
@@ -57,9 +57,9 @@ Write-Host "=== Copying sidecar script ==="
 Copy-Item (Join-Path $PSScriptRoot "silero_sidecar.py") $runtimeDir
 
 Write-Host "=== Writing non-commercial license notice ==="
-# Mirrors how companion-build-piper-runtime.ps1 bundles GPL-3.0 notice text
-# alongside that engine's redistributed binary - here for a different
-# reason (NC, not copyleft), but the same "the notice travels with the
+# Mirrors how the (now-removed, WK-80) Piper build script used to bundle
+# GPL-3.0 notice text alongside that engine's redistributed binary - here
+# for a different reason (NC, not copyleft), but the same "the notice travels with the
 # thing it applies to" principle.
 @"
 Silero TTS model v5_5_ru
@@ -143,7 +143,8 @@ Write-Host "Smoke test OK - wav size: $($wav.Length) bytes"
 Write-Host "=== Packaging release assets ==="
 # Runtime archive: Python + torch + sidecar script, no model - the model is
 # its own asset so a future model update doesn't force re-downloading the
-# ~650MB runtime, matching how Piper splits engine vs. voice.
+# ~650MB runtime, matching how the (now-removed, WK-80) Piper build used
+# to split engine vs. voice.
 Compress-Archive -Path "$runtimeDir\*" -DestinationPath (Join-Path $OutDir "silero-runtime-win-x64.zip") -Force
 Compress-Archive -Path "$modelDir\*" -DestinationPath (Join-Path $OutDir "silero-model-v5-5-ru.zip") -Force
 

@@ -1,18 +1,32 @@
-// Shared sidecar-process IPC primitives used by both local TTS engines
-// (tts.rs - Piper, silero.rs - Silero, WK-81). Extracted rather than
-// duplicated because these solve the exact same correctness problem for
-// both engines: WK-79 found that guessing a subprocess's completion from
-// filesystem state (newest file, size-stability polling) silently returns
-// the wrong or truncated audio. Both engines instead read an explicit,
-// per-request completion signal from the child's stdout - this module is
-// that plumbing, not engine-specific synthesis logic.
+// Shared sidecar-process IPC primitives for local TTS engines. Originally
+// extracted because both Piper (tts.rs) and Silero (silero.rs, WK-81) solved
+// the exact same correctness problem: WK-79 found that guessing a
+// subprocess's completion from filesystem state (newest file, size-
+// stability polling) silently returns the wrong or truncated audio - both
+// engines instead read an explicit, per-request completion signal from the
+// child's stdout, and this module is that plumbing. Piper itself was
+// removed in WK-80 (Silero -> system speechSynthesis is now the whole
+// fallback chain); kept as its own module since silero.rs still depends on
+// it and there's exactly one engine left to share it with.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use tauri::{AppHandle, Manager};
+
 #[cfg(windows)]
 pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+// Was tts.rs's (Piper's) helper, moved here when Piper was removed (WK-80)
+// since silero.rs still needs a shared "tts" root under app_data_dir() to
+// nest its own `voices`/`engine`/`scratch` subdirectories under.
+pub fn tts_dir(app: &AppHandle) -> PathBuf {
+    app.path()
+        .app_data_dir()
+        .expect("app_data_dir must resolve")
+        .join("tts")
+}
 
 // An *explicit* --espeak_data path (as opposed to cwd/relative resolution)
 // turned out not to be enough on its own for Piper: espeak-ng's own

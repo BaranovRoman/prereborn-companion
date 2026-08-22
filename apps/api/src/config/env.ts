@@ -1,6 +1,20 @@
 import dotenv from "dotenv";
+import path from "path";
 
 dotenv.config();
+
+// WK-80 - explicit, absolute, version-independent uploads location. Must
+// NOT be derived from process.cwd(): once production runs the API from a
+// versioned `releases/<sha>/api` directory behind a `current` symlink,
+// process.cwd() resolves to that release's own directory (physical path,
+// not the symlink), which would silently scope user-uploaded files to one
+// release and orphan them on every switch. UPLOADS_DIR points at a fixed,
+// non-versioned location instead (see docs/production-deployment.md); falls
+// back to cwd-relative "uploads" for local dev, where there is no release
+// directory at all.
+const uploadsDir = process.env.UPLOADS_DIR
+    ? path.resolve(process.env.UPLOADS_DIR)
+    : path.join(process.cwd(), "uploads");
 
 // Отдельный секрет для сервиса стрим-оверлеев (/api/stream/*) - эта система
 // пользователей полностью изолирована от админки: свой JWT_SECRET гарантирует,
@@ -81,6 +95,7 @@ const adminEmails = (process.env.ADMIN_EMAILS ?? "")
 
 export const env = {
     streamJwtSecret,
+    uploadsDir,
     steamOpenidRealm,
     steamOpenidReturnUrl,
     openDotaApiKey,

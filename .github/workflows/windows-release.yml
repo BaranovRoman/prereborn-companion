@@ -176,27 +176,15 @@ jobs:
         shell: powershell
         run: ./scripts/companion-checksums.ps1
 
-      # WK-75 - builds the local Piper TTS sidecar Companion downloads on
-      # first opt-in (apps/companion/src-tauri/src/tts.rs), never bundled
-      # in the installer itself. See docs/research/local-tts-licensing.md
-      # for why it's a separate subprocess and docs/research/wk-74-libpiper-ci-spike.md
-      # for the build gotchas this script encodes (MAX_PATH, vswhere-based
-      # MSVC discovery, DLL colocation). Independent of the Tauri build
-      # above - failure here shouldn't be silent, so it's a hard step
-      # failure like everything else in this job.
-      - name: Build + package Piper TTS runtime and voice
-        shell: powershell
-        run: ./scripts/companion-build-piper-runtime.ps1
-
       # WK-81 - builds the local Silero TTS sidecar Companion downloads on
       # first opt-in (apps/companion/src-tauri/src/silero.rs): a
       # self-contained Python 3.12 (embeddable package, not a venv - see
       # docs/research/wk-81-silero-tts-feasibility.md for why a venv isn't
       # redistributable) + PyTorch CPU + the sidecar script, plus the
       # v5_5_ru model as a separate asset. No toolchain setup needed here -
-      # the script downloads its own portable Python. Independent of the
-      # Piper step above; a hard step failure like everything else in this
-      # job, not a silent skip.
+      # the script downloads its own portable Python. A hard step failure
+      # like everything else in this job, not a silent skip. (WK-80 removed
+      # the equivalent Piper build step that used to run here.)
       - name: Build + package Silero TTS runtime and model
         shell: powershell
         run: ./scripts/companion-build-silero-runtime.ps1
@@ -221,7 +209,5 @@ jobs:
             apps/companion/src-tauri/target/release/bundle/nsis/*.sha256
             apps/companion/src-tauri/target/release/bundle/nsis/*.sig
             latest.json
-            piper-dist/*.zip
-            piper-dist/*.sha256
             silero-dist/*.zip
             silero-dist/*.sha256

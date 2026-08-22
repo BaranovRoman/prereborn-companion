@@ -23,6 +23,33 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # WK-80 - production stops building entirely: the artifact is built
+      # here, on the GitHub-hosted runner, and only its compiled output is
+      # shipped to the server. See docs/research/wk-80-build-outside-production.md.
+      # These four NEXT_PUBLIC_* values are the only build-time inputs
+      # `next build` needs (get inlined into the client bundle) - none are
+      # secret (verified: public URLs only), so this step needs zero
+      # GitHub secrets.
+      - name: Build release artifact
+        env:
+          NEXT_PUBLIC_API_URL: /api
+          NEXT_PUBLIC_SITE_URL: https://prereborn.ru
+          NEXT_PUBLIC_MEDIA_BASE_URL: https://prereborn.ru/media
+          NEXT_PUBLIC_DOTA_COMPANION_DOWNLOAD_URL: https://github.com/BaranovRoman/prereborn-companion/releases/download/prereborn-v0.3.1/PreReborn.Companion_0.3.1_x64-setup.exe
+        run: bash scripts/build-release-artifact.sh artifact-out "${{ github.event.workflow_run.head_sha }}"
+
       - name: Configure SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
@@ -34,7 +61,7 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Ensure release directory exists
+      - name: Ensure release infrastructure exists
         env:
           SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
           SSH_PORT: ${{ secrets.PRODUCTION_SSH_PORT }}
@@ -42,23 +69,20 @@ jobs:
         run: |
           ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
             -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            'mkdir -p /var/www/www-root/data/www/prereborn.ru'
+            'mkdir -p /var/www/www-root/data/www/prereborn.ru/releases \
+               /var/www/www-root/data/www/prereborn.ru/shared/logs \
+               /var/www/www-root/data/www/prereborn.ru/shared/apps-api-uploads \
+               /var/www/www-root/data/www/prereborn.ru/incoming'
 
-      - name: Upload verified source
+      - name: Upload artifact and release script
         env:
           SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
           SSH_PORT: ${{ secrets.PRODUCTION_SSH_PORT }}
           SSH_USER: ${{ secrets.PRODUCTION_SSH_USER }}
         run: |
-          rsync -az --delete \
-            -e "ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -p $SSH_PORT" \
-            --exclude='.git/' \
-            --exclude='.env' \
-            --exclude='node_modules/' \
-            --exclude='logs/' \
-            --exclude='apps/api/uploads/' \
-            --exclude='apps/web/public/vendor/valve/video/' \
-            ./ "$SSH_USER@$SSH_HOST:/var/www/www-root/data/www/prereborn.ru/"
+          scp -o ServerAliveInterval=30 -o ServerAliveCountMax=10 -P "$SSH_PORT" \
+            artifact-out/release.tar.gz artifact-out/release.tar.gz.sha256 release.sh \
+            "$SSH_USER@$SSH_HOST:/var/www/www-root/data/www/prereborn.ru/incoming/"
 
       - name: Install production environment
         env:
@@ -120,6 +144,9 @@ jobs:
             printf 'DONATION_ALERTS_REDIRECT_URI=https://prereborn.ru/api/stream/integrations/donation-alerts/callback\n'
             printf 'DONATION_ALERTS_FRONTEND_ORIGIN=https://prereborn.ru\n'
             printf 'BACKEND_URL=http://127.0.0.1:5102\n'
+            # WK-80 - fixed, non-versioned uploads location; must never live
+            # inside a `releases/<sha>/` directory (see apps/api/src/config/env.ts).
+            printf 'UPLOADS_DIR=/var/www/www-root/data/www/prereborn.ru/shared/apps-api-uploads\n'
             printf 'NEXT_PUBLIC_API_URL=/api\n'
             printf 'NEXT_PUBLIC_SITE_URL=https://prereborn.ru\n'
             printf 'NEXT_PUBLIC_MEDIA_BASE_URL=https://prereborn.ru/media\n'
@@ -127,9 +154,14 @@ jobs:
           } | \
             ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
             -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-              'umask 077; cat > /var/www/www-root/data/www/prereborn.ru/.env'
+              'umask 077; cat > /var/www/www-root/data/www/prereborn.ru/shared/.env'
 
-      - name: Build, migrate and reload
+      # WK-80 - production only extracts, migrates, atomically switches, and
+      # reloads PM2. No `pnpm install`, `next build`, or `tsc` ever runs
+      # here anymore - see release.sh for the full extract/verify/migrate/
+      # switch/health-check/rollback sequence (dry-run tested locally via
+      # scripts/test-release-sh.sh before this workflow existed).
+      - name: Release (extract, migrate, switch, reload, health-check)
         env:
           SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
           SSH_PORT: ${{ secrets.PRODUCTION_SSH_PORT }}
@@ -137,7 +169,7 @@ jobs:
         run: |
           ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
             -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            'cd /var/www/www-root/data/www/prereborn.ru && SKIP_GIT_PULL=1 bash deploy.sh'
+            "cd /var/www/www-root/data/www/prereborn.ru && bash incoming/release.sh '${{ github.event.workflow_run.head_sha }}' incoming/release.tar.gz"
 
       - name: Verify public endpoint
         run: |

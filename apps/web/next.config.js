@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // WK-80 - traces the real runtime import graph into .next/standalone so
+  // production can run from a self-contained artifact instead of the full
+  // monorepo node_modules tree. See docs/research/wk-80-build-outside-production.md.
+  output: "standalone",
   reactStrictMode: true,
   transpilePackages: ["antd", "@ant-design/icons"],
   sassOptions: { api: "modern-compiler" },

@@ -1,10 +1,12 @@
 import type { SileroVoice, TwitchChatMessage } from "../services/dotaCompanionApi";
 import { normalizeMessageForSpeech, parsePronunciationOverrides, resolveSpokenUsername } from "./tts-normalize";
 
-// WK-81 - Silero is now the primary engine (see docs/research/wk-81-silero-tts-feasibility.md),
-// Piper the fallback, system speechSynthesis the last resort - the fallback
-// chain itself lives in useTwitchChatSession.ts, not here.
-export type TtsEngine = "system" | "piper" | "silero";
+// WK-81 - Silero is the primary engine (see docs/research/wk-81-silero-tts-feasibility.md).
+// WK-80 removed Piper: system speechSynthesis is now Silero's only
+// fallback - the fallback chain itself lives in useTwitchChatSession.ts,
+// not here. "system" isn't user-selectable from the settings UI, only
+// reachable as the automatic fallback.
+export type TtsEngine = "system" | "silero";
 export interface ChatSettings {
   soundEnabled: boolean;
   ttsEnabled: boolean;

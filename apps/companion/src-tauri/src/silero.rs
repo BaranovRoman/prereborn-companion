@@ -135,7 +135,7 @@ impl Default for SileroConfig {
 }
 
 pub fn silero_dir(app: &AppHandle) -> PathBuf {
-    crate::tts::tts_dir(app).join("silero")
+    crate::tts_common::tts_dir(app).join("silero")
 }
 fn runtime_dir(app: &AppHandle) -> PathBuf {
     silero_dir(app).join("runtime")

@@ -8,7 +8,6 @@ mod server;
 mod silero;
 mod state;
 mod storage;
-mod tts;
 mod tts_common;
 
 use tauri::{
@@ -36,7 +35,6 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                 }
             }
             "quit" => {
-                tts::stop(app);
                 silero::stop(app);
                 hotkeys::stop(app);
                 app.exit(0);
@@ -113,7 +111,6 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(AppState::new())
         .manage(diagnostics::DiagnosticsState::new())
-        .manage(tts::TtsState::new())
         .manage(silero::SileroState::new())
         .manage(hotkeys::HotkeysState::new())
         .setup(|app| {
@@ -126,7 +123,6 @@ pub fn run() {
             // scan, just this one check at launch (cleanup_legacy_payloads
             // itself is a no-op once nothing is left to clean).
             storage::cleanup_legacy_payloads(&handle);
-            tts::init(&handle);
             silero::init(&handle);
             hotkeys::init(&handle);
             {
@@ -175,9 +171,6 @@ pub fn run() {
             commands::diagnostics_stop,
             commands::diagnostics_clear,
             commands::diagnostics_export,
-            commands::get_tts_status,
-            commands::set_tts_enabled,
-            commands::synthesize_piper_tts,
             commands::get_silero_status,
             commands::set_silero_enabled,
             commands::set_silero_voice,

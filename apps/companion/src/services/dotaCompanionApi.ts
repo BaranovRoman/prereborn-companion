@@ -38,27 +38,14 @@ export const saveCompanionToken = (token: string) =>
 export const getTwitchChat = () => invoke<TwitchChatStatus>("get_twitch_chat");
 export const openTwitchSettings = () => invoke<void>("open_twitch_settings");
 
-export type PiperTtsEngineState = "notStarted" | "starting" | "ready" | "crashed" | "unavailable";
-export interface PiperTtsStatus {
-  enabled: boolean;
-  state: PiperTtsEngineState;
-  lastError: string | null;
-  resourcesReady: boolean;
-}
-export const getPiperTtsStatus = () => invoke<PiperTtsStatus>("get_tts_status");
-export const setPiperTtsEnabled = (enabled: boolean) =>
-  invoke<PiperTtsStatus>("set_tts_enabled", { enabled });
+// WK-81 - local Silero TTS sidecar, the primary (and, since WK-80 removed
+// Piper, only local) synthesis engine - system speechSynthesis is the
+// fallback, handled entirely on the frontend (see useTwitchChatSession.ts).
 // Returns base64-encoded WAV bytes - Tauri's default JSON IPC would blow up
 // a raw Vec<u8> into one JSON number per byte (~3-4x the payload size for
 // a synthesized clip), base64 is far cheaper to transport for this size.
 // `messageId` is diagnostics-only (see diagnostics_trace_tts_frontend below)
 // - omitting it changes nothing about synthesis itself.
-export const synthesizePiperTts = (text: string, messageId?: string) =>
-  invoke<string>("synthesize_piper_tts", { text, messageId });
-
-// WK-81 - local Silero TTS sidecar, the primary synthesis engine (Piper
-// above is the fallback). Same shape as the Piper bindings for the same
-// reasons (base64 WAV transport, optional diagnostics messageId).
 export type SileroTtsEngineState = "notStarted" | "starting" | "ready" | "crashed" | "unavailable";
 export type SileroVoice = "aidar" | "baya" | "kseniya" | "xenia" | "eugene";
 export interface SileroTtsStatus {
@@ -77,8 +64,8 @@ export const synthesizeSileroTts = (text: string, voice: SileroVoice, messageId?
   invoke<string>("synthesize_silero_tts", { text, voice, messageId });
 
 // TTS pipeline diagnostics trace - the frontend-owned half (queue/playback
-// stage timestamps; the Rust/Piper side writes its own half directly from
-// tts.rs). No-op unless a diagnostics session is active
+// stage timestamps; the Rust/Silero side writes its own half directly from
+// silero.rs). No-op unless a diagnostics session is active
 // (diagnostics::observe_tts_stage), so this is safe to call unconditionally
 // - callers should fire-and-forget it (`void diagnosticsTraceTtsFrontend(...)`)
 // rather than await it, so a diagnostics IPC round-trip can never add

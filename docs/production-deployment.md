@@ -1,9 +1,42 @@
 # Production deployment
 
 Production deploys automatically after the `CI` workflow succeeds for `main`.
-GitHub Actions uploads the exact verified commit over SSH, then the server
-builds the web/API applications, applies database migrations, reloads PM2 and
-runs health checks.
+GitHub Actions builds a versioned, self-contained release artifact on the
+runner itself (see `scripts/build-release-artifact.sh`) - the production
+server never runs `pnpm install`, `next build`, or `tsc`. The artifact is
+uploaded over SSH, then `release.sh` on the server extracts it into
+`releases/<sha>/`, applies database migrations against its compiled output,
+atomically switches the `current` symlink, reloads PM2, and runs health
+checks - automatically rolling `current` back to the previous release if the
+new one doesn't come up healthy. See
+`docs/research/wk-80-build-outside-production.md` for the full design and
+`scripts/test-release-sh.sh` for a local dry run of the whole flow (extract,
+migrate, atomic switch, health check, automatic rollback) against a
+throwaway Postgres database and real PM2, no production server involved.
+
+## Production layout
+
+```
+/var/www/www-root/data/www/prereborn.ru/
+├── releases/<sha>/        # one directory per deployed commit - web/api build output + node_modules
+├── current -> releases/<sha>   # atomically repointed on every successful deploy
+├── shared/
+│   ├── .env                    # written by "Install production environment" - never per-release
+│   ├── logs/                   # PM2 error/out logs
+│   └── apps-api-uploads/       # user-uploaded files (UPLOADS_DIR) - never per-release, see below
+└── incoming/               # scratch space for the just-uploaded artifact + release.sh
+```
+
+`nginx.production.conf` is untouched by this layout: every route proxies to
+the PM2-managed Node processes on fixed loopback ports (5100/5102), so
+nginx never needs to know which release is current - only
+`ecosystem.config.cjs` (via the `current` symlink) and `release.sh` do.
+`apps/api/src/config/env.ts`'s `UPLOADS_DIR` deliberately keeps uploaded
+files out of the versioned `releases/<sha>/` tree entirely (not even via a
+symlink) - `process.cwd()` inside a release resolves to that release's own
+directory, which would otherwise silently scope user uploads to whichever
+release happened to be current when they were uploaded, and orphan them on
+the next switch.
 
 ## One-time server bootstrap
 
@@ -26,14 +59,13 @@ sudo mkdir -p /var/www/www-root/data/www/prereborn.ru
 sudo chown -R www-root:www-root /var/www/www-root/data/www/prereborn.ru
 ```
 
-Install Node.js 20+, Corepack, PM2 and rsync on the server. The project pins
-its compatible pnpm version through `packageManager`. Confirm:
+Install Node.js 20+ and PM2 on the server (Corepack/pnpm are no longer
+needed there - the release artifact ships its own `node_modules`, and
+production never runs `pnpm install`/`next build`/`tsc`; see WK-80). Confirm:
 
 ```bash
 node --version
-corepack pnpm --version
 pm2 --version
-rsync --version
 ```
 
 Do not create `.env` manually. GitHub Actions assembles it from separate
@@ -122,7 +154,19 @@ Run the command printed by PM2 and then:
 pm2 save
 ```
 
-`bash deploy.sh` remains available as an emergency manual fallback.
+`release.sh` remains available as an emergency manual fallback - run it from
+`/var/www/www-root/data/www/prereborn.ru` with the target commit SHA and the
+path to an already-uploaded artifact tarball:
+
+```bash
+bash release.sh <sha> <path-to-release.tar.gz>
+```
+
+It expects `<path>.sha256` next to the tarball and `shared/.env` to already
+exist. See `release.sh`'s own header comment for the full env var overrides
+(`DEPLOY_ROOT`, `PM2_BIN`, etc.) and
+`docs/research/wk-80-build-outside-production.md` for the design this
+replaced (the old `deploy.sh`, which built on the server, is removed).
 
 ## Adding or changing an environment variable
 

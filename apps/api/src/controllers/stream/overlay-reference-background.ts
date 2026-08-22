@@ -15,8 +15,9 @@ import {
     deleteReferenceBackground,
 } from "../../services/stream-overlay-reference-background-service.js";
 import { logger } from "../../utils/logger.js";
+import { env } from "../../config/env.js";
 
-const uploadsDir = path.join(process.cwd(), "uploads");
+const uploadsDir = env.uploadsDir;
 if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
