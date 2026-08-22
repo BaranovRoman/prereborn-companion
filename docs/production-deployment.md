@@ -22,8 +22,8 @@ throwaway Postgres database and real PM2, no production server involved.
 ├── current -> releases/<sha>   # atomically repointed on every successful deploy
 ├── shared/
 │   ├── .env                    # written by "Install production environment" - never per-release
-│   ├── logs/                   # PM2 error/out logs
-│   └── apps-api-uploads/       # user-uploaded files (UPLOADS_DIR) - never per-release, see below
+│   └── logs/                   # PM2 error/out logs
+├── apps/api/uploads/       # user-uploaded files (UPLOADS_DIR) - unchanged path, see below
 └── incoming/               # scratch space for the just-uploaded artifact + release.sh
 ```
 
@@ -32,11 +32,16 @@ the PM2-managed Node processes on fixed loopback ports (5100/5102), so
 nginx never needs to know which release is current - only
 `ecosystem.config.cjs` (via the `current` symlink) and `release.sh` do.
 `apps/api/src/config/env.ts`'s `UPLOADS_DIR` deliberately keeps uploaded
-files out of the versioned `releases/<sha>/` tree entirely (not even via a
-symlink) - `process.cwd()` inside a release resolves to that release's own
-directory, which would otherwise silently scope user uploads to whichever
-release happened to be current when they were uploaded, and orphan them on
-the next switch.
+files out of the versioned `releases/<sha>/` tree entirely - `process.cwd()`
+inside a release resolves to that release's own directory, which would
+otherwise silently scope user uploads to whichever release happened to be
+current when they were uploaded, and orphan them on the next switch.
+`UPLOADS_DIR` points at the *same* absolute path (`apps/api/uploads/`,
+directly under the deploy root, not under `releases/`) that both
+`nginx.production.conf`'s `/uploads/` alias and pre-WK-80 deploys already
+used - deliberately not moved under `shared/`, so this migration needed
+neither an nginx config change nor a data migration for already-uploaded
+files.
 
 ## One-time server bootstrap
 

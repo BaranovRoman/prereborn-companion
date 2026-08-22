@@ -41,7 +41,7 @@ dropdb -h 127.0.0.1 "$TEST_DB" >/dev/null 2>&1 || true
 createdb -h 127.0.0.1 "$TEST_DB"
 
 FAKE_ROOT="$WORK/fake-prod-root"
-mkdir -p "$FAKE_ROOT/shared/logs" "$FAKE_ROOT/shared/apps-api-uploads"
+mkdir -p "$FAKE_ROOT/shared/logs" "$FAKE_ROOT/apps/api/uploads"
 cat > "$FAKE_ROOT/shared/.env" <<EOF
 DATABASE_URL=postgresql://$(whoami)@127.0.0.1:5432/$TEST_DB
 STREAM_JWT_SECRET=dryrun-secret-at-least-32-characters-long-ok
