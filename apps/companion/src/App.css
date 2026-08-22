@@ -29,6 +29,7 @@ h1, h2, p { margin-top: 0; }
 .app__logo { width: 52px; height: 52px; object-fit: contain; }
 .app__brand h1 { margin: -2px 0 0; font-size: 1.35rem; }
 .app__eyebrow, .section-heading__eyebrow { color: var(--muted); font-size: .72rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.app__version { color: var(--muted); font-size: .78rem; font-weight: 400; }
 .app-nav { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: 12px; background: rgba(15, 18, 27, .8); }
 .app-nav button, .mode-switch button { border: 0; border-radius: 8px; background: transparent; color: var(--muted); padding: 8px 14px; }
 .app-nav button.is-active, .mode-switch button.is-active { color: #fff; background: #292e3d; box-shadow: 0 1px 5px rgba(0,0,0,.25); }

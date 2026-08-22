@@ -62,6 +62,7 @@ pub struct StatusSnapshot {
     pub obs_state: ConnectionState,
     pub obs_active_scene: Option<BroadcastScene>,
     pub obs_last_error: Option<String>,
+    pub companion_version: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
@@ -177,6 +178,7 @@ impl AppState {
             obs_state,
             obs_active_scene: inner.obs_active_scene,
             obs_last_error: inner.obs_last_error.clone(),
+            companion_version: COMPANION_VERSION.to_string(),
         }
     }
 }
