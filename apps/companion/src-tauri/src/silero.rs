@@ -98,11 +98,13 @@ impl SileroVoice {
     }
 }
 
-// `xenia` picked as a neutral default (commonly the default voice cited in
-// Silero's own examples/community usage) - not a human-verified subjective
-// listening comparison, since no human listener was available in the
-// environment this was implemented in. All 5 voices remain fully
-// selectable; see the feature report for how to pick a different default.
+// `xenia` confirmed as the default by a human blind-listening test across
+// all 63 available Silero voice/model combinations (see the WK-82 TTS
+// follow-up report) - `xenia` (v5_5_ru) rated best, `baya` (also v5_5_ru)
+// rated second and remains fully selectable below. No CIS-specific models
+// were added as a result of that test - only the already-integrated
+// v5_5_ru voices are in scope. All 5 voices remain selectable in settings;
+// this only changes which one a user who has never picked a voice gets.
 impl Default for SileroVoice {
     fn default() -> Self {
         SileroVoice::Xenia

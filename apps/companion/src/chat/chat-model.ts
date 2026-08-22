@@ -26,8 +26,12 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   speakAuthor: true,
   maxLength: 180,
   ttsEngine: "silero",
-  // Neutral default, not a human-verified subjective pick - see the
-  // WK-81 feature report. All 5 voices remain selectable in settings.
+  // Confirmed by a human blind-listening test across all 63 available
+  // Silero voice/model combinations (WK-82 TTS follow-up) - "xenia"
+  // (v5_5_ru) rated best, "baya" (also v5_5_ru) second and still fully
+  // selectable. This is the value a user who has never picked a voice
+  // gets; an existing saved choice in localStorage is never overwritten
+  // (see loadSettings in useTwitchChatSession.ts).
   sileroVoice: "xenia",
   usernamePronunciations: "",
 };

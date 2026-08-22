@@ -147,6 +147,8 @@ h1, h2, p { margin-top: 0; }
 .tts-engine-choice.is-disabled { color: var(--muted); }
 .tts-piper-status, .tts-license-note { margin: -4px 0 0; font-size: .76rem; color: var(--muted); }
 .tts-license-note a { color: inherit; }
+.tts-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+.tts-skip-toast { padding: 5px 9px; border-radius: 999px; font-size: .75rem; font-weight: 700; color: var(--accent); background: rgba(143,124,255,.14); }
 @media (max-width: 700px) {
   body { min-width: 320px; }
   .app-header { align-items: stretch; flex-direction: column; }

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChatSettings } from "../chat/chat-model";
+import { DEFAULT_SKIP_SHORTCUT, shortcutFromKeyboardEvent } from "../chat/hotkey-format";
 import type { TwitchChatSession } from "../chat/useTwitchChatSession";
 import { openTwitchSettings, type SileroVoice, type TwitchChatMessage } from "../services/dotaCompanionApi";
 
@@ -23,9 +24,46 @@ export function TwitchChatPage({ session }: { session: TwitchChatSession }) {
   const {
     status, error, unread, settings, piperStatus, piperBusy, sileroStatus, sileroBusy, previewBusy, previewError,
     previewSileroVoice, updateSetting, stopTts, isSpeaking, setViewerAtBottom, markRead,
+    skipTts, lastSkipAt, skipHotkeyStatus, skipHotkeyBusy, updateSkipHotkey,
   } = session;
   const listRef = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
+
+  // Purely visual "Озвучка пропущена" note - never a sound (Companion's TTS
+  // is heard over Desktop Audio in OBS, see the WK-83 feature report) and
+  // never routed into any overlay, just this in-app fade.
+  const [showSkipToast, setShowSkipToast] = useState(false);
+  useEffect(() => {
+    if (lastSkipAt === null) return;
+    setShowSkipToast(true);
+    const timer = window.setTimeout(() => setShowSkipToast(false), 1800);
+    return () => window.clearTimeout(timer);
+  }, [lastSkipAt]);
+
+  const [recordingHotkey, setRecordingHotkey] = useState(false);
+  const [hotkeyError, setHotkeyError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!recordingHotkey) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      event.preventDefault();
+      if (event.code === "Escape") { setRecordingHotkey(false); return; }
+      const shortcut = shortcutFromKeyboardEvent(event);
+      if (!shortcut) return; // lone modifier, or an unmodified non-function key - keep waiting
+      setRecordingHotkey(false);
+      updateSkipHotkey(true, shortcut).catch((cause) => setHotkeyError(String(cause)));
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [recordingHotkey, updateSkipHotkey]);
+
+  const toggleHotkeyEnabled = (enabled: boolean) => {
+    setHotkeyError(null);
+    updateSkipHotkey(enabled, skipHotkeyStatus?.shortcut ?? DEFAULT_SKIP_SHORTCUT).catch((cause) => setHotkeyError(String(cause)));
+  };
+  const resetHotkey = () => {
+    setHotkeyError(null);
+    updateSkipHotkey(true, DEFAULT_SKIP_SHORTCUT).catch((cause) => setHotkeyError(String(cause)));
+  };
 
   useEffect(() => {
     setViewerAtBottom(atBottom.current);
@@ -76,6 +114,10 @@ export function TwitchChatPage({ session }: { session: TwitchChatSession }) {
       <span className={`connection-pill ${status?.connected ? "is-online" : ""} ${reauthRequired ? "is-warning" : ""}`}>
         {status?.connected ? "На связи" : reauthRequired ? "Нужен повторный вход" : "Ожидание"}
       </span>
+      {/* Silent by design - see the WK-83 feature report: Companion's TTS is
+          heard over Desktop Audio in OBS, so Skip must never itself make a
+          sound. This is a purely visual note, never routed into any overlay. */}
+      {showSkipToast && <span className="tts-skip-toast" aria-live="polite">Озвучка пропущена</span>}
     </div>
     {(error || reconnectError) && <p className="app__error">Чат временно недоступен: {reconnectError ?? error}</p>}
     {reauthRequired && <div className="chat-reauth-banner">
@@ -161,7 +203,45 @@ export function TwitchChatPage({ session }: { session: TwitchChatSession }) {
           />
         </label>
         <p>TTS выключен по умолчанию. Ссылки, системные события и явный спам не читаются.</p>
-        <button className="button" onClick={stopTts} disabled={!settings.ttsEnabled && !isSpeaking()}>Остановить и выключить TTS</button>
+        <div className="tts-buttons">
+          <button className="button" onClick={skipTts} disabled={!isSpeaking()}>Пропустить текущую озвучку</button>
+          <button className="button" onClick={stopTts} disabled={!settings.ttsEnabled && !isSpeaking()}>Остановить и выключить TTS</button>
+        </div>
+
+        <h3>Горячая клавиша: пропустить озвучку</h3>
+        <label>
+          <input
+            type="checkbox"
+            checked={skipHotkeyStatus?.enabled ?? false}
+            disabled={skipHotkeyBusy}
+            onChange={(event) => toggleHotkeyEnabled(event.target.checked)}
+          /> Включить горячую клавишу
+        </label>
+        <p className="tts-piper-status">
+          Текущая комбинация: <strong>{skipHotkeyStatus?.shortcut ?? DEFAULT_SKIP_SHORTCUT}</strong>
+          {skipHotkeyStatus?.enabled && !skipHotkeyStatus?.registered && " (не удалось зарегистрировать)"}
+        </p>
+        <div className="tts-buttons">
+          <button
+            type="button"
+            className="button"
+            onClick={() => { setHotkeyError(null); setRecordingHotkey(true); }}
+            disabled={skipHotkeyBusy || recordingHotkey}
+          >
+            {recordingHotkey ? "Нажмите новую комбинацию… (Esc — отмена)" : "Изменить"}
+          </button>
+          <button type="button" className="button" onClick={resetHotkey} disabled={skipHotkeyBusy || recordingHotkey}>
+            Сбросить по умолчанию
+          </button>
+        </div>
+        {(hotkeyError || skipHotkeyStatus?.lastError) && (
+          <p className="app__error">Не удалось применить горячую клавишу: {hotkeyError ?? skipHotkeyStatus?.lastError}</p>
+        )}
+        <p className="tts-license-note">
+          Работает даже когда Companion свёрнут в трей или фокус в другом приложении (Dota, OBS). Останавливает
+          текущую озвучку немедленно и переходит к следующему сообщению очереди; сама очередь не очищается, TTS не
+          выключается. Никаких звуков при пропуске не воспроизводится.
+        </p>
       </aside>
     </div>
   </section>;

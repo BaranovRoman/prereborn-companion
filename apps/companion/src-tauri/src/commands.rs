@@ -6,6 +6,7 @@ use tauri_plugin_opener::OpenerExt;
 use crate::backend;
 use crate::diagnostics::{self, DiagnosticsStatusSnapshot};
 use crate::gsi::{config, finder};
+use crate::hotkeys::{self, SkipHotkeyStatus};
 use crate::obs::{self, BroadcastScene, ObsConfig};
 use crate::silero::{self, SileroStatus, SileroVoice};
 use crate::state::{AppState, StatusSnapshot, DEFAULT_WEB_ORIGIN};
@@ -407,6 +408,21 @@ pub fn diagnostics_trace_tts_frontend(app: AppHandle, event: FrontendTtsTraceInp
         detail: event.detail,
     };
     diagnostics::observe_tts_stage(&app, &full);
+}
+
+// Global "skip current TTS" hotkey (see src-tauri/src/hotkeys.rs) - the
+// hotkey itself only emits an event the frontend listens for
+// (useTwitchChatSession.ts's skipTts()); these commands just let the
+// settings UI read/change which combo is registered.
+
+#[tauri::command]
+pub fn get_skip_hotkey_status(app: AppHandle) -> SkipHotkeyStatus {
+    hotkeys::status(&app)
+}
+
+#[tauri::command]
+pub fn set_skip_hotkey(app: AppHandle, enabled: bool, shortcut: String) -> Result<SkipHotkeyStatus, String> {
+    hotkeys::set_skip_hotkey(&app, enabled, shortcut)
 }
 
 #[tauri::command]
