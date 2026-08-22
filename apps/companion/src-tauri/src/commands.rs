@@ -11,7 +11,6 @@ use crate::obs::{self, BroadcastScene, ObsConfig};
 use crate::silero::{self, SileroStatus, SileroVoice};
 use crate::state::{AppState, StatusSnapshot, DEFAULT_WEB_ORIGIN};
 use crate::storage;
-use crate::tts::{self, TtsStatus};
 
 #[tauri::command]
 pub fn get_status(state: State<AppState>) -> StatusSnapshot {
@@ -331,29 +330,12 @@ pub fn diagnostics_clear(app: AppHandle) -> Result<DiagnosticsStatusSnapshot, St
     diagnostics::clear(&app)
 }
 
-// WK-75 - local Piper TTS sidecar (see src-tauri/src/tts.rs). Downloading
-// resources and running synthesis can each take real time (network,
-// ~15s synthesis timeout) - both commands are `async fn` so Tauri runs
-// them off the main IPC thread instead of blocking other commands.
-
-#[tauri::command]
-pub fn get_tts_status(app: AppHandle) -> TtsStatus {
-    tts::status(&app)
-}
-
-#[tauri::command]
-pub async fn set_tts_enabled(app: AppHandle, enabled: bool) -> Result<TtsStatus, String> {
-    tts::set_enabled(&app, enabled).await
-}
-
-#[tauri::command]
-pub async fn synthesize_piper_tts(app: AppHandle, text: String, message_id: Option<String>) -> Result<String, String> {
-    tts::synthesize_base64(&app, &text, message_id.as_deref())
-}
-
 // WK-81 - local Silero TTS sidecar (see src-tauri/src/silero.rs), the
-// primary synthesis engine; Piper above remains the fallback. Same
-// async-for-download/synthesis-latency reasoning as the Piper commands.
+// primary (and, since WK-80 removed Piper, only local) synthesis engine -
+// system speechSynthesis is the fallback, handled entirely on the frontend.
+// Downloading resources and running synthesis can each take real time
+// (network, subprocess startup) - both commands are `async fn` so Tauri
+// runs them off the main IPC thread instead of blocking other commands.
 
 #[tauri::command]
 pub fn get_silero_status(app: AppHandle) -> SileroStatus {

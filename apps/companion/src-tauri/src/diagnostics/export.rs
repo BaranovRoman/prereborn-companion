@@ -150,11 +150,13 @@ Contents:
                          during this session. One record per (messageId,
                          source) pair - `source` is "frontend" (queue/
                          playback stage timestamps from the Companion UI) or
-                         "piper_sidecar" (synthesis-stage timestamps from the
-                         Rust/Piper side, only present for messages spoken
-                         with the Piper engine). The two sources for the same
-                         message are written independently as soon as each
-                         side observes its own stages - group by messageId to
+                         "silero_sidecar" (synthesis-stage timestamps from
+                         the Rust/Silero side). Sessions exported by an older
+                         Companion version may also contain legacy
+                         "piper_sidecar" records (Piper was removed in
+                         WK-80) - still valid, just no longer produced. The
+                         sources for the same message are written independently
+                         as soon as each side observes its own stages - group by messageId to
                          see one message's full timeline. `stages` is a map
                          of stage name -> milliseconds (monotonic, relative -
                          compare stages within the same record, not across

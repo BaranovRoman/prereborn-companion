@@ -736,7 +736,7 @@ mod tests {
             message_id: "msg-1".to_string(),
             source: TtsTraceSource::Frontend,
             local_time: "now".to_string(),
-            engine: Some("piper".to_string()),
+            engine: Some("silero-xenia".to_string()),
             stages,
             detail: json!({}),
         };
@@ -754,7 +754,7 @@ mod tests {
         session.finalize_shutdown(session.started_at);
         let event = TtsTraceEvent {
             message_id: "msg-1".to_string(),
-            source: TtsTraceSource::PiperSidecar,
+            source: TtsTraceSource::SileroSidecar,
             local_time: "now".to_string(),
             engine: None,
             stages: std::collections::BTreeMap::new(),

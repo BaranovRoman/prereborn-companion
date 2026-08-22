@@ -18,8 +18,8 @@ describe("chat model", () => {
     expect(queue.enqueue(message("1"), DEFAULT_CHAT_SETTINGS)).toBe(false);
     expect(queue.size).toBe(0);
   });
-  // WK-81: Silero is the primary engine now (Piper/system remain
-  // available as fallbacks - see useTwitchChatSession.ts). WK-82 TTS
+  // WK-81: Silero is the primary engine now (system speechSynthesis is the
+  // only fallback since WK-80 removed Piper - see useTwitchChatSession.ts). WK-82 TTS
   // follow-up: xenia confirmed as default by a human blind-listening test
   // across all 63 available voice/model combinations (baya rated second,
   // still fully selectable - see silero.rs's SileroVoice::default comment).
@@ -71,7 +71,7 @@ describe("chat model", () => {
   });
 
   // WK-82: pipeline-level regression - proves the exact final string handed
-  // to speakWithSilero/speakWithPiper (useTwitchChatSession.ts) survives
+  // to speakWithSilero (useTwitchChatSession.ts) survives
   // Silero's character-whitelist deletion, not just that the isolated
   // tts-normalize.ts helper does. Goes through prepareTtsText end to end
   // (author resolution + speechText assembly), the same call site

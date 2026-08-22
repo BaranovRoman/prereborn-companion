@@ -3,12 +3,12 @@
 // contract GSI capture already follows). Goal: find where latency
 // accumulates between a chat message appearing and its speech actually
 // starting, even when the queue is empty and messages arrive sparsely -
-// see TwitchChatPage.tsx (frontend stages) and tts.rs (Piper sidecar
+// see TwitchChatPage.tsx (frontend stages) and silero.rs (Silero sidecar
 // stages) for where these events are produced.
 //
 // Correlation is by `message_id` with a `source` tag, not a single merged
 // record built by one side waiting on the other - the frontend and the
-// Piper sidecar each write only the timestamps they directly observe, as
+// sidecar each write only the timestamps they directly observe, as
 // soon as they observe them. Reading tts-trace.json means grouping by
 // message_id after the fact, not joining live. This keeps the
 // instrumentation itself from being able to add latency to the very path
@@ -23,11 +23,14 @@ use serde_json::Value;
 #[serde(rename_all = "snake_case")]
 pub enum TtsTraceSource {
     Frontend,
+    // Historical only, no longer produced (Piper was removed in WK-80) -
+    // kept so old exported tts-trace.json bundles (see diagnostics/export.rs)
+    // still deserialize correctly instead of failing to parse.
     PiperSidecar,
     SileroSidecar,
 }
 
-/// One record per (message_id, source) - e.g. one message that used Piper
+/// One record per (message_id, source) - e.g. one message that used Silero
 /// produces exactly two of these: one written by the frontend (queue/
 /// playback timestamps) and one written by the Rust sidecar (synthesis
 /// timestamps). `stages` holds named monotonic-ms-since-something

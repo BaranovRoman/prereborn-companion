@@ -18,7 +18,7 @@ const MODIFIER_CODES = new Set([
 ]);
 
 // A function key (F1-F24) is accepted on its own, unmodified - the Silero/
-// Piper/OBS ecosystem commonly binds bare F-keys and a collision there is
+// OBS ecosystem commonly binds bare F-keys and a collision there is
 // low-risk. Any other key requires at least one modifier, so recording
 // never binds a plain letter/digit globally (which would fire on every
 // keystroke in Dota/chat/anywhere else).

@@ -12,9 +12,6 @@ import { useTwitchChatSession } from "./useTwitchChatSession";
 
 vi.mock("../services/dotaCompanionApi", () => ({
   getTwitchChat: vi.fn(),
-  getPiperTtsStatus: vi.fn().mockResolvedValue({ enabled: false, state: "notStarted", lastError: null, resourcesReady: false }),
-  setPiperTtsEnabled: vi.fn().mockResolvedValue({ enabled: false, state: "notStarted", lastError: null, resourcesReady: false }),
-  synthesizePiperTts: vi.fn(),
   getSileroTtsStatus: vi.fn().mockResolvedValue({ enabled: false, state: "notStarted", lastError: null, resourcesReady: true, voice: "xenia" }),
   setSileroTtsEnabled: vi.fn().mockResolvedValue({ enabled: false, state: "notStarted", lastError: null, resourcesReady: true, voice: "xenia" }),
   synthesizeSileroTts: vi.fn(),
@@ -34,7 +31,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 import { listen } from "@tauri-apps/api/event";
 // eslint-disable-next-line import/order
 import {
-  getSileroTtsStatus, getSkipHotkeyStatus, getTwitchChat, setSkipHotkey, synthesizePiperTts, synthesizeSileroTts,
+  getSileroTtsStatus, getSkipHotkeyStatus, getTwitchChat, setSkipHotkey, synthesizeSileroTts,
 } from "../services/dotaCompanionApi";
 // eslint-disable-next-line import/order
 import type { TwitchChatSession } from "./useTwitchChatSession";
@@ -88,7 +85,6 @@ describe("useTwitchChatSession", () => {
       .mockResolvedValue({ enabled: true, shortcut: "CommandOrControl+Alt+F10", registered: true, lastError: null });
     vi.mocked(setSkipHotkey).mockReset();
     vi.mocked(synthesizeSileroTts).mockReset();
-    vi.mocked(synthesizePiperTts).mockReset();
     // jsdom doesn't implement HTMLMediaElement.play() - stub it so
     // `new Audio(url).play()` resolves and stays "playing" (no `ended`
     // event ever fires in jsdom) instead of throwing, which is what the
@@ -142,13 +138,29 @@ describe("useTwitchChatSession", () => {
     unmount();
   }, 15000);
 
-  // WK-81: Silero is the default/primary engine, but must never strand a
+  // WK-80: Silero is the default/primary engine, but must never strand a
   // message when it's unavailable - the frontend fallback chain (Silero ->
-  // Piper -> system) is what actually keeps the queue moving, independent
-  // of whichever backend engine is failing.
-  it("falls back from Silero to Piper when Silero synthesis fails, and keeps draining the queue", async () => {
+  // system speechSynthesis, since WK-80 removed Piper from the middle tier)
+  // is what actually keeps the queue moving, independent of whether the
+  // backend engine is failing.
+  it("falls back from Silero to system speechSynthesis when Silero synthesis fails, and keeps draining the queue", async () => {
     vi.mocked(synthesizeSileroTts).mockReset().mockRejectedValue(new Error("Silero unavailable"));
-    vi.mocked(synthesizePiperTts).mockReset().mockResolvedValue(btoa("not a real wav but bytes are enough for this test"));
+
+    // jsdom has no SpeechSynthesis - same minimal fake as the "system
+    // voice" skipTts test below: `new SpeechSynthesisUtterance(text)` for
+    // construction, speak() dispatches it, and onend/onerror is how
+    // speakWithSystem's `done` gets called.
+    class FakeUtterance {
+      lang = "";
+      onstart?: () => void;
+      onend?: () => void;
+      onerror?: () => void;
+      constructor(public text: string) {}
+    }
+    const speak = vi.fn((utterance: FakeUtterance) => { utterance.onend?.(); });
+    const cancel = vi.fn();
+    Object.defineProperty(window, "SpeechSynthesisUtterance", { configurable: true, value: FakeUtterance });
+    Object.defineProperty(window, "speechSynthesis", { configurable: true, value: { speak, cancel } });
 
     let session: TwitchChatSession | undefined;
     // Empty on the initial poll (matching STATUS) so `known` is seeded with
@@ -165,10 +177,14 @@ describe("useTwitchChatSession", () => {
     vi.mocked(getTwitchChat).mockResolvedValue({ ...STATUS, messages: [CHAT_MESSAGE] });
 
     await waitFor(() => expect(vi.mocked(synthesizeSileroTts)).toHaveBeenCalled(), { timeout: 4000 });
-    // Silero failed - Piper must be tried next for the same message, not
-    // silently dropped.
-    await waitFor(() => expect(vi.mocked(synthesizePiperTts)).toHaveBeenCalled(), { timeout: 4000 });
+    // Silero failed - system speechSynthesis must be tried next for the
+    // same message, not silently dropped.
+    await waitFor(() => expect(speak).toHaveBeenCalled(), { timeout: 4000 });
 
+    // @ts-expect-error - restoring jsdom's (nonexistent) original descriptors
+    delete window.speechSynthesis;
+    // @ts-expect-error - ditto
+    delete window.SpeechSynthesisUtterance;
     unmount();
   }, 15000);
 
