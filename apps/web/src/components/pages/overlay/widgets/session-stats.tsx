@@ -1,5 +1,7 @@
 import { AnimatePresence, motion } from "motion/react";
+import Image from "next/image";
 import type { StreamGameMode } from "@/entities/stream-session/model/types";
+import { getRankMedal } from "@/entities/stream-session/lib/rank-medal";
 import styles from "./widget.module.scss";
 
 interface SessionStatsProps {
@@ -31,52 +33,64 @@ export const SessionStats = ({
     gameMode,
 }: SessionStatsProps) => {
     const isRanked = gameMode === "ranked";
+    const medal = getRankMedal(rating);
     return (
         <div className={styles.card}>
-            {rating !== null && (
+            {medal && (
+                <Image
+                    src={`/vendor/valve/rank-medals/${medal.fileName}`}
+                    alt={`${medal.label} rank medal`}
+                    width={44}
+                    height={44}
+                    className={styles.medal}
+                />
+            )}
+            <div className={styles.stats}>
+                {rating !== null && (
+                    <AnimatePresence mode="wait">
+                        <motion.div
+                            key={`${rating}-${sessionRatingDelta}`}
+                            className={styles.rating}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={FADE_TRANSITION}
+                        >
+                            {rating} MMR
+                            {sessionRatingDelta !== null && (
+                                <span
+                                    className={
+                                        sessionRatingDelta > 0
+                                            ? styles.sessionDeltaPositive
+                                            : sessionRatingDelta < 0
+                                              ? styles.sessionDeltaNegative
+                                              : styles.sessionDeltaNeutral
+                                    }
+                                >
+                                    {" "}
+                                    ({formatSessionDelta(sessionRatingDelta)})
+                                </span>
+                            )}
+                        </motion.div>
+                    </AnimatePresence>
+                )}
+
                 <AnimatePresence mode="wait">
                     <motion.div
-                        key={`${rating}-${sessionRatingDelta}`}
-                        className={styles.rating}
+                        key={`${wins}-${losses}`}
+                        className={styles.record}
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         transition={FADE_TRANSITION}
                     >
-                        {rating} MMR
-                        {sessionRatingDelta !== null && (
-                            <span
-                                className={
-                                    sessionRatingDelta > 0
-                                        ? styles.sessionDeltaPositive
-                                        : sessionRatingDelta < 0
-                                          ? styles.sessionDeltaNegative
-                                          : styles.sessionDeltaNeutral
-                                }
-                            >
-                                {" "}
-                                ({formatSessionDelta(sessionRatingDelta)})
-                            </span>
+                        {wins}W / {losses}L
+                        {!isRanked && (
+                            <span className={styles.unrankedTag}> · UNRANKED</span>
                         )}
                     </motion.div>
                 </AnimatePresence>
-            )}
-
-            <AnimatePresence mode="wait">
-                <motion.div
-                    key={`${wins}-${losses}`}
-                    className={styles.record}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={FADE_TRANSITION}
-                >
-                    {wins}W / {losses}L
-                    {!isRanked && (
-                        <span className={styles.unrankedTag}> · UNRANKED</span>
-                    )}
-                </motion.div>
-            </AnimatePresence>
+            </div>
         </div>
     );
 };
