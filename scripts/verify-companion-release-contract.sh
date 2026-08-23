@@ -27,6 +27,33 @@ check_present() {
   fi
 }
 
+# WK-88 follow-up regression guard: a bash-syntax `run:` step (here,
+# backslash line-continuation) on a windows-latest job silently runs under
+# PowerShell instead unless it declares `shell: bash` - syntactically valid
+# YAML, but broken at runtime (first caught when the "Notify production
+# deploy" step actually ran for the first time, prereborn-v0.5.21). Scoped
+# to this one named step, not a general YAML/shell parser.
+check_step_uses_shell_bash() {
+  local step_name="$1" file="$2"
+  local block
+  block=$(awk -v step="$step_name" '
+    /- name:/ {
+      if (capture) exit
+      if (index($0, step)) capture=1
+    }
+    capture { print }
+  ' "$file")
+  if [ -z "$block" ]; then
+    echo "FAIL: $file has no step named \"$step_name\" (guard target missing/renamed)" >&2
+    fail=1
+    return
+  fi
+  if ! grep -q 'shell: *bash' <<<"$block"; then
+    echo "FAIL: $file step \"$step_name\" runs on windows-latest with bash-style syntax but no explicit \"shell: bash\" - defaults to pwsh and breaks at runtime" >&2
+    fail=1
+  fi
+}
+
 check_absent 'prereborn-v[0-9]' .github/workflows/deploy-production.yml \
   "deploy-production.yml must not hardcode a Companion release tag"
 check_absent '_x64-setup\.exe' .github/workflows/deploy-production.yml \
@@ -40,6 +67,8 @@ check_present 'companion-verify-release-assets\.ps1' .github/workflows/windows-r
   "windows-release.yml must run the release asset verification gate before publishing"
 check_present 'fail_on_unmatched_files: true' .github/workflows/windows-release.yml \
   "windows-release.yml's Publish GitHub Release step must fail on unmatched files"
+
+check_step_uses_shell_bash "Notify production deploy of the new release" .github/workflows/windows-release.yml
 
 if [ "$fail" -ne 0 ]; then
   echo "" >&2
