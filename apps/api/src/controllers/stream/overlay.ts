@@ -14,6 +14,7 @@ import {
 } from "../../services/stream-match-service.js";
 import { getOverlayLayout } from "../../services/stream-overlay-layout-service.js";
 import { getQueueSettings } from "../../services/stream-queue-settings-service.js";
+import { getViewerAlertsSettings } from "../../services/stream-viewer-alerts-settings-service.js";
 import {
     getCompanionState,
     getCompanionLastSeenAt,
@@ -21,7 +22,7 @@ import {
 } from "../../services/stream-companion-service.js";
 import { logger } from "../../utils/logger.js";
 import { getCachedSteamProfile } from "../../services/steam-profile-cache-service.js";
-import { getTwitchStatus } from "../../services/twitch-integration-service.js";
+import { getTwitchStatus, getTwitchViewerEvents } from "../../services/twitch-integration-service.js";
 import { getObsSceneOverride } from "../../services/obs-scene-command-service.js";
 import { getDonationAlertsStatus } from "../../services/donation-alerts-integration-service.js";
 
@@ -115,12 +116,19 @@ export const getOverlayController = async (req: Request, res: Response) => {
         // Раскладка виджетов - редко меняется, но отдаётся вместе с
         // остальным payload'ом одного и того же поллинга (см. задачу, п.12):
         // отдельный опрос под layout не нужен.
-        const [layout, queueSettings, integrations] = await Promise.all([
+        const [layout, queueSettings, viewerAlertsSettings, integrations] = await Promise.all([
             getOverlayLayout(streamUserId),
             getQueueSettings(streamUserId),
+            getViewerAlertsSettings(streamUserId),
             loadIntegrationStatus(streamUserId, req.requestId),
         ]);
         const { twitch, donationAlerts } = integrations;
+        // WK-72 - ensureTwitchChat() already ran inside getTwitchStatus()
+        // above (part of `integrations`), so this in-memory read picks up
+        // whatever follow/subscribe/gift/raid events have arrived on that
+        // connection since - same "already-open connection, no extra
+        // request" shape as chat.messages.
+        const viewerEvents = getTwitchViewerEvents(streamUserId);
 
         const configuredRecentMatches = Object.values(layout.scenes).map(
             (scene) => scene.widgets.recentMatches.recentMatches
@@ -242,6 +250,8 @@ export const getOverlayController = async (req: Request, res: Response) => {
             },
             twitch,
             donationAlerts,
+            viewerEvents,
+            viewerAlertsSettings,
             layout,
             queueSettings,
         });

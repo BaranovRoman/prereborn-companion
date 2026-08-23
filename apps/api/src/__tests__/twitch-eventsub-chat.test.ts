@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
     classifySubscribeFailure,
     parseChatNotification,
+    parseViewerEventNotification,
     reconnectDelay,
     REQUIRED_CHAT_SCOPE,
     TwitchEventSubChatClient,
@@ -43,6 +44,54 @@ describe("Twitch EventSub chat", () => {
 
     it("uses bounded exponential reconnect delays", () => {
         expect([0, 1, 2, 10].map(reconnectDelay)).toEqual([1000, 2000, 4000, 30000]);
+    });
+
+    describe("parseViewerEventNotification", () => {
+        const envelope = (type: string, event: Record<string, unknown>, messageId = "delivery-1") => JSON.parse(JSON.stringify({
+            metadata: { message_id: messageId, message_type: "notification", message_timestamp: "2026-08-23T00:00:00Z" },
+            payload: { subscription: { type }, event },
+        }));
+
+        it("parses a follow event", () => {
+            const seen = new Set<string>();
+            const result = parseViewerEventNotification(envelope("channel.follow", { user_name: "Viewer", user_login: "viewer" }), seen);
+            expect(result).toEqual({ id: "delivery-1", type: "follow", userName: "Viewer", userLogin: "viewer", receivedAt: "2026-08-23T00:00:00Z" });
+        });
+
+        it("parses a subscribe event including gift flag", () => {
+            const seen = new Set<string>();
+            const result = parseViewerEventNotification(envelope("channel.subscribe", { user_name: "Viewer", user_login: "viewer", tier: "1000", is_gift: false }), seen);
+            expect(result).toEqual({ id: "delivery-1", type: "subscribe", userName: "Viewer", userLogin: "viewer", tier: "1000", isGift: false, receivedAt: "2026-08-23T00:00:00Z" });
+        });
+
+        it("parses an anonymous gift subscription with a null user", () => {
+            const seen = new Set<string>();
+            const result = parseViewerEventNotification(envelope("channel.subscription.gift", { tier: "1000", total: 5, is_anonymous: true }), seen);
+            expect(result).toEqual({ id: "delivery-1", type: "giftSub", userName: null, userLogin: null, tier: "1000", count: 5, isAnonymous: true, receivedAt: "2026-08-23T00:00:00Z" });
+        });
+
+        it("parses a raid event from the raiding channel's own fields", () => {
+            const seen = new Set<string>();
+            const result = parseViewerEventNotification(envelope("channel.raid", { from_broadcaster_user_name: "OtherStreamer", from_broadcaster_user_login: "otherstreamer", viewers: 42 }), seen);
+            expect(result).toEqual({ id: "delivery-1", type: "raid", userName: "OtherStreamer", userLogin: "otherstreamer", viewerCount: 42, receivedAt: "2026-08-23T00:00:00Z" });
+        });
+
+        it("deduplicates at-least-once redelivery by the EventSub message id, shared across event types", () => {
+            const seen = new Set<string>();
+            const value = envelope("channel.follow", { user_name: "Viewer" });
+            expect(parseViewerEventNotification(value, seen)).not.toBeNull();
+            expect(parseViewerEventNotification(value, seen)).toBeNull();
+        });
+
+        it("ignores notifications for subscription types it doesn't know about", () => {
+            const seen = new Set<string>();
+            expect(parseViewerEventNotification(envelope("channel.cheer", { bits: 100 }), seen)).toBeNull();
+        });
+
+        it("returns null for a malformed event missing required fields instead of throwing", () => {
+            const seen = new Set<string>();
+            expect(parseViewerEventNotification(envelope("channel.raid", { from_broadcaster_user_name: "OtherStreamer" }), seen)).toBeNull();
+        });
     });
 
     it("subscribes once and reconnects without duplicate messages", async () => {
@@ -98,6 +147,119 @@ describe("Twitch EventSub chat", () => {
         expect(subscriptions).toEqual(["session-1"]);
         expect(sockets[0].closed).toBe(true);
         client.stop();
+    });
+
+    describe("viewer event subscriptions (follow/subscribe/gift/raid)", () => {
+        const followNotification = JSON.stringify({
+            metadata: { message_id: "delivery-follow-1", message_type: "notification", message_timestamp: "2026-08-23T00:00:00Z" },
+            payload: { subscription: { type: "channel.follow" }, event: { user_name: "Viewer", user_login: "viewer" } },
+        });
+
+        it("subscribes to all four viewer-event types alongside chat, on the same session", async () => {
+            const sockets: FakeSocket[] = [];
+            const viewerEventSubs: string[] = [];
+            const client = new TwitchEventSubChatClient({
+                broadcasterId: "42", clientId: "client", getAccessToken: async () => "token",
+                createSocket: () => { const socket = new FakeSocket(); sockets.push(socket); return socket; },
+                createSubscription: async () => undefined,
+                createViewerEventSubscription: async (_sessionId, _token, type) => { viewerEventSubs.push(type); },
+                onMessage: () => undefined,
+            });
+            client.start();
+            sockets[0].emit("message", welcome("session-1"));
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(viewerEventSubs.sort()).toEqual([
+                "channel.follow",
+                "channel.raid",
+                "channel.subscribe",
+                "channel.subscription.gift",
+            ]);
+            client.stop();
+        });
+
+        it("delivers a follow notification through onViewerEvent", async () => {
+            const sockets: FakeSocket[] = [];
+            const events: string[] = [];
+            const client = new TwitchEventSubChatClient({
+                broadcasterId: "42", clientId: "client", getAccessToken: async () => "token",
+                createSocket: () => { const socket = new FakeSocket(); sockets.push(socket); return socket; },
+                createSubscription: async () => undefined,
+                createViewerEventSubscription: async () => undefined,
+                onMessage: () => undefined,
+                onViewerEvent: (event) => events.push(event.id),
+            });
+            client.start();
+            sockets[0].emit("message", welcome("session-1"));
+            await Promise.resolve();
+            sockets[0].emit("message", followNotification);
+            expect(events).toEqual(["delivery-follow-1"]);
+            client.stop();
+        });
+
+        it("isolates one viewer-event type's subscribe failure: chat still connects, other types still subscribe, socket stays open", async () => {
+            const sockets: FakeSocket[] = [];
+            const viewerEventSubs: string[] = [];
+            const viewerEventErrors: string[] = [];
+            let chatConnected = false;
+            const client = new TwitchEventSubChatClient({
+                broadcasterId: "42", clientId: "client", getAccessToken: async () => "token",
+                createSocket: () => { const socket = new FakeSocket(); sockets.push(socket); return socket; },
+                createSubscription: async () => undefined,
+                createViewerEventSubscription: async (_sessionId, _token, type) => {
+                    viewerEventSubs.push(type);
+                    // channel.subscribe/subscription.gift routinely 403 on a
+                    // non-Affiliate channel (WK-54) - simulate exactly that.
+                    if (type === "channel.subscribe") throw new TwitchSubscribeError("EventSub subscription returned 403", 403);
+                },
+                onMessage: () => undefined,
+                onConnected: (value) => { if (value) chatConnected = true; },
+                onViewerEventError: (type) => viewerEventErrors.push(type),
+            });
+            client.start();
+            sockets[0].emit("message", welcome("session-1"));
+            for (let i = 0; i < 10; i += 1) await Promise.resolve();
+
+            expect(chatConnected).toBe(true);
+            expect(viewerEventErrors).toEqual(["channel.subscribe"]);
+            expect(viewerEventSubs.sort()).toEqual([
+                "channel.follow",
+                "channel.raid",
+                "channel.subscribe",
+                "channel.subscription.gift",
+            ]);
+            expect(sockets[0].closed).toBe(false);
+            client.stop();
+        });
+
+        it("does not resubscribe viewer events on a session_reconnect handoff (Twitch persists them)", async () => {
+            const sockets: FakeSocket[] = [];
+            const viewerEventSubs: string[] = [];
+            const client = new TwitchEventSubChatClient({
+                broadcasterId: "42", clientId: "client", getAccessToken: async () => "token",
+                createSocket: () => { const socket = new FakeSocket(); sockets.push(socket); return socket; },
+                createSubscription: async () => undefined,
+                createViewerEventSubscription: async (_sessionId, _token, type) => { viewerEventSubs.push(type); },
+                onMessage: () => undefined,
+            });
+            client.start();
+            sockets[0].emit("message", welcome("session-1"));
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(viewerEventSubs).toHaveLength(4);
+
+            sockets[0].emit("message", JSON.stringify({
+                metadata: { message_type: "session_reconnect" },
+                payload: { session: { reconnect_url: "wss://reconnect" } },
+            }));
+            expect(sockets).toHaveLength(2);
+            sockets[1].emit("message", welcome("session-2"));
+            await Promise.resolve();
+            await Promise.resolve();
+
+            expect(viewerEventSubs).toHaveLength(4);
+            client.stop();
+        });
     });
 
     describe("classifySubscribeFailure", () => {

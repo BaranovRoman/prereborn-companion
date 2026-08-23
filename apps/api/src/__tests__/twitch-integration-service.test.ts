@@ -7,6 +7,7 @@ import {
     __setChatClientFactoryForTests,
     disconnectTwitch,
     getTwitchChatStatus,
+    getTwitchViewerEvents,
     saveTwitchLink,
 } from "../services/twitch-integration-service.js";
 import { TwitchEventSubChatClient, TwitchSubscribeError, type EventSubSocket } from "../services/twitch-eventsub-chat.js";
@@ -142,5 +143,59 @@ describe("Twitch chat status - reauth_required flow", () => {
         expect(JSON.stringify(connected)).not.toContain(staleToken);
 
         await disconnectTwitch(streamUserId);
+    });
+});
+
+// WK-72 - follow/subscribe/gift/raid ride the same connection as chat
+// (ensureTwitchChat), so these prove the bounded, deduped cache
+// (getTwitchViewerEvents) end-to-end through a real welcome+notification
+// exchange, the same way the chat message cache is already covered above.
+describe("Twitch viewer events (follow/subscribe/gift/raid)", () => {
+    const follow = (deliveryId: string, userName: string) => JSON.stringify({
+        metadata: { message_id: deliveryId, message_type: "notification" },
+        payload: { subscription: { type: "channel.follow" }, event: { user_name: userName } },
+    });
+
+    it("has no viewer events before any Twitch account is linked", async () => {
+        const streamUserId = await createTestUser();
+        expect(getTwitchViewerEvents(streamUserId)).toEqual([]);
+    });
+
+    it("caches viewer events deduped by delivery id, and clears them on disconnect", async () => {
+        const streamUserId = await createTestUser();
+        await saveTwitchLink(
+            streamUserId,
+            { id: `twitch-ve-${streamUserId}`, login: "streamer", display_name: "Streamer", profile_image_url: "" },
+            { access_token: "token", refresh_token: "refresh", expires_in: 3600 }
+        );
+
+        let socket: FakeSocket | null = null;
+        __setChatClientFactoryForTests((options) => new TwitchEventSubChatClient({
+            ...options,
+            createSocket: () => { socket = new FakeSocket(); return socket; },
+            createSubscription: async () => undefined,
+            createViewerEventSubscription: async () => undefined,
+            setTimer: noopSetTimer,
+            clearTimer: noopClearTimer,
+        }));
+
+        // Same trigger as chat: getTwitchChatStatus() (via ensureTwitchChat)
+        // opens the connection - no separate "start viewer events" call.
+        await getTwitchChatStatus(streamUserId);
+        expect(socket).not.toBeNull();
+        socket!.emit("message", welcome("session-1"));
+        await flushMicrotasks();
+
+        socket!.emit("message", follow("delivery-1", "Alice"));
+        socket!.emit("message", follow("delivery-1", "Alice")); // Twitch at-least-once redelivery
+        socket!.emit("message", follow("delivery-2", "Bob"));
+
+        expect(getTwitchViewerEvents(streamUserId)).toEqual([
+            expect.objectContaining({ id: "delivery-1", type: "follow", userName: "Alice" }),
+            expect.objectContaining({ id: "delivery-2", type: "follow", userName: "Bob" }),
+        ]);
+
+        await disconnectTwitch(streamUserId);
+        expect(getTwitchViewerEvents(streamUserId)).toEqual([]);
     });
 });
