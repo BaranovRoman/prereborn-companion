@@ -241,3 +241,18 @@ jobs:
             latest.json
             silero-dist/*.zip
             silero-dist/*.sha256
+
+      # WK-88 - notifies deploy-production.yml so the web download link
+      # (scripts/resolve-companion-release.sh) picks up this release
+      # immediately, instead of waiting for the next unrelated web/api
+      # deploy. Only reached if every step above (including the asset
+      # verification gate) succeeded, so this never fires for a
+      # failed/partial release. repository_dispatch is explicitly exempt
+      # from GITHUB_TOKEN's push/PR loop-prevention restriction and is
+      # documented to work for exactly this kind of cross-workflow signal.
+      - name: Notify production deploy of the new release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "repos/${{ github.repository }}/dispatches" \
+            -f event_type=companion-released
