@@ -25,6 +25,7 @@ export interface TwitchChatStatus {
 }
 import { invoke } from "@tauri-apps/api/core";
 import type { DiagnosticsStatusSnapshot, ObsConfig, StatusSnapshot } from "../types/status";
+import type { StreamSessionSummary } from "../session/session-prompt";
 
 export const getStatus = () => invoke<StatusSnapshot>("get_status");
 export const findDota = () => invoke<StatusSnapshot>("find_dota");
@@ -37,6 +38,10 @@ export const saveCompanionToken = (token: string) =>
   invoke<StatusSnapshot>("save_companion_token", { token });
 export const getTwitchChat = () => invoke<TwitchChatStatus>("get_twitch_chat");
 export const openTwitchSettings = () => invoke<void>("open_twitch_settings");
+
+// WK-83 - startup "продолжить прошлый стрим?" prompt.
+export const getStreamSession = () => invoke<StreamSessionSummary>("get_stream_session");
+export const resetStreamSession = () => invoke<StreamSessionSummary>("reset_stream_session");
 
 // WK-81 - local Silero TTS sidecar, the primary (and, since WK-80 removed
 // Piper, only local) synthesis engine - system speechSynthesis is the

@@ -7,6 +7,7 @@ import { DiagnosticsPanel } from "../components/DiagnosticsPanel";
 import { EventHistoryList } from "../components/EventHistoryList";
 import { LastEventPanel } from "../components/LastEventPanel";
 import { ObsScenePanel } from "../components/ObsScenePanel";
+import { SessionPromptBanner } from "../components/SessionPromptBanner";
 import { StatusChecklist } from "../components/StatusChecklist";
 import { TwitchChatPage } from "../components/TwitchChatPage";
 import { UpdateBanner } from "../components/UpdateBanner";
@@ -14,6 +15,7 @@ import { useTwitchChatSession } from "../chat/useTwitchChatSession";
 import { useDiagnostics } from "../hooks/useDiagnostics";
 import { useGsiEvents } from "../hooks/useGsiEvents";
 import { useStatus } from "../hooks/useStatus";
+import { useStreamSessionPrompt } from "../hooks/useStreamSessionPrompt";
 import { useUpdater } from "../hooks/useUpdater";
 import * as api from "../services/dotaCompanionApi";
 import type { StatusSnapshot } from "../types/status";
@@ -51,6 +53,7 @@ export function HomePage() {
   // TwitchChatPage, so chat polling/dedup and TTS keep running regardless
   // of which tab is currently visible.
   const chatSession = useTwitchChatSession();
+  const sessionPrompt = useStreamSessionPrompt();
   const [view, setView] = useState<View>("home");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -129,6 +132,15 @@ export function HomePage() {
         onInstall={() => void updater.installUpdate()}
         onRestart={() => void updater.restartToApply()}
         onDismiss={updater.dismiss}
+      />
+
+      <SessionPromptBanner
+        show={sessionPrompt.showPrompt}
+        session={sessionPrompt.promptData}
+        busy={sessionPrompt.busy}
+        error={sessionPrompt.error}
+        onContinue={sessionPrompt.onContinue}
+        onStartNew={() => void sessionPrompt.onStartNew()}
       />
 
       {view === "home" && setupOpen ? <section className="setup-guide" aria-labelledby="setup-title">

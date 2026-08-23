@@ -151,6 +151,77 @@ fn try_send_pending(app: &AppHandle) -> SendOutcome {
     }
 }
 
+/// WK-83 - "continue previous stream?" startup prompt. `async` +
+/// `spawn_blocking` for the same reason as `get_twitch_chat` above - called
+/// once at Companion startup, must never block the IPC/UI thread.
+pub async fn get_stream_session(app: &AppHandle) -> Result<serde_json::Value, String> {
+    let token = app
+        .state::<AppState>()
+        .0
+        .lock()
+        .unwrap()
+        .companion_token
+        .clone()
+        .ok_or_else(|| "Сначала добавьте companion token.".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || fetch_stream_session(&token))
+        .await
+        .map_err(|e| format!("Internal error: {e}"))?
+}
+
+fn fetch_stream_session(token: &str) -> Result<serde_json::Value, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .get(format!("{DEFAULT_BACKEND_URL}/stream/companion/session"))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("Стрим-сессия недоступна: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json()
+        .map_err(|error| format!("Неверный ответ сессии: {error}"))
+}
+
+/// WK-83 - "Начать новый стрим" button in `SessionPromptBanner`. Reuses the
+/// exact same backend `resetActiveSession` service function the web
+/// cabinet's own reset button calls (via the companion-token-authenticated
+/// `/stream/companion/session/reset` route) - not a parallel reset
+/// implementation. `async` + `spawn_blocking` because this is a direct user
+/// click that must not freeze the window.
+pub async fn reset_stream_session(app: &AppHandle) -> Result<serde_json::Value, String> {
+    let token = app
+        .state::<AppState>()
+        .0
+        .lock()
+        .unwrap()
+        .companion_token
+        .clone()
+        .ok_or_else(|| "Сначала добавьте companion token.".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || post_reset_stream_session(&token))
+        .await
+        .map_err(|e| format!("Internal error: {e}"))?
+}
+
+fn post_reset_stream_session(token: &str) -> Result<serde_json::Value, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .post(format!("{DEFAULT_BACKEND_URL}/stream/companion/session/reset"))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("Не удалось сбросить сессию: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json()
+        .map_err(|error| format!("Неверный ответ сброса сессии: {error}"))
+}
+
 /// Manual "resend current state" - ignores `dirty`, sends whatever the last
 /// known GSI payload was (even if it was already sent successfully before).
 
