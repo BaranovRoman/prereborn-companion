@@ -4,6 +4,16 @@ on:
   workflow_run:
     workflows: ["CI"]
     types: [completed]
+  # WK-88 - windows-release.yml fires this after a Companion release fully
+  # publishes (installer + latest.json verified, see
+  # companion-verify-release-assets.ps1), so the web download link
+  # (scripts/resolve-companion-release.sh) updates immediately instead of
+  # waiting for the next unrelated web/api deploy. repository_dispatch is
+  # explicitly exempt from GITHUB_TOKEN's push/PR loop-prevention
+  # restriction, and nothing this job does can itself push commits or tags,
+  # so this cannot trigger itself or windows-release.yml back - no loop.
+  repository_dispatch:
+    types: [companion-released]
 
 concurrency:
   group: prereborn-production
@@ -12,16 +22,48 @@ concurrency:
 jobs:
   deploy:
     if: >-
-      github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.head_branch == 'main'
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main') ||
+      github.event_name == 'repository_dispatch'
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      contents: read
+      # WK-88 - needed only for the repository_dispatch path's CI-run
+      # lookup below (workflow_run's own head_sha needs no extra scope).
+      actions: read
 
     steps:
+      # WK-88 - workflow_run already carries the exact CI-verified commit
+      # (head_sha). repository_dispatch carries no such field, and using
+      # the current branch tip directly would risk deploying a commit CI
+      # hasn't finished validating yet (e.g. a second push landed on main
+      # between the Companion tag and this dispatch) - so instead this
+      # looks up the most recent CI run that actually succeeded on main,
+      # preserving the same "never deploy anything CI hasn't verified"
+      # guarantee the workflow_run path already has.
+      - name: Resolve commit to deploy
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            sha="$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?branch=main&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty')"
+            if [ -z "$sha" ]; then
+              echo "No successful CI run found on main - refusing to deploy an unverified commit" >&2
+              exit 1
+            fi
+            echo "Companion release notification: deploying last CI-verified main commit $sha"
+          else
+            sha="${{ github.event.workflow_run.head_sha }}"
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
       - name: Checkout verified commit
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ steps.resolve.outputs.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -35,10 +77,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # WK-88 - resolves the current production Companion download URL +
+      # version from GitHub's "latest release" instead of a hardcoded tag,
+      # so this file never needs a manual edit after a Companion release.
+      # See scripts/resolve-companion-release.sh for the full contract.
+      - name: Resolve latest Companion release (download URL + version)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/resolve-companion-release.sh
+
       # WK-80 - production stops building entirely: the artifact is built
       # here, on the GitHub-hosted runner, and only its compiled output is
       # shipped to the server. See docs/research/wk-80-build-outside-production.md.
-      # These four NEXT_PUBLIC_* values are the only build-time inputs
+      # These NEXT_PUBLIC_* values are the only build-time inputs
       # `next build` needs (get inlined into the client bundle) - none are
       # secret (verified: public URLs only), so this step needs zero
       # GitHub secrets.
@@ -47,8 +98,9 @@ jobs:
           NEXT_PUBLIC_API_URL: /api
           NEXT_PUBLIC_SITE_URL: https://prereborn.ru
           NEXT_PUBLIC_MEDIA_BASE_URL: https://prereborn.ru/media
-          NEXT_PUBLIC_DOTA_COMPANION_DOWNLOAD_URL: https://github.com/BaranovRoman/prereborn-companion/releases/download/prereborn-v0.3.1/PreReborn.Companion_0.3.1_x64-setup.exe
-        run: bash scripts/build-release-artifact.sh artifact-out "${{ github.event.workflow_run.head_sha }}"
+          NEXT_PUBLIC_DOTA_COMPANION_DOWNLOAD_URL: ${{ env.COMPANION_DOWNLOAD_URL }}
+          NEXT_PUBLIC_DOTA_COMPANION_VERSION: ${{ env.COMPANION_VERSION }}
+        run: bash scripts/build-release-artifact.sh artifact-out "${{ steps.resolve.outputs.sha }}"
 
       - name: Configure SSH
         env:
@@ -155,7 +207,12 @@ jobs:
             printf 'NEXT_PUBLIC_API_URL=/api\n'
             printf 'NEXT_PUBLIC_SITE_URL=https://prereborn.ru\n'
             printf 'NEXT_PUBLIC_MEDIA_BASE_URL=https://prereborn.ru/media\n'
-            printf 'NEXT_PUBLIC_DOTA_COMPANION_DOWNLOAD_URL=https://github.com/BaranovRoman/prereborn-companion/releases/download/prereborn-v0.3.1/PreReborn.Companion_0.3.1_x64-setup.exe\n'
+            # WK-88 - NEXT_PUBLIC_DOTA_COMPANION_DOWNLOAD_URL/_VERSION are
+            # deliberately NOT written here: NEXT_PUBLIC_* values are
+            # inlined into the client bundle at build time (see the "Build
+            # release artifact" step above), so a runtime .env entry for
+            # them has no effect - writing one here would just be a second,
+            # driftable copy of the same value.
           } | \
             ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
             -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
@@ -174,7 +231,7 @@ jobs:
         run: |
           ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
             -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
-            "cd /var/www/www-root/data/www/prereborn.ru && bash incoming/release.sh '${{ github.event.workflow_run.head_sha }}' incoming/release.tar.gz"
+            "cd /var/www/www-root/data/www/prereborn.ru && bash incoming/release.sh '${{ steps.resolve.outputs.sha }}' incoming/release.tar.gz"
 
       - name: Verify public endpoint
         run: |
