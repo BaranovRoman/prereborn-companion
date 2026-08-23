@@ -27,4 +27,28 @@ describe("shortcutFromKeyboardEvent", () => {
   it("accepts a modified ordinary key", () => {
     expect(shortcutFromKeyboardEvent(key("KeyS", { ctrlKey: true }))).toBe("Ctrl+KeyS");
   });
+
+  // Regression for a real reported bug: a streamer could not assign F12 as
+  // the skip-TTS hotkey. Code review found this recorder never singled out
+  // F12 (or any F-key) - BARE_KEY_ALLOWED covers the whole F1-F24 range - so
+  // these pin down F9-F12 (the specific keys the task called out as
+  // desirable streamer controls) plus a modified F12 combo as an executable
+  // fact, not just a reading of the regex. If F12 is still refused in a real
+  // build, the block is happening below this function (OS/webview level,
+  // e.g. Chromium's F12-opens-DevTools interception) - see the PR report.
+  it("allows every one of F9, F10, F11, F12 bare, and a modified F12 combo", () => {
+    expect(shortcutFromKeyboardEvent(key("F9"))).toBe("F9");
+    expect(shortcutFromKeyboardEvent(key("F10"))).toBe("F10");
+    expect(shortcutFromKeyboardEvent(key("F11"))).toBe("F11");
+    expect(shortcutFromKeyboardEvent(key("F12"))).toBe("F12");
+    expect(shortcutFromKeyboardEvent(key("F12", { ctrlKey: true }))).toBe("Ctrl+F12");
+  });
+
+  // The standalone allowlist must stay narrow (function keys only) - a bare
+  // Space/Enter/letter must never become a global shortcut by accident while
+  // typing elsewhere in the recorder or the rest of the app.
+  it("rejects other bare special keys (Space, Enter) with no modifier", () => {
+    expect(shortcutFromKeyboardEvent(key("Space"))).toBeNull();
+    expect(shortcutFromKeyboardEvent(key("Enter"))).toBeNull();
+  });
 });
