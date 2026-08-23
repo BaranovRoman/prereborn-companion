@@ -1215,6 +1215,9 @@
     gap: 7px;
     border-bottom: 1px solid #2a3030;
 }
+// WK-84: матчи прошлых stream-сессий в общей истории (Between Matches) -
+// строка/layout не меняются, см. задачу.
+.gameRow[data-session="previous"] { opacity: 0.8; }
 .gameMark { width: 30px; height: 30px; font-size: 12px; }
 .gameRow div { display: flex; flex-direction: column; }
 .gameRow em { color: #9eb17f; font-size: 12px; font-style: normal; }

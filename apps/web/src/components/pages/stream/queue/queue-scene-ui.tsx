@@ -12,6 +12,8 @@ import {
 import { useEffect, useState } from "react";
 import { getHeroById } from "@/entities/dota-hero/lib/search";
 import { useAccountMatches } from "@/entities/stream-session/lib/use-account-matches";
+import { useActiveStreamSessionId } from "@/entities/stream-session/lib/use-active-stream-session-id";
+import { isMatchFromCurrentSession } from "@/entities/stream-session/lib/is-match-from-current-session";
 import { useOverlayPolling } from "@/entities/stream-session/lib/use-overlay-polling";
 import type { OverlayData, StreamMatch } from "@/entities/stream-session/model/types";
 import { useSteamIntegration } from "@/entities/steam-integration/lib/use-steam-integration";
@@ -183,6 +185,11 @@ interface QueueDataProps {
     donationAlerts: DonationAlertsIntegrationStatus | null;
     webcamImageUrl: string | null;
     channelGoal: QueueChannelGoal;
+    // WK-84: только для RecentGames - когда matches - account-wide история
+    // (fallback без publicData), позволяет отличить строки текущей сессии
+    // от прошлых. null для матчей уже session-scoped публичного оверлея, где
+    // это не нужно (см. isMatchFromCurrentSession).
+    activeSessionId: string | null;
 }
 
 interface GsiItem {
@@ -418,14 +425,27 @@ const FavoriteHeroes = ({
     );
 };
 
-const RecentGames = ({ matches, title, limit }: QueueDataProps & { title: string; limit: number }) => (
+export const RecentGames = ({
+    matches,
+    activeSessionId,
+    title,
+    limit,
+}: QueueDataProps & { title: string; limit: number }) => (
     <Panel title={title} className={styles.recentGames}>
         <div className={styles.gamesList}>
             {matches.length ? matches.slice(0, limit).map((match) => {
                 const hero = getHeroById(match.heroId);
                 const result = resultLabel(match);
+                const isCurrentSession = isMatchFromCurrentSession(
+                    match.streamSessionId,
+                    activeSessionId
+                );
                 return (
-                    <div key={match.id} className={styles.gameRow}>
+                    <div
+                        key={match.id}
+                        className={styles.gameRow}
+                        data-session={isCurrentSession ? "current" : "previous"}
+                    >
                         {hero ? (
                             <img className={styles.gameHeroImage} src={hero.imageUrl} alt="" />
                         ) : (
@@ -692,6 +712,7 @@ const DonationTop = ({ donationAlerts, twitch, title, settings }: QueueDataProps
 export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
     const { user } = useStreamSession();
     const { matches } = useAccountMatches();
+    const activeSessionId = useActiveStreamSessionId();
     const steam = useSteamIntegration();
     const queueSettings = useQueueSettings();
     const twitch = useTwitchIntegration();
@@ -715,6 +736,7 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
         donationAlerts: publicData?.donationAlerts ?? donationAlerts.status,
         webcamImageUrl: activeSettings.webcamImageUrl,
         channelGoal: activeSettings.channelGoal,
+        activeSessionId,
     };
     const widgetSettings = activeSettings.widgets;
 

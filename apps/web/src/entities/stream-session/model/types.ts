@@ -81,6 +81,13 @@ export interface StreamMatch {
     // (entities/stream-user) не меняет отображение уже записанных матчей.
     gameMode: StreamGameMode;
     endedAt: string | null;
+    // Только на authenticated-истории (AccountStreamMatch) - публичный
+    // overlay-payload (controllers/stream/overlay.ts) это поле не отдаёт,
+    // поэтому здесь optional, а не required (см. isMatchFromCurrentSession,
+    // WK-84: там, где поля нет, различать текущую/прошлую сессию не нужно -
+    // matches и recentMatches из /overlay/:publicToken уже session-scoped
+    // либо не подлежат такому различению по контракту WK-68).
+    streamSessionId?: string | null;
 }
 
 export type MatchResultSource = "gsi" | "manual";

@@ -42,6 +42,12 @@ interface StreamSessionPanelProps {
     sessionRatingDelta: number | null;
     gameMode: StreamGameMode;
     onGameModeChanged: (gameMode: StreamGameMode) => void;
+    // WK-84: эта панель - единственное место на странице, которое уже знает
+    // id активной сессии (см. эффект ниже) и единственное, где он меняется
+    // (poll + "Начать новый стрим"), поэтому просто оповещаем родителя вместо
+    // того, чтобы RecentMatchesPanel заводил свой параллельный fetch того же
+    // /account/session.
+    onSessionChange?: (session: StreamSession) => void;
 }
 
 export const StreamSessionPanel = ({
@@ -49,6 +55,7 @@ export const StreamSessionPanel = ({
     sessionRatingDelta,
     gameMode,
     onGameModeChanged,
+    onSessionChange,
 }: StreamSessionPanelProps) => {
     const [session, setSession] = useState<StreamSession | null>(null);
     const [loading, setLoading] = useState(true);
@@ -83,6 +90,11 @@ export const StreamSessionPanel = ({
             cancelled = true;
         };
     }, []);
+
+    useEffect(() => {
+        if (session) onSessionChange?.(session);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [session]);
 
     // Только перечитывание (GET), не трогает rating-инпут/busy-флаги -
     // W/L/герой, изменённые фоновым sync'ом, подтягиваются сюда так же, как
