@@ -6,6 +6,7 @@ import type {
 import type { QueueSettings } from "@/entities/stream-queue-settings/model/types";
 import type { TwitchIntegrationStatus } from "@/entities/twitch-integration/model/types";
 import type { DonationAlertsIntegrationStatus } from "@/entities/donation-alerts-integration/model/types";
+import type { TwitchViewerEvent, ViewerAlertsSettings } from "@/entities/twitch-viewer-alerts/model/types";
 
 export interface StreamSession {
     id: string;
@@ -160,6 +161,10 @@ export interface OverlayData {
     };
     twitch: TwitchIntegrationStatus;
     donationAlerts: DonationAlertsIntegrationStatus | null;
+    // WK-72 - follow/subscribe/gift-sub/raid, bounded + deduped server-side
+    // (twitch-integration-service.ts) same shape as chat.messages above.
+    viewerEvents: TwitchViewerEvent[];
+    viewerAlertsSettings: ViewerAlertsSettings;
     // Раскладка виджетов - приходит в том же payload'е, что и остальные
     // данные (см. задачу: не заводить отдельный поллинг под layout).
     layout: OverlayLayout;

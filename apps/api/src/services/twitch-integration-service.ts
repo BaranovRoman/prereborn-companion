@@ -1,11 +1,15 @@
 import crypto from "crypto";
-import { TwitchEventSubChatClient, type TwitchChatMessage, type TwitchChatState } from "./twitch-eventsub-chat.js";
+import { TwitchEventSubChatClient, type TwitchChatMessage, type TwitchChatState, type TwitchViewerEvent } from "./twitch-eventsub-chat.js";
 import { env } from "../config/env.js";
 import { pool } from "../db/client.js";
 import { logger } from "../utils/logger.js";
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 const CHAT_MESSAGE_LIMIT = 40;
+// WK-72 - same bounded-cache shape as CHAT_MESSAGE_LIMIT, smaller because
+// these are transient overlay alerts (queued and shown once), not a
+// scrollable history a viewer reads back through.
+const VIEWER_EVENT_LIMIT = 20;
 let appToken: { value: string; expiresAt: number } | null = null;
 
 interface TwitchToken {
@@ -38,6 +42,7 @@ const chatConnections = new Map<string, TwitchEventSubChatClient>();
 const chatMessages = new Map<string, TwitchChatMessage[]>();
 const recentSubscribers = new Map<string, TwitchSubscriber[]>();
 const audienceCache = new Map<string, TwitchAudience>();
+const viewerEvents = new Map<string, TwitchViewerEvent[]>();
 
 // Test-only seam: lets tests inject a client wired with a fake socket/
 // subscription/token-validation instead of the real WebSocket + Twitch API,
@@ -213,6 +218,21 @@ const ensureTwitchChat = (streamUserId: string, broadcasterId: string) => {
             log("Twitch chat subscription failed", {
                 streamUserId,
                 classification,
+                message: error instanceof Error ? error.message : String(error),
+            });
+        },
+        onViewerEvent: (event) => {
+            const events = viewerEvents.get(streamUserId) ?? [];
+            if (events.some(({ id }) => id === event.id)) return;
+            viewerEvents.set(streamUserId, [...events, event].slice(-VIEWER_EVENT_LIMIT));
+        },
+        // warn, not error - a subscribe/subscription.gift failure here is
+        // routinely just "this channel isn't Affiliate/Partner" (WK-54), not
+        // a fault. Never surfaced to any UI/status field - see WK-72 report.
+        onViewerEventError: (type, error) => {
+            logger.warn("Twitch viewer-event subscription failed", {
+                streamUserId,
+                type,
                 message: error instanceof Error ? error.message : String(error),
             });
         },
@@ -424,10 +444,14 @@ export const getTwitchChatStatus = async (streamUserId: string) => {
         messages: chatMessages.get(streamUserId) ?? [],
     };
 };
+export const getTwitchViewerEvents = (streamUserId: string): TwitchViewerEvent[] =>
+    viewerEvents.get(streamUserId) ?? [];
+
 export const disconnectTwitch = async (streamUserId: string) => {
     stopTwitchChat(streamUserId);
     chatMessages.delete(streamUserId);
     recentSubscribers.delete(streamUserId);
     audienceCache.delete(streamUserId);
+    viewerEvents.delete(streamUserId);
     await pool.query("DELETE FROM stream_twitch_links WHERE stream_user_id = $1", [streamUserId]);
 };

@@ -24,6 +24,10 @@ import {
     putQueueSettingsController,
 } from "../../controllers/stream/queue-settings.js";
 import {
+    getViewerAlertsSettingsController,
+    putViewerAlertsSettingsController,
+} from "../../controllers/stream/viewer-alerts-settings.js";
+import {
     getReferenceBackgroundController,
     uploadReferenceBackgroundMiddleware,
     uploadReferenceBackgroundController,
@@ -64,6 +68,8 @@ streamAccountRouter.put("/me/overlay-layout", putOverlayLayoutController);
 streamAccountRouter.post("/me/obs-test-scene", postObsTestSceneController);
 streamAccountRouter.get("/me/queue-settings", getQueueSettingsController);
 streamAccountRouter.put("/me/queue-settings", putQueueSettingsController);
+streamAccountRouter.get("/me/viewer-alerts-settings", getViewerAlertsSettingsController);
+streamAccountRouter.put("/me/viewer-alerts-settings", putViewerAlertsSettingsController);
 streamAccountRouter.post(
     "/me/queue-webcam-image",
     uploadRateLimiter,

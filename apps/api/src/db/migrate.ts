@@ -487,6 +487,12 @@ export const createTables = async (): Promise<void> => {
       );
       CREATE INDEX IF NOT EXISTS idx_stream_da_donations_user
         ON stream_donation_alerts_donations(stream_user_id);
+      CREATE TABLE IF NOT EXISTS stream_viewer_alerts_settings (
+        stream_user_id INTEGER PRIMARY KEY REFERENCES stream_users(id) ON DELETE CASCADE,
+        settings JSONB NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
         await client.query("COMMIT");
