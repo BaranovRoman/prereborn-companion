@@ -54,7 +54,7 @@ pub struct StatusSnapshot {
     // останавливать (см. отчёт, "не блокировать локальный GSI-сервер").
     pub backend_url: String,
     pub companion_token_configured: bool,
-    pub backend_connected: bool,
+    pub backend_state: ConnectionState,
     pub backend_last_sent_at: Option<String>,
     pub backend_last_error: Option<String>,
     pub obs_config: ObsConfig,
@@ -89,7 +89,16 @@ pub struct InnerState {
     pub log_dir: Option<String>,
 
     pub companion_token: Option<String>,
-    pub backend_connected: bool,
+    // Whether at least one send attempt has completed (success or failure)
+    // since Companion started or since the token was last (re)saved - lets
+    // `snapshot()` tell "never checked yet" (Waiting) apart from "checked
+    // and it failed" (Recovering/Unavailable), which a single bool cannot.
+    pub backend_attempted: bool,
+    // Consecutive failed send attempts. Reset to 0 on any success or on
+    // token save. Compared against `backend::MAX_RETRY_ATTEMPT` (the same
+    // cap the WK-78 backoff itself uses) to distinguish a transient blip
+    // (still Recovering) from a sustained outage (Unavailable).
+    pub backend_consecutive_failures: u32,
     pub backend_last_sent_at: Option<String>,
     pub backend_last_error: Option<String>,
     // Последнее распарсенное (valid JSON) GSI-состояние - независимо от
@@ -141,6 +150,15 @@ impl AppState {
         } else {
             ConnectionState::Waiting
         };
+        let backend_state = if !inner.backend_attempted {
+            ConnectionState::Waiting
+        } else if inner.backend_consecutive_failures == 0 {
+            ConnectionState::Connected
+        } else if inner.backend_consecutive_failures < crate::backend::MAX_RETRY_ATTEMPT {
+            ConnectionState::Recovering
+        } else {
+            ConnectionState::Unavailable
+        };
         let obs_state = if inner.obs_connected {
             ConnectionState::Connected
         } else if inner.obs_switch_pending.is_some() || inner.obs_check_pending || inner.obs_retry_at.is_some() {
@@ -166,7 +184,7 @@ impl AppState {
             legacy_cleanup_in_progress: crate::storage::legacy_cleanup_in_progress(),
             backend_url: DEFAULT_BACKEND_URL.to_string(),
             companion_token_configured: inner.companion_token.is_some(),
-            backend_connected: inner.backend_connected,
+            backend_state,
             backend_last_sent_at: inner.backend_last_sent_at.clone(),
             backend_last_error: inner.backend_last_error.clone(),
             obs_config: {
@@ -180,5 +198,100 @@ impl AppState {
             obs_last_error: inner.obs_last_error.clone(),
             companion_version: COMPANION_VERSION.to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backend_state_is_waiting_before_first_attempt() {
+        let state = AppState::new();
+        assert_eq!(state.snapshot().backend_state, ConnectionState::Waiting);
+    }
+
+    #[test]
+    fn backend_state_is_waiting_once_token_configured_but_unchecked() {
+        let state = AppState::new();
+        state.0.lock().unwrap().companion_token = Some("token".to_string());
+        let snapshot = state.snapshot();
+        assert!(snapshot.companion_token_configured);
+        assert_eq!(snapshot.backend_state, ConnectionState::Waiting);
+    }
+
+    #[test]
+    fn backend_state_is_connected_after_first_success() {
+        let state = AppState::new();
+        {
+            let mut inner = state.0.lock().unwrap();
+            inner.backend_attempted = true;
+            inner.backend_consecutive_failures = 0;
+        }
+        assert_eq!(state.snapshot().backend_state, ConnectionState::Connected);
+    }
+
+    #[test]
+    fn backend_state_is_recovering_on_single_transient_failure() {
+        let state = AppState::new();
+        {
+            let mut inner = state.0.lock().unwrap();
+            inner.backend_attempted = true;
+            inner.backend_consecutive_failures = 1;
+        }
+        assert_eq!(state.snapshot().backend_state, ConnectionState::Recovering);
+    }
+
+    #[test]
+    fn backend_state_stays_recovering_while_under_retry_cap() {
+        let state = AppState::new();
+        {
+            let mut inner = state.0.lock().unwrap();
+            inner.backend_attempted = true;
+            inner.backend_consecutive_failures = crate::backend::MAX_RETRY_ATTEMPT - 1;
+        }
+        assert_eq!(state.snapshot().backend_state, ConnectionState::Recovering);
+    }
+
+    #[test]
+    fn backend_state_becomes_unavailable_once_retry_cap_is_reached() {
+        let state = AppState::new();
+        {
+            let mut inner = state.0.lock().unwrap();
+            inner.backend_attempted = true;
+            inner.backend_consecutive_failures = crate::backend::MAX_RETRY_ATTEMPT;
+        }
+        assert_eq!(state.snapshot().backend_state, ConnectionState::Unavailable);
+    }
+
+    #[test]
+    fn backend_state_recovers_to_connected_after_success_following_failures() {
+        let state = AppState::new();
+        {
+            let mut inner = state.0.lock().unwrap();
+            inner.backend_attempted = true;
+            inner.backend_consecutive_failures = 3;
+        }
+        assert_eq!(state.snapshot().backend_state, ConnectionState::Recovering);
+        {
+            let mut inner = state.0.lock().unwrap();
+            inner.backend_consecutive_failures = 0;
+        }
+        assert_eq!(state.snapshot().backend_state, ConnectionState::Connected);
+    }
+
+    #[test]
+    fn missing_gsi_packets_alone_do_not_affect_backend_state() {
+        let state = AppState::new();
+        {
+            let mut inner = state.0.lock().unwrap();
+            inner.server_running = true;
+            inner.backend_attempted = true;
+            inner.backend_consecutive_failures = 0;
+            // No GSI packets received at all (gsi_last_received_at stays None).
+        }
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.gsi_state, ConnectionState::Waiting);
+        assert_eq!(snapshot.backend_state, ConnectionState::Connected);
     }
 }
