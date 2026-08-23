@@ -14,7 +14,7 @@ import {
 } from "../../services/stream-match-service.js";
 import { getOverlayLayout } from "../../services/stream-overlay-layout-service.js";
 import { getQueueSettings } from "../../services/stream-queue-settings-service.js";
-import { getViewerAlertsSettings } from "../../services/stream-viewer-alerts-settings-service.js";
+import { filterViewerEventsForPublicOverlay, getViewerAlertsSettings } from "../../services/stream-viewer-alerts-settings-service.js";
 import {
     getCompanionState,
     getCompanionLastSeenAt,
@@ -127,8 +127,15 @@ export const getOverlayController = async (req: Request, res: Response) => {
         // above (part of `integrations`), so this in-memory read picks up
         // whatever follow/subscribe/gift/raid events have arrived on that
         // connection since - same "already-open connection, no extra
-        // request" shape as chat.messages.
-        const viewerEvents = getTwitchViewerEvents(streamUserId);
+        // request" shape as chat.messages. Filtered by viewerAlertsSettings
+        // here, server-side (see filterViewerEventsForPublicOverlay) - this
+        // is a public, unauthenticated endpoint, so a disabled alert
+        // type/global toggle must mean that viewer's event never leaves the
+        // server, not just "the widget won't render it".
+        const viewerEvents = filterViewerEventsForPublicOverlay(
+            getTwitchViewerEvents(streamUserId),
+            viewerAlertsSettings
+        );
 
         const configuredRecentMatches = Object.values(layout.scenes).map(
             (scene) => scene.widgets.recentMatches.recentMatches

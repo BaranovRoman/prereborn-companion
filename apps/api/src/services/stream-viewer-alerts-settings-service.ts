@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { pool } from "../db/client.js";
+import type { TwitchViewerEvent } from "./twitch-eventsub-chat.js";
 
 // WK-72 - same table/service shape as stream-queue-settings-service.ts
 // (jsonb blob keyed by stream_user_id, upserted via ON CONFLICT), kept as
@@ -48,6 +49,19 @@ export const getViewerAlertsSettings = async (streamUserId: string): Promise<Vie
     const parsed = viewerAlertsSettingsSchema.safeParse(rows[0]?.settings);
     return parsed.success ? parsed.data : DEFAULT_VIEWER_ALERTS_SETTINGS;
 };
+
+// WK-72 review follow-up - GET /api/stream/overlay/:publicToken is public
+// and unauthenticated, so a disabled alert type/global toggle must mean
+// that viewer's event never leaves the server in the payload, not just
+// "the widget won't render it" (the frontend queue also checks settings,
+// but only as defense in depth on top of this, not as the actual privacy
+// boundary). Pure/exported so this can be unit tested directly instead of
+// through the full overlay HTTP endpoint, which requires a live Twitch app
+// token network call this test environment can't make.
+export const filterViewerEventsForPublicOverlay = (
+    events: readonly TwitchViewerEvent[],
+    settings: ViewerAlertsSettings
+): TwitchViewerEvent[] => (settings.enabled ? events.filter((event) => settings.types[event.type]) : []);
 
 export const saveViewerAlertsSettings = async (
     streamUserId: string,

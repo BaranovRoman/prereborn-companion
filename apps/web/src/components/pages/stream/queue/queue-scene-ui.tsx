@@ -26,7 +26,6 @@ import type { TwitchIntegrationStatus } from "@/entities/twitch-integration/mode
 import type { SteamIntegrationStatus } from "@/entities/steam-integration/model/types";
 import type { QueueChannelGoal, QueueWidgetSettings } from "@/entities/stream-queue-settings/model/types";
 import type { QueueSocialPlatform } from "@/entities/stream-queue-settings/model/types";
-import { ViewerAlertToast } from "./viewer-alert-toast";
 import styles from "./queue-scene.module.scss";
 
 const EMPTY_VALUE = "—";
@@ -761,10 +760,6 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
 
     return (
         <div className={styles.interface}>
-            <ViewerAlertToast
-                viewerEvents={activeOverlay?.viewerEvents}
-                viewerAlertsSettings={activeOverlay?.viewerAlertsSettings}
-            />
             <div className={styles.dashboard} data-top-count={2}>
                 <PlayerProfile {...data} title={widgetSettings.titles.playerProfile} />
                 <StreamProfile {...data} title={widgetSettings.titles.streamProfile} />
