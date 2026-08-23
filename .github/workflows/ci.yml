@@ -28,6 +28,7 @@ jobs:
       NODE_ENV: test
     steps:
       - uses: actions/checkout@v4
+      - run: bash scripts/verify-companion-release-contract.sh
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
