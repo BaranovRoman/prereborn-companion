@@ -122,8 +122,18 @@ if ! node "$RELEASE_DIR/api/dist/db/migrate-cli.js"; then
   exit 1
 fi
 
+# WK-88 follow-up (production regression) - a plain "process responds
+# 200/ok" check let a stale PM2 process (still running an old release's
+# code) pass silently for every deploy since WK-80 shipped: `current` and
+# VERSION were switching correctly, but the actually-running processes
+# never picked up the new cwd/script (see switch_and_reload's comment
+# below for the confirmed root cause). `expected_sha` closes that gap: both
+# API and web must report the SHA that was just switched to, or this is
+# treated as a failed deploy exactly like a boot crash - triggering the
+# same rollback path.
 health_check() {
   local label="$1"
+  local expected_sha="$2"
   local response
   if ! response="$(curl --fail --silent --show-error \
       --retry 10 --retry-delay 2 --retry-connrefused \
@@ -138,9 +148,27 @@ health_check() {
   fi
   grep -q '"twitchConfigured":true' <<<"$response" || { log "$label: twitchConfigured is not true"; return 1; }
   grep -q '"donationAlertsConfigured":true' <<<"$response" || { log "$label: donationAlertsConfigured is not true"; return 1; }
-  curl --fail --silent --show-error --head \
-    --retry 10 --retry-delay 2 --retry-connrefused \
-    "http://$HEALTH_HOST:$WEB_PORT" >/dev/null || { log "$label: web root check failed"; return 1; }
+
+  local api_sha
+  api_sha="$(grep -oE '"releaseSha":"[^"]*"' <<<"$response" | cut -d'"' -f4)"
+  if [[ "$api_sha" != "$expected_sha" ]]; then
+    log "$label: API releaseSha mismatch (expected $expected_sha, got '${api_sha:-<missing>}')"
+    return 1
+  fi
+
+  local web_headers web_sha
+  if ! web_headers="$(curl --fail --silent --show-error --head \
+      --retry 10 --retry-delay 2 --retry-connrefused \
+      "http://$HEALTH_HOST:$WEB_PORT/")"; then
+    log "$label: web root check failed"
+    return 1
+  fi
+  web_sha="$(tr -d '\r' <<<"$web_headers" | grep -i '^x-release-sha:' | cut -d' ' -f2)"
+  if [[ "$web_sha" != "$expected_sha" ]]; then
+    log "$label: web releaseSha mismatch (expected $expected_sha, got '${web_sha:-<missing>}')"
+    return 1
+  fi
+
   return 0
 }
 
@@ -149,14 +177,32 @@ switch_and_reload() {
   ln -sfn "releases/$sha" "$DEPLOY_ROOT/current.tmp"
   mv -Tf "$DEPLOY_ROOT/current.tmp" "$CURRENT_LINK"
   cp "$RELEASES_DIR/$sha/ecosystem.config.cjs" "$SHARED_DIR/ecosystem.config.cjs"
-  "$PM2_BIN" reload "$SHARED_DIR/ecosystem.config.cjs" --update-env
-  "$PM2_BIN" restart prereborn-api --update-env
+  # WK-88 follow-up (production regression, confirmed live via SSH) -
+  # `pm2 reload <ecosystem-file>` does NOT update script/args/cwd/interpreter
+  # for a process name that's already registered; it only restarts using
+  # whatever spawn definition PM2 captured the first time that name was
+  # `pm2 start`ed, applying just env changes (even with --update-env).
+  # Confirmed: prereborn-web/-api kept running the pre-WK-80
+  # ecosystem.config.cjs's fixed apps/web+apps/api paths through every
+  # `current` switch and `pm2 reload` since WK-80 shipped, because that was
+  # the definition originally registered before WK-80 - the switch and
+  # reload both "succeeded" every time without ever actually serving the
+  # new release. `delete` + `start` forces PM2 to register a fresh process
+  # definition straight from the current ecosystem file on every deploy, so
+  # cwd/script always match `current`. This trades PM2 fork-mode's
+  # (already non-zero-downtime, see docs/research/wk-80-*.md) reload for a
+  # few seconds of real downtime - acceptable on this single-instance VDS;
+  # correctness (actually serving the deployed release) matters more here
+  # than shaving that gap, and the release-identity health check below
+  # would otherwise have no way to ever prove a switch actually worked.
+  PREREBORN_RELEASE_SHA="$sha" "$PM2_BIN" delete prereborn-web prereborn-api >/dev/null 2>&1 || true
+  PREREBORN_RELEASE_SHA="$sha" "$PM2_BIN" start "$SHARED_DIR/ecosystem.config.cjs" --update-env
 }
 
 log "Switching current -> releases/$SHA"
 switch_and_reload "$SHA"
 
-if health_check "post-switch"; then
+if health_check "post-switch" "$SHA"; then
   log "releases/$SHA is healthy - deploy successful"
   "$PM2_BIN" save
 
@@ -189,7 +235,7 @@ fi
 log "Rolling back: current -> releases/$PREVIOUS_SHA"
 switch_and_reload "$PREVIOUS_SHA"
 
-if health_check "post-rollback"; then
+if health_check "post-rollback" "$PREVIOUS_SHA"; then
   echo "Rolled back successfully to releases/$PREVIOUS_SHA. Deploy of $SHA failed but production is healthy on the previous release."
   exit 1
 fi
