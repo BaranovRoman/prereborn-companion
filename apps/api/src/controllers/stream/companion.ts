@@ -1,7 +1,16 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import { upsertCompanionState } from "../../services/stream-companion-service.js";
-import { processGsiPayloadForMatch } from "../../services/stream-match-service.js";
+import {
+    getSessionStartRating,
+    processGsiPayloadForMatch,
+} from "../../services/stream-match-service.js";
+import {
+    getOrCreateActiveSession,
+    resetActiveSession,
+    type StreamSession,
+} from "../../services/stream-session-service.js";
+import { getStreamUserGameMode } from "../../services/stream-user-service.js";
 import { logger } from "../../utils/logger.js";
 import { getTwitchChatStatus } from "../../services/twitch-integration-service.js";
 import {
@@ -109,5 +118,80 @@ export const getCompanionTwitchChatController = async (
             message: error instanceof Error ? error.message : String(error),
         });
         res.status(502).json({ error: "Не удалось получить Twitch-чат" });
+    }
+};
+
+// WK-83 - минимальная сводка активной сессии для startup-предложения
+// Companion ("продолжить прошлый стрим?"). Та же композиция
+// sessionRatingDelta, что и overlay.ts (getSessionStartRating +
+// getStreamUserGameMode) - не дублируем SQL, переиспользуем существующие
+// сервисные функции.
+interface CompanionSessionSummary {
+    id: string;
+    startedAt: string;
+    updatedAt: string;
+    wins: number;
+    losses: number;
+    sessionRatingDelta: number | null;
+}
+
+const buildCompanionSessionSummary = async (
+    streamUserId: string,
+    session: StreamSession
+): Promise<CompanionSessionSummary> => {
+    const gameMode = await getStreamUserGameMode(streamUserId);
+
+    let sessionRatingDelta: number | null = null;
+    if (gameMode === "ranked" && session.rating !== null) {
+        const startRating = await getSessionStartRating(session.id);
+        sessionRatingDelta = startRating !== null ? session.rating - startRating : 0;
+    }
+
+    return {
+        id: session.id,
+        startedAt: session.startedAt,
+        updatedAt: session.updatedAt,
+        wins: session.wins,
+        losses: session.losses,
+        sessionRatingDelta,
+    };
+};
+
+export const getCompanionSessionController = async (
+    req: Request,
+    res: Response
+) => {
+    try {
+        const streamUserId = req.streamUserId as string;
+        const session = await getOrCreateActiveSession(streamUserId);
+        res.json(await buildCompanionSessionSummary(streamUserId, session));
+    } catch (error) {
+        logger.error("Companion session fetch error", {
+            requestId: req.requestId,
+            message: error instanceof Error ? error.message : String(error),
+        });
+        res.status(500).json({ error: "Внутренняя ошибка сервера" });
+    }
+};
+
+// Переиспользует ровно ту же resetActiveSession, что и веб-кабинет
+// (POST /api/stream/account/session/reset, controllers/stream/session.ts) -
+// см. задачу WK-83: "не создавать параллельную логику сброса". Companion не
+// имеет JWT-доступа к /account/*, только companion_token, поэтому это новый
+// маршрут, а не переиспользование того же route.
+export const resetCompanionSessionController = async (
+    req: Request,
+    res: Response
+) => {
+    try {
+        const streamUserId = req.streamUserId as string;
+        const session = await resetActiveSession(streamUserId);
+        res.json(await buildCompanionSessionSummary(streamUserId, session));
+    } catch (error) {
+        logger.error("Companion session reset error", {
+            requestId: req.requestId,
+            message: error instanceof Error ? error.message : String(error),
+        });
+        res.status(500).json({ error: "Внутренняя ошибка сервера" });
     }
 };

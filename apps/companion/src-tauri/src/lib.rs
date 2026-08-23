@@ -178,6 +178,8 @@ pub fn run() {
             commands::diagnostics_trace_tts_frontend,
             commands::get_skip_hotkey_status,
             commands::set_skip_hotkey,
+            commands::get_stream_session,
+            commands::reset_stream_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
