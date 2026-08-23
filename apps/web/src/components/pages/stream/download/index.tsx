@@ -1,27 +1,30 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { Button, Tag } from "antd";
 import {
     DOTA_COMPANION_DOWNLOAD_URL,
     DOTA_COMPANION_VERSION,
 } from "@/shared/config/dota-companion";
-import { useStreamSession } from "@/entities/stream-user/lib/use-stream-session";
 import { usePageReady } from "@/shared/ui/route-transition/usePageReady";
 import styles from "./index.module.scss";
 
+// Public by design - unlike the rest of /stream/*, this page must be
+// reachable by anyone who wants to install Companion, including visitors
+// with no PreReborn account yet (they set one up from inside the app via a
+// companion token, not the other way around). It renders nothing
+// user-specific, so it must NOT gate on useStreamSession() the way the
+// authenticated dashboard pages do - that hook resolves only client-side
+// (see its own comment: "the one protected page"), which made this page
+// permanently stuck on a loading placeholder for any visitor Next couldn't
+// resolve a session for at render time, and redirected anonymous visitors
+// to /stream/login before they ever saw a download button.
 export const StreamDownloadPage = () => {
-    const router = useRouter();
-    const { user, loading } = useStreamSession();
     const { ready } = usePageReady(600);
     useEffect(() => {
         ready();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-
-    useEffect(() => { if (!loading && !user) router.replace("/stream/login?next=/stream/download"); }, [loading, user, router]);
-    if (loading || !user) return <div className={styles.page}>Загрузка…</div>;
 
     return (
         <div className={styles.page}>
