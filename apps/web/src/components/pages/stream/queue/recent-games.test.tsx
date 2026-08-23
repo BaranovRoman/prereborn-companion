@@ -1,0 +1,128 @@
+import { cleanup, render } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import type { StreamMatch } from "@/entities/stream-session/model/types";
+import { RecentGames } from "./queue-scene-ui";
+import styles from "./queue-scene.module.scss";
+
+afterEach(cleanup);
+
+// WK-84 regression coverage for the "Between Matches" Recent Games widget
+// (the account-wide history fallback path, see isMatchFromCurrentSession) -
+// deliberately not asserting literal CSS values here, only the data-session
+// marker the stylesheet keys off (см. queue-scene.module.scss
+// .gameRow[data-session="previous"]).
+const match = (id: string, streamSessionId: string | null): StreamMatch => ({
+    id,
+    dotaMatchId: id,
+    heroId: 1,
+    kills: 1,
+    deaths: 2,
+    assists: 3,
+    inventory: [],
+    result: "win",
+    ratingBefore: 1000,
+    ratingDelta: 25,
+    ratingAfter: 1025,
+    gameMode: "ranked",
+    endedAt: new Date(0).toISOString(),
+    streamSessionId,
+});
+
+const baseProps = {
+    email: null,
+    gameMode: null,
+    rating: null,
+    wins: 0,
+    losses: 0,
+    steamConnected: false,
+    steamId: undefined,
+    steamSyncStatus: null,
+    steamProfile: undefined,
+    twitch: null,
+    donationAlerts: null,
+    webcamImageUrl: null,
+    channelGoal: { type: "none" as const, label: "", startValue: 0, targetValue: 0 },
+};
+
+describe("RecentGames (Between Matches)", () => {
+    it("renders a current-session match at full opacity (no previous-session marker)", () => {
+        const { container } = render(
+            <RecentGames
+                {...baseProps}
+                matches={[match("d", "session-2")]}
+                activeSessionId="session-2"
+                title="Recent Games"
+                limit={5}
+            />
+        );
+        const row = container.querySelector(`.${styles.gameRow}`) as HTMLElement;
+        expect(row.dataset.session).toBe("current");
+    });
+
+    it("renders a previous-session match with the previous-session marker", () => {
+        const { container } = render(
+            <RecentGames
+                {...baseProps}
+                matches={[match("a", "session-1")]}
+                activeSessionId="session-2"
+                title="Recent Games"
+                limit={5}
+            />
+        );
+        const row = container.querySelector(`.${styles.gameRow}`) as HTMLElement;
+        expect(row.dataset.session).toBe("previous");
+    });
+
+    it("renders a mixed list with only the previous-session rows marked", () => {
+        const { container } = render(
+            <RecentGames
+                {...baseProps}
+                matches={[
+                    match("d", "session-2"),
+                    match("a", "session-1"),
+                    match("b", "session-1"),
+                    match("c", "session-1"),
+                ]}
+                activeSessionId="session-2"
+                title="Recent Games"
+                limit={5}
+            />
+        );
+        const rows = Array.from(container.querySelectorAll(`.${styles.gameRow}`)) as HTMLElement[];
+        expect(rows.map((row) => row.dataset.session)).toEqual([
+            "current",
+            "previous",
+            "previous",
+            "previous",
+        ]);
+    });
+
+    it("a new empty session still shows the previous session's matches, all marked previous", () => {
+        const { container } = render(
+            <RecentGames
+                {...baseProps}
+                matches={[match("a", "session-1"), match("b", "session-1")]}
+                activeSessionId="session-2"
+                title="Recent Games"
+                limit={5}
+            />
+        );
+        const rows = Array.from(container.querySelectorAll(`.${styles.gameRow}`)) as HTMLElement[];
+        expect(rows).toHaveLength(2);
+        expect(rows.every((row) => row.dataset.session === "previous")).toBe(true);
+    });
+
+    it("does not error and defaults to current when session data is missing/incomplete", () => {
+        const { container } = render(
+            <RecentGames
+                {...baseProps}
+                matches={[match("a", null)]}
+                activeSessionId={null}
+                title="Recent Games"
+                limit={5}
+            />
+        );
+        const row = container.querySelector(`.${styles.gameRow}`) as HTMLElement;
+        expect(row.dataset.session).toBe("current");
+    });
+});

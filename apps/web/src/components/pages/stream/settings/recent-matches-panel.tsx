@@ -5,6 +5,7 @@ import { Button, Collapse, InputNumber, Segmented, Select, message } from "antd"
 import type { CollapseProps } from "antd";
 import type { MessageInstance } from "antd/es/message/interface";
 import { streamMatchesApi } from "@/entities/stream-session/api/stream-matches";
+import { isMatchFromCurrentSession } from "@/entities/stream-session/lib/is-match-from-current-session";
 import { getHeroById } from "@/entities/dota-hero/lib/search";
 import type {
     AccountStreamMatch,
@@ -19,6 +20,7 @@ type RatingEditMode = "delta" | "after" | null;
 
 interface MatchRowProps {
     match: AccountStreamMatch;
+    isCurrentSession: boolean;
     onUpdated: (updated: AccountStreamMatch) => void;
     messageApi: MessageInstance;
 }
@@ -28,7 +30,7 @@ interface MatchRowProps {
 // Вариант B - итоговый рейтинг) - editMode блокирует второе поле, пока
 // редактируется первое, зеркаля backend'ный .refine(), который отклоняет
 // одновременную передачу обоих.
-const MatchRow = ({ match, onUpdated, messageApi }: MatchRowProps) => {
+const MatchRow = ({ match, isCurrentSession, onUpdated, messageApi }: MatchRowProps) => {
     const hero = getHeroById(match.heroId);
     const needsReview = match.state === "needs_review";
     const [isRanked, setIsRanked] = useState(match.isRanked === true);
@@ -113,7 +115,12 @@ const MatchRow = ({ match, onUpdated, messageApi }: MatchRowProps) => {
     };
 
     return (
-        <div className={styles.row}>
+        <div
+            className={
+                isCurrentSession ? styles.row : `${styles.row} ${styles.rowPreviousSession}`
+            }
+            data-session={isCurrentSession ? "current" : "previous"}
+        >
             <img
                 src={hero?.imageUrl}
                 alt=""
@@ -267,6 +274,11 @@ interface RecentMatchesPanelProps {
     // Полная authenticated-история (GET .../account/me/matches) - в отличие
     // от компактного превью, каждая строка редактируема (см. задачу, п.4).
     matches: AccountStreamMatch[] | null;
+    // WK-84: id активной stream-сессии - только чтобы отличить в "Полной
+    // истории" матчи текущего стрима (opacity 1) от прошлых (~0.8), см.
+    // isMatchFromCurrentSession. null, пока сессия ещё не загрузилась -
+    // тогда все строки временно считаются текущими (см. хелпер).
+    activeSessionId: string | null;
     onUpdated: (updated: AccountStreamMatch) => void;
 }
 
@@ -278,6 +290,7 @@ interface RecentMatchesPanelProps {
 export const RecentMatchesPanel = ({
     recentMatches,
     matches,
+    activeSessionId,
     onUpdated,
 }: RecentMatchesPanelProps) => {
     const [messageApi, contextHolder] = message.useMessage();
@@ -296,6 +309,10 @@ export const RecentMatchesPanel = ({
                               <MatchRow
                                   key={match.id}
                                   match={match}
+                                  isCurrentSession={isMatchFromCurrentSession(
+                                      match.streamSessionId,
+                                      activeSessionId
+                                  )}
                                   onUpdated={onUpdated}
                                   messageApi={messageApi}
                               />

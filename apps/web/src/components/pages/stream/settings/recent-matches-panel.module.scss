@@ -134,6 +134,12 @@
     }
 }
 
+// WK-84: единственное отличие матчей прошлых stream-сессий в общей истории -
+// сама строка не переделывается (см. задачу).
+.rowPreviousSession {
+    opacity: 0.8;
+}
+
 // Официальный hero-арт Dota горизонтальный (225x127) - см. widget.module.scss
 // в components/pages/overlay/widgets для той же правку в overlay-виджетах.
 .heroIcon {

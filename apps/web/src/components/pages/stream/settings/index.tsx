@@ -16,6 +16,7 @@ import { useAccountMatches } from "@/entities/stream-session/lib/use-account-mat
 import { usePageReady } from "@/shared/ui/route-transition/usePageReady";
 import { siteUrl } from "@/shared/config/site";
 import type { StreamUser } from "@/entities/stream-user/model/types";
+import type { StreamSession } from "@/entities/stream-session/model/types";
 import { StreamSessionPanel } from "./stream-session-panel";
 import { QuickMatchPanel } from "./quick-match-panel";
 import { RecentMatchesPanel } from "./recent-matches-panel";
@@ -47,6 +48,9 @@ export const StreamSettingsPage = () => {
     const [user, setUser] = useState<StreamUser | null>(null);
     const [isRegenerating, setIsRegenerating] = useState(false);
     const [matchesRefreshToken, setMatchesRefreshToken] = useState(0);
+    // WK-84: id активной сессии - только чтобы отличить в "Полной истории"
+    // матчи текущего стрима от прошлых (opacity), см. RecentMatchesPanel.
+    const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
     const [messageApi, contextHolder] = message.useMessage();
     const steamIntegration = useSteamIntegration();
     const twitchIntegration = useTwitchIntegration();
@@ -292,10 +296,14 @@ export const StreamSettingsPage = () => {
                         sessionRatingDelta={overlayData?.sessionRatingDelta ?? null}
                         gameMode={user.gameMode}
                         onGameModeChanged={(gameMode) => setUser({ ...user, gameMode })}
+                        onSessionChange={(session: StreamSession) =>
+                            setActiveSessionId(session.id)
+                        }
                     />
                     <RecentMatchesPanel
                         recentMatches={recentMatches}
                         matches={matches}
+                        activeSessionId={activeSessionId}
                         onUpdated={handleMatchCorrection}
                     />
                 </div>
