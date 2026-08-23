@@ -83,5 +83,11 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
         },
     },
     aspectRatio: DEFAULT_OVERLAY_ASPECT_RATIO,
-    draftProtection: { mode: "cover" },
+    draftProtection: {
+        mode: "cover",
+        // content: "" -> ничего не рендерится (см. draft-protection-text.tsx),
+        // поэтому старые сохранённые layout без этого поля выглядят как
+        // раньше даже с visible: true.
+        text: { content: "", xVw: 50, yVh: 88, scale: 1, visible: true, anchor: "bottom-center" },
+    },
 };

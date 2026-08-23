@@ -685,9 +685,13 @@
     border-left: 1px solid #313738;
 }
 
+// WK-87: PRIMARY values (rating/record/win rate) bumped up for broadcast
+// readability; the label spans above them stay small - they're secondary
+// captions, not the data itself (см. задачу - "вторичные метаданные могут
+// остаться меньше").
 .profileStats span,
 .matchStats span { color: #767c79; font-size: 11px; letter-spacing: .16em; }
-.profileStats b { margin-top: 5px; color: #c9c5bd; font-family: var(--font-title); font-size: 19px; font-weight: 400; }
+.profileStats b { margin-top: 5px; color: #c9c5bd; font-family: var(--font-title); font-size: 21px; font-weight: 400; }
 
 .streamProfileBody {
     height: 100%;
@@ -944,14 +948,16 @@
 }
 
 .heroNameRow strong { color: #d5d1c9; font-family: var(--font-title); font-size: 27px; font-weight: 400; letter-spacing: .04em; }
-.heroNameRow em { color: #bd655e; font-size: 13px; font-style: normal; letter-spacing: .16em; }
+// WK-87: match result (VICTORY/DEFEAT/ABANDON) is a PRIMARY value, bumped
+// from 13px alongside the KDA/rating values in .matchStats b below.
+.heroNameRow em { color: #bd655e; font-size: 15px; font-style: normal; letter-spacing: .16em; }
 .heroNameRow em[data-result="win"] { color: #9bbb76; }
 .heroNameRow em[data-result="abandon"] { color: #c29a69; }
-.matchStats { display: grid; grid-template-columns: 1.3fr 1fr 1fr; margin-top: 13px; padding-block: 10px; border-block: 1px solid #2d3334; }
-.matchStats div { display: flex; flex-direction: column; gap: 4px; border-right: 1px solid #2d3334; }
+.matchStats { display: grid; grid-template-columns: 1.3fr 1fr 1fr; margin-top: 13px; padding-block: 12px; border-block: 1px solid #2d3334; }
+.matchStats div { display: flex; flex-direction: column; gap: 5px; border-right: 1px solid #2d3334; }
 .matchStats div:not(:first-child) { padding-left: 14px; }
 .matchStats div:last-child { border: 0; }
-.matchStats b { color: #c1beb7; font-family: var(--font-title); font-size: 15px; font-weight: 400; }
+.matchStats b { color: #c1beb7; font-family: var(--font-title); font-size: 17px; font-weight: 400; }
 .positive { color: #9bbb76 !important; }
 
 .inventory {
@@ -1172,17 +1178,21 @@
     padding: 3px;
     text-align: center;
 }
-.favorite b, .gameRow b { color: #c3c0b8; font-family: var(--font-title); font-size: 13px; font-weight: 400; }
+// WK-87: hero names are PRIMARY content in both Favorite Heroes and Recent
+// Games rows - bumped from 13/12px. Timestamps stay untouched below
+// (.gameRow time) - the ticket explicitly calls those out as SECONDARY.
+.favorite b, .gameRow b { color: #c3c0b8; font-family: var(--font-title); font-size: 15px; font-weight: 400; }
 .favorite b {
     width: 100%;
     overflow: hidden;
-    font-size: 12px;
+    font-size: 14px;
     letter-spacing: .07em;
     text-overflow: ellipsis;
     text-transform: uppercase;
     white-space: nowrap;
 }
-.gameRow small { color: #747976; font-size: 11px; }
+// WK-87: KDA is PRIMARY (a key stat), bumped from 11px.
+.gameRow small { color: #747976; font-size: 13px; }
 
 .gamesList {
     position: relative;
@@ -1219,12 +1229,16 @@
 // строка/layout не меняются, см. задачу.
 .gameRow[data-session="previous"] { opacity: 0.8; }
 .gameMark { width: 30px; height: 30px; font-size: 12px; }
-.gameRow div { display: flex; flex-direction: column; }
-.gameRow em { color: #9eb17f; font-size: 12px; font-style: normal; }
+.gameRow div { display: flex; flex-direction: column; gap: 1px; }
+// WK-87: match result and rating delta are PRIMARY values, bumped from
+// 12px - see .gameRow small/b above for the matching KDA/hero-name bump.
+.gameRow em { color: #9eb17f; font-size: 14px; font-style: normal; }
 .gameRow em[data-result="DEFEAT"],
 .gameRow em[data-result="ABANDON"] { color: #bd655e; }
-.gameRow > strong { color: #918f89; font-family: var(--font-title); font-size: 12px; font-weight: 400; text-align: right; }
+.gameRow > strong { color: #918f89; font-family: var(--font-title); font-size: 14px; font-weight: 400; text-align: right; }
 .gameRow > strong[data-positive="true"] { color: #9eb17f; }
+// Timestamp stays SECONDARY (explicitly called out as such in the WK-87
+// task) - unchanged from before this pass.
 .gameRow time { color: #747976; font-size: 11px; text-align: right; }
 .panelEmpty {
     height: 100%;

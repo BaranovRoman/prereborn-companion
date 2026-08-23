@@ -6,6 +6,7 @@ import {
     type OverlayAspectRatio,
     type MinimapCoverSettings,
     type DraftProtectionMode,
+    type DraftProtectionTextSettings,
 } from "@/entities/stream-overlay-layout/model/types";
 import { computeSceneDimensions } from "@/entities/stream-overlay-layout/lib/scene-dimensions";
 import { GameUiReferenceLayer, type ReferenceBackgroundImage } from "./game-ui-reference-layer";
@@ -40,6 +41,16 @@ interface OverlayCanvasProps {
     showSafeArea?: boolean;
     minimapCover?: MinimapCoverSettings;
     draftProtectionMode?: DraftProtectionMode;
+    // Статичный текст на Draft Protected экране (см. задачу WK-86) -
+    // прокидывается насквозь в DraftProtectionLayer -> FullCoverView, тем же
+    // путём, что и draftProtectionMode.
+    draftProtectionText?: DraftProtectionTextSettings;
+    // Присутствует только когда вызывающая сторона (editor) хочет разрешить
+    // drag текста - OverlayCanvas сам строит из этого колбэка полноценный
+    // AnchoredWidgetInteractive (у него уже есть sceneScale), вызывающей
+    // стороне не нужно знать про sceneScale заранее (он вычисляется только
+    // внутри OverlayCanvas, см. measure() ниже).
+    onDraftProtectionTextCommit?: (xVw: number, yVh: number) => void;
     // "Фон для примерки" (см. задачу) - только editor читает его из
     // IndexedDB и передаёт сюда; live overlay (/overlay/:token) этот проп
     // никогда не передаёт, а GameUiReferenceLayer вдобавок сам игнорирует
@@ -65,6 +76,8 @@ export const OverlayCanvas = ({
     showSafeArea = false,
     minimapCover,
     draftProtectionMode,
+    draftProtectionText,
+    onDraftProtectionTextCommit,
     referenceBackground = null,
     children,
 }: OverlayCanvasProps) => {
@@ -152,7 +165,21 @@ export const OverlayCanvas = ({
                     settings={minimapCover}
                 />
                 {draftProtectionMode && (
-                    <DraftProtectionLayer mode={draftProtectionMode} />
+                    <DraftProtectionLayer
+                        mode={draftProtectionMode}
+                        text={draftProtectionText}
+                        sceneWidth={sceneWidth}
+                        sceneHeight={sceneHeight}
+                        interactive={
+                            onDraftProtectionTextCommit
+                                ? {
+                                      sceneScale,
+                                      otherWidgetsBounds: [],
+                                      onCommitPosition: onDraftProtectionTextCommit,
+                                  }
+                                : undefined
+                        }
+                    />
                 )}
                 {children({ sceneScale, sceneWidth, sceneHeight })}
             </div>

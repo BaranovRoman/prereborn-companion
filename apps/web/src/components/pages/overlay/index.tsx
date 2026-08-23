@@ -89,6 +89,9 @@ export const OverlayPage = ({
                 aspectRatio={layout.aspectRatio}
                 minimapCover={layout.scenes[activeScene].minimapCover}
                 draftProtectionMode={draftProtectionMode}
+                draftProtectionText={
+                    draftProtectionMode ? layout.draftProtection.text : undefined
+                }
             >
                 {({ sceneWidth, sceneHeight }) => (
                     <>

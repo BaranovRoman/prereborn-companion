@@ -134,6 +134,41 @@ describe("normalizeOverlayLayout", () => {
         expect(settings).toMatchObject({ limit: 5, source: "current-stream" });
     });
 
+    // WK-86: old persisted layouts predate draftProtection.text entirely -
+    // must default to an empty/no-op text, not throw or blank the layout.
+    it("defaults draft protection text for a layout that predates it", () => {
+        const layout = normalizeOverlayLayout({
+            version: 4,
+            draftProtection: { mode: "cover" },
+        });
+        expect(layout.draftProtection.text).toMatchObject({ content: "", anchor: "bottom-center" });
+    });
+
+    it("preserves persisted draft protection text content/position", () => {
+        const layout = normalizeOverlayLayout({
+            version: 4,
+            draftProtection: {
+                mode: "cover",
+                text: { content: "ДРАФТ", xVw: 12, yVh: 34, scale: 1.25, visible: true, anchor: "top-left" },
+            },
+        });
+        expect(layout.draftProtection.text).toMatchObject({
+            content: "ДРАФТ",
+            xVw: 12,
+            yVh: 34,
+            scale: 1.25,
+            anchor: "top-left",
+        });
+    });
+
+    it("clamps an oversized draft protection text instead of dropping it", () => {
+        const layout = normalizeOverlayLayout({
+            version: 4,
+            draftProtection: { mode: "cover", text: { content: "x".repeat(500) } },
+        });
+        expect(layout.draftProtection.text.content).toHaveLength(80);
+    });
+
     it("preserves custom count/source and rejects invalid persisted values", () => {
         const configured = normalizeOverlayLayout({
             version: 4,

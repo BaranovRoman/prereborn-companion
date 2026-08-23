@@ -176,8 +176,26 @@ export const DRAFT_PROTECTION_MODE_LABELS: Record<DraftProtectionMode, string> =
 // every exhaustive switch to be revisited.
 export const RESERVED_FUTURE_DRAFT_PROTECTION_MODE = "photorealism" as const;
 
+// Свободный статичный текст на Draft Protected экране (mode "cover" -
+// "Заглушка", см. задачу WK-86) - позиционируется через ту же
+// AnchoredWidget-модель, что и остальные виджеты (xVw/yVh/scale/anchor),
+// только с добавленным content. `scale` здесь и есть регулировка размера
+// шрифта (UI подписывает его "Размер шрифта" для этого элемента) - решение
+// не заводить отдельное поле fontSize, а переиспользовать уже существующий
+// scale-механизм AnchoredWidget (см. задачу: "без отдельного конструктора
+// типографики"). Полностью независим от DVD-логотипа (BouncingLogo) - тот
+// не читает layout вообще.
+export interface DraftProtectionTextSettings extends OverlayWidgetLayout {
+    content: string;
+}
+
+// Разумный максимум, чтобы длинный текст не мог сломать композицию заглушки
+// (см. задачу) - текст всегда однострочный (см. draft-protection-text.tsx).
+export const DRAFT_PROTECTION_TEXT_MAX_LENGTH = 80;
+
 export interface DraftProtectionSettings {
     mode: DraftProtectionMode;
+    text: DraftProtectionTextSettings;
 }
 
 export type OverlayLayout = {
