@@ -276,6 +276,25 @@ mod tests {
         assert_eq!(config, SkipHotkeyConfig::default());
     }
 
+    // Persistence for the specific keys this ticket is about: a saved
+    // bare-F12 (or Ctrl+F12) config must round-trip through the same
+    // JSON (de)serialization `load_config`/`save_config` use, unchanged.
+    #[test]
+    fn a_bare_f12_config_round_trips_through_json() {
+        let config = SkipHotkeyConfig { enabled: true, shortcut: "F12".to_string() };
+        let json = serde_json::to_string(&config).unwrap();
+        let restored: SkipHotkeyConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, config);
+    }
+
+    #[test]
+    fn a_ctrl_f12_config_round_trips_through_json() {
+        let config = SkipHotkeyConfig { enabled: true, shortcut: "Ctrl+F12".to_string() };
+        let json = serde_json::to_string(&config).unwrap();
+        let restored: SkipHotkeyConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored, config);
+    }
+
     #[test]
     fn missing_or_malformed_persisted_config_falls_back_to_default() {
         // Mirrors tts.rs/silero.rs's load_config pattern: any parse failure
@@ -299,6 +318,32 @@ mod tests {
     fn an_empty_shortcut_string_does_not_parse() {
         use std::str::FromStr;
         assert!(tauri_plugin_global_shortcut::Shortcut::from_str("").is_err());
+    }
+
+    // Regression for a real reported bug: a streamer could not assign F12 as
+    // the skip-TTS hotkey. Investigation found nothing in this codebase (nor
+    // the global-hotkey crate it wraps) that rejects a bare F-key - these
+    // pin that down as an executable fact so a future dependency bump can't
+    // silently reintroduce a rejection here. F9-F11 included as siblings the
+    // task specifically called out as desirable streamer controls; the
+    // actual block (if reproduced again) is expected to be OS/webview-level,
+    // upstream of this parser - see the PR report for how to tell the two
+    // apart (registration failure with an error vs. the recorder UI never
+    // receiving the keydown at all).
+    #[test]
+    fn bare_function_keys_f9_through_f12_all_parse() {
+        use std::str::FromStr;
+        for key in ["F9", "F10", "F11", "F12"] {
+            tauri_plugin_global_shortcut::Shortcut::from_str(key)
+                .unwrap_or_else(|e| panic!("bare {key} must parse as a valid shortcut: {e}"));
+        }
+    }
+
+    #[test]
+    fn a_modifier_plus_f12_combo_parses() {
+        use std::str::FromStr;
+        tauri_plugin_global_shortcut::Shortcut::from_str("Ctrl+F12")
+            .expect("Ctrl+F12 must parse as a valid shortcut");
     }
 
     #[test]

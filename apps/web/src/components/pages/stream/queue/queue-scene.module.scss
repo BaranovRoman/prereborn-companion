@@ -689,9 +689,12 @@
 // readability; the label spans above them stay small - they're secondary
 // captions, not the data itself (см. задачу - "вторичные метаданные могут
 // остаться меньше").
+// WK-90 (second pass): first pass (WK-87, +2px) proved insufficient on a
+// real broadcast/Twitch-compressed view - primary values now take a much
+// bigger, deliberate step up. Labels stay secondary/small.
 .profileStats span,
 .matchStats span { color: #767c79; font-size: 11px; letter-spacing: .16em; }
-.profileStats b { margin-top: 5px; color: #c9c5bd; font-family: var(--font-title); font-size: 21px; font-weight: 400; }
+.profileStats b { margin-top: 5px; color: #c9c5bd; font-family: var(--font-title); font-size: 24px; font-weight: 400; }
 
 .streamProfileBody {
     height: 100%;
@@ -947,17 +950,17 @@
     margin-top: 5px;
 }
 
-.heroNameRow strong { color: #d5d1c9; font-family: var(--font-title); font-size: 27px; font-weight: 400; letter-spacing: .04em; }
-// WK-87: match result (VICTORY/DEFEAT/ABANDON) is a PRIMARY value, bumped
-// from 13px alongside the KDA/rating values in .matchStats b below.
-.heroNameRow em { color: #bd655e; font-size: 15px; font-style: normal; letter-spacing: .16em; }
+.heroNameRow strong { color: #d5d1c9; font-family: var(--font-title); font-size: 30px; font-weight: 400; letter-spacing: .04em; }
+// WK-90 (second pass): WK-87's first-pass 15px proved insufficient on a
+// real broadcast view - pushed further, alongside .matchStats b below.
+.heroNameRow em { color: #bd655e; font-size: 18px; font-style: normal; letter-spacing: .16em; }
 .heroNameRow em[data-result="win"] { color: #9bbb76; }
 .heroNameRow em[data-result="abandon"] { color: #c29a69; }
-.matchStats { display: grid; grid-template-columns: 1.3fr 1fr 1fr; margin-top: 13px; padding-block: 12px; border-block: 1px solid #2d3334; }
-.matchStats div { display: flex; flex-direction: column; gap: 5px; border-right: 1px solid #2d3334; }
+.matchStats { display: grid; grid-template-columns: 1.3fr 1fr 1fr; margin-top: 13px; padding-block: 13px; border-block: 1px solid #2d3334; }
+.matchStats div { display: flex; flex-direction: column; gap: 6px; border-right: 1px solid #2d3334; }
 .matchStats div:not(:first-child) { padding-left: 14px; }
 .matchStats div:last-child { border: 0; }
-.matchStats b { color: #c1beb7; font-family: var(--font-title); font-size: 17px; font-weight: 400; }
+.matchStats b { color: #c1beb7; font-family: var(--font-title); font-size: 20px; font-weight: 400; }
 .positive { color: #9bbb76 !important; }
 
 .inventory {
@@ -1178,21 +1181,23 @@
     padding: 3px;
     text-align: center;
 }
-// WK-87: hero names are PRIMARY content in both Favorite Heroes and Recent
-// Games rows - bumped from 13/12px. Timestamps stay untouched below
-// (.gameRow time) - the ticket explicitly calls those out as SECONDARY.
-.favorite b, .gameRow b { color: #c3c0b8; font-family: var(--font-title); font-size: 15px; font-weight: 400; }
+// WK-90 (second pass): hero names are PRIMARY content in both Favorite
+// Heroes and Recent Games rows - WK-87's first-pass 13/12px proved
+// insufficient, pushed further. Timestamps stay untouched below
+// (.gameRow time) - still SECONDARY per the task.
+.favorite b, .gameRow b { color: #c3c0b8; font-family: var(--font-title); font-size: 18px; font-weight: 400; }
 .favorite b {
     width: 100%;
     overflow: hidden;
-    font-size: 14px;
+    font-size: 16px;
     letter-spacing: .07em;
     text-overflow: ellipsis;
     text-transform: uppercase;
     white-space: nowrap;
 }
-// WK-87: KDA is PRIMARY (a key stat), bumped from 11px.
-.gameRow small { color: #747976; font-size: 13px; }
+// WK-90 (second pass): KDA is PRIMARY (a key stat) - pushed further from
+// the WK-87 first-pass 13px.
+.gameRow small { color: #747976; font-size: 16px; }
 
 .gamesList {
     position: relative;
@@ -1216,11 +1221,15 @@
 .gamesList::after {
     content: none;
 }
+// WK-90 (second pass): row height/columns widened slightly (46px -> 54px,
+// result/delta columns +6px each) to give the larger text below room
+// without touching the panel's own size or the grid/composition around it -
+// see the task's explicit allowance for line-height/gap/padding tweaks.
 .gameRow {
     z-index: 1;
-    flex: 0 0 46px;
+    flex: 0 0 54px;
     display: grid;
-    grid-template-columns: 52px minmax(110px, 1fr) 58px 48px 94px;
+    grid-template-columns: 52px minmax(110px, 1fr) 64px 54px 94px;
     align-items: center;
     gap: 7px;
     border-bottom: 1px solid #2a3030;
@@ -1229,13 +1238,13 @@
 // строка/layout не меняются, см. задачу.
 .gameRow[data-session="previous"] { opacity: 0.8; }
 .gameMark { width: 30px; height: 30px; font-size: 12px; }
-.gameRow div { display: flex; flex-direction: column; gap: 1px; }
-// WK-87: match result and rating delta are PRIMARY values, bumped from
-// 12px - see .gameRow small/b above for the matching KDA/hero-name bump.
-.gameRow em { color: #9eb17f; font-size: 14px; font-style: normal; }
+.gameRow div { display: flex; flex-direction: column; gap: 2px; }
+// WK-90 (second pass): match result and rating delta are PRIMARY values -
+// pushed further from the WK-87 first-pass 14px.
+.gameRow em { color: #9eb17f; font-size: 17px; font-style: normal; }
 .gameRow em[data-result="DEFEAT"],
 .gameRow em[data-result="ABANDON"] { color: #bd655e; }
-.gameRow > strong { color: #918f89; font-family: var(--font-title); font-size: 14px; font-weight: 400; text-align: right; }
+.gameRow > strong { color: #918f89; font-family: var(--font-title); font-size: 17px; font-weight: 400; text-align: right; }
 .gameRow > strong[data-positive="true"] { color: #9eb17f; }
 // Timestamp stays SECONDARY (explicitly called out as such in the WK-87
 // task) - unchanged from before this pass.
@@ -1521,7 +1530,11 @@
     overflow: hidden;
     mask-image: linear-gradient(to bottom, transparent, #000 14%, #000);
 }
-.chatBody p { margin: 0; padding: 9px 0; border-bottom: 1px solid rgba(137, 147, 145, .07); color: #aaa7a0; font-size: clamp(14px, .82vw, 17px); line-height: 1.4; }
+// WK-90 (second pass): chat messages were already responsive (clamp), but
+// both ends of the range are pushed up - top priority per the task -
+// wider messages/usernames still wrap onto multiple lines (no truncation),
+// so this doesn't need extra overflow handling beyond what already existed.
+.chatBody p { margin: 0; padding: 10px 0; border-bottom: 1px solid rgba(137, 147, 145, .07); color: #aaa7a0; font-size: clamp(17px, 1vw, 21px); line-height: 1.4; }
 .chatBody p span { color: #b06e68; font-weight: 600; }
 .chatBody p span[data-color="1"] { color: #8c8fa9; }
 .chatBody p span[data-color="2"] { color: #8fa078; }
@@ -1701,8 +1714,10 @@
         height: 18px;
     }
 
+    // WK-90 (second pass): result/delta columns widened slightly (48/40 ->
+    // 54/46) to keep fitting the bigger base .gameRow em/>strong font-size.
     .gameRow {
-        grid-template-columns: 38px minmax(86px, 1fr) 48px 40px 68px;
+        grid-template-columns: 38px minmax(86px, 1fr) 54px 46px 68px;
         gap: 5px;
     }
 
@@ -1773,9 +1788,20 @@
         min-height: 28px;
     }
 
+    // WK-90 (second pass): this compact row height (38px, unchanged) can't
+    // fit the new bigger base font sizes - rolled back to the WK-87
+    // first-pass values here, which were already proven to fit at this
+    // breakpoint. Broadcast/normal-height viewports keep the bigger sizes.
     .gameRow {
         flex-basis: 38px;
     }
+
+    .favorite b, .gameRow b { font-size: 15px; }
+    .favorite b { font-size: 14px; }
+    .gameRow small { font-size: 13px; }
+    .gameRow em { font-size: 14px; }
+    .gameRow > strong { font-size: 14px; }
+    .gameRow div { gap: 1px; }
 
     .gameHeroImage {
         width: 38px;

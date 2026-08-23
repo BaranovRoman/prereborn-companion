@@ -105,6 +105,117 @@ describe("overlay recent matches after session reset", () => {
         expect(res.status).toBe(200);
         expect(res.body.matches).toHaveLength(8);
         expect(res.body.matches.map((match: { heroId: number }) => match.heroId)).not.toContain(1);
-        expect(res.body.recentMatches).toEqual([]);
+        // WK-89 - recentMatches (Between Matches' account-wide history) must
+        // stay populated from queueSettings.widgets.recentGamesLimit even
+        // when no HUD widget is configured with source: "recent-matches" -
+        // it must NOT go empty just because gameplay HUD config didn't ask
+        // for it. Unlike `matches` above, this DOES include heroId 1 (the
+        // previous, closed session's match).
+        expect(res.body.recentMatches.length).toBeGreaterThan(0);
+        expect(
+            res.body.recentMatches.map((match: { heroId: number }) => match.heroId)
+        ).toContain(1);
+        expect(res.body.recentMatches[0]).toHaveProperty("streamSessionId");
+    });
+});
+
+// WK-89 - regression for the actual reported bug: Between Matches (Last
+// Match/Recent Games, account-wide) must survive a REAL "start new stream"
+// (resetActiveSession), while the gameplay HUD's session-scoped `matches`
+// correctly does reset. Uses its own user (isolated from the describe block
+// above) to exercise the full lifecycle without depending on state built up
+// by other tests.
+describe("account-wide history survives a real session reset", () => {
+    const lifecycleSuffix = `${Date.now()}-session-reset-lifecycle`;
+    const lifecycleEmail = `stream_session_reset_lifecycle_${lifecycleSuffix}@example.com`;
+    const lifecyclePublicToken = randomUUID();
+    let lifecycleStreamUserId: number;
+
+    const insertFinalizedMatch = async (sessionId: string, heroId: number) => {
+        await pool.query(
+            `INSERT INTO stream_matches
+                (stream_user_id, match_key, stream_session_id, hero_id, kills, deaths, assists, result, started_at, ended_at)
+             VALUES ($1, $2, $3, $4, 1, 2, 3, 'win', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [
+                lifecycleStreamUserId,
+                `test:${sessionId}:${heroId}:${Date.now()}:${Math.random()}`,
+                sessionId,
+                heroId,
+            ]
+        );
+    };
+
+    beforeAll(async () => {
+        const hashed = await bcrypt.hash("test-password-123", 10);
+        const userResult = await pool.query(
+            `INSERT INTO stream_users (email, password_hash, public_token) VALUES ($1, $2, $3) RETURNING id`,
+            [lifecycleEmail, hashed, lifecyclePublicToken]
+        );
+        lifecycleStreamUserId = userResult.rows[0].id;
+    });
+
+    afterAll(async () => {
+        await pool.query("DELETE FROM stream_users WHERE id = $1", [lifecycleStreamUserId]);
+    });
+
+    it("keeps Last Match/Recent Games account-wide across reset, dims the old session, and un-dims a new one", async () => {
+        const { getOrCreateActiveSession, resetActiveSession } = await import(
+            "../services/stream-session-service.js"
+        );
+
+        const sessionA = await getOrCreateActiveSession(lifecycleStreamUserId.toString());
+        await insertFinalizedMatch(sessionA.id, 10);
+        await insertFinalizedMatch(sessionA.id, 11);
+
+        const beforeReset = await request(app).get(
+            `/api/stream/overlay/${lifecyclePublicToken}`
+        );
+        expect(beforeReset.body.matches.map((m: { heroId: number }) => m.heroId)).toEqual([11, 10]);
+        expect(
+            beforeReset.body.recentMatches.map((m: { heroId: number }) => m.heroId)
+        ).toEqual([11, 10]);
+
+        // "Начать новый стрим"
+        const sessionB = await resetActiveSession(lifecycleStreamUserId.toString());
+        expect(sessionB.id).not.toBe(sessionA.id);
+
+        const afterReset = await request(app).get(
+            `/api/stream/overlay/${lifecyclePublicToken}`
+        );
+        // Gameplay HUD (session-scoped) correctly resets to empty.
+        expect(afterReset.body.matches).toEqual([]);
+        // Between Matches (account-wide) keeps the old matches - this is the
+        // actual bug being fixed here.
+        expect(
+            afterReset.body.recentMatches.map((m: { heroId: number }) => m.heroId)
+        ).toEqual([11, 10]);
+        expect(
+            afterReset.body.recentMatches.every(
+                (m: { streamSessionId: string }) => m.streamSessionId === sessionA.id
+            )
+        ).toBe(true);
+
+        // A new match lands under the new session B.
+        await insertFinalizedMatch(sessionB.id, 12);
+        const afterNewMatch = await request(app).get(
+            `/api/stream/overlay/${lifecyclePublicToken}`
+        );
+        expect(
+            afterNewMatch.body.matches.map((m: { heroId: number }) => m.heroId)
+        ).toEqual([12]);
+        expect(
+            afterNewMatch.body.recentMatches.map((m: { heroId: number }) => m.heroId)
+        ).toEqual([12, 11, 10]);
+        const sessionIdByHero = new Map<number, string>(
+            afterNewMatch.body.recentMatches.map(
+                (m: { heroId: number; streamSessionId: string }) => [m.heroId, m.streamSessionId]
+            )
+        );
+        // The frontend (isMatchFromCurrentSession) dims a match whenever its
+        // streamSessionId differs from the active session id - so 12 renders
+        // full-opacity ("current") and 11/10 render dimmed ("previous").
+        expect(sessionIdByHero.get(12)).toBe(sessionB.id);
+        expect(sessionIdByHero.get(11)).toBe(sessionA.id);
+        expect(sessionIdByHero.get(10)).toBe(sessionA.id);
     });
 });

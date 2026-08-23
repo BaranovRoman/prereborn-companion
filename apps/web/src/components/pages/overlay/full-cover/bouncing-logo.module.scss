@@ -2,10 +2,18 @@
 // (для "Заглушка" safe-area намеренно не применяется, см. задачу
 // WK-77 follow-up "убрать safe-area у bouncing-логотипа"). Границы отскока
 // считаются от clientWidth/clientHeight этого элемента - см. bouncing-logo.tsx.
+// WK-92: full-coverage (inset: 0) but purely decorative - must never
+// intercept pointer events. Without this, its invisible area sat (by CSS
+// stacking rules) above any sibling with z-index:auto - including the
+// WK-86 custom text's AnchoredWidget, which has no z-index of its own - and
+// silently swallowed every pointer-down over the whole Draft Protected
+// scene, making the text undraggable everywhere, not just where the logo
+// image was visibly rendered.
 .viewport {
     position: absolute;
     inset: 0;
     z-index: 2;
+    pointer-events: none;
 }
 
 .logo {
