@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Alert, Button, Collapse, InputNumber, Segmented, Slider, Switch, Upload, message } from "antd";
+import { Alert, Button, Collapse, Input, InputNumber, Segmented, Slider, Switch, Upload, message } from "antd";
 import type { CollapseProps } from "antd";
 import { useStreamSession } from "@/entities/stream-user/lib/use-stream-session";
 import { usePageReady } from "@/shared/ui/route-transition/usePageReady";
@@ -13,6 +13,7 @@ import { normalizeOverlayLayout } from "@/entities/stream-overlay-layout/model/n
 import {
     DRAFT_PROTECTION_MODES,
     DRAFT_PROTECTION_MODE_LABELS,
+    DRAFT_PROTECTION_TEXT_MAX_LENGTH,
     OVERLAY_ASPECT_RATIO_PRESETS,
     OVERLAY_WIDGET_IDS,
     RECENT_MATCHES_LIMIT_MIN,
@@ -27,6 +28,7 @@ import {
     type OverlayWidgetLayout,
     type RecentMatchesSettings,
     type DraftProtectionMode,
+    type DraftProtectionTextSettings,
 } from "@/entities/stream-overlay-layout/model/types";
 import { computeSceneDimensions } from "@/entities/stream-overlay-layout/lib/scene-dimensions";
 import { anchorFraction, splitAnchor } from "@/entities/stream-overlay-layout/lib/anchor";
@@ -345,6 +347,15 @@ export const OverlayEditorPage = () => {
                 },
             },
         }));
+    const updateDraftProtectionText = (patch: Partial<DraftProtectionTextSettings>) =>
+        setLayout((c) => ({
+            ...c,
+            draftProtection: {
+                ...c.draftProtection,
+                text: { ...c.draftProtection.text, ...patch },
+            },
+        }));
+
     const changeCameraAnchor = (anchor: typeof activeSceneLayout.cameraZone.anchor) => {
         const zone = activeSceneLayout.cameraZone;
         const oldFraction = anchorFraction(zone.anchor);
@@ -660,6 +671,7 @@ export const OverlayEditorPage = () => {
                                 setLayout((current) => ({
                                     ...current,
                                     draftProtection: {
+                                        ...current.draftProtection,
                                         mode: mode as DraftProtectionMode,
                                     },
                                 }))
@@ -668,6 +680,41 @@ export const OverlayEditorPage = () => {
                         <span>
                             Защитные режимы не используют реальные пики и баны. При
                             неизвестном состоянии overlay остаётся закрытым.
+                        </span>
+                    </div>
+                )}
+
+                {selectedScene === "draft" && (
+                    <div className={styles.betweenMatchesNote}>
+                        <strong>Текст на заглушке</strong>
+                        <Input
+                            maxLength={DRAFT_PROTECTION_TEXT_MAX_LENGTH}
+                            placeholder="Например, ДРАФТ"
+                            value={layout.draftProtection.text.content}
+                            onChange={(event) =>
+                                updateDraftProtectionText({ content: event.target.value })
+                            }
+                        />
+                        <div className={styles.settingsRow}>
+                            <span className={styles.settingsRowLabel}>Размер шрифта</span>
+                            <Segmented
+                                size="small"
+                                value={layout.draftProtection.text.scale}
+                                options={SCALE_OPTIONS}
+                                onChange={(scale) => updateDraftProtectionText({ scale })}
+                            />
+                        </div>
+                        <div className={styles.settingsRow}>
+                            <span className={styles.settingsRowLabel}>Позиция</span>
+                            <AnchorGrid
+                                value={layout.draftProtection.text.anchor}
+                                onChange={(anchor) => updateDraftProtectionText({ anchor })}
+                            />
+                        </div>
+                        <span>
+                            Текст показывается только в режиме «Заглушка» и
+                            перетаскивается прямо в превью ниже - независимо от
+                            летающего логотипа.
                         </span>
                     </div>
                 )}
@@ -919,6 +966,14 @@ export const OverlayEditorPage = () => {
                         draftProtectionMode={
                             selectedScene === "draft"
                                 ? layout.draftProtection.mode
+                                : undefined
+                        }
+                        draftProtectionText={
+                            selectedScene === "draft" ? layout.draftProtection.text : undefined
+                        }
+                        onDraftProtectionTextCommit={
+                            selectedScene === "draft"
+                                ? (xVw, yVh) => updateDraftProtectionText({ xVw, yVh })
                                 : undefined
                         }
                         referenceBackground={referenceBackgroundImage}

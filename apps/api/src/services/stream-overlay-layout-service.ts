@@ -138,8 +138,20 @@ export interface OverlaySceneLayout {
 // needs once a renderer exists.
 export const DRAFT_PROTECTION_MODES = ["off", "cover"] as const;
 export type DraftProtectionMode = (typeof DRAFT_PROTECTION_MODES)[number];
+
+// Kept in sync by hand with the web-side type of the same name (see
+// stream-overlay-layout/model/types.ts) - see WK-86. `scale` is reused as the
+// text's size control (AnchoredWidget already turns it into a CSS transform:
+// scale(...)) instead of adding a separate fontSize field.
+export interface DraftProtectionTextSettings extends OverlayWidgetLayout {
+    content: string;
+}
+
+export const DRAFT_PROTECTION_TEXT_MAX_LENGTH = 80;
+
 export interface DraftProtectionSettings {
     mode: DraftProtectionMode;
+    text: DraftProtectionTextSettings;
 }
 
 export type OverlayLayout = {
@@ -228,7 +240,10 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
         },
     },
     aspectRatio: DEFAULT_OVERLAY_ASPECT_RATIO,
-    draftProtection: { mode: "cover" },
+    draftProtection: {
+        mode: "cover",
+        text: { content: "", xVw: 50, yVh: 88, scale: 1, visible: true, anchor: "bottom-center" },
+    },
 };
 
 export class InvalidOverlayLayoutError extends Error {
@@ -258,6 +273,25 @@ const limitSchema = z
 const buildWidgetSchema = (fallback: OverlayWidgetLayout) =>
     z
         .object({
+            xVw: z.number().catch(fallback.xVw),
+            yVh: z.number().catch(fallback.yVh),
+            scale: z.number().catch(fallback.scale),
+            visible: z.boolean().catch(fallback.visible),
+            anchor: anchorEnum.catch(fallback.anchor),
+        })
+        .catch(fallback);
+
+// content обрезается transform'ом (а не откатывается через .catch на
+// пустую строку) - слишком длинный пользовательский текст усекается до
+// разумного максимума, а не отбрасывается целиком (см. задачу WK-86 -
+// "разумный max length, чтобы невозможно было случайно сломать композицию").
+const buildDraftProtectionTextSchema = (fallback: DraftProtectionTextSettings) =>
+    z
+        .object({
+            content: z
+                .string()
+                .transform((value) => value.slice(0, DRAFT_PROTECTION_TEXT_MAX_LENGTH))
+                .catch(fallback.content),
             xVw: z.number().catch(fallback.xVw),
             yVh: z.number().catch(fallback.yVh),
             scale: z.number().catch(fallback.scale),
@@ -327,6 +361,19 @@ const clampWidget = (widget: OverlayWidgetLayout): OverlayWidgetLayout => ({
     yVh: clamp(widget.yVh, 0, 100),
     scale: clamp(widget.scale, 0.5, 2),
 });
+
+const normalizeDraftProtectionText = (
+    value: unknown,
+    fallback: DraftProtectionTextSettings
+): DraftProtectionTextSettings => {
+    const parsed = buildDraftProtectionTextSchema(fallback).parse(value);
+    return {
+        ...parsed,
+        xVw: clamp(parsed.xVw, 0, 100),
+        yVh: clamp(parsed.yVh, 0, 100),
+        scale: clamp(parsed.scale, 0.5, 2),
+    };
+};
 
 // Валидирует произвольный JSON от клиента. Проходим только по 4 известным
 // widget id - значит неизвестные ключи (например опечатка или устаревший
@@ -471,6 +518,13 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
                     parsed.data.draftProtection !== null
                     ? (parsed.data.draftProtection as Record<string, unknown>).mode
                     : undefined
+            ),
+            text: normalizeDraftProtectionText(
+                typeof parsed.data.draftProtection === "object" &&
+                    parsed.data.draftProtection !== null
+                    ? (parsed.data.draftProtection as Record<string, unknown>).text
+                    : undefined,
+                DEFAULT_OVERLAY_LAYOUT.draftProtection.text
             ),
         },
     };

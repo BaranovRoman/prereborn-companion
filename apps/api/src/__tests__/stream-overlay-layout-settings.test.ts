@@ -65,3 +65,46 @@ describe("Draft protection mode normalization", () => {
         expect(layout.draftProtection.mode).toBe("cover");
     });
 });
+
+describe("Draft protection text normalization (WK-86)", () => {
+    it("defaults to an empty/no-op text for a layout that predates the field", () => {
+        const layout = normalizeOverlayLayout({ version: 4, draftProtection: { mode: "cover" } });
+        expect(layout.draftProtection.text).toMatchObject({ content: "", anchor: "bottom-center" });
+    });
+
+    it("persists custom content, font size (scale) and position", () => {
+        const layout = normalizeOverlayLayout({
+            version: 4,
+            draftProtection: {
+                mode: "cover",
+                text: { content: "НЕ ПОДГЛЯДЫВАТЬ", xVw: 20, yVh: 40, scale: 1.5, visible: true, anchor: "center" },
+            },
+        });
+        expect(layout.draftProtection.text).toMatchObject({
+            content: "НЕ ПОДГЛЯДЫВАТЬ",
+            xVw: 20,
+            yVh: 40,
+            scale: 1.5,
+            anchor: "center",
+        });
+    });
+
+    it("truncates an oversized text to the max length instead of rejecting it", () => {
+        const layout = normalizeOverlayLayout({
+            version: 4,
+            draftProtection: { mode: "cover", text: { content: "y".repeat(500) } },
+        });
+        expect(layout.draftProtection.text.content).toHaveLength(80);
+    });
+
+    it("clamps position/scale to their valid ranges", () => {
+        const layout = normalizeOverlayLayout({
+            version: 4,
+            draftProtection: {
+                mode: "cover",
+                text: { content: "x", xVw: 500, yVh: -50, scale: 10 },
+            },
+        });
+        expect(layout.draftProtection.text).toMatchObject({ xVw: 100, yVh: 0, scale: 2 });
+    });
+});

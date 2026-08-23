@@ -1,8 +1,15 @@
 import { DEFAULT_OVERLAY_LAYOUT } from "./default-layout";
-import { DRAFT_PROTECTION_MODES, RECENT_MATCHES_LIMIT_MAX, RECENT_MATCHES_LIMIT_MIN } from "./types";
+import {
+    DRAFT_PROTECTION_MODES,
+    DRAFT_PROTECTION_TEXT_MAX_LENGTH,
+    OVERLAY_ANCHORS,
+    RECENT_MATCHES_LIMIT_MAX,
+    RECENT_MATCHES_LIMIT_MIN,
+} from "./types";
 import type {
     CameraZone,
     DraftProtectionMode,
+    DraftProtectionTextSettings,
     MinimapCoverSettings,
     OverlayLayout,
     OverlayLayoutWidgets,
@@ -119,6 +126,31 @@ const normalizeMinimapCover = (value: unknown, fallback: MinimapCoverSettings): 
     };
 };
 
+const normalizeDraftProtectionText = (
+    value: unknown,
+    fallback: DraftProtectionTextSettings
+): DraftProtectionTextSettings => {
+    const raw = asRecord(value);
+    if (!raw) return { ...fallback };
+    const content =
+        typeof raw.content === "string"
+            ? raw.content.slice(0, DRAFT_PROTECTION_TEXT_MAX_LENGTH)
+            : fallback.content;
+    const anchor =
+        typeof raw.anchor === "string" &&
+        (OVERLAY_ANCHORS as readonly string[]).includes(raw.anchor)
+            ? (raw.anchor as DraftProtectionTextSettings["anchor"])
+            : fallback.anchor;
+    return {
+        content,
+        xVw: typeof raw.xVw === "number" ? raw.xVw : fallback.xVw,
+        yVh: typeof raw.yVh === "number" ? raw.yVh : fallback.yVh,
+        scale: typeof raw.scale === "number" ? raw.scale : fallback.scale,
+        visible: typeof raw.visible === "boolean" ? raw.visible : fallback.visible,
+        anchor,
+    };
+};
+
 const normalizeScene = (
     value: unknown,
     fallback: OverlaySceneLayout,
@@ -172,6 +204,10 @@ export const normalizeOverlayLayout = (value: unknown): OverlayLayout => {
             mode: isDraftProtectionMode(asRecord(raw?.draftProtection)?.mode)
                 ? (asRecord(raw?.draftProtection)?.mode as DraftProtectionMode)
                 : "cover",
+            text: normalizeDraftProtectionText(
+                asRecord(raw?.draftProtection)?.text,
+                fallback.draftProtection.text
+            ),
         },
     };
 };
