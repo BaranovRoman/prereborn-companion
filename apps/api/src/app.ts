@@ -30,6 +30,7 @@ app.get("/api/health", async (_req, res) => {
     res.json({
       status: "ok",
       database: "connected",
+      releaseSha: env.releaseSha,
       integrations: {
         twitchConfigured: Boolean(
           env.twitchClientId && env.twitchClientSecret && env.twitchRedirectUri

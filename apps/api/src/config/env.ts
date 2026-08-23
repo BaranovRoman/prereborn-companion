@@ -93,9 +93,19 @@ const adminEmails = (process.env.ADMIN_EMAILS ?? "")
     .map((email) => email.trim().toLowerCase())
     .filter(Boolean);
 
+// WK-88 follow-up (production regression) - not secret: the commit SHA a
+// production release was built from. Set by release.sh via PM2's env (see
+// ecosystem.config.cjs), read back through /api/health so the deploy
+// pipeline can verify the *running* process actually matches the release
+// `current` was just switched to, instead of only checking "a process is
+// listening on the port" (which is exactly what let this regression through
+// undetected - see release.sh's health_check()).
+const releaseSha = process.env.PREREBORN_RELEASE_SHA || null;
+
 export const env = {
     streamJwtSecret,
     uploadsDir,
+    releaseSha,
     steamOpenidRealm,
     steamOpenidReturnUrl,
     openDotaApiKey,

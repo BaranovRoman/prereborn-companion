@@ -7,6 +7,17 @@
 const deployRoot = process.env.DEPLOY_ROOT || "/var/www/www-root/data/www/prereborn.ru";
 const root = `${deployRoot}/current`;
 const sharedLogs = `${deployRoot}/shared/logs`;
+// WK-88 follow-up (production regression) - captured here, at ecosystem
+// file evaluation time, not left to child-process env inheritance: PM2's
+// long-lived daemon (not the ad-hoc `pm2 start` CLI invocation) is what
+// actually forks app processes, and its own env doesn't automatically pick
+// up a shell-exported var from a later CLI call. Baking the value into the
+// `env:` objects below at require()-time (this file IS require()'d by the
+// CLI invocation that has PREREBORN_RELEASE_SHA in its shell env - see
+// release.sh) sidesteps that entirely. Both apps get it from this single
+// shared const, guaranteeing they always agree on which release they're
+// reporting - see release.sh's health_check() for how this gets verified.
+const releaseSha = process.env.PREREBORN_RELEASE_SHA || "";
 
 module.exports = {
   apps: [
@@ -18,7 +29,8 @@ module.exports = {
       exec_mode: "fork",
       env: {
         NODE_ENV: "production",
-        PORT: process.env.API_PORT || "5102"
+        PORT: process.env.API_PORT || "5102",
+        PREREBORN_RELEASE_SHA: releaseSha
       },
       error_file: `${sharedLogs}/api-error.log`,
       out_file: `${sharedLogs}/api-out.log`,
@@ -40,7 +52,8 @@ module.exports = {
         NODE_ENV: "production",
         PORT: process.env.WEB_PORT || "5100",
         HOSTNAME: "127.0.0.1",
-        BACKEND_URL: "http://127.0.0.1:" + (process.env.API_PORT || "5102")
+        BACKEND_URL: "http://127.0.0.1:" + (process.env.API_PORT || "5102"),
+        PREREBORN_RELEASE_SHA: releaseSha
       },
       error_file: `${sharedLogs}/web-error.log`,
       out_file: `${sharedLogs}/web-out.log`,
