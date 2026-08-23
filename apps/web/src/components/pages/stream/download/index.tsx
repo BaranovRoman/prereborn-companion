@@ -40,8 +40,12 @@ export const StreamDownloadPage = () => {
 
                 <div className={styles.meta}>
                     <span>Windows x64</span>
-                    <span>·</span>
-                    <span>Версия {DOTA_COMPANION_VERSION}</span>
+                    {DOTA_COMPANION_VERSION ? (
+                        <>
+                            <span>·</span>
+                            <span>Версия {DOTA_COMPANION_VERSION}</span>
+                        </>
+                    ) : null}
                 </div>
 
                 <div className={styles.downloadRow}>

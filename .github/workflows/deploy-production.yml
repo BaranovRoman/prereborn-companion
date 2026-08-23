@@ -35,10 +35,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # WK-88 - resolves the current production Companion download URL +
+      # version from GitHub's "latest release" instead of a hardcoded tag,
+      # so this file never needs a manual edit after a Companion release.
+      # See scripts/resolve-companion-release.sh for the full contract.
+      - name: Resolve latest Companion release (download URL + version)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/resolve-companion-release.sh
+
       # WK-80 - production stops building entirely: the artifact is built
       # here, on the GitHub-hosted runner, and only its compiled output is
       # shipped to the server. See docs/research/wk-80-build-outside-production.md.
-      # These four NEXT_PUBLIC_* values are the only build-time inputs
+      # These NEXT_PUBLIC_* values are the only build-time inputs
       # `next build` needs (get inlined into the client bundle) - none are
       # secret (verified: public URLs only), so this step needs zero
       # GitHub secrets.
@@ -47,7 +56,8 @@ jobs:
           NEXT_PUBLIC_API_URL: /api
           NEXT_PUBLIC_SITE_URL: https://prereborn.ru
           NEXT_PUBLIC_MEDIA_BASE_URL: https://prereborn.ru/media
-          NEXT_PUBLIC_DOTA_COMPANION_DOWNLOAD_URL: https://github.com/BaranovRoman/prereborn-companion/releases/download/prereborn-v0.3.1/PreReborn.Companion_0.3.1_x64-setup.exe
+          NEXT_PUBLIC_DOTA_COMPANION_DOWNLOAD_URL: ${{ env.COMPANION_DOWNLOAD_URL }}
+          NEXT_PUBLIC_DOTA_COMPANION_VERSION: ${{ env.COMPANION_VERSION }}
         run: bash scripts/build-release-artifact.sh artifact-out "${{ github.event.workflow_run.head_sha }}"
 
       - name: Configure SSH
@@ -155,7 +165,12 @@ jobs:
             printf 'NEXT_PUBLIC_API_URL=/api\n'
             printf 'NEXT_PUBLIC_SITE_URL=https://prereborn.ru\n'
             printf 'NEXT_PUBLIC_MEDIA_BASE_URL=https://prereborn.ru/media\n'
-            printf 'NEXT_PUBLIC_DOTA_COMPANION_DOWNLOAD_URL=https://github.com/BaranovRoman/prereborn-companion/releases/download/prereborn-v0.3.1/PreReborn.Companion_0.3.1_x64-setup.exe\n'
+            # WK-88 - NEXT_PUBLIC_DOTA_COMPANION_DOWNLOAD_URL/_VERSION are
+            # deliberately NOT written here: NEXT_PUBLIC_* values are
+            # inlined into the client bundle at build time (see the "Build
+            # release artifact" step above), so a runtime .env entry for
+            # them has no effect - writing one here would just be a second,
+            # driftable copy of the same value.
           } | \
             ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
             -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
