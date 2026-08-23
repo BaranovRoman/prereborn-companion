@@ -251,6 +251,7 @@ jobs:
       # from GITHUB_TOKEN's push/PR loop-prevention restriction and is
       # documented to work for exactly this kind of cross-workflow signal.
       - name: Notify production deploy of the new release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
