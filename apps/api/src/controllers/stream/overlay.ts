@@ -133,7 +133,21 @@ export const getOverlayController = async (req: Request, res: Response) => {
                     .map((settings) => settings.limit)
             );
         const currentStreamLimit = maxLimitFor("current-stream");
-        const recentMatchesLimit = maxLimitFor("recent-matches");
+        // WK-89 - recentMatches (account-wide history) must stay populated for
+        // Between Matches (Last Match/Recent Games) regardless of whether any
+        // gameplay/draft HUD widget happens to be configured with
+        // source: "recent-matches" - that config only controls an optional
+        // in-HUD widget, it was never meant to gate the public Queue scene's
+        // own Recent Games panel, whose own limit comes from queueSettings.
+        // Root cause of the WK-83/84 regression: this used to be 0 (empty)
+        // whenever no HUD widget opted into "recent-matches", which is the
+        // default - so a session reset appeared to wipe Between Matches'
+        // history, when actually the account-wide field was just never
+        // sized to begin with.
+        const recentMatchesLimit = Math.max(
+            maxLimitFor("recent-matches"),
+            queueSettings.widgets.recentGamesLimit
+        );
         const [matches, recentMatches] = await Promise.all([
             currentStreamLimit > 0
                 ? getRecentMatchesForSession(session.id, currentStreamLimit)
@@ -194,6 +208,11 @@ export const getOverlayController = async (req: Request, res: Response) => {
                 ratingAfter: match.ratingAfter,
                 gameMode: match.gameMode,
                 endedAt: match.endedAt,
+                // WK-89 - lets the public overlay tell current-session matches
+                // apart from previous-session ones (see
+                // isMatchFromCurrentSession) without exposing anything more
+                // sensitive than an internal session id.
+                streamSessionId: match.streamSessionId,
             })),
             recentMatches: recentMatches.map((match) => ({
                 id: match.id,
@@ -209,6 +228,7 @@ export const getOverlayController = async (req: Request, res: Response) => {
                 ratingAfter: match.ratingAfter,
                 gameMode: match.gameMode,
                 endedAt: match.endedAt,
+                streamSessionId: match.streamSessionId,
             })),
             companion: {
                 isOnline: isCompanionOnline(companionLastSeenAt),

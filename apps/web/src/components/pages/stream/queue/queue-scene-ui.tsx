@@ -720,7 +720,13 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
     const overlay = useOverlayPolling(user?.publicToken ?? "", null);
     const activeOverlay = publicData ?? overlay;
     const activeSettings = publicData?.queueSettings ?? queueSettings.settings;
-    const realMatches = activeOverlay?.matches ?? matches ?? [];
+    // WK-89 - Between Matches (Last Match/Favorite Heroes/Recent Games) is
+    // account-wide history, NOT session-scoped - `overlay.matches` is the
+    // session-scoped field the gameplay HUD widget uses (correctly resets on
+    // "start new stream"); `overlay.recentMatches` is the account-wide one.
+    // Reading `.matches` here was the root cause of Between Matches going
+    // empty after a session reset (see stream-overlay-session-reset.test.ts).
+    const realMatches = activeOverlay?.recentMatches ?? matches ?? [];
     const data: QueueDataProps = {
         email: user?.email ?? null,
         gameMode: user?.gameMode ?? activeOverlay?.gameMode ?? null,

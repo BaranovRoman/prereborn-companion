@@ -81,12 +81,12 @@ export interface StreamMatch {
     // (entities/stream-user) не меняет отображение уже записанных матчей.
     gameMode: StreamGameMode;
     endedAt: string | null;
-    // Только на authenticated-истории (AccountStreamMatch) - публичный
-    // overlay-payload (controllers/stream/overlay.ts) это поле не отдаёт,
-    // поэтому здесь optional, а не required (см. isMatchFromCurrentSession,
-    // WK-84: там, где поля нет, различать текущую/прошлую сессию не нужно -
-    // matches и recentMatches из /overlay/:publicToken уже session-scoped
-    // либо не подлежат такому различению по контракту WK-68).
+    // WK-89: публичный overlay-payload (controllers/stream/overlay.ts) ТЕПЕРЬ
+    // тоже отдаёт это поле на обоих полях (matches и recentMatches) - без
+    // него isMatchFromCurrentSession не могла отличить текущую/прошлую
+    // сессию на реальном overlay, и opacity-часть WK-84 не работала на
+    // публичной сцене (работала только на authenticated-дашборде). Остаётся
+    // optional ради обратной совместимости типа с более старыми ответами.
     streamSessionId?: string | null;
 }
 
