@@ -38,7 +38,7 @@ export interface StatusSnapshot {
   legacy_cleanup_in_progress: boolean;
   backend_url: string;
   companion_token_configured: boolean;
-  backend_connected: boolean;
+  backend_state: ConnectionState;
   backend_last_sent_at: string | null;
   backend_last_error: string | null;
   obs_config: ObsConfig;

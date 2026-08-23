@@ -1,4 +1,5 @@
 import type { StatusSnapshot } from "../types/status";
+import { describeBackendStatus } from "../utils/backendStatus";
 import { formatTimestamp } from "../utils/format";
 
 interface Props {
@@ -8,17 +9,15 @@ interface Props {
 }
 
 export function BackendStatusPanel({ status, busy, onResend }: Props) {
-  const connected = !!status?.backend_connected;
+  const backendStatus = describeBackendStatus(status);
 
   return (
     <section className="backend-status">
       <h2>Backend</h2>
       <ul className="status-checklist">
-        <li className={`check-item${connected ? " check-item--ok" : ""}`}>
-          <span className="check-item__box">{connected ? "✔" : ""}</span>
-          <span className="check-item__label">
-            {connected ? "Backend connected" : "Backend disconnected"}
-          </span>
+        <li className={`check-item${backendStatus.ready ? " check-item--ok" : ""}`}>
+          <span className="check-item__box">{backendStatus.ready ? "✔" : ""}</span>
+          <span className="check-item__label">{backendStatus.label}</span>
           <span className="check-item__detail">{status?.backend_url}</span>
         </li>
       </ul>

@@ -10,6 +10,14 @@ const SEND_LOOP_INTERVAL: Duration = Duration::from_millis(500);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const COMMAND_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
+// WK-94 - same cap `retry_delay` uses for its backoff shape, reused as the
+// single source of truth for when `state::AppState::snapshot()` should stop
+// calling a run of failures "Recovering" and call it "Unavailable" instead.
+// Keeps the UI's read of an outage tied to the same backoff window the send
+// loop is already retrying within, instead of a second, independent notion
+// of "how long is too long".
+pub const MAX_RETRY_ATTEMPT: u32 = 5;
+
 /// Capped exponential backoff (same `2^attempt` / 30s cap shape as
 /// `obs::retry_delay`) plus a little jitter so a hard-down backend can't
 /// turn a fast-failing error (e.g. connection refused, which returns in
@@ -17,7 +25,7 @@ const COMMAND_POLL_INTERVAL: Duration = Duration::from_secs(1);
 /// retry-storm loop against `/gsi-state` (WK-78). No `rand` dependency -
 /// system-clock sub-second jitter is precise enough for spreading retries.
 fn retry_delay(attempt: u32) -> Duration {
-    let base = Duration::from_secs(2_u64.saturating_pow(attempt.min(5)).min(30));
+    let base = Duration::from_secs(2_u64.saturating_pow(attempt.min(MAX_RETRY_ATTEMPT)).min(30));
     let jitter_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| u64::from(d.subsec_nanos()) % 500)
@@ -320,14 +328,19 @@ fn send_state(token: &str, payload: &serde_json::Value) -> Result<(), String> {
 fn apply_result(app: &AppHandle, result: &Result<(), String>) {
     let state = app.state::<AppState>();
     let mut inner = state.0.lock().unwrap();
+    inner.backend_attempted = true;
     match result {
         Ok(()) => {
-            inner.backend_connected = true;
+            inner.backend_consecutive_failures = 0;
             inner.backend_last_sent_at = Some(chrono::Local::now().to_rfc3339());
             inner.backend_last_error = None;
         }
         Err(e) => {
-            inner.backend_connected = false;
+            // A single failure (and a run of them under MAX_RETRY_ATTEMPT)
+            // is surfaced by `snapshot()` as Recovering, not Unavailable -
+            // WK-78's backoff is already retrying, so this isn't a final
+            // "disconnected" state yet (see state.rs::AppState::snapshot).
+            inner.backend_consecutive_failures = inner.backend_consecutive_failures.saturating_add(1);
             inner.backend_last_error = Some(e.clone());
         }
     }
