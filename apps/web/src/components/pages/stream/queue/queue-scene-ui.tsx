@@ -66,6 +66,9 @@ const formatRating = (rating: number | null | undefined) =>
 const formatDelta = (delta: number | null) =>
     delta === null ? EMPTY_VALUE : `${delta > 0 ? "+" : ""}${delta}`;
 
+const formatKda = (match: StreamMatch) =>
+    ((match.kills + match.assists) / Math.max(1, match.deaths)).toFixed(2);
+
 const formatDate = (date: string | null) =>
     date
         ? new Intl.DateTimeFormat("ru-RU", {
@@ -316,29 +319,38 @@ const FeaturedMatch = ({ matches, title }: QueueDataProps & { title: string }) =
                 <span className={styles.heroMist} />
             </div>
             <div className={styles.heroDetails}>
-                <span className={styles.overline}>
-                    {match
-                        ? `MATCH ${match.dotaMatchId ?? "UNKNOWN"} // ${match.gameMode.toUpperCase()} // ${formatDate(match.endedAt)}`
-                        : "MATCH DATA // WAITING"}
-                </span>
                 <div className={styles.heroNameRow}>
                     <strong>{hero?.localizedName ?? "No completed matches"}</strong>
                     <em data-result={match?.result ?? undefined}>
                         {match ? resultLabel(match) : "NO DATA"}
                     </em>
                 </div>
+                <span className={styles.matchMeta}>
+                    {match
+                        ? `${match.gameMode.toUpperCase()} • ${formatDate(match.endedAt)}`
+                        : "MATCH DATA // WAITING"}
+                </span>
                 <div className={styles.matchStats}>
-                    <div>
-                        <span>K / D / A</span>
-                        <b>{match ? `${match.kills} / ${match.deaths} / ${match.assists}` : EMPTY_VALUE}</b>
+                    <div className={styles.statsPrimary}>
+                        <span className={styles.statValue}>
+                            {match ? `${match.kills} / ${match.deaths} / ${match.assists}` : EMPTY_VALUE}
+                        </span>
+                        <span
+                            className={styles.statValue}
+                            data-tone={
+                                match?.ratingDelta == null
+                                    ? undefined
+                                    : match.ratingDelta > 0
+                                      ? "positive"
+                                      : match.ratingDelta < 0
+                                        ? "negative"
+                                        : undefined
+                            }
+                        >
+                            {match?.ratingDelta == null ? EMPTY_VALUE : `${formatDelta(match.ratingDelta)} MMR`}
+                        </span>
                     </div>
-                    <div><span>MODE</span><b>{match?.gameMode.toUpperCase() ?? EMPTY_VALUE}</b></div>
-                    <div>
-                        <span>RATING</span>
-                        <b className={match?.ratingDelta && match.ratingDelta > 0 ? styles.positive : undefined}>
-                            {match ? formatDelta(match.ratingDelta) : EMPTY_VALUE}
-                        </b>
-                    </div>
+                    <span className={styles.statsSecondary}>KDA {match ? formatKda(match) : EMPTY_VALUE}</span>
                 </div>
                 <div className={styles.inventory} aria-label="Last recorded inventory">
                     <div className={styles.items} aria-label="Main inventory">
