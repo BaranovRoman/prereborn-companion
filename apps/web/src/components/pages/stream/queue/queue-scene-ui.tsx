@@ -15,7 +15,7 @@ import { useAccountMatches } from "@/entities/stream-session/lib/use-account-mat
 import { useActiveStreamSessionId } from "@/entities/stream-session/lib/use-active-stream-session-id";
 import { isMatchFromCurrentSession } from "@/entities/stream-session/lib/is-match-from-current-session";
 import { useOverlayPolling } from "@/entities/stream-session/lib/use-overlay-polling";
-import type { OverlayData, SessionSummary, StreamMatch } from "@/entities/stream-session/model/types";
+import type { OverlayData, StreamMatch } from "@/entities/stream-session/model/types";
 import { useSteamIntegration } from "@/entities/steam-integration/lib/use-steam-integration";
 import { useStreamSession } from "@/entities/stream-user/lib/use-stream-session";
 import { useQueueSettings } from "@/entities/stream-queue-settings/lib/use-queue-settings";
@@ -721,54 +721,6 @@ const DonationTop = ({ donationAlerts, twitch, title, settings }: QueueDataProps
     );
 };
 
-const formatDurationShort = (durationMs: number | null) => {
-    if (durationMs === null || durationMs < 0) return EMPTY_VALUE;
-    const totalMinutes = Math.round(durationMs / 60_000);
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-    if (hours === 0) return `${minutes} мин`;
-    return `${hours} ч ${minutes} мин`;
-};
-
-// WK-53 - final calm state after "Завершить стрим": reuses the exact same
-// Panel/visual language as the rest of Between Matches (see Panel above) -
-// intentionally not a redesign, just one small overlay panel layered on top
-// of the otherwise-unchanged Between Matches composition (PlayerProfile/
-// FeaturedMatch/RecentGames all keep working exactly as they do today, see
-// QueueSceneUi below - Last Match/Recent Games are account-wide and don't
-// care about session lifecycle).
-const StreamEndedBanner = ({ summary }: { summary: SessionSummary | null }) => {
-    if (!summary) return null;
-    const delta = summary.gameMode === "ranked" ? formatDelta(summary.ratingDelta) : null;
-
-    return (
-        <Panel title="Стрим завершён" className={styles.streamEndedBanner}>
-            <div className={styles.streamEndedStats}>
-                <div>
-                    <span>W–L</span>
-                    <b>
-                        {summary.wins}–{summary.losses}
-                    </b>
-                </div>
-                <div>
-                    <span>МАТЧЕЙ</span>
-                    <b>{summary.matchCount}</b>
-                </div>
-                {summary.gameMode === "ranked" && (
-                    <div>
-                        <span>MMR</span>
-                        <b>{delta}</b>
-                    </div>
-                )}
-                <div>
-                    <span>ДЛИТЕЛЬНОСТЬ</span>
-                    <b>{formatDurationShort(summary.durationMs)}</b>
-                </div>
-            </div>
-        </Panel>
-    );
-};
-
 export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
     const { user } = useStreamSession();
     const { matches } = useAccountMatches();
@@ -820,9 +772,6 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
 
     return (
         <div className={styles.interface}>
-            {activeOverlay?.sessionState === "ended" && (
-                <StreamEndedBanner summary={activeOverlay.sessionSummary} />
-            )}
             <div className={styles.dashboard} data-top-count={2}>
                 <PlayerProfile {...data} title={widgetSettings.titles.playerProfile} />
                 <StreamProfile {...data} title={widgetSettings.titles.streamProfile} />

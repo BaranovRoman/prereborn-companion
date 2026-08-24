@@ -1,0 +1,247 @@
+// WK-98 - own visual shell, deliberately NOT importing/extending
+// queue-scene.module.scss: this is a structurally separate scene (old Dota /
+// tournament post-match summary), not a variant of Between Matches. Reuses
+// the same design language (colors, --font-title "Reaver" / --font-ui
+// "Radiance", see app/globals.css) for family resemblance, but no shared
+// selectors/classes with queue-scene-ui.tsx.
+
+.scene {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    display: grid;
+    place-items: center;
+    color: #c8c4bd;
+    background:
+        radial-gradient(ellipse at 50% 8%, rgba(137, 11, 24, 0.28) 0%, rgba(86, 6, 16, 0.12) 30%, transparent 60%),
+        radial-gradient(ellipse at 50% 100%, rgba(34, 2, 8, 0.32) 0%, transparent 55%),
+        linear-gradient(180deg, #120a0c 0%, #0a0507 45%, #060304 100%);
+}
+
+.content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: clamp(6px, 1vh, 14px);
+    padding: 4vh 4vw;
+}
+
+.brand {
+    font-family: var(--font-ui);
+    font-size: clamp(11px, 0.85vw, 18px);
+    letter-spacing: 0.32em;
+    color: #6f6a63;
+    text-transform: uppercase;
+}
+
+.rule {
+    width: clamp(64px, 5vw, 120px);
+    height: 1px;
+    margin: clamp(6px, 1vh, 12px) 0;
+    background: linear-gradient(90deg, transparent, rgba(178, 163, 111, 0.55), transparent);
+}
+
+.eyebrow {
+    font-family: var(--font-ui);
+    font-size: clamp(14px, 1.1vw, 26px);
+    letter-spacing: 0.22em;
+    color: #b2a36f;
+    text-transform: uppercase;
+    margin-bottom: clamp(4px, 1vh, 10px);
+}
+
+.record {
+    display: flex;
+    align-items: baseline;
+    gap: clamp(10px, 1vw, 22px);
+    font-family: var(--font-title);
+    font-weight: 400;
+    font-size: clamp(88px, 8.3vw, 220px);
+    line-height: 1;
+    color: #f2ece3;
+    font-variant-numeric: tabular-nums;
+    position: relative;
+    padding-bottom: clamp(10px, 1.4vh, 20px);
+
+    em {
+        font-style: normal;
+        font-size: 0.5em;
+        color: #6f6a63;
+    }
+
+    &::after {
+        content: "";
+        position: absolute;
+        bottom: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: clamp(90px, 7vw, 180px);
+        height: 3px;
+        background: #6f6a63;
+    }
+
+    &[data-tone="positive"]::after { background: #9bbb76; }
+    &[data-tone="negative"]::after { background: #bd655e; }
+}
+
+.mmr {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    margin-top: clamp(6px, 1vh, 12px);
+
+    b {
+        font-family: var(--font-title);
+        font-weight: 400;
+        font-size: clamp(32px, 2.9vw, 64px);
+        color: #d8d3c9;
+        font-variant-numeric: tabular-nums;
+
+        &[data-tone="positive"] { color: #9bbb76; }
+        &[data-tone="negative"] { color: #bd655e; }
+    }
+
+    small {
+        font-family: var(--font-ui);
+        font-size: clamp(13px, 1vw, 22px);
+        color: #837e77;
+        font-variant-numeric: tabular-nums;
+    }
+}
+
+.secondary {
+    display: flex;
+    align-items: center;
+    gap: clamp(18px, 1.8vw, 36px);
+    margin-top: clamp(14px, 2vh, 26px);
+
+    > div {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+    }
+
+    b {
+        font-family: var(--font-title);
+        font-weight: 400;
+        font-size: clamp(18px, 1.5vw, 32px);
+        color: #c8c4bd;
+        font-variant-numeric: tabular-nums;
+    }
+
+    span {
+        font-family: var(--font-ui);
+        font-size: clamp(9px, 0.6vw, 13px);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #6f6a63;
+    }
+
+    i {
+        width: 1px;
+        height: clamp(20px, 2.2vh, 34px);
+        background: rgba(178, 163, 111, 0.28);
+        font-style: normal;
+    }
+}
+
+.matchStrip {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: flex-start;
+    gap: clamp(6px, 0.6vw, 12px);
+    max-width: min(1400px, 88vw);
+    margin-top: clamp(20px, 3vh, 40px);
+    padding-top: clamp(14px, 2vh, 24px);
+    border-top: 1px solid rgba(178, 163, 111, 0.18);
+}
+
+.matchChip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.matchChipPortrait {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: clamp(36px, 2.9vw, 64px);
+    height: clamp(36px, 2.9vw, 64px);
+    overflow: hidden;
+    background: #15191a;
+    border: 2px solid #4a4741;
+    color: #6f6a63;
+    font-family: var(--font-ui);
+    font-size: 12px;
+
+    img { width: 100%; height: 100%; object-fit: cover; }
+
+    &[data-result="win"] { border-color: #9bbb76; }
+    &[data-result="loss"] { border-color: #bd655e; }
+    &[data-result="abandon"] { border-color: #c29a69; }
+}
+
+.matchChipMark {
+    position: absolute;
+    right: -3px;
+    bottom: -3px;
+    width: 14px;
+    height: 14px;
+    display: grid;
+    place-items: center;
+    font-size: 9px;
+    line-height: 1;
+    font-style: normal;
+    color: #0a0507;
+    background: #6f6a63;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px #0a0507;
+
+    &[data-result="win"] { background: #9bbb76; }
+    &[data-result="win"]::before { content: "✓"; }
+    &[data-result="loss"] { background: #bd655e; }
+    &[data-result="loss"]::before { content: "✕"; }
+    &[data-result="abandon"] { background: #c29a69; }
+    &[data-result="abandon"]::before { content: "!"; }
+    &[data-result="unknown"] { background: #4a4741; }
+    &[data-result="unknown"]::before { content: "?"; }
+}
+
+.matchChipDelta {
+    font-family: var(--font-ui);
+    font-size: clamp(10px, 0.7vw, 15px);
+    color: #837e77;
+    font-variant-numeric: tabular-nums;
+
+    &[data-tone="positive"] { color: #9bbb76; }
+    &[data-tone="negative"] { color: #bd655e; }
+}
+
+.matchStripMore {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: clamp(36px, 2.9vw, 64px);
+    height: clamp(36px, 2.9vw, 64px);
+    font-family: var(--font-ui);
+    font-size: clamp(11px, 0.85vw, 16px);
+    color: #837e77;
+    background: #15191a;
+    border: 1px dashed #4a4741;
+}
+
+// Below the Full HD design target - graceful degradation only, not a tuned
+// breakpoint: the fluid clamp()-based sizing above already shrinks smoothly,
+// this just tightens spacing so nothing overlaps at small viewports.
+@media (max-width: 1280px), (max-height: 720px) {
+    .content { gap: 4px; padding: 3vh 4vw; }
+    .matchStrip { gap: 6px; }
+}

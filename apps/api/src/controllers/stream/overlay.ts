@@ -32,6 +32,18 @@ import { getDonationAlertsStatus } from "../../services/donation-alerts-integrat
 
 const publicTokenSchema = z.string().uuid();
 
+// WK-98 - StreamEndedScene's own bounded session-history source, deliberately
+// independent of currentStreamLimit (which is driven by whatever gameplay/
+// draft HUD widgets happen to be configured with source: "current-stream",
+// defaulting to 5 and possibly 0 if no such widget exists at all - neither
+// bound has anything to do with what the post-stream summary needs). A fixed
+// cap here means the ended scene's match strip stays complete for realistic
+// session sizes regardless of the streamer's HUD/queue settings; summary.
+// matchCount (getSessionSummary, uncapped) remains the source of truth for
+// the true total, so the frontend can render an honest "+N" indicator on the
+// rare session that exceeds this cap instead of silently under-showing.
+const ENDED_SESSION_MATCH_CAP = 20;
+
 const INTEGRATION_STATUS_TTL_MS = 15_000;
 const INTEGRATION_STATUS_CACHE_MAX = 500;
 type IntegrationStatus = {
@@ -210,12 +222,15 @@ export const getOverlayController = async (req: Request, res: Response) => {
             const summary = latest
                 ? await getSessionSummary(streamUserId, latest)
                 : null;
-            const matches =
-                latest && currentStreamLimit > 0
-                    ? (await getRecentMatchesForSession(latest.id, currentStreamLimit)).map(
-                          toPublicMatch
-                      )
-                    : [];
+            // WK-98 - StreamEndedScene's match strip: fixed cap, NOT
+            // currentStreamLimit (see ENDED_SESSION_MATCH_CAP above) - unlike
+            // the active-session branch below, this must not depend on
+            // gameplay/draft HUD widget configuration.
+            const matches = latest
+                ? (await getRecentMatchesForSession(latest.id, ENDED_SESSION_MATCH_CAP)).map(
+                      toPublicMatch
+                  )
+                : [];
 
             return res.json({
                 sessionState: latest ? "ended" : "none",

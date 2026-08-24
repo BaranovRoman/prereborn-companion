@@ -2,11 +2,13 @@ import type { BroadcastSceneId, DraftProtectionMode } from "@/entities/stream-ov
 import type { SessionLifecycleState } from "@/entities/stream-session/model/types";
 import { getBroadcastScene } from "./get-broadcast-scene";
 
-// WK-53 - the public overlay's calm final scene, distinct from the
+// WK-53/WK-98 - the public overlay's calm final scene, distinct from the
 // configurable gameplay/draft/betweenMatches scenes (those have their own
-// widget layout entries - see OverlayLayout.scenes - "streamEnded" doesn't,
-// it's rendered by reusing the existing QueueScene/Between Matches shell,
-// see queue-scene-ui.tsx's StreamEndedBanner).
+// widget layout entries - see OverlayLayout.scenes). "streamEnded" doesn't,
+// and deliberately isn't editor-configurable: it's rendered by its own fixed
+// composition, StreamEndedScene (see components/pages/stream/stream-ended/),
+// mounted directly by OverlayPage - not a variant of QueueScene/Between
+// Matches.
 export type ActiveScene = BroadcastSceneId | "streamEnded";
 
 interface GetActiveSceneParams {
