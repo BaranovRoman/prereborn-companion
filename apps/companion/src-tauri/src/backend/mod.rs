@@ -9,6 +9,12 @@ use crate::obs::{self, BroadcastScene};
 const SEND_LOOP_INTERVAL: Duration = Duration::from_millis(500);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const COMMAND_POLL_INTERVAL: Duration = Duration::from_secs(1);
+// WK-99 - Post Stream's trigger is session lifecycle, not GSI, so it needs
+// its own poll of the endpoint WK-83's "continue previous stream?" prompt
+// already uses (fetch_stream_session below) - a few seconds of latency to
+// notice `ended` is fine for a calm final scene, so this stays deliberately
+// slower than COMMAND_POLL_INTERVAL rather than adding load on every tick.
+const SESSION_POLL_INTERVAL: Duration = Duration::from_secs(3);
 
 // WK-94 - same cap `retry_delay` uses for its backoff shape, reused as the
 // single source of truth for when `state::AppState::snapshot()` should stop
@@ -61,6 +67,7 @@ pub fn init(app: AppHandle) {
     let app_for_loop = app.clone();
     std::thread::spawn(move || {
         let mut last_command_poll = Instant::now() - COMMAND_POLL_INTERVAL;
+        let mut last_session_poll = Instant::now() - SESSION_POLL_INTERVAL;
         let mut send_failures: u32 = 0;
         let mut next_send_attempt_at = Instant::now();
         loop {
@@ -81,8 +88,36 @@ pub fn init(app: AppHandle) {
                 poll_obs_command(&app_for_loop);
                 last_command_poll = Instant::now();
             }
+            if last_session_poll.elapsed() >= SESSION_POLL_INTERVAL {
+                poll_session_state(&app_for_loop);
+                last_session_poll = Instant::now();
+            }
         }
     });
+}
+
+/// WK-99 - Post Stream's trigger. Deliberately best-effort and silent on
+/// any failure (no companion token yet, backend unreachable, malformed
+/// response) - same fail-quiet-and-retry-next-tick shape as
+/// `poll_obs_command` right below. This must never be able to block or
+/// affect the web `ended` transition itself: that's a plain backend DB
+/// write the web cabinet makes directly, with no dependency on Companion
+/// being online, connected, or even running at all - this poll only ever
+/// *reads* that state, and only to drive OBS automation.
+fn poll_session_state(app: &AppHandle) {
+    let token = app
+        .state::<AppState>()
+        .0
+        .lock()
+        .unwrap()
+        .companion_token
+        .clone();
+    let Some(token) = token else { return };
+    let Ok(session) = fetch_stream_session(&token) else {
+        return;
+    };
+    let ended = session.get("state").and_then(serde_json::Value::as_str) == Some("ended");
+    obs::handle_session_state(app, ended);
 }
 
 fn poll_obs_command(app: &AppHandle) {

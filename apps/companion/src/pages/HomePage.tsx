@@ -30,6 +30,16 @@ const sceneLabels: Record<Scene, string> = {
   gameplay: "Игра",
 };
 
+// WK-99 - "Активная сцена" below must display Post Stream too, but it's
+// deliberately not one of the manual quick-switch buttons above (those stay
+// the 3 GSI-phase scenes, per `sceneLabels`/`Scene` - Post Stream is only
+// ever entered automatically once the stream session ends, not something a
+// streamer picks by hand mid-match).
+const activeSceneLabels: Record<Scene | "postStream", string> = {
+  ...sceneLabels,
+  postStream: "Post Stream",
+};
+
 function StatusCard({ label, value, detail, tone }: {
   label: string;
   value: string;
@@ -188,7 +198,7 @@ export function HomePage() {
             <button className={!status?.obs_config.enabled ? "is-active" : ""} onClick={() => setAutomaticMode(false)} disabled={busy || !status}>Ручной</button>
           </div>
           <p className="mode-hint">{status?.obs_config.enabled ? "Companion меняет сцену по фазе матча." : "Вы управляете сценой кнопками ниже."}</p>
-          <div className="scene-summary"><span>Активная сцена</span><strong>{status?.obs_active_scene ? sceneLabels[status.obs_active_scene] : "Не определена"}</strong></div>
+          <div className="scene-summary"><span>Активная сцена</span><strong>{status?.obs_active_scene ? activeSceneLabels[status.obs_active_scene] : "Не определена"}</strong></div>
           <div className="scene-actions">
             {(Object.keys(sceneLabels) as Scene[]).map((scene) => (
               <button key={scene} className={status?.obs_active_scene === scene ? "is-active" : ""} disabled={busy || !status?.obs_connected} onClick={() => void run(() => api.switchObsScene(scene))}>
