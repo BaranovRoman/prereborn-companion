@@ -522,46 +522,6 @@
 
 .panelTitle span { padding: 0 16px; }
 
-// WK-53 - final calm state after "Завершить стрим": a small ribbon layered
-// on top of the otherwise-unchanged Between Matches composition (see
-// StreamEndedBanner in queue-scene-ui.tsx) - absolutely positioned so it
-// doesn't disturb the existing .dashboard grid flow.
-.streamEndedBanner {
-    position: absolute;
-    top: 0;
-    left: 50%;
-    z-index: 20;
-    width: min(560px, 92%);
-    transform: translateX(-50%);
-}
-
-.streamEndedStats {
-    display: flex;
-    justify-content: center;
-    gap: 28px;
-    padding: 14px 18px;
-
-    > div {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 4px;
-    }
-
-    span {
-        font-size: 11px;
-        letter-spacing: .12em;
-        color: #9a9691;
-        text-transform: uppercase;
-    }
-
-    b {
-        font-size: 20px;
-        font-variant-numeric: tabular-nums;
-        color: #e6e2d8;
-    }
-}
-
 .profileBody {
     height: 100%;
     display: grid;

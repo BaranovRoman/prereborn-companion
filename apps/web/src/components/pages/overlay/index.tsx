@@ -11,6 +11,7 @@ import { CurrentGame } from "./widgets/current-game";
 import { RecentMatches } from "./widgets/recent-matches";
 import { DebugPanel } from "./debug-panel";
 import { QueueScene } from "@/components/pages/stream/queue/queue-scene";
+import { StreamEndedScene } from "@/components/pages/stream/stream-ended/stream-ended-scene";
 import { getActiveScene } from "./lib/get-active-scene";
 import { selectRecentMatches } from "./lib/select-recent-matches";
 import { ViewerAlertToast } from "@/components/pages/stream/queue/viewer-alert-toast";
@@ -75,7 +76,9 @@ export const OverlayPage = ({
     // state and could re-show an alert that already played before the
     // switch. Mounting it per-branch (or only in the betweenMatches
     // fragment) was the original, incorrect approach.
-    const sceneContent = activeScene === "streamEnded" || activeScene === "betweenMatches" ? (
+    const sceneContent = activeScene === "streamEnded" ? (
+        <StreamEndedScene data={data} />
+    ) : activeScene === "betweenMatches" ? (
         <QueueScene
             quality="high"
             seed={1}
