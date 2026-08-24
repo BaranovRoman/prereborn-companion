@@ -343,3 +343,157 @@ describe("full lifecycle: session A -> End -> stale GSI -> Start New -> session 
         expect(afterNewMatch.body.recentMatches).toHaveLength(3);
     });
 });
+
+// Review follow-up (WK-53): a match that STARTED before End must not be lost
+// just because its post-game result arrives after End - this is distinct
+// from the stale/new-match-after-End case above (createMatch's null-session
+// guard only applies to a match that hasn't started yet; a match already in
+// flight never calls getOrCreateActiveSession again - see findActiveMatch/
+// resumeMatch/finalizeMatch, none of which filter by ended_at).
+describe("a match that started before End finalizes after End", () => {
+    it("finalizes into the ended session, updates its live summary, and never creates/reopens a session", async () => {
+        const user = await createTestUser();
+        await getOrCreateActiveSession(user.streamUserId);
+        const sessionRows0 = await pool.query<{ id: number }>(
+            "SELECT id FROM stream_sessions WHERE stream_user_id = $1 AND ended_at IS NULL",
+            [user.streamUserId]
+        );
+        const sessionAId = sessionRows0.rows[0].id.toString();
+
+        // Match starts while A is still active.
+        await processGsiPayloadForMatch(user.streamUserId, heroSelectionTick(30, "930000001"));
+        const inProgress = await pool.query<{ state: string; stream_session_id: number }>(
+            "SELECT state, stream_session_id FROM stream_matches WHERE stream_user_id = $1",
+            [user.streamUserId]
+        );
+        expect(inProgress.rows).toHaveLength(1);
+        expect(inProgress.rows[0].state).toBe("in_progress");
+        expect(inProgress.rows[0].stream_session_id.toString()).toBe(sessionAId);
+
+        // Streamer clicks End WHILE the match is still in progress - no
+        // result yet, so the summary at End-time is honestly 0/0/0.
+        const endRes = await request(app)
+            .post("/api/stream/account/session/end")
+            .set("Authorization", `Bearer ${user.jwtToken}`);
+        expect(endRes.status).toBe(200);
+        expect(endRes.body.session.id).toBe(sessionAId);
+        expect(endRes.body.summary.wins).toBe(0);
+        expect(endRes.body.summary.matchCount).toBe(0);
+
+        const sessionsAfterEnd = await pool.query(
+            "SELECT id FROM stream_sessions WHERE stream_user_id = $1",
+            [user.streamUserId]
+        );
+        expect(sessionsAfterEnd.rows).toHaveLength(1);
+
+        // The already-started match's post-game result arrives AFTER End.
+        await processGsiPayloadForMatch(
+            user.streamUserId,
+            postGameTick(30, "win", { matchId: "930000001" })
+        );
+        await processGsiPayloadForMatch(
+            user.streamUserId,
+            postGameTick(30, "win", { matchId: "930000001" })
+        );
+
+        // Still exactly one session - A - and it's still ended: the late
+        // finalize must not reopen or duplicate it.
+        const sessionsAfterFinalize = await pool.query<{ id: number; ended_at: string | null }>(
+            "SELECT id, ended_at FROM stream_sessions WHERE stream_user_id = $1",
+            [user.streamUserId]
+        );
+        expect(sessionsAfterFinalize.rows).toHaveLength(1);
+        expect(sessionsAfterFinalize.rows[0].id.toString()).toBe(sessionAId);
+        expect(sessionsAfterFinalize.rows[0].ended_at).not.toBeNull();
+
+        // The match itself finalized successfully, still attributed to A -
+        // it must not be lost just because End happened first.
+        const matchRows = await pool.query<{
+            state: string;
+            result: string;
+            stream_session_id: number;
+        }>(
+            "SELECT state, result, stream_session_id FROM stream_matches WHERE stream_user_id = $1",
+            [user.streamUserId]
+        );
+        expect(matchRows.rows).toHaveLength(1);
+        expect(matchRows.rows[0].state).toBe("finalized");
+        expect(matchRows.rows[0].result).toBe("win");
+        expect(matchRows.rows[0].stream_session_id.toString()).toBe(sessionAId);
+
+        // GET session: still "ended", but the summary is live (not frozen at
+        // End-time) and now reflects the match that just finalized.
+        const getRes = await request(app)
+            .get("/api/stream/account/session")
+            .set("Authorization", `Bearer ${user.jwtToken}`);
+        expect(getRes.body.state).toBe("ended");
+        expect(getRes.body.summary.wins).toBe(1);
+        expect(getRes.body.summary.losses).toBe(0);
+        expect(getRes.body.summary.matchCount).toBe(1);
+
+        // Public overlay - reloaded twice, simulating an OBS Browser Source
+        // refresh - stays on the final scene both times, and its own
+        // sessionSummary/wins pick up the late finalize too.
+        for (let i = 0; i < 2; i += 1) {
+            const overlayRes = await request(app).get(`/api/stream/overlay/${user.publicToken}`);
+            expect(overlayRes.body.sessionState).toBe("ended");
+            expect(overlayRes.body.sessionSummary.wins).toBe(1);
+            expect(overlayRes.body.wins).toBe(1);
+            expect(overlayRes.body.companion.payload).toBeNull();
+        }
+    });
+
+    it("a brand-new match-start after End (not already in flight) is dropped entirely", async () => {
+        const user = await createTestUser();
+        await getOrCreateActiveSession(user.streamUserId);
+        const ended = await endActiveSession(user.streamUserId);
+        expect(ended).not.toBeNull();
+
+        await processGsiPayloadForMatch(user.streamUserId, heroSelectionTick(31, "930000002"));
+
+        const matchRows = await pool.query("SELECT id FROM stream_matches WHERE stream_user_id = $1", [
+            user.streamUserId,
+        ]);
+        expect(matchRows.rows).toHaveLength(0);
+
+        const sessionRows = await pool.query<{ id: number; ended_at: string | null }>(
+            "SELECT id, ended_at FROM stream_sessions WHERE stream_user_id = $1",
+            [user.streamUserId]
+        );
+        expect(sessionRows.rows).toHaveLength(1);
+        expect(sessionRows.rows[0].id.toString()).toBe(ended!.id);
+        expect(sessionRows.rows[0].ended_at).not.toBeNull();
+    });
+
+    it("Start New after End produces B with 0W/0L/0 delta, and A's last match stays in account-wide history", async () => {
+        const user = await createTestUser();
+        await getOrCreateActiveSession(user.streamUserId);
+        await processGsiPayloadForMatch(user.streamUserId, heroSelectionTick(32, "930000003"));
+        await request(app)
+            .post("/api/stream/account/session/end")
+            .set("Authorization", `Bearer ${user.jwtToken}`);
+        // Late finalize, same as above.
+        await processGsiPayloadForMatch(
+            user.streamUserId,
+            postGameTick(32, "win", { matchId: "930000003" })
+        );
+        await processGsiPayloadForMatch(
+            user.streamUserId,
+            postGameTick(32, "win", { matchId: "930000003" })
+        );
+
+        const resetRes = await request(app)
+            .post("/api/stream/account/session/reset")
+            .set("Authorization", `Bearer ${user.jwtToken}`);
+        expect(resetRes.body.wins).toBe(0);
+        expect(resetRes.body.losses).toBe(0);
+
+        const overlayRes = await request(app).get(`/api/stream/overlay/${user.publicToken}`);
+        expect(overlayRes.body.sessionState).toBe("active");
+        expect(overlayRes.body.wins).toBe(0);
+        expect(overlayRes.body.losses).toBe(0);
+        // A's now-finalized last match remains in account-wide history.
+        expect(overlayRes.body.recentMatches).toHaveLength(1);
+        expect(overlayRes.body.recentMatches[0].result).toBe("win");
+    });
+});
