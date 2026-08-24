@@ -200,58 +200,76 @@ describe("StreamEndedScene", () => {
         expect(getByTestId("stream-ended-scene")).toBeTruthy();
     });
 
-    // WK-98 follow-up: adaptive density tiers so 1-20 matches all fit a
-    // 1920x1080 canvas without scrolling, per the task's own bands.
-    describe("adaptive history density", () => {
+    // WK-98 visual-refinement follow-up: fixed-width 16:9 cards that wrap
+    // via flex (no more hand-picked column-count tiers per match count),
+    // a stricter frontend render cap (VISIBLE_HISTORY_CAP) independent of
+    // the backend's own 20-match cap, and static-only hero art (no
+    // autoplay video) for this scene.
+    describe("history render cap and card medium", () => {
         const matchesOf = (count: number) =>
             Array.from({ length: count }, (_, index) => buildMatch({ id: `m${index}`, heroId: (index % 24) + 1 }));
 
-        it.each([
-            [1, "spacious"],
-            [4, "spacious"],
-            [5, "cozy"],
-            [8, "cozy"],
-            [9, "dense"],
-            [14, "dense"],
-            [15, "compact"],
-            [20, "compact"],
-        ])("uses density=%s for %s matches", (count, density) => {
+        it("renders every match up to the visible cap with no +N note", () => {
             const data = buildOverlayData({
-                sessionSummary: buildSummary({ matchCount: count as number }),
-                matches: matchesOf(count as number),
-            });
-            render(<StreamEndedScene data={data} />);
-            expect(screen.getByLabelText("История стрима").getAttribute("data-density")).toBe(density);
-        });
-
-        it("caps rendered entries at 20 even when more are available, with the excess as +N", () => {
-            const data = buildOverlayData({
-                sessionSummary: buildSummary({ matchCount: 23 }),
-                matches: matchesOf(23),
+                sessionSummary: buildSummary({ matchCount: 16 }),
+                matches: matchesOf(16),
             });
             render(<StreamEndedScene data={data} />);
 
             const grid = screen.getByLabelText("История стрима");
-            expect(grid.querySelectorAll("[title]")).toHaveLength(23);
-            expect(grid.getAttribute("data-density")).toBe("compact");
+            expect(grid.querySelectorAll("[title]")).toHaveLength(16);
+            expect(screen.queryByTestId("match-strip-more")).toBeNull();
         });
 
-        it("does not autoplay hero video at higher densities (perf guard for OBS Browser Source)", () => {
-            const spacious = buildOverlayData({
+        it("caps rendered entries below what the backend provides (20), with the excess as an honest +N", () => {
+            // The backend already bounds `data.matches` to 20 (unchanged,
+            // ENDED_SESSION_MATCH_CAP in overlay.ts) - this pins the
+            // frontend's own, stricter visual cap on top of that.
+            const data = buildOverlayData({
+                sessionSummary: buildSummary({ matchCount: 20 }),
+                matches: matchesOf(20),
+            });
+            render(<StreamEndedScene data={data} />);
+
+            const grid = screen.getByLabelText("История стрима");
+            expect(grid.querySelectorAll("[title]")).toHaveLength(16);
+            expect(screen.getByTestId("match-strip-more").textContent).toContain("4");
+            // matchCount stays the honest total, independent of the cap.
+            expect(screen.getByTestId("match-count").textContent).toBe("20");
+        });
+
+        it("keeps the newest matches when capping, not the oldest", () => {
+            // Backend order is newest-first (id DESC, see
+            // getRecentMatchesForSession) - slicing before the chronological
+            // reverse must keep the FRONT of that array (most recent),
+            // dropping from the back (oldest), not the other way around.
+            const newestFirst = [
+                buildMatch({ id: "newest", heroId: 2 }), // Axe - most recent match, must survive the cap
+                ...matchesOf(16).map((match, index) => buildMatch({ ...match, id: `mid-${index}`, heroId: 3 })),
+                buildMatch({ id: "oldest", heroId: 1 }), // Anti-Mage - oldest match, must be dropped by the cap
+            ];
+            const data = buildOverlayData({
+                sessionSummary: buildSummary({ matchCount: newestFirst.length }),
+                matches: newestFirst,
+            });
+            render(<StreamEndedScene data={data} />);
+
+            const grid = screen.getByLabelText("История стрима");
+            const titles = Array.from(grid.querySelectorAll("[title]")).map((el) => el.getAttribute("title"));
+            expect(titles).toHaveLength(16);
+            expect(titles).toContain("Axe");
+            expect(titles).not.toContain("Anti-Mage");
+        });
+
+        it("always renders a static hero image, never an autoplaying video (no motion needed on the final scene)", () => {
+            const data = buildOverlayData({
                 sessionSummary: buildSummary({ matchCount: 2 }),
                 matches: matchesOf(2),
             });
-            const { container: spaciousContainer, unmount } = render(<StreamEndedScene data={spacious} />);
-            expect(spaciousContainer.querySelectorAll("video").length).toBe(2);
-            unmount();
+            const { container } = render(<StreamEndedScene data={data} />);
 
-            const compact = buildOverlayData({
-                sessionSummary: buildSummary({ matchCount: 15 }),
-                matches: matchesOf(15),
-            });
-            const { container: compactContainer } = render(<StreamEndedScene data={compact} />);
-            expect(compactContainer.querySelectorAll("video").length).toBe(0);
-            expect(compactContainer.querySelectorAll("img[alt='']").length).toBeGreaterThanOrEqual(15);
+            expect(container.querySelectorAll("video").length).toBe(0);
+            expect(container.querySelectorAll("img[alt='']").length).toBe(2);
         });
     });
 });

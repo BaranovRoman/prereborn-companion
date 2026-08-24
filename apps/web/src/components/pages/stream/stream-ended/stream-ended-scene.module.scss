@@ -3,18 +3,16 @@
 // tournament post-match summary), not a variant of Between Matches. Reuses
 // the same design language (colors, --font-title "Reaver" / --font-ui
 // "Radiance", see app/globals.css) for family resemblance, but no shared
-// selectors/classes with queue-scene-ui.tsx. (PreloadedVideo IS imported
-// from there in stream-ended-scene.tsx - it's a general-purpose hero-media
-// loader, not Between Matches structure - but its own two trivial utility
-// classes, videoPosterLayer/videoPlaybackLayer, still live in that module.)
+// selectors/classes with queue-scene-ui.tsx.
 //
-// Sizing note: every clamp() below is deliberately budgeted against a fixed
-// 1080px-tall canvas (the primary target, see stream-ended-scene.tsx) so
-// that up to 5 stacked history rows (the worst case across all four density
-// tiers - see getHistoryDensity) still fit without the canvas scrolling.
-// `.scene` keeps `overflow: hidden` as a hard backstop, but the real fix is
-// this budget, not clipping - see the WK-98 visual-refinement report for the
-// row-by-row math this was tuned against.
+// Visual-refinement follow-up: side-by-side composition (summary column +
+// history column) instead of stacked top/bottom - stacking left history no
+// vertical room for hero art to keep a real 16:9 shape without either
+// overflowing the canvas or shrinking to an unreadable strip. Match cards
+// use hero.imageUrl, a native 256x144 (exactly 16:9) CDN asset - see
+// stream-ended-scene.tsx - so `.entryArt`'s `aspect-ratio: 16/9` needs
+// almost no crop at all, unlike the previous pass's fixed short pixel
+// heights on a stretchy-width strip.
 
 .scene {
     position: fixed;
@@ -23,11 +21,11 @@
     height: 100vh;
     overflow: hidden;
     display: flex;
-    flex-direction: column;
-    align-items: center;
+    flex-direction: row;
+    align-items: stretch;
     justify-content: center;
-    gap: clamp(8px, 1.1vh, 14px);
-    padding: 2vh 4vw;
+    gap: clamp(20px, 3vw, 56px);
+    padding: 4vh 4.5vw;
     color: #c8c4bd;
     background:
         radial-gradient(ellipse at 50% 0%, rgba(137, 11, 24, 0.26) 0%, rgba(86, 6, 16, 0.11) 30%, transparent 58%),
@@ -35,54 +33,64 @@
         linear-gradient(180deg, #120a0c 0%, #0a0507 45%, #060304 100%);
 }
 
+// No history (zero-match session) - nothing to balance the summary against,
+// so it goes back to being simply centered across the full canvas.
+.scene[data-has-history="false"] {
+    justify-content: center;
+}
+
 // ---------------------------------------------------------------------
-// Session result (top) - budgeted to ~280px tall at 1080p.
+// Session result (left column when history exists, centered otherwise) -
+// now owns a full-height column instead of sharing vertical space with the
+// history grid below it, so its type can stay generously large.
 // ---------------------------------------------------------------------
 
 .content {
     display: flex;
     flex-direction: column;
     align-items: center;
+    justify-content: center;
     text-align: center;
     flex: 0 0 auto;
+    width: clamp(360px, 27vw, 540px);
 }
 
 .brand {
     font-family: var(--font-ui);
-    font-size: clamp(10px, 0.7vw, 15px);
-    letter-spacing: 0.3em;
+    font-size: clamp(11px, 0.8vw, 16px);
+    letter-spacing: 0.32em;
     color: #6f6a63;
     text-transform: uppercase;
 }
 
 .rule {
-    width: clamp(48px, 3.8vw, 92px);
+    width: clamp(52px, 4vw, 100px);
     height: 1px;
-    margin: clamp(4px, 0.6vh, 8px) 0;
+    margin: clamp(5px, 1vh, 10px) 0;
     background: linear-gradient(90deg, transparent, rgba(178, 163, 111, 0.55), transparent);
 }
 
 .eyebrow {
     font-family: var(--font-ui);
-    font-size: clamp(12px, 0.9vw, 20px);
-    letter-spacing: 0.18em;
+    font-size: clamp(13px, 1vw, 21px);
+    letter-spacing: 0.2em;
     color: #b2a36f;
     text-transform: uppercase;
-    margin-bottom: clamp(2px, 0.5vh, 6px);
+    margin-bottom: clamp(4px, 1.2vh, 12px);
 }
 
 .record {
     display: flex;
     align-items: baseline;
-    gap: clamp(7px, 0.75vw, 15px);
+    gap: clamp(8px, 1vw, 18px);
     font-family: var(--font-title);
     font-weight: 400;
-    font-size: clamp(52px, 5.6vw, 112px);
+    font-size: clamp(64px, 11vh, 148px);
     line-height: 1;
     color: #f2ece3;
     font-variant-numeric: tabular-nums;
     position: relative;
-    padding-bottom: clamp(6px, 0.9vh, 12px);
+    padding-bottom: clamp(8px, 1.6vh, 18px);
 
     em {
         font-style: normal;
@@ -96,7 +104,7 @@
         bottom: 0;
         left: 50%;
         transform: translateX(-50%);
-        width: clamp(64px, 4.6vw, 120px);
+        width: clamp(70px, 5vw, 140px);
         height: 3px;
         background: #6f6a63;
     }
@@ -109,13 +117,13 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
-    margin-top: clamp(3px, 0.5vh, 8px);
+    gap: 3px;
+    margin-top: clamp(6px, 1.4vh, 14px);
 
     b {
         font-family: var(--font-title);
         font-weight: 400;
-        font-size: clamp(19px, 1.9vw, 36px);
+        font-size: clamp(22px, 3.6vh, 46px);
         color: #d8d3c9;
         font-variant-numeric: tabular-nums;
 
@@ -125,7 +133,7 @@
 
     small {
         font-family: var(--font-ui);
-        font-size: clamp(11px, 0.72vw, 15px);
+        font-size: clamp(12px, 1.6vh, 18px);
         color: #837e77;
         font-variant-numeric: tabular-nums;
     }
@@ -134,118 +142,116 @@
 .secondary {
     display: flex;
     align-items: center;
-    gap: clamp(14px, 1.4vw, 28px);
-    margin-top: clamp(8px, 1.1vh, 16px);
+    gap: clamp(16px, 1.6vw, 32px);
+    margin-top: clamp(12px, 2.4vh, 26px);
 
     > div {
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 2px;
+        gap: 3px;
     }
 
     b {
         font-family: var(--font-title);
         font-weight: 400;
-        font-size: clamp(14px, 1.1vw, 22px);
+        font-size: clamp(16px, 2.4vh, 26px);
         color: #c8c4bd;
         font-variant-numeric: tabular-nums;
     }
 
     span {
         font-family: var(--font-ui);
-        font-size: clamp(8.5px, 0.54vw, 11px);
-        letter-spacing: 0.13em;
+        font-size: clamp(9px, 0.6vw, 12px);
+        letter-spacing: 0.14em;
         text-transform: uppercase;
         color: #6f6a63;
     }
 
     i {
         width: 1px;
-        height: clamp(15px, 1.6vh, 24px);
+        height: clamp(18px, 2.4vh, 30px);
         background: rgba(178, 163, 111, 0.28);
         font-style: normal;
     }
 }
 
 // ---------------------------------------------------------------------
-// Match history (bottom) - see getHistoryDensity() in stream-ended-scene.tsx
-// for the four tiers this grid is driven by. Landscape hero-art bands, not
-// square icons - the composition this whole section replaces. Row budget:
-// spacious/cozy top out at 4 rows (4 matches in 1 column, or 8 in 2), dense
-// tops out near 5 (14 matches / 3 columns), compact near 5 (20 / 4) - every
-// tier's art/caption sizing below is budgeted against ITS worst-case row
-// count fitting the remaining canvas height, not just against 1080px raw.
+// Vertical divider between the two columns.
+// ---------------------------------------------------------------------
+
+.divider {
+    flex: 0 0 auto;
+    width: 1px;
+    align-self: stretch;
+    margin: 3vh 0;
+    background: linear-gradient(180deg, transparent, rgba(178, 163, 111, 0.26) 15%, rgba(178, 163, 111, 0.26) 85%, transparent);
+}
+
+// ---------------------------------------------------------------------
+// Match history (right column) - fixed-width 16:9 cards that wrap via flex,
+// so the number of columns falls out of card width vs. available space
+// rather than a hand-picked tier per match count. See MatchEntry/
+// VISIBLE_HISTORY_CAP in stream-ended-scene.tsx for the render cap.
 // ---------------------------------------------------------------------
 
 .history {
+    flex: 1 1 auto;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    width: 100%;
-    flex: 0 1 auto;
-    min-height: 0;
-    gap: clamp(4px, 0.7vh, 8px);
-    padding-top: clamp(6px, 1vh, 12px);
-    border-top: 1px solid rgba(178, 163, 111, 0.16);
+    justify-content: center;
+    gap: clamp(10px, 1.6vh, 18px);
+    padding: 2vh 0;
 }
 
 .historyLabel {
     font-family: var(--font-ui);
-    font-size: clamp(9px, 0.68vw, 13px);
-    letter-spacing: 0.28em;
+    font-size: clamp(10px, 0.75vw, 14px);
+    letter-spacing: 0.3em;
     text-transform: uppercase;
     color: #6f6a63;
 }
 
 .historyGrid {
-    display: grid;
-    grid-template-columns: repeat(var(--history-columns), minmax(0, 1fr));
-    gap: 12px;
-    // Spacious/cozy stay noticeably narrower than the full canvas width - a
-    // single (or double) column stretched to ~1700px produced a heavily
-    // distorted, over-cropped hero-art band (object-fit: cover magnifying a
-    // comparatively narrow source video across an extreme width). Dense/
-    // compact use the full width because more columns keep each one narrow
-    // regardless.
-    width: min(900px, 66vw);
-
-    &[data-density="cozy"] { width: min(1360px, 84vw); gap: 10px; }
-    &[data-density="dense"] { width: min(1720px, 92vw); gap: 8px; }
-    &[data-density="compact"] { width: min(1720px, 92vw); gap: 6px; }
+    display: flex;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    gap: clamp(10px, 1vw, 18px);
 }
 
 .historyMore {
     font-family: var(--font-ui);
-    font-size: clamp(10px, 0.75vw, 14px);
+    font-size: clamp(11px, 0.8vw, 15px);
     color: #837e77;
     letter-spacing: 0.04em;
 }
 
+// ---------------------------------------------------------------------
+// One match card - hero.imageUrl (native 256x144, exactly 16:9) filling a
+// matching aspect-ratio box, metadata overlaid on a bottom scrim rather
+// than a separate caption strip - the card IS the artwork, not artwork
+// plus a caption bar underneath.
+// ---------------------------------------------------------------------
+
 .entry {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
+    position: relative;
+    flex: 0 0 auto;
+    width: clamp(168px, 12vw, 214px);
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    background: #111417;
 }
+
+.entry[data-result="win"] { box-shadow: inset 3px 0 0 #9bbb76; }
+.entry[data-result="loss"] { box-shadow: inset 3px 0 0 #bd655e; }
+.entry[data-result="abandon"] { box-shadow: inset 3px 0 0 #c29a69; }
+.entry[data-result="unknown"] { box-shadow: inset 3px 0 0 #4a4741; }
 
 .entryArt {
-    position: relative;
-    overflow: hidden;
-    background: linear-gradient(150deg, transparent 28%, rgba(118, 41, 40, 0.12) 48%, transparent 70%), linear-gradient(#171b1c, #090c0d);
-    // Budgeted for up to 4 stacked rows (spacious's worst case, 4 matches
-    // in 1 column) within the remaining canvas height after the summary
-    // block and history label/border above.
-    height: clamp(64px, 8.4vh, 100px);
-
-    .historyGrid[data-density="cozy"] & { height: clamp(52px, 6.8vh, 82px); }
-    .historyGrid[data-density="dense"] & { height: clamp(42px, 5.4vh, 64px); }
-    .historyGrid[data-density="compact"] & { height: clamp(34px, 4.4vh, 52px); }
+    position: absolute;
+    inset: 0;
 }
-
-.entry[data-result="win"] .entryArt { box-shadow: inset 0 -3px 0 #9bbb76; }
-.entry[data-result="loss"] .entryArt { box-shadow: inset 0 -3px 0 #bd655e; }
-.entry[data-result="abandon"] .entryArt { box-shadow: inset 0 -3px 0 #c29a69; }
-.entry[data-result="unknown"] .entryArt { box-shadow: inset 0 -3px 0 #4a4741; }
 
 .entryArtMedia {
     position: absolute;
@@ -253,9 +259,8 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    object-position: center 24%;
-    opacity: 0.92;
-    filter: saturate(0.85) contrast(1.06) brightness(0.9) sepia(0.03);
+    object-position: center;
+    filter: saturate(0.88) contrast(1.05) brightness(0.94) sepia(0.02);
 }
 
 .entryArtUnknown {
@@ -265,21 +270,32 @@
     place-items: center;
     color: #4a4741;
     font-family: var(--font-title);
-    font-size: 1.4em;
+    font-size: 1.6em;
+    background: linear-gradient(#171b1c, #090c0d);
+}
+
+.entryScrim {
+    position: absolute;
+    inset: auto 0 0;
+    height: 68%;
+    background: linear-gradient(transparent, rgba(6, 3, 4, 0.82) 55%, rgba(6, 3, 4, 0.94) 100%);
+    pointer-events: none;
 }
 
 .entryCaption {
+    position: absolute;
+    inset: auto 0 0;
     display: flex;
     flex-direction: column;
-    gap: 1px;
-    padding-top: 4px;
+    gap: 2px;
+    padding: 6px 8px 7px;
 }
 
 .entryCaptionRow {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 10px;
+    gap: 8px;
 
     b {
         min-width: 0;
@@ -289,39 +305,32 @@
         font-family: var(--font-title);
         font-weight: 400;
         letter-spacing: 0.01em;
-        color: #d8d3c9;
-        font-size: clamp(12px, 0.78vw, 15px);
-
-        .historyGrid[data-density="cozy"] & { font-size: clamp(11px, 0.68vw, 13px); }
-        .historyGrid[data-density="dense"] & { font-size: clamp(9.5px, 0.6vw, 11.5px); }
-        .historyGrid[data-density="compact"] & { font-size: clamp(9px, 0.52vw, 10px); }
+        color: #f0ece3;
+        font-size: clamp(11.5px, 0.8vw, 13.5px);
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
     }
 
     em {
         flex: 0 0 auto;
         font-style: normal;
         font-family: var(--font-ui);
-        letter-spacing: 0.07em;
+        letter-spacing: 0.06em;
         text-transform: uppercase;
-        font-size: clamp(9px, 0.6vw, 11.5px);
-
-        .historyGrid[data-density="dense"] &,
-        .historyGrid[data-density="compact"] & { font-size: clamp(8px, 0.5vw, 9.5px); }
+        font-size: clamp(8.5px, 0.58vw, 10px);
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 
         &[data-result="win"] { color: #9bbb76; }
         &[data-result="loss"] { color: #bd655e; }
         &[data-result="abandon"] { color: #c29a69; }
-        &[data-result="unknown"] { color: #6f6a63; }
+        &[data-result="unknown"] { color: #a09b8e; }
     }
 
     > span {
         font-family: var(--font-ui);
-        color: #837e77;
+        color: #d3cec3;
         font-variant-numeric: tabular-nums;
-        font-size: clamp(10px, 0.62vw, 12px);
-
-        .historyGrid[data-density="dense"] &,
-        .historyGrid[data-density="compact"] & { font-size: clamp(8.5px, 0.5vw, 10px); }
+        font-size: clamp(9.5px, 0.65vw, 11px);
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
     }
 }
 
@@ -331,10 +340,16 @@
 }
 
 // Below the Full HD design target - graceful degradation only, not a tuned
-// breakpoint: the fluid clamp()-based sizing above already shrinks smoothly,
-// this just tightens spacing further so nothing overlaps at small viewports.
+// breakpoint. Below a certain width the side-by-side layout no longer has
+// room for both columns at a readable size, so it stacks instead - still no
+// scrolling, just a narrower history area underneath.
 @media (max-width: 1280px), (max-height: 720px) {
-    .scene { gap: 5px; padding: 1.6vh 3vw; }
-    .history { gap: 3px; padding-top: 5px; }
-    .historyGrid { gap: 5px; }
+    .scene { gap: 10px; padding: 2vh 3vw; }
+}
+
+@media (max-width: 900px) {
+    .scene { flex-direction: column; }
+    .content { width: 100%; }
+    .divider { display: none; }
+    .history { justify-content: flex-start; }
 }
