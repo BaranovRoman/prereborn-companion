@@ -14,12 +14,25 @@
 // almost no crop at all, unlike the previous pass's fixed short pixel
 // heights on a stretchy-width strip.
 
+// WK-100 - the red radial-gradient background this scene used to paint
+// directly (see git history) read as off-brand next to the rest of the
+// product. Replaced with the same forest/trees background already used
+// site-wide (QueueTreeLayers, rendered as this component's first child in
+// stream-ended-scene.tsx) instead of inventing new art - same visual
+// language as Between Matches and every other Prereborn page, not a new
+// asset. `.scene` keeps the dark base color QueueTreeLayers is designed to
+// sit on top of (see queue-scene.module.scss's own `.scene`/`.fallback`);
+// `isolation: isolate` gives the tree layers' internal z-index stack (up to
+// 6 - treeNear, see queue-scene.module.scss) a contained stacking context so
+// `.content`/`.divider`/`.history` below only need to clear that locally
+// (z-index: 10 is comfortably above it), not the rest of the page.
 .scene {
     position: fixed;
     inset: 0;
     width: 100vw;
     height: 100vh;
     overflow: hidden;
+    isolation: isolate;
     display: flex;
     flex-direction: row;
     align-items: stretch;
@@ -27,10 +40,7 @@
     gap: clamp(20px, 3vw, 56px);
     padding: 4vh 4.5vw;
     color: #c8c4bd;
-    background:
-        radial-gradient(ellipse at 50% 0%, rgba(137, 11, 24, 0.26) 0%, rgba(86, 6, 16, 0.11) 30%, transparent 58%),
-        radial-gradient(ellipse at 50% 100%, rgba(34, 2, 8, 0.3) 0%, transparent 55%),
-        linear-gradient(180deg, #120a0c 0%, #0a0507 45%, #060304 100%);
+    background: #090305;
 }
 
 // No history (zero-match session) - nothing to balance the summary against,
@@ -46,6 +56,12 @@
 // ---------------------------------------------------------------------
 
 .content {
+    // Must clear QueueTreeLayers' own internal stack (treeNear/treeFogFront
+    // reach z-index 6 - see queue-scene.module.scss), not just be "positioned"
+    // - a z-index of 1 would still sit BELOW those nearer tree/fog layers and
+    // let them paint over this text.
+    position: relative;
+    z-index: 10;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -181,6 +197,8 @@
 // ---------------------------------------------------------------------
 
 .divider {
+    position: relative;
+    z-index: 10;
     flex: 0 0 auto;
     width: 1px;
     align-self: stretch;
@@ -200,6 +218,8 @@
 // ---------------------------------------------------------------------
 
 .history {
+    position: relative;
+    z-index: 10;
     flex: 1 1 auto;
     min-width: 0;
     display: flex;

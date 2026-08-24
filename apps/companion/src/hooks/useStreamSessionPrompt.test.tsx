@@ -5,10 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../services/dotaCompanionApi", () => ({
   getStreamSession: vi.fn(),
   resetStreamSession: vi.fn(),
+  endStreamSession: vi.fn(),
 }));
 
 // eslint-disable-next-line import/order
-import { getStreamSession, resetStreamSession } from "../services/dotaCompanionApi";
+import { endStreamSession, getStreamSession, resetStreamSession } from "../services/dotaCompanionApi";
 // eslint-disable-next-line import/order
 import { useStreamSessionPrompt } from "./useStreamSessionPrompt";
 
@@ -147,5 +148,72 @@ describe("useStreamSessionPrompt", () => {
     // which doesn't even render a "Продолжить" button in this mode).
     expect(result.current.showPrompt).toBe(true);
     expect(result.current.promptMode).toBe("endedNewOnly");
+  });
+
+  // WK-100 - "Завершить стрим" from Companion's main screen (HomePage's
+  // control-panel button), independent of the startup session-prompt banner.
+  describe("onEndStream", () => {
+    it("on success, updates state to reflect the now-ended session (reusing the endedNewOnly banner)", async () => {
+      vi.mocked(getStreamSession).mockResolvedValue(NEW_SESSION);
+      vi.mocked(endStreamSession).mockResolvedValue(ENDED_SESSION);
+
+      const { result } = renderHook(() => useStreamSessionPrompt());
+      await waitFor(() => expect(getStreamSession).toHaveBeenCalled());
+      expect(result.current.showPrompt).toBe(false);
+
+      await act(async () => {
+        await result.current.onEndStream();
+      });
+
+      expect(endStreamSession).toHaveBeenCalledTimes(1);
+      expect(result.current.promptData).toEqual(ENDED_SESSION);
+      expect(result.current.promptMode).toBe("endedNewOnly");
+      expect(result.current.showPrompt).toBe(true);
+      expect(result.current.error).toBeNull();
+    });
+
+    it("on backend error, surfaces the error but does NOT move the UI into a false ended state", async () => {
+      vi.mocked(getStreamSession).mockResolvedValue(NEW_SESSION);
+      vi.mocked(endStreamSession).mockRejectedValue(new Error("Backend ответил 500"));
+
+      const { result } = renderHook(() => useStreamSessionPrompt());
+      await waitFor(() => expect(getStreamSession).toHaveBeenCalled());
+
+      await act(async () => {
+        await result.current.onEndStream();
+      });
+
+      expect(result.current.error).toContain("500");
+      // promptData/promptMode stay exactly as they were before the failed
+      // attempt - no fabricated "ended" state.
+      expect(result.current.promptData).toEqual(NEW_SESSION);
+      expect(result.current.showPrompt).toBe(false);
+    });
+
+    it("does not fire a duplicate end request on a second click while the first is in flight", async () => {
+      vi.mocked(getStreamSession).mockResolvedValue(NEW_SESSION);
+      let resolveEnd!: (value: typeof ENDED_SESSION) => void;
+      vi.mocked(endStreamSession).mockImplementation(
+        () => new Promise((resolve) => { resolveEnd = resolve; })
+      );
+
+      const { result } = renderHook(() => useStreamSessionPrompt());
+      await waitFor(() => expect(getStreamSession).toHaveBeenCalled());
+
+      let firstCall!: Promise<void>;
+      let secondCall!: Promise<void>;
+      act(() => {
+        firstCall = result.current.onEndStream();
+        secondCall = result.current.onEndStream();
+      });
+
+      expect(endStreamSession).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        resolveEnd(ENDED_SESSION);
+        await firstCall;
+        await secondCall;
+      });
+    });
   });
 });

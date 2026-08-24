@@ -144,12 +144,25 @@ export const updateActiveSession = async (
 // статистика текущего стрима (wins/losses/lastHeroId) не переносится.
 // Транзакция + FOR UPDATE: конкурентный PATCH не должен перекрыть только что
 // закрытую сессию новыми значениями "в никуда". Работает из любого lifecycle
-// state (active/ended/none) без какого-либо специального случая: если
-// активной строки нет, SELECT FOR UPDATE/UPDATE просто не находят и не
-// трогают ни одной строки (rating остаётся null), а INSERT всё равно
-// открывает новую сессию - тот же самый примитив одинаково обслуживает
-// "сбросить статистику посреди стрима" (исходный WK-83 UX) и "начать новый
-// стрим после явного завершения" (WK-53) - см. задачу: "не дублируй logic".
+// state (active/ended/none) без какого-либо специального случая.
+//
+// Rating carry-over source (fixed post-audit, see задача "Between Matches -
+// новая session без матчей"): an active row's rating wins when one exists
+// (mid-stream reset - the account's rating hasn't moved since that row was
+// last written, so it's already authoritative). When there is NO active row
+// (starting a new stream after an explicit End - WK-53's "ended" state),
+// this used to fall back to null even though the account's real last-known
+// MMR is sitting in the most recently ENDED session - so every new stream
+// opened this way silently lost its current MMR/medal until its first
+// ranked match finalized (and, worse, if that match's `ratingBefore` came
+// from a null `session.rating`, the whole stream's delta stayed null
+// forever - the same root cause as the "one ranked match, no MMR delta"
+// bug). Falling back to the latest session for this user (active OR ended)
+// carries the account's honest last-known rating forward instead - not a
+// fabricated default (задача: "не добавляй искусственные fallback
+// значения"), just the same real number `getLatestSessionForUser` already
+// exposes elsewhere. Still `null` for a true first-ever session, which is
+// the only case where the account's rating is genuinely unknown.
 export const resetActiveSession = async (
     streamUserId: string
 ): Promise<StreamSession> => {
@@ -163,7 +176,17 @@ export const resetActiveSession = async (
              FOR UPDATE`,
             [streamUserId]
         );
-        const rating = current.rows[0]?.rating ?? null;
+        let rating = current.rows[0]?.rating ?? null;
+        if (current.rows.length === 0) {
+            const latest = await client.query<{ rating: number | null }>(
+                `SELECT rating FROM stream_sessions
+                 WHERE stream_user_id = $1
+                 ORDER BY started_at DESC
+                 LIMIT 1`,
+                [streamUserId]
+            );
+            rating = latest.rows[0]?.rating ?? null;
+        }
 
         await client.query(
             `UPDATE stream_sessions

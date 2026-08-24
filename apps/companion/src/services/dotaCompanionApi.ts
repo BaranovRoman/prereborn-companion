@@ -42,6 +42,8 @@ export const openTwitchSettings = () => invoke<void>("open_twitch_settings");
 // WK-83 - startup "продолжить прошлый стрим?" prompt.
 export const getStreamSession = () => invoke<StreamSessionSummary>("get_stream_session");
 export const resetStreamSession = () => invoke<StreamSessionSummary>("reset_stream_session");
+// WK-100 - "Завершить стрим" action on the main screen.
+export const endStreamSession = () => invoke<StreamSessionSummary>("end_stream_session");
 
 // WK-81 - local Silero TTS sidecar, the primary (and, since WK-80 removed
 // Piper, only local) synthesis engine - system speechSynthesis is the

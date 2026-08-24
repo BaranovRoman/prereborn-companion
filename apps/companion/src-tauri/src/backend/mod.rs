@@ -265,6 +265,55 @@ fn post_reset_stream_session(token: &str) -> Result<serde_json::Value, String> {
         .map_err(|error| format!("Неверный ответ сброса сессии: {error}"))
 }
 
+/// WK-100 - "Завершить стрим" button on Companion's main screen, so the
+/// streamer no longer has to open the web cabinet just to end a stream.
+/// Reuses the exact same backend `endActiveSession` service function the
+/// web cabinet's own End button calls (via the new companion-token-
+/// authenticated `/stream/companion/session/end` route, mirroring how
+/// `reset_stream_session` above already reuses `resetActiveSession`) - not a
+/// parallel end-of-stream implementation. `async` + `spawn_blocking` because
+/// this is a direct user click that must not freeze the window.
+///
+/// On success (and only on success - a failed backend call must never leave
+/// Companion believing the stream ended when it didn't), immediately applies
+/// `session_ended` locally via `obs::handle_session_state` so the existing
+/// OBS Post Stream automation (WK-99) fires right away instead of waiting up
+/// to `SESSION_POLL_INTERVAL` for the next background poll to notice.
+pub async fn end_stream_session(app: &AppHandle) -> Result<serde_json::Value, String> {
+    let token = app
+        .state::<AppState>()
+        .0
+        .lock()
+        .unwrap()
+        .companion_token
+        .clone()
+        .ok_or_else(|| "Сначала добавьте companion token.".to_string())?;
+    let result = tauri::async_runtime::spawn_blocking(move || post_end_stream_session(&token))
+        .await
+        .map_err(|e| format!("Internal error: {e}"))?;
+    if result.is_ok() {
+        obs::handle_session_state(app, true);
+    }
+    result
+}
+
+fn post_end_stream_session(token: &str) -> Result<serde_json::Value, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .post(format!("{DEFAULT_BACKEND_URL}/stream/companion/session/end"))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("Не удалось завершить стрим: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json()
+        .map_err(|error| format!("Неверный ответ завершения стрима: {error}"))
+}
+
 /// Manual "resend current state" - ignores `dirty`, sends whatever the last
 /// known GSI payload was (even if it was already sent successfully before).
 

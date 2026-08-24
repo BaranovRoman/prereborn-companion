@@ -192,6 +192,11 @@ pub async fn reset_stream_session(app: AppHandle) -> Result<serde_json::Value, S
 }
 
 #[tauri::command]
+pub async fn end_stream_session(app: AppHandle) -> Result<serde_json::Value, String> {
+    backend::end_stream_session(&app).await
+}
+
+#[tauri::command]
 pub fn save_obs_config(
     app: AppHandle,
     state: State<AppState>,

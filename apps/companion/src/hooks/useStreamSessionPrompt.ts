@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getStreamSession, resetStreamSession } from "../services/dotaCompanionApi";
+import { endStreamSession, getStreamSession, resetStreamSession } from "../services/dotaCompanionApi";
 import { clearSessionAck, loadSessionAck, saveSessionAck } from "../session/session-ack-storage";
 import { getSessionPromptMode, type SessionPromptMode, type StreamSessionSummary } from "../session/session-prompt";
 
@@ -62,6 +62,32 @@ export function useStreamSessionPrompt() {
     }
   }, []);
 
+  // WK-100 - "Завершить стрим" from Companion's main screen. Reuses the same
+  // busy/error state machine as onStartNew above. On success, promptData/
+  // promptMode are updated the same way a fresh getStreamSession() fetch
+  // would report an explicitly-ended session (state "ended" ->
+  // getSessionPromptMode returns "endedNewOnly") - this reuses the EXISTING
+  // SessionPromptBanner "Стрим завершён / Начать новый стрим" UI as the
+  // confirmation, rather than a second bespoke "ended" banner. On failure,
+  // promptData/promptMode are left untouched - a backend error must never
+  // move the UI into a false "ended" state (see задача, п. A).
+  const onEndStream = useCallback(async () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      const session = await endStreamSession();
+      setPromptData(session);
+      setPromptMode(getSessionPromptMode(session, loadSessionAck(), Date.now()));
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }, []);
+
   return {
     promptData,
     promptMode,
@@ -70,5 +96,6 @@ export function useStreamSessionPrompt() {
     error,
     onContinue,
     onStartNew,
+    onEndStream,
   };
 }
