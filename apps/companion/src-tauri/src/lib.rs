@@ -180,6 +180,7 @@ pub fn run() {
             commands::set_skip_hotkey,
             commands::get_stream_session,
             commands::reset_stream_session,
+            commands::end_stream_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

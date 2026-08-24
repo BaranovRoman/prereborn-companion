@@ -32,6 +32,18 @@ describe("StreamEndedScene", () => {
         expect(screen.queryByText(/Subscribers/i)).toBeNull();
     });
 
+    // WK-100 - the scene must reuse the site's existing forest/trees
+    // background (QueueTreeLayers, same asset as Between Matches and every
+    // other public page - see app-atmosphere/index.tsx), not the old red
+    // gradient and not a new asset.
+    it("reuses the shared QueueTreeLayers forest background instead of a bespoke gradient", () => {
+        render(<StreamEndedScene data={buildOverlayData()} />);
+
+        expect(screen.getByTestId("queue-tree-far")).toBeTruthy();
+        expect(screen.getByTestId("queue-tree-middle")).toBeTruthy();
+        expect(screen.getByTestId("queue-tree-near")).toBeTruthy();
+    });
+
     it("shows the MMR block with start->end range for a ranked session", () => {
         render(<StreamEndedScene data={buildOverlayData()} />);
 
@@ -289,9 +301,10 @@ describe("StreamEndedScene", () => {
                 matches: matchesOf(2),
             });
             const { container } = render(<StreamEndedScene data={data} />);
+            const grid = screen.getByLabelText("История стрима");
 
             expect(container.querySelectorAll("video").length).toBe(0);
-            expect(container.querySelectorAll("img[alt='']").length).toBe(2);
+            expect(grid.querySelectorAll("img[alt='']").length).toBe(2);
         });
     });
 });

@@ -126,26 +126,27 @@ export const RecentMatches = ({ matches, settings, anchor }: RecentMatchesProps)
         <div className={styles.matchesOverflow}>+{overflowCount} ещё</div>
     );
 
+    // Задача (WK-100): 0 матчей за текущий стрим - секция не должна
+    // рендериться вообще (ни пустая карточка, ни "нет матчей", ни
+    // декоративный placeholder), а не просто показывать другой текст внутри
+    // того же card. Появляется автоматически с первым завершённым матчем -
+    // `matches` уже реактивно приходит из overlay poll, отдельного триггера
+    // не нужно. AnchoredWidget оборачивает это в абсолютно позиционированный
+    // блок (см. overlay/index.tsx) - null здесь просто ничего не занимает.
+    if (matches.length === 0) return null;
+
     return (
         <div className={styles.card}>
-            {matches.length === 0 ? (
-                <div className={styles.matchesEmpty}>
-                    История игр появится после первого завершённого матча
-                </div>
-            ) : (
-                <>
-                    {/* growDirection="up" - более старые (обрезанные) матчи
-                        концептуально "выше" видимого окна, поэтому индикатор
-                        сверху; growDirection="down" - соответственно снизу. */}
-                    {growDirection === "up" && overflowIndicator}
-                    <div className={listClassName}>
-                        {visible.map((match, i) => (
-                            <MatchRow key={match.id} match={match} index={i + 1} />
-                        ))}
-                    </div>
-                    {growDirection === "down" && overflowIndicator}
-                </>
-            )}
+            {/* growDirection="up" - более старые (обрезанные) матчи
+                концептуально "выше" видимого окна, поэтому индикатор сверху;
+                growDirection="down" - соответственно снизу. */}
+            {growDirection === "up" && overflowIndicator}
+            <div className={listClassName}>
+                {visible.map((match, i) => (
+                    <MatchRow key={match.id} match={match} index={i + 1} />
+                ))}
+            </div>
+            {growDirection === "down" && overflowIndicator}
         </div>
     );
 };

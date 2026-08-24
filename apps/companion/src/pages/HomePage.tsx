@@ -191,8 +191,32 @@ export function HomePage() {
         <section className="control-panel">
           <div className="section-heading">
             <div><span className="section-heading__eyebrow">Управление эфиром</span><h2>Сцены OBS</h2></div>
-            <span className={`connection-pill ${status?.obs_connected ? "is-online" : ""}`}>{status?.obs_connected ? "На связи" : "Не подключён"}</span>
+            <div className="control-panel__header-actions">
+              <span className={`connection-pill ${status?.obs_connected ? "is-online" : ""}`}>{status?.obs_connected ? "На связи" : "Не подключён"}</span>
+              {/* WK-100 - reuses the same backend endActiveSession the web
+                  cabinet's own End button calls (see useStreamSessionPrompt's
+                  onEndStream) - streamer no longer has to open the web
+                  cabinet just to end a stream. A backend error surfaces
+                  inline below and never flips this into a false "ended"
+                  state (onEndStream only updates promptData on success). */}
+              <button
+                className="button button--danger"
+                disabled={sessionPrompt.busy}
+                onClick={() => {
+                  if (window.confirm("Завершить стрим? OBS переключится на Post Stream.")) {
+                    void sessionPrompt.onEndStream();
+                  }
+                }}
+              >
+                {sessionPrompt.busy ? "Завершаем…" : "Завершить стрим"}
+              </button>
+            </div>
           </div>
+          {/* sessionPrompt.error is shared with SessionPromptBanner's own
+              action (onStartNew) - only show it here when that banner isn't
+              already displaying it, to avoid the same error rendering twice
+              on screen at once. */}
+          {sessionPrompt.error && !sessionPrompt.showPrompt && <p className="app__error">Ошибка: {sessionPrompt.error}</p>}
           <div className="mode-switch" role="group" aria-label="Режим переключения сцен">
             <button className={status?.obs_config.enabled ? "is-active" : ""} onClick={() => setAutomaticMode(true)} disabled={busy || !status}>Автоматический</button>
             <button className={!status?.obs_config.enabled ? "is-active" : ""} onClick={() => setAutomaticMode(false)} disabled={busy || !status}>Ручной</button>

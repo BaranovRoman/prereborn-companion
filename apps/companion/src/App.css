@@ -52,6 +52,7 @@ h1, h2, p { margin-top: 0; }
 .control-panel { margin-bottom: 16px; padding: 22px; border: 1px solid var(--border); border-radius: 18px; background: rgba(19,22,32,.95); }
 .section-heading, .scene-summary { justify-content: space-between; }
 .section-heading { margin-bottom: 18px; }
+.control-panel__header-actions { display: flex; align-items: center; gap: 10px; }
 .section-heading h2 { margin: 2px 0 0; font-size: 1.25rem; }
 .connection-pill { padding: 5px 9px; border-radius: 999px; color: var(--danger); background: rgba(255,111,125,.1); font-size: .75rem; font-weight: 700; }
 .connection-pill.is-online { color: var(--success); background: rgba(72,213,151,.1); }
@@ -97,6 +98,8 @@ h1, h2, p { margin-top: 0; }
 .diagnostics-panel__warning { color: var(--warning); }
 .readiness__actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .button--primary { border-color: var(--accent); background: rgba(143,124,255,.22); }
+.button--danger { border-color: rgba(255,111,125,.5); color: var(--danger); }
+.button--danger:hover:not(:disabled) { background: rgba(255,111,125,.14); }
 .update-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; padding: 13px 18px; border: 1px solid var(--border); border-radius: 13px; background: rgba(19,22,32,.9); font-size: .88rem; }
 .update-banner--available { border-color: rgba(143,124,255,.5); background: rgba(143,124,255,.1); }
 .update-banner--error { border-color: rgba(255,111,125,.4); color: var(--danger); }

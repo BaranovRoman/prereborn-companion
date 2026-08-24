@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+    endCompanionSessionController,
     getCompanionSessionController,
     getCompanionTwitchChatController,
     putCompanionGsiStateController,
@@ -27,6 +28,12 @@ streamCompanionRouter.post(
     "/session/reset",
     authenticateCompanionToken,
     resetCompanionSessionController
+);
+// WK-100 - "Завершить стрим" self-service action from inside Companion.
+streamCompanionRouter.post(
+    "/session/end",
+    authenticateCompanionToken,
+    endCompanionSessionController
 );
 
 streamCompanionRouter.get(

@@ -132,3 +132,106 @@ describe("GET/POST /api/stream/companion/session", () => {
         ).toBe(true);
     });
 });
+
+// WK-100 - "Завершить стрим" from inside Companion. Reuses the exact same
+// endActiveSession the web cabinet's own End button calls
+// (controllers/stream/session.ts's endSessionController) - just behind
+// companion-token auth, mirroring how /session/reset above already reuses
+// resetActiveSession.
+describe("POST /api/stream/companion/session/end", () => {
+    it("requires a companion token", async () => {
+        expect((await request(app).post("/api/stream/companion/session/end")).status).toBe(401);
+        expect(
+            (
+                await request(app)
+                    .post("/api/stream/companion/session/end")
+                    .set("Authorization", "Bearer not-a-real-token")
+            ).status
+        ).toBe(401);
+    });
+
+    it("closes the active session without opening a new one, and reports state=ended", async () => {
+        const beforeEnd = await request(app)
+            .get("/api/stream/companion/session")
+            .set("Authorization", `Bearer ${companionToken}`);
+        const activeSessionId = beforeEnd.body.id;
+
+        const res = await request(app)
+            .post("/api/stream/companion/session/end")
+            .set("Authorization", `Bearer ${companionToken}`);
+
+        expect(res.status).toBe(200);
+        expect(res.body.state).toBe("ended");
+        expect(res.body.id).toBe(activeSessionId);
+        expect(res.body.endedAt).not.toBeNull();
+
+        // The existing OBS Post Stream automation (WK-99) polls exactly this
+        // endpoint's `state` field - must reflect "ended" immediately.
+        const after = await request(app)
+            .get("/api/stream/companion/session")
+            .set("Authorization", `Bearer ${companionToken}`);
+        expect(after.body.state).toBe("ended");
+
+        const rows = await pool.query(
+            "SELECT id FROM stream_sessions WHERE stream_user_id = $1 AND ended_at IS NULL",
+            [streamUserId]
+        );
+        expect(rows.rows).toHaveLength(0);
+    });
+
+    it("is idempotent: a double-click returns the same ended session without erroring", async () => {
+        const first = await request(app)
+            .post("/api/stream/companion/session/end")
+            .set("Authorization", `Bearer ${companionToken}`);
+        const second = await request(app)
+            .post("/api/stream/companion/session/end")
+            .set("Authorization", `Bearer ${companionToken}`);
+
+        expect(first.status).toBe(200);
+        expect(second.status).toBe(200);
+        expect(second.body.id).toBe(first.body.id);
+        expect(second.body.state).toBe("ended");
+    });
+
+    it("Start New after a companion-initiated End produces an active session again", async () => {
+        await request(app)
+            .post("/api/stream/companion/session/end")
+            .set("Authorization", `Bearer ${companionToken}`);
+
+        const reset = await request(app)
+            .post("/api/stream/companion/session/reset")
+            .set("Authorization", `Bearer ${companionToken}`);
+        expect(reset.status).toBe(200);
+        expect(reset.body.state).toBe("active");
+        expect(reset.body.wins).toBe(0);
+        expect(reset.body.losses).toBe(0);
+    });
+});
+
+describe("POST /api/stream/companion/session/end - no history at all", () => {
+    it("returns 409 and creates nothing for an account that has never had a session", async () => {
+        const email2 = `stream_companion_session_${suffix}_never@example.com`;
+        const hashed2 = await bcrypt.hash("test-password-123", 10);
+        const userResult2 = await pool.query<{ id: number }>(
+            `INSERT INTO stream_users (email, password_hash, public_token) VALUES ($1, $2, $3) RETURNING id`,
+            [email2, hashed2, randomUUID()]
+        );
+        const streamUserId2 = userResult2.rows[0].id;
+        const regenerated2 = await regenerateCompanionToken(streamUserId2.toString());
+
+        try {
+            const res = await request(app)
+                .post("/api/stream/companion/session/end")
+                .set("Authorization", `Bearer ${regenerated2!.token}`);
+            expect(res.status).toBe(409);
+
+            const rows = await pool.query(
+                "SELECT id FROM stream_sessions WHERE stream_user_id = $1",
+                [streamUserId2]
+            );
+            expect(rows.rows).toHaveLength(0);
+        } finally {
+            await pool.query("DELETE FROM stream_users WHERE id = $1", [streamUserId2]);
+        }
+    });
+});

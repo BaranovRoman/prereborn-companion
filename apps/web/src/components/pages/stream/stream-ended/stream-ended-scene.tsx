@@ -1,6 +1,7 @@
 "use client";
 
 import { getHeroById } from "@/entities/dota-hero/lib/search";
+import { QueueTreeLayers } from "@/components/pages/stream/queue/queue-tree-layers";
 import type { OverlayData, StreamMatch } from "@/entities/stream-session/model/types";
 import styles from "./stream-ended-scene.module.scss";
 
@@ -149,7 +150,11 @@ export const StreamEndedScene = ({ data }: StreamEndedSceneProps) => {
         // side (see controllers/stream/overlay.ts), so summary should always
         // be non-null here in practice - this is just a safe empty shell if
         // that contract is ever violated, not a real expected state.
-        return <div className={styles.scene} data-testid="stream-ended-scene" />;
+        return (
+            <div className={styles.scene} data-testid="stream-ended-scene">
+                <QueueTreeLayers />
+            </div>
+        );
     }
 
     // Never render "— MMR": the block only exists when there's a real
@@ -182,6 +187,7 @@ export const StreamEndedScene = ({ data }: StreamEndedSceneProps) => {
 
     return (
         <div className={styles.scene} data-testid="stream-ended-scene" data-has-history={hasHistory}>
+            <QueueTreeLayers />
             <div className={styles.content}>
                 <span className={styles.brand}>PREREBORN</span>
                 <span className={styles.rule} aria-hidden="true" />

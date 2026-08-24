@@ -6,6 +6,7 @@ import {
     processGsiPayloadForMatch,
 } from "../../services/stream-match-service.js";
 import {
+    endActiveSession,
     getLatestSessionForUser,
     getOrCreateActiveSession,
     resetActiveSession,
@@ -217,6 +218,42 @@ export const resetCompanionSessionController = async (
         );
     } catch (error) {
         logger.error("Companion session reset error", {
+            requestId: req.requestId,
+            message: error instanceof Error ? error.message : String(error),
+        });
+        res.status(500).json({ error: "Внутренняя ошибка сервера" });
+    }
+};
+
+// WK-100 - "Завершить стрим" from inside Companion, so the streamer no
+// longer has to open the web cabinet just to end a stream. Переиспользует
+// ровно ту же endActiveSession, что и веб-кабинет
+// (POST /api/stream/account/session/end, controllers/stream/session.ts) -
+// не дублирует бизнес-логику завершения сессии, только маршрут другой
+// (companion_token, не JWT - та же причина, что и у resetCompanionSession
+// Controller выше). Idempotent for the same reason as the web endpoint's
+// endSessionController: a double-click or a retry after a dropped response
+// finds no active session (endActiveSession returns null) and just returns
+// the already-ended latest session's summary instead of erroring. Once this
+// responds 200, the very next poll_session_state on the Rust side (already
+// polling GET /stream/companion/session every few seconds for the WK-99 OBS
+// Post Stream automation) sees state "ended" independently of this call -
+// this endpoint itself has no OBS side effect, it only flips the backend's
+// session state, exactly like the web cabinet's End button already does.
+export const endCompanionSessionController = async (
+    req: Request,
+    res: Response
+) => {
+    try {
+        const streamUserId = req.streamUserId as string;
+        const ended = await endActiveSession(streamUserId);
+        const latest = ended ?? (await getLatestSessionForUser(streamUserId));
+        if (!latest) {
+            return res.status(409).json({ error: "Нет сессии для завершения" });
+        }
+        res.json(await buildCompanionSessionSummary(streamUserId, latest, "ended"));
+    } catch (error) {
+        logger.error("Companion session end error", {
             requestId: req.requestId,
             message: error instanceof Error ? error.message : String(error),
         });
