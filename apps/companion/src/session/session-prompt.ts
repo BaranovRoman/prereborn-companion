@@ -1,7 +1,15 @@
+// WK-53 - "active" means the backend has a live session for this account
+// (see getOrCreateActiveSession); "ended" means the most recent session was
+// explicitly closed via "Завершить стрим" (self-service, web dashboard) or
+// by an admin, and no new one has been started yet.
+export type SessionLifecycleState = "active" | "ended";
+
 export interface StreamSessionSummary {
+  state: SessionLifecycleState;
   id: string;
   startedAt: string;
   updatedAt: string;
+  endedAt: string | null;
   wins: number;
   losses: number;
   sessionRatingDelta: number | null;
@@ -45,4 +53,21 @@ export function shouldShowSessionPrompt(
   now: number
 ): boolean {
   return isSessionStale(session, now) && !isAckValid(ack, session, now);
+}
+
+// WK-53 - "hidden": nothing to ask about. "continueOrNew": the WK-83 stale-
+// session prompt (offers both "Продолжить" and "Начать новый стрим").
+// "endedNewOnly": the previous stream was EXPLICITLY ended - "Продолжить"
+// must not be offered at all here, regardless of how recently it happened
+// (an ended session is never "continuable", unlike a merely stale one), only
+// "Начать новый стрим".
+export type SessionPromptMode = "hidden" | "continueOrNew" | "endedNewOnly";
+
+export function getSessionPromptMode(
+  session: StreamSessionSummary,
+  ack: SessionAck | null,
+  now: number
+): SessionPromptMode {
+  if (session.state === "ended") return "endedNewOnly";
+  return shouldShowSessionPrompt(session, ack, now) ? "continueOrNew" : "hidden";
 }

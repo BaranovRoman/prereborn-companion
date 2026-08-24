@@ -6,6 +6,7 @@ import {
     processGsiPayloadForMatch,
 } from "../../services/stream-match-service.js";
 import {
+    getLatestSessionForUser,
     getOrCreateActiveSession,
     resetActiveSession,
     type StreamSession,
@@ -121,15 +122,19 @@ export const getCompanionTwitchChatController = async (
     }
 };
 
-// WK-83 - минимальная сводка активной сессии для startup-предложения
-// Companion ("продолжить прошлый стрим?"). Та же композиция
-// sessionRatingDelta, что и overlay.ts (getSessionStartRating +
+// WK-83/WK-53 - минимальная сводка сессии для startup-предложения Companion
+// ("продолжить прошлый стрим?" / "стрим завершён, начните новый"). Та же
+// композиция sessionRatingDelta, что и overlay.ts (getSessionStartRating +
 // getStreamUserGameMode) - не дублируем SQL, переиспользуем существующие
-// сервисные функции.
+// сервисные функции. `state` (WK-53) - явный сигнал фронтенду Companion: для
+// "ended" прошлую сессию нельзя предлагать "продолжить", только "начать
+// новую" (см. session-prompt.ts на стороне Companion).
 interface CompanionSessionSummary {
+    state: "active" | "ended";
     id: string;
     startedAt: string;
     updatedAt: string;
+    endedAt: string | null;
     wins: number;
     losses: number;
     sessionRatingDelta: number | null;
@@ -137,7 +142,8 @@ interface CompanionSessionSummary {
 
 const buildCompanionSessionSummary = async (
     streamUserId: string,
-    session: StreamSession
+    session: StreamSession,
+    state: "active" | "ended"
 ): Promise<CompanionSessionSummary> => {
     const gameMode = await getStreamUserGameMode(streamUserId);
 
@@ -148,9 +154,11 @@ const buildCompanionSessionSummary = async (
     }
 
     return {
+        state,
         id: session.id,
         startedAt: session.startedAt,
         updatedAt: session.updatedAt,
+        endedAt: session.endedAt,
         wins: session.wins,
         losses: session.losses,
         sessionRatingDelta,
@@ -163,8 +171,25 @@ export const getCompanionSessionController = async (
 ) => {
     try {
         const streamUserId = req.streamUserId as string;
-        const session = await getOrCreateActiveSession(streamUserId);
-        res.json(await buildCompanionSessionSummary(streamUserId, session));
+        const active = await getOrCreateActiveSession(streamUserId);
+        if (active) {
+            return res.json(
+                await buildCompanionSessionSummary(streamUserId, active, "active")
+            );
+        }
+
+        // WK-53 - null means the stream was explicitly ended (see
+        // getOrCreateActiveSession). getLatestSessionForUser here can only
+        // fail to find a row in the theoretical case of a companion_token
+        // that exists before the account has ever had ANY session - which
+        // getOrCreateActiveSession itself would already have created above
+        // (true first run), so this branch is effectively unreachable in
+        // practice; 404 is the honest response if it somehow is.
+        const latest = await getLatestSessionForUser(streamUserId);
+        if (!latest) {
+            return res.status(404).json({ error: "Нет сессии" });
+        }
+        res.json(await buildCompanionSessionSummary(streamUserId, latest, "ended"));
     } catch (error) {
         logger.error("Companion session fetch error", {
             requestId: req.requestId,
@@ -178,7 +203,8 @@ export const getCompanionSessionController = async (
 // (POST /api/stream/account/session/reset, controllers/stream/session.ts) -
 // см. задачу WK-83: "не создавать параллельную логику сброса". Companion не
 // имеет JWT-доступа к /account/*, только companion_token, поэтому это новый
-// маршрут, а не переиспользование того же route.
+// маршрут, а не переиспользование того же route. Works from any lifecycle
+// state (active/ended/none) - see resetActiveSession's WK-53 doc comment.
 export const resetCompanionSessionController = async (
     req: Request,
     res: Response
@@ -186,7 +212,9 @@ export const resetCompanionSessionController = async (
     try {
         const streamUserId = req.streamUserId as string;
         const session = await resetActiveSession(streamUserId);
-        res.json(await buildCompanionSessionSummary(streamUserId, session));
+        res.json(
+            await buildCompanionSessionSummary(streamUserId, session, "active")
+        );
     } catch (error) {
         logger.error("Companion session reset error", {
             requestId: req.requestId,

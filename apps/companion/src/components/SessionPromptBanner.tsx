@@ -1,7 +1,8 @@
-import type { StreamSessionSummary } from "../session/session-prompt";
+import type { SessionPromptMode, StreamSessionSummary } from "../session/session-prompt";
 
 interface Props {
   show: boolean;
+  mode: SessionPromptMode;
   session: StreamSessionSummary | null;
   busy: boolean;
   error: string | null;
@@ -31,30 +32,45 @@ function formatDelta(delta: number | null): string | null {
 // Non-blocking startup banner (not a modal, not a native dialog) - renders
 // nothing unless there's an old session worth asking about. See
 // useStreamSessionPrompt for the show/hide decision.
-export function SessionPromptBanner({ show, session, busy, error, onContinue, onStartNew }: Props) {
+export function SessionPromptBanner({ show, mode, session, busy, error, onContinue, onStartNew }: Props) {
   if (!show || !session) return null;
 
   const matches = session.wins + session.losses;
   const delta = formatDelta(session.sessionRatingDelta);
+  // WK-53 - an explicitly ended session is never "continuable": no
+  // "Продолжить" button, no staleness-framed copy, regardless of how
+  // recently End happened.
+  const ended = mode === "endedNewOnly";
 
   return (
     <section className="session-prompt-banner">
       <div>
-        <strong>Продолжить прошлый стрим?</strong>
+        <strong>{ended ? "Стрим завершён" : "Продолжить прошлый стрим?"}</strong>
         <p className="session-prompt-banner__stats">
-          Последняя активность: {formatLastActivity(session.updatedAt)}. {matches}{" "}
-          {matches === 1 ? "матч" : "матчей"} · {session.wins}–{session.losses}
+          {ended
+            ? `Завершён: ${formatLastActivity(session.endedAt ?? session.updatedAt)}.`
+            : `Последняя активность: ${formatLastActivity(session.updatedAt)}.`}{" "}
+          {matches} {matches === 1 ? "матч" : "матчей"} · {session.wins}–{session.losses}
           {delta ? ` · ${delta}` : ""}
         </p>
+        {ended && (
+          <p className="session-prompt-banner__stats">Начните новый, чтобы продолжить.</p>
+        )}
         {error && <p className="session-prompt-banner__error">{error}</p>}
       </div>
       <div className="session-prompt-banner__actions">
-        <button className="button" onClick={onStartNew} disabled={busy}>
+        <button
+          className={ended ? "button button--primary" : "button"}
+          onClick={onStartNew}
+          disabled={busy}
+        >
           {busy ? "Начинаем…" : "Начать новый стрим"}
         </button>
-        <button className="button button--primary" onClick={onContinue} disabled={busy}>
-          Продолжить
-        </button>
+        {!ended && (
+          <button className="button button--primary" onClick={onContinue} disabled={busy}>
+            Продолжить
+          </button>
+        )}
       </div>
     </section>
   );

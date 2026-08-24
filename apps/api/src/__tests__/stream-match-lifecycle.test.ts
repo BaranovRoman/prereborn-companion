@@ -418,7 +418,9 @@ describe("stream match lifecycle", () => {
 
     it("new-match-before-old-finalized: old match goes to needs_review, new one attaches to the active session", async () => {
         const streamUserId = await createTestUser();
-        const activeSession = await getOrCreateActiveSession(streamUserId);
+        // Non-null: streamUserId is freshly created, so this is a true
+        // first-run getOrCreateActiveSession call - always creates a session.
+        const activeSession = (await getOrCreateActiveSession(streamUserId))!;
 
         await processGsiPayloadForMatch(streamUserId, heroSelectionTick(9, "700000009"));
         let rows = await getMatchRows(streamUserId);
@@ -440,7 +442,8 @@ describe("stream match lifecycle", () => {
 
     it("new-session: a match keeps the session it started in even after a mid-match reset", async () => {
         const streamUserId = await createTestUser();
-        const originalSession = await getOrCreateActiveSession(streamUserId);
+        // Non-null: true first-run call for a freshly created user.
+        const originalSession = (await getOrCreateActiveSession(streamUserId))!;
 
         await processGsiPayloadForMatch(streamUserId, heroSelectionTick(11, "700000011"));
         let rows = await getMatchRows(streamUserId);
@@ -699,7 +702,8 @@ describe("match identity: hero_id alone is never sufficient", () => {
 describe("finalization on leave never invents a result", () => {
     it("player leaves without ever seeing a win_team: in_progress -> interrupted, nothing changes", async () => {
         const streamUserId = await createTestUser();
-        const before = await getOrCreateActiveSession(streamUserId);
+        // Non-null: true first-run call for a freshly created user.
+        const before = (await getOrCreateActiveSession(streamUserId))!;
 
         await processGsiPayloadForMatch(streamUserId, heroSelectionTick(30, "800000030"));
         await processGsiPayloadForMatch(streamUserId, mainMenuTick());
@@ -797,7 +801,8 @@ describe("finalization on leave never invents a result", () => {
 
     it("Dota closes mid-match (in_progress, never reaches post-game): interrupted, nothing changes", async () => {
         const streamUserId = await createTestUser();
-        const before = await getOrCreateActiveSession(streamUserId);
+        // Non-null: true first-run call for a freshly created user.
+        const before = (await getOrCreateActiveSession(streamUserId))!;
 
         await processGsiPayloadForMatch(streamUserId, heroSelectionTick(35, "800000035"));
         await processGsiPayloadForMatch(streamUserId, inProgressTick(35, { matchId: "800000035" }));

@@ -5,7 +5,11 @@ import {
     getStreamUserGameMode,
     getSteamLink,
 } from "../../services/stream-user-service.js";
-import { getOrCreateActiveSession } from "../../services/stream-session-service.js";
+import {
+    getLatestSessionForUser,
+    getOrCreateActiveSession,
+} from "../../services/stream-session-service.js";
+import { getSessionSummary } from "../../services/stream-session-summary-service.js";
 import { syncRecentMatches } from "../../services/dota-sync-service.js";
 import {
     getRecentFinalizedMatches,
@@ -158,19 +162,100 @@ export const getOverlayController = async (req: Request, res: Response) => {
         // whenever no HUD widget opted into "recent-matches", which is the
         // default - so a session reset appeared to wipe Between Matches'
         // history, when actually the account-wide field was just never
-        // sized to begin with.
+        // sized to begin with. Account-wide, so this is fetched regardless
+        // of session lifecycle state (WK-53) - Recent Games/Last Match must
+        // keep working after End, see the task's Recent Games contract.
         const recentMatchesLimit = Math.max(
             maxLimitFor("recent-matches"),
             queueSettings.widgets.recentGamesLimit
         );
-        const [matches, recentMatches] = await Promise.all([
-            currentStreamLimit > 0
-                ? getRecentMatchesForSession(session.id, currentStreamLimit)
-                : Promise.resolve([]),
+        const recentMatchesRaw =
             recentMatchesLimit > 0
-                ? getRecentFinalizedMatches(streamUserId, recentMatchesLimit)
-                : Promise.resolve([]),
-        ]);
+                ? await getRecentFinalizedMatches(streamUserId, recentMatchesLimit)
+                : [];
+        const toPublicMatch = (match: (typeof recentMatchesRaw)[number]) => ({
+            id: match.id,
+            dotaMatchId: match.matchId,
+            heroId: match.heroId,
+            kills: match.kills,
+            deaths: match.deaths,
+            assists: match.assists,
+            inventory: match.inventory,
+            result: match.result,
+            ratingBefore: match.ratingBefore,
+            ratingDelta: match.ratingDelta,
+            ratingAfter: match.ratingAfter,
+            gameMode: match.gameMode,
+            endedAt: match.endedAt,
+            // WK-89 - lets the public overlay tell current-session matches
+            // apart from previous-session ones (see
+            // isMatchFromCurrentSession) without exposing anything more
+            // sensitive than an internal session id.
+            streamSessionId: match.streamSessionId,
+        });
+        const recentMatches = recentMatchesRaw.map(toPublicMatch);
+
+        // WK-53 - session === null means the stream has been explicitly
+        // ended (getOrCreateActiveSession) and no new one has been started
+        // yet. The public overlay must not keep showing gameplay/draft or
+        // any live-session HUD data in that state - most importantly,
+        // `companion.payload` (the raw GSI JSON the frontend scene resolver
+        // reads, see get-broadcast-scene.ts) is explicitly nulled out here so
+        // a stale/late GSI tick from a Companion that's still running cannot
+        // be misread as "still playing" downstream, even defensively, on top
+        // of `sessionState` itself already forcing the ended scene
+        // client-side (OverlayPage).
+        if (!session) {
+            const latest = await getLatestSessionForUser(streamUserId);
+            const summary = latest
+                ? await getSessionSummary(streamUserId, latest)
+                : null;
+            const matches =
+                latest && currentStreamLimit > 0
+                    ? (await getRecentMatchesForSession(latest.id, currentStreamLimit)).map(
+                          toPublicMatch
+                      )
+                    : [];
+
+            return res.json({
+                sessionState: latest ? "ended" : "none",
+                sessionSummary: summary,
+                rating: latest?.rating ?? null,
+                sessionRatingDelta: summary?.ratingDelta ?? null,
+                wins: latest?.wins ?? 0,
+                losses: latest?.losses ?? 0,
+                lastHeroId: latest?.lastHeroId ?? null,
+                updatedAt: latest?.updatedAt ?? null,
+                gameMode,
+                sceneOverride,
+                draftProtectionModeOverride,
+                matches,
+                recentMatches,
+                companion: {
+                    isOnline: isCompanionOnline(companionLastSeenAt),
+                    receivedAt: companionState?.receivedAt ?? null,
+                    companionVersion: companionState?.companionVersion ?? null,
+                    payload: null,
+                },
+                steam: {
+                    connected: steamLink !== null,
+                    profile: steamProfile,
+                },
+                twitch,
+                donationAlerts,
+                viewerEvents,
+                viewerAlertsSettings,
+                layout,
+                queueSettings,
+            });
+        }
+
+        const matches =
+            currentStreamLimit > 0
+                ? (await getRecentMatchesForSession(session.id, currentStreamLimit)).map(
+                      toPublicMatch
+                  )
+                : [];
 
         // Суммарное изменение рейтинга за текущую сессию (см. задачу: рядом
         // с MMR показывать "+75"/"-25"/"±0") - только для ranked, unranked
@@ -200,6 +285,8 @@ export const getOverlayController = async (req: Request, res: Response) => {
         });
 
         res.json({
+            sessionState: "active",
+            sessionSummary: null,
             rating: session.rating,
             sessionRatingDelta,
             wins: session.wins,
@@ -209,42 +296,8 @@ export const getOverlayController = async (req: Request, res: Response) => {
             gameMode,
             sceneOverride,
             draftProtectionModeOverride,
-            matches: matches.map((match) => ({
-                id: match.id,
-                dotaMatchId: match.matchId,
-                heroId: match.heroId,
-                kills: match.kills,
-                deaths: match.deaths,
-                assists: match.assists,
-                inventory: match.inventory,
-                result: match.result,
-                ratingBefore: match.ratingBefore,
-                ratingDelta: match.ratingDelta,
-                ratingAfter: match.ratingAfter,
-                gameMode: match.gameMode,
-                endedAt: match.endedAt,
-                // WK-89 - lets the public overlay tell current-session matches
-                // apart from previous-session ones (see
-                // isMatchFromCurrentSession) without exposing anything more
-                // sensitive than an internal session id.
-                streamSessionId: match.streamSessionId,
-            })),
-            recentMatches: recentMatches.map((match) => ({
-                id: match.id,
-                dotaMatchId: match.matchId,
-                heroId: match.heroId,
-                kills: match.kills,
-                deaths: match.deaths,
-                assists: match.assists,
-                inventory: match.inventory,
-                result: match.result,
-                ratingBefore: match.ratingBefore,
-                ratingDelta: match.ratingDelta,
-                ratingAfter: match.ratingAfter,
-                gameMode: match.gameMode,
-                endedAt: match.endedAt,
-                streamSessionId: match.streamSessionId,
-            })),
+            matches,
+            recentMatches,
             companion: {
                 isOnline: isCompanionOnline(companionLastSeenAt),
                 receivedAt: companionState?.receivedAt ?? null,

@@ -163,7 +163,8 @@ describe("account-wide history survives a real session reset", () => {
             "../services/stream-session-service.js"
         );
 
-        const sessionA = await getOrCreateActiveSession(lifecycleStreamUserId.toString());
+        // Non-null: true first-run call for a freshly created user.
+        const sessionA = (await getOrCreateActiveSession(lifecycleStreamUserId.toString()))!;
         await insertFinalizedMatch(sessionA.id, 10);
         await insertFinalizedMatch(sessionA.id, 11);
 

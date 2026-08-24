@@ -6,7 +6,10 @@ import {
     unlinkSteamAccount,
     SteamAlreadyLinkedError,
 } from "../../services/stream-user-service.js";
-import { getOrCreateActiveSession } from "../../services/stream-session-service.js";
+import {
+    getLatestSessionForUser,
+    getOrCreateActiveSession,
+} from "../../services/stream-session-service.js";
 import {
     buildSteamAuthUrl,
     getSteamConfig,
@@ -35,7 +38,14 @@ export const getSteamStatusController = async (req: Request, res: Response) => {
             return res.json({ connected: false });
         }
 
-        const session = await getOrCreateActiveSession(streamUserId);
+        // WK-53 - only used here for read-only sync bookkeeping display
+        // (lastSyncedAt/lastSyncStatus), never to gate whether Steam is
+        // "connected" - falls back to the latest ended session so the status
+        // panel keeps showing when the last background sync ran even after
+        // the stream has ended, without resurrecting anything.
+        const session =
+            (await getOrCreateActiveSession(streamUserId)) ??
+            (await getLatestSessionForUser(streamUserId));
         const profileResult = await openDotaMatchProvider.getPlayerProfile(
             link.dotaAccountId
         );
@@ -44,8 +54,8 @@ export const getSteamStatusController = async (req: Request, res: Response) => {
             connected: true,
             steamId64: link.steamId64,
             connectedAt: link.connectedAt,
-            lastSyncedAt: session.lastSyncedAt,
-            lastSyncStatus: session.lastSyncStatus,
+            lastSyncedAt: session?.lastSyncedAt ?? null,
+            lastSyncStatus: session?.lastSyncStatus ?? null,
             profile:
                 profileResult.status === "ok"
                     ? profileResult.profile

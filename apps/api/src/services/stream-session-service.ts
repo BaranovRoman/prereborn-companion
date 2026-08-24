@@ -52,16 +52,26 @@ export const toStreamSession = (row: StreamSessionRow): StreamSession => ({
     lastSyncStatus: row.last_sync_status,
 });
 
-// Race-safe без явной транзакции: партиционный уникальный индекс
-// idx_stream_sessions_one_active_per_user (db/migrate.ts) не даст создать
-// вторую активную строку - при конфликте ON CONFLICT DO NOTHING просто не
-// возвращает строку, и мы читаем уже существующую активную сессию.
+// WK-53 - auto-creation is now scoped to true first-run only: a user who has
+// NEVER had a stream_sessions row (WHERE NOT EXISTS below). If the user has
+// history and their latest session was explicitly ended (endActiveSession),
+// this returns null instead of resurrecting it - callers MUST treat null as
+// "stream ended, do not create/attribute anything to a session" rather than
+// falling back to some default session. A new session only ever appears via
+// an explicit user action (resetActiveSession - see below).
+// Race-safe without an explicit transaction: the partial unique index
+// idx_stream_sessions_one_active_per_user (db/migrate.ts) still guarantees at
+// most one ended_at IS NULL row per user even if two first-ever requests race
+// past the WHERE NOT EXISTS check - on conflict ON CONFLICT DO NOTHING simply
+// returns no row, and we fall through to reading the (now-existing) active row.
 export const getOrCreateActiveSession = async (
     streamUserId: string
-): Promise<StreamSession> => {
+): Promise<StreamSession | null> => {
     const inserted = await pool.query<StreamSessionRow>(
         `INSERT INTO stream_sessions (stream_user_id)
-         VALUES ($1)
+         SELECT $1 WHERE NOT EXISTS (
+             SELECT 1 FROM stream_sessions WHERE stream_user_id = $1
+         )
          ON CONFLICT (stream_user_id) WHERE ended_at IS NULL DO NOTHING
          RETURNING ${SESSION_COLUMNS}`,
         [streamUserId]
@@ -73,7 +83,7 @@ export const getOrCreateActiveSession = async (
          WHERE stream_user_id = $1 AND ended_at IS NULL`,
         [streamUserId]
     );
-    return toStreamSession(existing.rows[0]);
+    return existing.rows[0] ? toStreamSession(existing.rows[0]) : null;
 };
 
 export interface SessionPatch {
@@ -85,12 +95,16 @@ export interface SessionPatch {
 
 // Частичное обновление: различаем "поле не передано" (undefined, не
 // трогаем) и "поле явно очищено" (null, например снять героя) через
-// проверку "in patch", а не просто truthiness.
+// проверку "in patch", а не просто truthiness. Возвращает null, если
+// getOrCreateActiveSession вернул null (стрим завершён) - PATCH не должен
+// воскрешать завершённую сессию, вызывающий код должен трактовать это как
+// "нечего менять", а не создавать новую строку неявно.
 export const updateActiveSession = async (
     streamUserId: string,
     patch: SessionPatch
-): Promise<StreamSession> => {
-    await getOrCreateActiveSession(streamUserId);
+): Promise<StreamSession | null> => {
+    const active = await getOrCreateActiveSession(streamUserId);
+    if (!active) return null;
 
     const values: unknown[] = [streamUserId];
     const setFragments: string[] = [];
@@ -125,10 +139,17 @@ export const updateActiveSession = async (
     return toStreamSession(result.rows[0]);
 };
 
-// Завершает текущую активную сессию и сразу открывает новую с тем же
-// rating - статистика текущего стрима (wins/losses/lastHeroId) не
-// переносится. Транзакция + FOR UPDATE: конкурентный PATCH не должен
-// перекрыть только что закрытую сессию новыми значениями "в никуда".
+// "Начать новый стрим" - завершает текущую активную сессию (если она есть -
+// no-op иначе, см. WK-53) и всегда открывает новую с тем же rating -
+// статистика текущего стрима (wins/losses/lastHeroId) не переносится.
+// Транзакция + FOR UPDATE: конкурентный PATCH не должен перекрыть только что
+// закрытую сессию новыми значениями "в никуда". Работает из любого lifecycle
+// state (active/ended/none) без какого-либо специального случая: если
+// активной строки нет, SELECT FOR UPDATE/UPDATE просто не находят и не
+// трогают ни одной строки (rating остаётся null), а INSERT всё равно
+// открывает новую сессию - тот же самый примитив одинаково обслуживает
+// "сбросить статистику посреди стрима" (исходный WK-83 UX) и "начать новый
+// стрим после явного завершения" (WK-53) - см. задачу: "не дублируй logic".
 export const resetActiveSession = async (
     streamUserId: string
 ): Promise<StreamSession> => {

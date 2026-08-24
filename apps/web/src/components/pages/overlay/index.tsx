@@ -11,7 +11,7 @@ import { CurrentGame } from "./widgets/current-game";
 import { RecentMatches } from "./widgets/recent-matches";
 import { DebugPanel } from "./debug-panel";
 import { QueueScene } from "@/components/pages/stream/queue/queue-scene";
-import { getBroadcastScene } from "./lib/get-broadcast-scene";
+import { getActiveScene } from "./lib/get-active-scene";
 import { selectRecentMatches } from "./lib/select-recent-matches";
 import { ViewerAlertToast } from "@/components/pages/stream/queue/viewer-alert-toast";
 
@@ -51,12 +51,22 @@ export const OverlayPage = ({
     }
 
     const layout = normalizeOverlayLayout(data.layout ?? DEFAULT_OVERLAY_LAYOUT);
-    const derivedScene = getBroadcastScene(data.companion.payload);
-    const activeScene =
-        data.sceneOverride ??
-        (!data.companion.isOnline && layout.draftProtection.mode !== "off"
-            ? "draft"
-            : derivedScene);
+    // WK-53 - "ended" (see get-active-scene.ts) wins over EVERYTHING else,
+    // including a manual OBS test sceneOverride: once the stream has been
+    // explicitly ended, the public overlay must render the calm final scene,
+    // full stop - a stale/reconnecting GSI tick from a Companion that's
+    // still running (see get-broadcast-scene.ts) must never be able to pull
+    // it back into gameplay/draft. The backend also already nulls out
+    // `companion.payload` in this state as defense in depth (see
+    // controllers/stream/overlay.ts), so reading it here is harmless even if
+    // this precedence were ever bypassed.
+    const activeScene = getActiveScene({
+        sessionState: data.sessionState,
+        sceneOverride: data.sceneOverride,
+        companionIsOnline: data.companion.isOnline,
+        companionPayload: data.companion.payload,
+        draftProtectionMode: layout.draftProtection.mode,
+    });
 
     // WK-72 - ViewerAlertToast is rendered once, below, OUTSIDE this branch:
     // it must occupy the same position in the tree on every render so React
@@ -65,7 +75,7 @@ export const OverlayPage = ({
     // state and could re-show an alert that already played before the
     // switch. Mounting it per-branch (or only in the betweenMatches
     // fragment) was the original, incorrect approach.
-    const sceneContent = activeScene === "betweenMatches" ? (
+    const sceneContent = activeScene === "streamEnded" || activeScene === "betweenMatches" ? (
         <QueueScene
             quality="high"
             seed={1}

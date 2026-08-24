@@ -7,6 +7,7 @@ import {
     completeOnboardingController,
 } from "../../controllers/stream/account.js";
 import {
+    endSessionController,
     getSessionController,
     patchSessionController,
     resetSessionController,
@@ -59,6 +60,7 @@ streamAccountRouter.post("/me/onboarding/complete", completeOnboardingController
 streamAccountRouter.get("/session", getSessionController);
 streamAccountRouter.patch("/session", patchSessionController);
 streamAccountRouter.post("/session/reset", resetSessionController);
+streamAccountRouter.post("/session/end", endSessionController);
 
 streamAccountRouter.get("/me/matches", getMatchesController);
 streamAccountRouter.patch("/me/matches/:matchId", patchMatchController);

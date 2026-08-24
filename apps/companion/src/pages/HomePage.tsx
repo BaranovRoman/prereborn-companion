@@ -138,6 +138,7 @@ export function HomePage() {
 
       <SessionPromptBanner
         show={sessionPrompt.showPrompt}
+        mode={sessionPrompt.promptMode}
         session={sessionPrompt.promptData}
         busy={sessionPrompt.busy}
         error={sessionPrompt.error}
