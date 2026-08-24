@@ -18,6 +18,14 @@ const sharedLogs = `${deployRoot}/shared/logs`;
 // shared const, guaranteeing they always agree on which release they're
 // reporting - see release.sh's health_check() for how this gets verified.
 const releaseSha = process.env.PREREBORN_RELEASE_SHA || "";
+// WK-96 - see release.sh's header comment: two artifacts can share the same
+// commit SHA (build-time-only inputs like the resolved Companion download
+// version/URL aren't part of the git tree), so releaseSha alone can no
+// longer prove which specific artifact is running - PREREBORN_RELEASE_BUILD_ID
+// (first 12 hex chars of the artifact tarball's own sha256, set by
+// release.sh) disambiguates. Same require()-time capture reasoning as
+// releaseSha above.
+const releaseBuildId = process.env.PREREBORN_RELEASE_BUILD_ID || "";
 
 module.exports = {
   apps: [
@@ -30,7 +38,8 @@ module.exports = {
       env: {
         NODE_ENV: "production",
         PORT: process.env.API_PORT || "5102",
-        PREREBORN_RELEASE_SHA: releaseSha
+        PREREBORN_RELEASE_SHA: releaseSha,
+        PREREBORN_RELEASE_BUILD_ID: releaseBuildId
       },
       error_file: `${sharedLogs}/api-error.log`,
       out_file: `${sharedLogs}/api-out.log`,
@@ -53,7 +62,8 @@ module.exports = {
         PORT: process.env.WEB_PORT || "5100",
         HOSTNAME: "127.0.0.1",
         BACKEND_URL: "http://127.0.0.1:" + (process.env.API_PORT || "5102"),
-        PREREBORN_RELEASE_SHA: releaseSha
+        PREREBORN_RELEASE_SHA: releaseSha,
+        PREREBORN_RELEASE_BUILD_ID: releaseBuildId
       },
       error_file: `${sharedLogs}/web-error.log`,
       out_file: `${sharedLogs}/web-out.log`,

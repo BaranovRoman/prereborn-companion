@@ -102,10 +102,23 @@ const adminEmails = (process.env.ADMIN_EMAILS ?? "")
 // undetected - see release.sh's health_check()).
 const releaseSha = process.env.PREREBORN_RELEASE_SHA || null;
 
+// WK-96 - two production artifacts can share the same commit SHA: the web
+// build also bakes in build-time-only inputs that aren't part of the git
+// tree (e.g. NEXT_PUBLIC_DOTA_COMPANION_VERSION/_DOWNLOAD_URL, resolved live
+// from GitHub's "latest release" - see scripts/resolve-companion-release.sh
+// and release.sh's header comment for the full root cause). releaseSha
+// alone can no longer prove the *specific* artifact currently running -
+// releaseBuildId (first 12 hex chars of the artifact tarball's own sha256,
+// see release.sh) disambiguates two same-SHA artifacts. Purely additive:
+// releaseSha's meaning is unchanged (still "git commit this was built
+// from").
+const releaseBuildId = process.env.PREREBORN_RELEASE_BUILD_ID || null;
+
 export const env = {
     streamJwtSecret,
     uploadsDir,
     releaseSha,
+    releaseBuildId,
     steamOpenidRealm,
     steamOpenidReturnUrl,
     openDotaApiKey,
