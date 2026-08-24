@@ -60,6 +60,16 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Companion UI 2.0 follow-up - true only when this process was launched
+/// with the `--hidden` arg (see the `tauri_plugin_autostart::init` call in
+/// `run()`, which appends it to the command Windows registers for
+/// autostart). Takes an explicit iterator rather than reading
+/// `std::env::args()` itself so the actual matching logic is unit-testable
+/// without needing to fake process argv.
+fn launched_hidden<I: IntoIterator<Item = String>>(args: I) -> bool {
+    args.into_iter().any(|arg| arg == "--hidden")
+}
+
 /// Runs once at startup: tries to find Dota and write the GSI config with no
 /// user interaction, so the happy path is zero clicks. Failures here are not
 /// fatal — the UI's "Find Dota" / "Install GSI" buttons cover the fallback.
@@ -120,6 +130,27 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--hidden"]),
         ))
+        // Companion UI 2.0 follow-up - remembers size/position/maximized
+        // across restarts (official Tauri plugin: automatic save on exit,
+        // automatic restore on window creation via `on_window_ready`, and
+        // already handles a saved position landing on a monitor that's no
+        // longer connected by falling back to the OS default placement -
+        // see `restore_state`'s `available_monitors().intersects(...)`
+        // check upstream, no custom bounds-clamping needed here).
+        // Deliberately excludes `StateFlags::VISIBLE`: this app's own
+        // `--hidden` check above is the single source of truth for initial
+        // visibility (tray-launch vs normal launch) - letting the plugin
+        // also manage visibility would race with that and could show a
+        // window this launch explicitly wants to stay hidden.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                )
+                .build(),
+        )
         .manage(AppState::new())
         .manage(diagnostics::DiagnosticsState::new())
         .manage(silero::SileroState::new())
@@ -132,7 +163,7 @@ pub fn run() {
             // creates windows declared in tauri.conf.json before running
             // `setup()`), so hide it immediately rather than letting it
             // flash visible before the tray takes over.
-            if std::env::args().any(|arg| arg == "--hidden") {
+            if launched_hidden(std::env::args()) {
                 if let Some(window) = handle.get_webview_window("main") {
                     let _ = window.hide();
                 }
@@ -206,4 +237,37 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::launched_hidden;
+
+    #[test]
+    fn a_normal_launch_with_no_args_is_not_hidden() {
+        assert!(!launched_hidden(Vec::<String>::new()));
+    }
+
+    #[test]
+    fn the_autostart_hidden_flag_is_detected() {
+        assert!(launched_hidden(vec!["--hidden".to_string()]));
+    }
+
+    #[test]
+    fn the_exe_path_alone_first_argv_entry_is_not_mistaken_for_hidden() {
+        // argv[0] is always the executable path on every platform this app
+        // ships for - must never itself be read as "--hidden".
+        assert!(!launched_hidden(vec![
+            r"C:\Program Files\PreReborn Companion\dota-companion.exe".to_string()
+        ]));
+    }
+
+    #[test]
+    fn hidden_is_detected_regardless_of_other_args_or_position() {
+        assert!(launched_hidden(vec![
+            r"C:\Program Files\PreReborn Companion\dota-companion.exe".to_string(),
+            "--some-other-flag".to_string(),
+            "--hidden".to_string(),
+        ]));
+    }
 }

@@ -3,34 +3,61 @@ import { endStreamSession, getStreamSession, resetStreamSession } from "../servi
 import { clearSessionAck, loadSessionAck, saveSessionAck } from "../session/session-ack-storage";
 import { getSessionPromptMode, type SessionPromptMode, type StreamSessionSummary } from "../session/session-prompt";
 
-// WK-83/WK-53 - runs once per app launch (mount-only effect). Tray minimize/
-// restore only hides/shows the existing window (see lib.rs), it never
-// remounts React, so this never re-fires on tray restore.
-export function useStreamSessionPrompt() {
+// Companion UI 2.0 follow-up - single source of truth for this hook's
+// return shape, imported by both StreamSessionCard.tsx and pages/
+// HomePage.tsx instead of each declaring its own copy of the same slice
+// (a prior self-review pass found those two copies had already drifted
+// once and could silently drift again).
+export interface StreamSessionPromptState {
+  promptData: StreamSessionSummary | null;
+  promptMode: SessionPromptMode;
+  showPrompt: boolean;
+  busy: boolean;
+  error: string | null;
+  onContinue: () => void;
+  onStartNew: () => Promise<void>;
+  onEndStream: () => Promise<void>;
+  refresh: () => Promise<void>;
+}
+
+// WK-83/WK-53 - the initial fetch runs once per app launch (mount-only
+// effect). Tray minimize/restore only hides/shows the existing window (see
+// lib.rs), it never remounts React, so this never re-fires on tray restore.
+export function useStreamSessionPrompt(): StreamSessionPromptState {
   const [promptData, setPromptData] = useState<StreamSessionSummary | null>(null);
   const [promptMode, setPromptMode] = useState<SessionPromptMode>("hidden");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const busyRef = useRef(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    getStreamSession()
-      .then((session) => {
-        if (cancelled) return;
-        setPromptData(session);
-        setPromptMode(getSessionPromptMode(session, loadSessionAck(), Date.now()));
-      })
-      .catch((cause) => {
-        // Backend unavailable at startup must never block the rest of
-        // Companion (GSI/OBS/chat/TTS init already runs independently,
-        // Rust-side) - just log and skip the prompt.
-        console.warn("useStreamSessionPrompt: session fetch failed", cause);
-      });
-    return () => {
-      cancelled = true;
-    };
+  // Companion UI 2.0 follow-up - factored out of the mount effect so it can
+  // also serve as a manual retry (see StreamSessionCard's "Обновить" action
+  // in the "unavailable" state). Before this, a failed initial fetch (e.g.
+  // no companion token yet) had no way to recover short of restarting the
+  // whole app, even after the user fixed the underlying problem (e.g. saved
+  // a token in Настройки) - a self-review finding on the always-visible
+  // StreamSessionCard this hook now feeds.
+  const refresh = useCallback(async () => {
+    try {
+      const session = await getStreamSession();
+      setPromptData(session);
+      setError(null);
+      setPromptMode(getSessionPromptMode(session, loadSessionAck(), Date.now()));
+    } catch (cause) {
+      // Backend unavailable must never block the rest of Companion (GSI/
+      // OBS/chat/TTS init already runs independently, Rust-side) - the
+      // stale-session BANNER simply stays hidden (promptMode untouched).
+      // `error` still needs to be set: the always-visible StreamSessionCard
+      // (see pages/HomePage.tsx) reads it to tell "still loading" apart
+      // from "genuinely unavailable" (задача state D).
+      console.warn("useStreamSessionPrompt: session fetch failed", cause);
+      setError(String(cause));
+    }
   }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
   const onContinue = useCallback(() => {
     // WK-53 - "Продолжить" is meaningless (and never offered by the UI, see
@@ -97,5 +124,6 @@ export function useStreamSessionPrompt() {
     onContinue,
     onStartNew,
     onEndStream,
+    refresh,
   };
 }

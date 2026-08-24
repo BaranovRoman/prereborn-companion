@@ -15,7 +15,7 @@ export function AutostartSetting({ state, busy, onChange }: Props) {
 
   return (
     <section className="autostart-setting">
-      <h2>Запуск</h2>
+      <h2>Автозапуск с Windows</h2>
       <label className="autostart-setting__toggle">
         <input
           type="checkbox"
