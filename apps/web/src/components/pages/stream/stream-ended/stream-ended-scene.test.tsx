@@ -209,6 +209,28 @@ describe("StreamEndedScene", () => {
         const matchesOf = (count: number) =>
             Array.from({ length: count }, (_, index) => buildMatch({ id: `m${index}`, heroId: (index % 24) + 1 }));
 
+        // WK-98 second visual pass: card size/composition adapts to how many
+        // cards actually render, so a 1-match session gets a large featured
+        // card instead of looking like a stray thumbnail. Aspect ratio (16:9)
+        // never changes between tiers - only width, via CSS keyed off this
+        // attribute (see .historyGrid[data-tier] in the stylesheet).
+        it.each([
+            [1, "featured"],
+            [2, "duo"],
+            [4, "duo"],
+            [5, "medium"],
+            [8, "medium"],
+            [9, "compact"],
+            [16, "compact"],
+        ])("uses history tier=%s for %s matches", (count, tier) => {
+            const data = buildOverlayData({
+                sessionSummary: buildSummary({ matchCount: count as number }),
+                matches: matchesOf(count as number),
+            });
+            render(<StreamEndedScene data={data} />);
+            expect(screen.getByLabelText("История стрима").getAttribute("data-tier")).toBe(tier);
+        });
+
         it("renders every match up to the visible cap with no +N note", () => {
             const data = buildOverlayData({
                 sessionSummary: buildSummary({ matchCount: 16 }),

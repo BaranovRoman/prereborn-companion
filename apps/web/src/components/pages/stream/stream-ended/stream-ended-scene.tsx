@@ -45,6 +45,29 @@ const resultLabel = (result: StreamMatch["result"]) => {
 // the gap - see StreamEndedScene below.
 const VISIBLE_HISTORY_CAP = 16;
 
+// WK-98 second visual-refinement pass - card size/composition now adapts to
+// how many cards are actually rendered, while EVERY tier keeps the same
+// 16:9 aspect ratio (see .entry in the stylesheet - only width changes per
+// tier, never aspect-ratio). A single match stays a lone thumbnail-sized
+// card if sized like a 9-16 match session; this reads as under-composed for
+// what should feel like a featured final result. Boundaries chosen after
+// screenshot comparison (see the WK-98 report), not a formula:
+// - featured (1 match): one large, prominent card.
+// - duo (2-4): larger cards, naturally wrapping into a compact 2-column
+//   block (e.g. 2x2 for exactly 4) rather than one cramped row.
+// - medium (5-8): mid-sized cards, 3 columns - gives 6 (the common case) an
+//   even 3+3, and 8 an even 3+3+2, rather than a lonely trailing card.
+// - compact (9-16): the size from the first pass of this composition,
+//   4 columns - already reads well at this count.
+type HistoryTier = "featured" | "duo" | "medium" | "compact";
+
+const getHistoryTier = (count: number): HistoryTier => {
+    if (count <= 1) return "featured";
+    if (count <= 4) return "duo";
+    if (count <= 8) return "medium";
+    return "compact";
+};
+
 // WK-98 visual-refinement follow-up - hero.imageUrl (the same CDN asset
 // already used everywhere else in this app, see hero-image.ts) is a native
 // 256x144 PNG - exactly 16:9. Giving each card's art area a matching
@@ -155,6 +178,7 @@ export const StreamEndedScene = ({ data }: StreamEndedSceneProps) => {
     const timeline = [...visibleMatches].reverse();
     const hiddenCount = Math.max(0, summary.matchCount - visibleMatches.length);
     const hasHistory = timeline.length > 0;
+    const historyTier = getHistoryTier(timeline.length);
 
     return (
         <div className={styles.scene} data-testid="stream-ended-scene" data-has-history={hasHistory}>
@@ -200,7 +224,7 @@ export const StreamEndedScene = ({ data }: StreamEndedSceneProps) => {
                     <span className={styles.divider} aria-hidden="true" />
                     <div className={styles.history}>
                         <span className={styles.historyLabel}>История стрима</span>
-                        <div className={styles.historyGrid} aria-label="История стрима">
+                        <div className={styles.historyGrid} aria-label="История стрима" data-tier={historyTier}>
                             {timeline.map((match) => (
                                 <MatchEntry key={match.id} match={match} />
                             ))}

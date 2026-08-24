@@ -189,10 +189,14 @@
 }
 
 // ---------------------------------------------------------------------
-// Match history (right column) - fixed-width 16:9 cards that wrap via flex,
-// so the number of columns falls out of card width vs. available space
-// rather than a hand-picked tier per match count. See MatchEntry/
-// VISIBLE_HISTORY_CAP in stream-ended-scene.tsx for the render cap.
+// Match history (right column) - 16:9 cards that wrap via flex, so column
+// count falls out of card width vs. the grid's own max-width rather than a
+// hand-picked column count. Card width itself now adapts per "tier" (see
+// getHistoryTier/HistoryTier in stream-ended-scene.tsx) - a lone match gets
+// one large, prominent card; a long session gets the same compact size this
+// composition originally shipped with. Aspect ratio never changes, only
+// width - see .entry below. See VISIBLE_HISTORY_CAP in the component for
+// the render cap this grid never exceeds.
 // ---------------------------------------------------------------------
 
 .history {
@@ -200,6 +204,7 @@
     min-width: 0;
     display: flex;
     flex-direction: column;
+    align-items: center;
     justify-content: center;
     gap: clamp(10px, 1.6vh, 18px);
     padding: 2vh 0;
@@ -217,7 +222,16 @@
     display: flex;
     flex-wrap: wrap;
     align-content: flex-start;
+    justify-content: center;
     gap: clamp(10px, 1vw, 18px);
+
+    // No max-width for a single featured card - it just sizes to its own
+    // (large) width, see .entry below. Multi-card tiers get a max-width
+    // tuned to their card width so the intended column count actually
+    // wraps, rather than however many happen to fit the full panel.
+    &[data-tier="duo"] { max-width: clamp(600px, 40vw, 704px); }
+    &[data-tier="medium"] { max-width: clamp(720px, 46vw, 804px); }
+    &[data-tier="compact"] { max-width: clamp(780px, 50vw, 930px); }
 }
 
 .historyMore {
@@ -237,11 +251,15 @@
 .entry {
     position: relative;
     flex: 0 0 auto;
-    width: clamp(168px, 12vw, 214px);
+    width: clamp(168px, 12vw, 214px); // compact tier's size is the default/fallback
     aspect-ratio: 16 / 9;
     overflow: hidden;
     background: #111417;
 }
+
+.historyGrid[data-tier="featured"] .entry { width: clamp(360px, 27vw, 480px); }
+.historyGrid[data-tier="duo"] .entry { width: clamp(270px, 19vw, 340px); }
+.historyGrid[data-tier="medium"] .entry { width: clamp(200px, 14.5vw, 252px); }
 
 .entry[data-result="win"] { box-shadow: inset 3px 0 0 #9bbb76; }
 .entry[data-result="loss"] { box-shadow: inset 3px 0 0 #bd655e; }
@@ -289,6 +307,10 @@
     flex-direction: column;
     gap: 2px;
     padding: 6px 8px 7px;
+
+    .historyGrid[data-tier="featured"] & { gap: 5px; padding: 16px 18px 16px; }
+    .historyGrid[data-tier="duo"] & { gap: 3px; padding: 11px 13px 11px; }
+    .historyGrid[data-tier="medium"] & { padding: 8px 10px 8px; }
 }
 
 .entryCaptionRow {
@@ -308,6 +330,10 @@
         color: #f0ece3;
         font-size: clamp(11.5px, 0.8vw, 13.5px);
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+
+        .historyGrid[data-tier="featured"] & { font-size: clamp(21px, 1.7vw, 28px); }
+        .historyGrid[data-tier="duo"] & { font-size: clamp(15px, 1.15vw, 18.5px); }
+        .historyGrid[data-tier="medium"] & { font-size: clamp(12.5px, 0.92vw, 15px); }
     }
 
     em {
@@ -318,6 +344,10 @@
         text-transform: uppercase;
         font-size: clamp(8.5px, 0.58vw, 10px);
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+
+        .historyGrid[data-tier="featured"] & { font-size: clamp(12px, 0.95vw, 15px); }
+        .historyGrid[data-tier="duo"] & { font-size: clamp(10px, 0.75vw, 12px); }
+        .historyGrid[data-tier="medium"] & { font-size: clamp(9px, 0.65vw, 10.5px); }
 
         &[data-result="win"] { color: #9bbb76; }
         &[data-result="loss"] { color: #bd655e; }
@@ -331,6 +361,10 @@
         font-variant-numeric: tabular-nums;
         font-size: clamp(9.5px, 0.65vw, 11px);
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+
+        .historyGrid[data-tier="featured"] & { font-size: clamp(13px, 1vw, 16px); }
+        .historyGrid[data-tier="duo"] & { font-size: clamp(10.5px, 0.8vw, 13px); }
+        .historyGrid[data-tier="medium"] & { font-size: clamp(9.5px, 0.7vw, 11.5px); }
     }
 }
 
