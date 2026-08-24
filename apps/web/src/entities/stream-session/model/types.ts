@@ -28,6 +28,39 @@ export interface StreamSessionPatch {
     lastHeroId?: number | null;
 }
 
+// WK-53 - "итог стрима": all fields derive from the session row + matches
+// already in the DB (backend: stream-session-summary-service.ts), nothing is
+// invented/frozen at End-time - see that file's comment for why.
+export interface SessionSummary {
+    sessionId: string;
+    wins: number;
+    losses: number;
+    matchCount: number;
+    // Управляет тем, показывать ли ratingStart/ratingEnd/ratingDelta - как и
+    // везде в приложении (SessionStats), для unranked они всегда null, а не
+    // выдуманное значение.
+    gameMode: StreamGameMode;
+    ratingStart: number | null;
+    ratingEnd: number | null;
+    ratingDelta: number | null;
+    startedAt: string;
+    endedAt: string | null;
+    durationMs: number | null;
+}
+
+// WK-53 - three-state session lifecycle: "active" (stream in progress),
+// "ended" (most recent session explicitly ended - see `summary`), "none"
+// (this account has never had a stream_sessions row). GET /account/session
+// and the Companion's GET /companion/session both key off this shape/idea -
+// see controllers/stream/session.ts on the backend.
+export type SessionLifecycleState = "active" | "ended" | "none";
+
+export interface SessionLifecycleResponse {
+    state: SessionLifecycleState;
+    session: StreamSession | null;
+    summary: SessionSummary | null;
+}
+
 // Последнее GSI-состояние от companion (apps/dota-companion), уже
 // санитизировано на backend (services/stream-companion-service.ts) - здесь
 // не может быть auth/token/password полей. payload - произвольный JSON без
@@ -126,6 +159,14 @@ export interface MatchCorrectionResponse {
 // Публичная форма (GET /api/stream/overlay/:publicToken) - без id/timestamps
 // сессии и без streamUserId, см. controllers/stream/overlay.ts на бэкенде.
 export interface OverlayData {
+    // WK-53 - "ended" forces the public overlay into the calm final scene
+    // (see get-broadcast-scene usage in overlay/index.tsx) regardless of
+    // sceneOverride/companion payload - a stale/reconnecting GSI tick from a
+    // Companion that's still running must not be misread as "still playing".
+    // "none" behaves like "active" scene-wise (a brand-new account's very
+    // first overlay poll) - see controllers/stream/overlay.ts.
+    sessionState: SessionLifecycleState;
+    sessionSummary: SessionSummary | null;
     rating: number | null;
     // Суммарное изменение rating за текущую сессию (текущий - рейтинг перед
     // самым первым ranked-матчем сессии) - null для unranked, где рейтинг

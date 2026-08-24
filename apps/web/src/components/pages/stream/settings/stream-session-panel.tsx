@@ -7,11 +7,96 @@ import { streamSessionApi } from "@/entities/stream-session/api/stream-session";
 import { DOTA_HEROES } from "@/entities/dota-hero/model/heroes";
 import { getHeroById } from "@/entities/dota-hero/lib/search";
 import type { DotaHero } from "@/entities/dota-hero/model/types";
-import type { StreamSession } from "@/entities/stream-session/model/types";
+import type {
+    SessionLifecycleResponse,
+    SessionSummary,
+    StreamSession,
+} from "@/entities/stream-session/model/types";
 import type { StreamGameMode } from "@/entities/stream-user/model/types";
 import { GameModePanel } from "./game-mode-panel";
 import sharedStyles from "./index.module.scss";
 import styles from "./stream-session-panel.module.scss";
+
+const formatDateTime = (iso: string | null) =>
+    iso
+        ? new Intl.DateTimeFormat("ru-RU", {
+              day: "2-digit",
+              month: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+          }).format(new Date(iso))
+        : "—";
+
+const formatDuration = (durationMs: number | null) => {
+    if (durationMs === null || durationMs < 0) return "—";
+    const totalMinutes = Math.round(durationMs / 60_000);
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    if (hours === 0) return `${minutes} мин`;
+    return `${hours} ч ${minutes} мин`;
+};
+
+const formatSummaryDelta = (delta: number | null) => {
+    if (delta === null) return null;
+    if (delta === 0) return "±0";
+    return delta > 0 ? `+${delta}` : `${delta}`;
+};
+
+// WK-53 - "итог стрима" card shown once the most recent session has been
+// explicitly ended. Reuses the same statBlock/statValue visual language as
+// the active-session view above - see stream-session-panel.module.scss.
+const EndedSessionSummary = ({ summary }: { summary: SessionSummary }) => {
+    const total = summary.wins + summary.losses;
+    const delta = summary.gameMode === "ranked" ? formatSummaryDelta(summary.ratingDelta) : null;
+
+    return (
+        <div className={styles.statsRow}>
+            <div className={styles.statBlock}>
+                <span className={styles.statLabel}>W / L</span>
+                <div className={styles.statValue}>
+                    {summary.wins}–{summary.losses}
+                </div>
+            </div>
+            <div className={styles.statBlock}>
+                <span className={styles.statLabel}>Матчей</span>
+                <div className={styles.statValue}>{summary.matchCount || total}</div>
+            </div>
+            {summary.gameMode === "ranked" && (
+                <div className={styles.statBlock}>
+                    <span className={styles.statLabel}>MMR</span>
+                    <div className={styles.ratingRow}>
+                        <span className={styles.statValue}>
+                            {summary.ratingStart ?? "—"} → {summary.ratingEnd ?? "—"}
+                        </span>
+                        {delta && (
+                            <span
+                                className={
+                                    (summary.ratingDelta ?? 0) >= 0
+                                        ? styles.deltaPositive
+                                        : styles.deltaNegative
+                                }
+                            >
+                                {delta}
+                            </span>
+                        )}
+                    </div>
+                </div>
+            )}
+            <div className={styles.statBlock}>
+                <span className={styles.statLabel}>Начало</span>
+                <div className={styles.statValue}>{formatDateTime(summary.startedAt)}</div>
+            </div>
+            <div className={styles.statBlock}>
+                <span className={styles.statLabel}>Конец</span>
+                <div className={styles.statValue}>{formatDateTime(summary.endedAt)}</div>
+            </div>
+            <div className={styles.statBlock}>
+                <span className={styles.statLabel}>Длительность</span>
+                <div className={styles.statValue}>{formatDuration(summary.durationMs)}</div>
+            </div>
+        </div>
+    );
+};
 
 type CounterField = "wins" | "losses";
 
@@ -57,7 +142,13 @@ export const StreamSessionPanel = ({
     onGameModeChanged,
     onSessionChange,
 }: StreamSessionPanelProps) => {
-    const [session, setSession] = useState<StreamSession | null>(null);
+    // WK-53 - three-state lifecycle (active/ended/none), not just a
+    // StreamSession - see model/types.ts. `session` below is a convenience
+    // accessor for the currently-displayed session (active OR the most
+    // recently ended one); the EDITABLE controls (rating input, W/L
+    // counters, hero select, reset/end buttons) are still gated on
+    // lifecycle.state === "active" specifically.
+    const [lifecycle, setLifecycle] = useState<SessionLifecycleResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [messageApi, contextHolder] = message.useMessage();
 
@@ -71,6 +162,10 @@ export const StreamSessionPanel = ({
     });
     const [heroSaving, setHeroSaving] = useState(false);
     const [isResetting, setIsResetting] = useState(false);
+    const [isEnding, setIsEnding] = useState(false);
+
+    const session = lifecycle?.session ?? null;
+    const isActive = lifecycle?.state === "active";
 
     useEffect(() => {
         let cancelled = false;
@@ -78,9 +173,9 @@ export const StreamSessionPanel = ({
             .get()
             .then((loaded) => {
                 if (cancelled) return;
-                setSession(loaded);
-                setRatingInput(loaded.rating);
-                lastSavedRatingRef.current = loaded.rating;
+                setLifecycle(loaded);
+                setRatingInput(loaded.session?.rating ?? null);
+                lastSavedRatingRef.current = loaded.session?.rating ?? null;
                 setLoading(false);
             })
             .catch(() => {
@@ -100,16 +195,17 @@ export const StreamSessionPanel = ({
     // W/L/герой, изменённые фоновым sync'ом, подтягиваются сюда так же, как
     // overlay подтягивает их поллингом (use-overlay-polling.ts), но реже:
     // sync и так не чаще раза в 45-60с, обновлять локальный дисплей чаще
-    // незачем.
+    // незачем. Only while active - an ended session's numbers are fixed by
+    // definition, no background sync will move them.
     useEffect(() => {
-        if (!steamConnected) return;
+        if (!steamConnected || !isActive) return;
         let cancelled = false;
         let timeoutId: ReturnType<typeof setTimeout>;
 
         const poll = async () => {
             try {
                 const loaded = await streamSessionApi.get();
-                if (!cancelled) setSession(loaded);
+                if (!cancelled) setLifecycle(loaded);
             } catch {
                 // Временная ошибка - оставляем текущее отображение как есть.
             }
@@ -123,14 +219,14 @@ export const StreamSessionPanel = ({
             cancelled = true;
             clearTimeout(timeoutId);
         };
-    }, [steamConnected]);
+    }, [steamConnected, isActive]);
 
     const handleRatingBlur = async () => {
         if (ratingInput === lastSavedRatingRef.current) return;
         setRatingSaving(true);
         try {
             const updated = await streamSessionApi.patch({ rating: ratingInput });
-            setSession(updated);
+            setLifecycle((current) => (current ? { ...current, session: updated } : current));
             lastSavedRatingRef.current = updated.rating;
             setRatingInput(updated.rating);
         } catch {
@@ -152,13 +248,19 @@ export const StreamSessionPanel = ({
         if (nextValue === prevValue) return;
 
         counterBusyRef.current[field] = true;
-        setSession({ ...session, [field]: nextValue });
+        setLifecycle((current) =>
+            current && current.session
+                ? { ...current, session: { ...current.session, [field]: nextValue } }
+                : current
+        );
         try {
             const updated = await streamSessionApi.patch({ [field]: nextValue });
-            setSession(updated);
+            setLifecycle((current) => (current ? { ...current, session: updated } : current));
         } catch {
-            setSession((current) =>
-                current ? { ...current, [field]: prevValue } : current
+            setLifecycle((current) =>
+                current && current.session
+                    ? { ...current, session: { ...current.session, [field]: prevValue } }
+                    : current
             );
             messageApi.error("Не удалось сохранить");
         } finally {
@@ -173,15 +275,21 @@ export const StreamSessionPanel = ({
         if (nextHeroId === prevHeroId) return;
 
         setHeroSaving(true);
-        setSession({ ...session, lastHeroId: nextHeroId });
+        setLifecycle((current) =>
+            current && current.session
+                ? { ...current, session: { ...current.session, lastHeroId: nextHeroId } }
+                : current
+        );
         try {
             const updated = await streamSessionApi.patch({
                 lastHeroId: nextHeroId,
             });
-            setSession(updated);
+            setLifecycle((current) => (current ? { ...current, session: updated } : current));
         } catch {
-            setSession((current) =>
-                current ? { ...current, lastHeroId: prevHeroId } : current
+            setLifecycle((current) =>
+                current && current.session
+                    ? { ...current, session: { ...current.session, lastHeroId: prevHeroId } }
+                    : current
             );
             messageApi.error("Не удалось сохранить героя");
         } finally {
@@ -189,11 +297,13 @@ export const StreamSessionPanel = ({
         }
     };
 
+    // "Начать новый стрим" - works from any lifecycle state (active/ended/
+    // none), see streamSessionApi.reset()/backend resetActiveSession.
     const handleReset = async () => {
         setIsResetting(true);
         try {
             const updated = await streamSessionApi.reset();
-            setSession(updated);
+            setLifecycle({ state: "active", session: updated, summary: null });
             setRatingInput(updated.rating);
             lastSavedRatingRef.current = updated.rating;
             messageApi.success("Новый стрим начат");
@@ -204,13 +314,70 @@ export const StreamSessionPanel = ({
         }
     };
 
-    if (loading || !session) {
+    // WK-53 - self-service "Завершить стрим": closes the active session
+    // WITHOUT opening a new one (see endSessionController) - the streamer
+    // sees the итог immediately, no separate reload/navigation needed.
+    // Idempotent server-side, so a double-click here just re-renders the
+    // same summary rather than erroring.
+    const handleEnd = async () => {
+        setIsEnding(true);
+        try {
+            const { session: ended, summary } = await streamSessionApi.end();
+            setLifecycle({ state: "ended", session: ended, summary });
+            messageApi.success("Стрим завершён");
+        } catch {
+            messageApi.error("Не удалось завершить стрим");
+        } finally {
+            setIsEnding(false);
+        }
+    };
+
+    if (loading || !lifecycle) {
         return (
             <div className={styles.card}>
                 <h2 className={`${sharedStyles.sectionTitle} ${styles.cardTitle}`}>Текущий стрим</h2>
                 <div className={styles.sessionLoading}>Загрузка…</div>
             </div>
         );
+    }
+
+    if (lifecycle.state !== "active") {
+        return (
+            <div className={styles.card}>
+                {contextHolder}
+                <div className={styles.cardHeader}>
+                    <h2 className={`${sharedStyles.sectionTitle} ${styles.cardTitle}`}>
+                        {lifecycle.state === "ended" ? "Стрим завершён" : "Текущий стрим"}
+                    </h2>
+                    <Button
+                        type="primary"
+                        loading={isResetting}
+                        className={styles.resetButton}
+                        onClick={handleReset}
+                    >
+                        Начать новый стрим
+                    </Button>
+                </div>
+
+                <div className={styles.modeRow}>
+                    <GameModePanel gameMode={gameMode} onChanged={onGameModeChanged} />
+                </div>
+
+                {lifecycle.state === "ended" && lifecycle.summary ? (
+                    <EndedSessionSummary summary={lifecycle.summary} />
+                ) : (
+                    <div className={styles.sessionLoading}>
+                        Стрим ещё не начат. Начните, когда будете готовы.
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    if (!session) {
+        // Defensive only - the backend contract guarantees state === "active"
+        // always carries a session (see controllers/stream/session.ts).
+        return null;
     }
 
     const lastHero = session.lastHeroId ? getHeroById(session.lastHeroId) : undefined;
@@ -222,17 +389,30 @@ export const StreamSessionPanel = ({
             {contextHolder}
             <div className={styles.cardHeader}>
                 <h2 className={`${sharedStyles.sectionTitle} ${styles.cardTitle}`}>Текущий стрим</h2>
-                <Popconfirm
-                    title="Начать новый стрим?"
-                    description="Победы, поражения и последний герой обнулятся. Рейтинг сохранится."
-                    okText="Начать"
-                    cancelText="Отмена"
-                    onConfirm={handleReset}
-                >
-                    <Button loading={isResetting} className={styles.resetButton}>
-                        Начать новый стрим
-                    </Button>
-                </Popconfirm>
+                <div className={styles.headerActions}>
+                    <Popconfirm
+                        title="Завершить стрим?"
+                        description="Итог текущей сессии сохранится. Новую сессию нужно будет начать отдельно."
+                        okText="Завершить"
+                        cancelText="Отмена"
+                        onConfirm={handleEnd}
+                    >
+                        <Button loading={isEnding} className={styles.endButton}>
+                            Завершить стрим
+                        </Button>
+                    </Popconfirm>
+                    <Popconfirm
+                        title="Начать новый стрим?"
+                        description="Победы, поражения и последний герой обнулятся. Рейтинг сохранится."
+                        okText="Начать"
+                        cancelText="Отмена"
+                        onConfirm={handleReset}
+                    >
+                        <Button loading={isResetting} className={styles.resetButton}>
+                            Начать новый стрим
+                        </Button>
+                    </Popconfirm>
+                </div>
             </div>
 
             <div className={styles.modeRow}>

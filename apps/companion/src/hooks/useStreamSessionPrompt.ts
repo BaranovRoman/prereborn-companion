@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getStreamSession, resetStreamSession } from "../services/dotaCompanionApi";
 import { clearSessionAck, loadSessionAck, saveSessionAck } from "../session/session-ack-storage";
-import { shouldShowSessionPrompt, type StreamSessionSummary } from "../session/session-prompt";
+import { getSessionPromptMode, type SessionPromptMode, type StreamSessionSummary } from "../session/session-prompt";
 
-// WK-83 - runs once per app launch (mount-only effect). Tray minimize/
+// WK-83/WK-53 - runs once per app launch (mount-only effect). Tray minimize/
 // restore only hides/shows the existing window (see lib.rs), it never
 // remounts React, so this never re-fires on tray restore.
 export function useStreamSessionPrompt() {
   const [promptData, setPromptData] = useState<StreamSessionSummary | null>(null);
-  const [showPrompt, setShowPrompt] = useState(false);
+  const [promptMode, setPromptMode] = useState<SessionPromptMode>("hidden");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const busyRef = useRef(false);
@@ -19,7 +19,7 @@ export function useStreamSessionPrompt() {
       .then((session) => {
         if (cancelled) return;
         setPromptData(session);
-        setShowPrompt(shouldShowSessionPrompt(session, loadSessionAck(), Date.now()));
+        setPromptMode(getSessionPromptMode(session, loadSessionAck(), Date.now()));
       })
       .catch((cause) => {
         // Backend unavailable at startup must never block the rest of
@@ -33,13 +33,15 @@ export function useStreamSessionPrompt() {
   }, []);
 
   const onContinue = useCallback(() => {
-    if (!promptData) return;
+    // WK-53 - "Продолжить" is meaningless (and never offered by the UI, see
+    // SessionPromptBanner) once the session has been explicitly ended.
+    if (!promptData || promptData.state === "ended") return;
     saveSessionAck({
       sessionId: promptData.id,
       sessionUpdatedAt: promptData.updatedAt,
       acknowledgedAt: new Date().toISOString(),
     });
-    setShowPrompt(false);
+    setPromptMode("hidden");
   }, [promptData]);
 
   const onStartNew = useCallback(async () => {
@@ -51,7 +53,7 @@ export function useStreamSessionPrompt() {
       const session = await resetStreamSession();
       clearSessionAck();
       setPromptData(session);
-      setShowPrompt(false);
+      setPromptMode("hidden");
     } catch (cause) {
       setError(String(cause));
     } finally {
@@ -60,5 +62,13 @@ export function useStreamSessionPrompt() {
     }
   }, []);
 
-  return { promptData, showPrompt, busy, error, onContinue, onStartNew };
+  return {
+    promptData,
+    promptMode,
+    showPrompt: promptMode !== "hidden",
+    busy,
+    error,
+    onContinue,
+    onStartNew,
+  };
 }

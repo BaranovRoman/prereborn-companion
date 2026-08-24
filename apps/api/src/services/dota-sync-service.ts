@@ -8,6 +8,11 @@ export type SyncStatus =
     | "skipped_cooldown"
     | "skipped_in_progress"
     | "steam_not_connected"
+    // WK-53 - the stream has been explicitly ended (getOrCreateActiveSession
+    // returned null) and no new session has been started yet. Syncing "new
+    // matches since session start" has nothing to attribute them to, and
+    // must not resurrect the ended session - see stream-session-service.ts.
+    | "no_active_session"
     | "not_found"
     | "rate_limited"
     | "unavailable";
@@ -96,6 +101,9 @@ const performSync = async (streamUserId: string): Promise<SyncResult> => {
     const steamConnectedAt = userRow.steam_connected_at;
 
     const session = await getOrCreateActiveSession(streamUserId);
+    if (!session) {
+        return emptyResult("no_active_session");
+    }
     const sessionStartedAt = new Date(session.startedAt);
     // Отсечка = позднее из двух: начало ТЕКУЩЕЙ сессии и момент привязки
     // Steam. Так закрывается и "не тащить старые матчи при первой привязке",

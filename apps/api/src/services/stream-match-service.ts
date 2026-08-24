@@ -207,6 +207,18 @@ export const getSessionStartRating = async (
     return result.rows[0]?.rating_before ?? null;
 };
 
+// WK-53 - "количество матчей" for the end-of-stream summary. Only finalized
+// matches count, same visibility rule as getRecentMatchesForSession -
+// needs_review rows have no trusted result and shouldn't inflate the tally.
+export const getMatchCountForSession = async (sessionId: string): Promise<number> => {
+    const result = await pool.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count FROM stream_matches
+         WHERE stream_session_id = $1 AND state = 'finalized'`,
+        [sessionId]
+    );
+    return result.rows[0]?.count ?? 0;
+};
+
 export const listMatchesForAccount = async (
     streamUserId: string,
     limit = 50
@@ -376,7 +388,18 @@ const createMatch = async (params: {
     inventory: Array<string | null>;
     startedAt: Date;
 }): Promise<void> => {
+    // WK-53 - null means the stream has been explicitly ended and no new
+    // session has been started yet (see getOrCreateActiveSession). A late/
+    // stale GSI tick reaching here after End must NOT resurrect the session
+    // or create a match attributed to nothing - the next legitimate "Start
+    // new stream" is the only thing allowed to open a session again.
     const session = await getOrCreateActiveSession(params.streamUserId);
+    if (!session) {
+        logger.info("Stream match ignored: no active session (stream ended)", {
+            streamUserId: params.streamUserId,
+        });
+        return;
+    }
     const matchKey = params.matchId
         ? `gsi:${params.matchId}`
         : `session:${params.streamUserId}:${params.startedAt.getTime()}:${params.heroId}`;

@@ -42,8 +42,19 @@
     background: none;
 }
 
+.headerActions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
 .resetButton {
     font-weight: 500;
+}
+
+.endButton {
+    font-weight: 500;
+    color: #c36d66;
 }
 
 .modeRow {
