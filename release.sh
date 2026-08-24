@@ -12,6 +12,28 @@ set -Eeuo pipefail
 # See docs/research/wk-80-build-outside-production.md for the full design
 # and docs/production-deployment.md for the operational walkthrough.
 #
+# WK-96 - releases are keyed by RELEASE_ID = "<sha>-<build_id>", not by SHA
+# alone. Root cause this fixes: the web artifact bakes in build-time-only
+# inputs that are NOT part of the git tree (currently
+# NEXT_PUBLIC_DOTA_COMPANION_VERSION/_DOWNLOAD_URL, resolved live from
+# GitHub's "latest release" at build time - see
+# scripts/resolve-companion-release.sh; potentially other NEXT_PUBLIC_* in
+# the future) - so two builds of the IDENTICAL commit can produce two
+# genuinely different artifacts. Keying strictly by SHA made the second
+# build's release.sh invocation see "current already points at releases/$SHA"
+# and exit as a no-op, silently discarding a fully-built, correct artifact
+# (confirmed in production after WK-53: a repository_dispatch-triggered
+# rebuild for the just-published Companion release resolved the new version
+# correctly, but never went live). BUILD_ID is derived from the artifact
+# tarball's own sha256 (first 12 hex chars of $ARTIFACT.sha256, already
+# computed by build-release-artifact.sh and already transferred alongside
+# the tarball - no new build step, no new file to keep in sync) - this is a
+# fully general content identity, not a Companion-specific special case: ANY
+# difference in the artifact's bytes, from any current or future build
+# input, changes BUILD_ID. Two builds with byte-identical content (same SHA,
+# same build inputs) get the same RELEASE_ID and a repeat deploy is still a
+# safe no-op - see the target contract in scripts/test-release-sh.sh.
+#
 # Usage: release.sh <sha> <artifact-tarball-path>
 #
 # Overridable via env (defaults match real production; overridden for local
@@ -51,10 +73,16 @@ flock -n 200 || {
 
 RELEASES_DIR="$DEPLOY_ROOT/releases"
 SHARED_DIR="$DEPLOY_ROOT/shared"
-RELEASE_DIR="$RELEASES_DIR/$SHA"
 CURRENT_LINK="$DEPLOY_ROOT/current"
 
 log() { printf '[release.sh] %s\n' "$*"; }
+
+# WK-96 - a RELEASE_ID is always "<sha>-<build_id>" (SHA never contains a
+# dash, real git SHAs or the synthetic ones scripts/test-release-sh.sh uses -
+# so splitting on the LAST dash is unambiguous either way, no fixed-width
+# assumption needed).
+release_id_sha() { local id="$1"; printf '%s' "${id%-*}"; }
+release_id_build() { local id="$1"; printf '%s' "${id##*-}"; }
 
 mkdir -p "$RELEASES_DIR" "$SHARED_DIR/logs" "$DEPLOY_ROOT/apps/api/uploads"
 test -f "$SHARED_DIR/.env" || {
@@ -64,25 +92,33 @@ test -f "$SHARED_DIR/.env" || {
 
 # --- Verify artifact integrity before touching anything release-shaped ---
 test -f "$ARTIFACT" || { echo "Artifact not found: $ARTIFACT"; exit 1; }
-if [[ -f "$ARTIFACT.sha256" ]]; then
-  log "Verifying checksum"
-  ( cd "$(dirname "$ARTIFACT")" && sha256sum -c "$(basename "$ARTIFACT").sha256" ) \
-    || { echo "Checksum verification failed for $ARTIFACT"; exit 1; }
-else
+test -f "$ARTIFACT.sha256" || {
   echo "Missing $ARTIFACT.sha256 - refusing to extract an unverified artifact."
   exit 1
-fi
+}
+log "Verifying checksum"
+( cd "$(dirname "$ARTIFACT")" && sha256sum -c "$(basename "$ARTIFACT").sha256" ) \
+  || { echo "Checksum verification failed for $ARTIFACT"; exit 1; }
+
+# WK-96 - BUILD_ID is derived from the artifact's own (already verified)
+# checksum, not passed in separately - see the header comment above for why
+# this is a fully general artifact identity rather than a Companion-specific
+# special case.
+ARTIFACT_SHA256="$(awk '{print $1}' "$ARTIFACT.sha256")"
+BUILD_ID="${ARTIFACT_SHA256:0:12}"
+RELEASE_ID="$SHA-$BUILD_ID"
+RELEASE_DIR="$RELEASES_DIR/$RELEASE_ID"
 
 # --- Extract into a not-yet-current directory; never overwrite a release
 # that's currently live (protects against accidentally re-running a deploy
-# for a commit that's already `current`) ---
-if [[ -L "$CURRENT_LINK" && "$(readlink "$CURRENT_LINK")" == "releases/$SHA" ]]; then
-  echo "releases/$SHA is already current - nothing to do."
+# for a commit+artifact pair that's already `current`) ---
+if [[ -L "$CURRENT_LINK" && "$(readlink "$CURRENT_LINK")" == "releases/$RELEASE_ID" ]]; then
+  echo "releases/$RELEASE_ID is already current - nothing to do."
   exit 0
 fi
 rm -rf "$RELEASE_DIR.partial"
 mkdir -p "$RELEASE_DIR.partial"
-log "Extracting artifact into releases/$SHA.partial"
+log "Extracting artifact into releases/$RELEASE_ID.partial"
 tar -xzf "$ARTIFACT" -C "$RELEASE_DIR.partial"
 
 test "$(cat "$RELEASE_DIR.partial/VERSION" 2>/dev/null || echo '')" == "$SHA" || {
@@ -97,13 +133,13 @@ test -f "$RELEASE_DIR.partial/ecosystem.config.cjs" || { echo "Artifact missing 
 
 rm -rf "$RELEASE_DIR"
 mv "$RELEASE_DIR.partial" "$RELEASE_DIR"
-log "Extracted and verified releases/$SHA"
+log "Extracted and verified releases/$RELEASE_ID"
 
 # --- Capture the previous release for rollback, before switching anything ---
-PREVIOUS_SHA=""
+PREVIOUS_RELEASE_ID=""
 if [[ -L "$CURRENT_LINK" ]]; then
   PREVIOUS_TARGET="$(readlink "$CURRENT_LINK")"
-  PREVIOUS_SHA="${PREVIOUS_TARGET#releases/}"
+  PREVIOUS_RELEASE_ID="${PREVIOUS_TARGET#releases/}"
 fi
 
 # --- Migrations run against the NEW release's compiled dist/, while
@@ -118,7 +154,7 @@ source "$SHARED_DIR/.env"
 set +a
 export UPLOADS_DIR="${UPLOADS_DIR:-$DEPLOY_ROOT/apps/api/uploads}"
 if ! node "$RELEASE_DIR/api/dist/db/migrate-cli.js"; then
-  echo "Migration failed for releases/$SHA - current release (${PREVIOUS_SHA:-none}) left untouched and still serving."
+  echo "Migration failed for releases/$RELEASE_ID - current release (${PREVIOUS_RELEASE_ID:-none}) left untouched and still serving."
   exit 1
 fi
 
@@ -131,9 +167,15 @@ fi
 # API and web must report the SHA that was just switched to, or this is
 # treated as a failed deploy exactly like a boot crash - triggering the
 # same rollback path.
+# WK-96 - `expected_build_id` closes the sibling gap: two releases can share
+# the same SHA (see the header comment), so SHA alone can no longer prove
+# the *specific* artifact just switched to is actually the one serving -
+# both API (`releaseBuildId`) and web (`X-Release-Build-Id`) must also
+# report the build id that was just switched to.
 health_check() {
   local label="$1"
   local expected_sha="$2"
+  local expected_build_id="$3"
   local response
   if ! response="$(curl --fail --silent --show-error \
       --retry 10 --retry-delay 2 --retry-connrefused \
@@ -149,14 +191,19 @@ health_check() {
   grep -q '"twitchConfigured":true' <<<"$response" || { log "$label: twitchConfigured is not true"; return 1; }
   grep -q '"donationAlertsConfigured":true' <<<"$response" || { log "$label: donationAlertsConfigured is not true"; return 1; }
 
-  local api_sha
+  local api_sha api_build_id
   api_sha="$(grep -oE '"releaseSha":"[^"]*"' <<<"$response" | cut -d'"' -f4)"
   if [[ "$api_sha" != "$expected_sha" ]]; then
     log "$label: API releaseSha mismatch (expected $expected_sha, got '${api_sha:-<missing>}')"
     return 1
   fi
+  api_build_id="$(grep -oE '"releaseBuildId":"[^"]*"' <<<"$response" | cut -d'"' -f4)"
+  if [[ "$api_build_id" != "$expected_build_id" ]]; then
+    log "$label: API releaseBuildId mismatch (expected $expected_build_id, got '${api_build_id:-<missing>}')"
+    return 1
+  fi
 
-  local web_headers web_sha
+  local web_headers web_sha web_build_id
   if ! web_headers="$(curl --fail --silent --show-error --head \
       --retry 10 --retry-delay 2 --retry-connrefused \
       "http://$HEALTH_HOST:$WEB_PORT/")"; then
@@ -168,15 +215,23 @@ health_check() {
     log "$label: web releaseSha mismatch (expected $expected_sha, got '${web_sha:-<missing>}')"
     return 1
   fi
+  web_build_id="$(tr -d '\r' <<<"$web_headers" | grep -i '^x-release-build-id:' | cut -d' ' -f2)"
+  if [[ "$web_build_id" != "$expected_build_id" ]]; then
+    log "$label: web X-Release-Build-Id mismatch (expected $expected_build_id, got '${web_build_id:-<missing>}')"
+    return 1
+  fi
 
   return 0
 }
 
 switch_and_reload() {
-  local sha="$1"
-  ln -sfn "releases/$sha" "$DEPLOY_ROOT/current.tmp"
+  local release_id="$1"
+  local sha build_id
+  sha="$(release_id_sha "$release_id")"
+  build_id="$(release_id_build "$release_id")"
+  ln -sfn "releases/$release_id" "$DEPLOY_ROOT/current.tmp"
   mv -Tf "$DEPLOY_ROOT/current.tmp" "$CURRENT_LINK"
-  cp "$RELEASES_DIR/$sha/ecosystem.config.cjs" "$SHARED_DIR/ecosystem.config.cjs"
+  cp "$RELEASES_DIR/$release_id/ecosystem.config.cjs" "$SHARED_DIR/ecosystem.config.cjs"
   # WK-88 follow-up (production regression, confirmed live via SSH) -
   # `pm2 reload <ecosystem-file>` does NOT update script/args/cwd/interpreter
   # for a process name that's already registered; it only restarts using
@@ -195,15 +250,17 @@ switch_and_reload() {
   # correctness (actually serving the deployed release) matters more here
   # than shaving that gap, and the release-identity health check below
   # would otherwise have no way to ever prove a switch actually worked.
-  PREREBORN_RELEASE_SHA="$sha" "$PM2_BIN" delete prereborn-web prereborn-api >/dev/null 2>&1 || true
-  PREREBORN_RELEASE_SHA="$sha" "$PM2_BIN" start "$SHARED_DIR/ecosystem.config.cjs" --update-env
+  PREREBORN_RELEASE_SHA="$sha" PREREBORN_RELEASE_BUILD_ID="$build_id" \
+    "$PM2_BIN" delete prereborn-web prereborn-api >/dev/null 2>&1 || true
+  PREREBORN_RELEASE_SHA="$sha" PREREBORN_RELEASE_BUILD_ID="$build_id" \
+    "$PM2_BIN" start "$SHARED_DIR/ecosystem.config.cjs" --update-env
 }
 
-log "Switching current -> releases/$SHA"
-switch_and_reload "$SHA"
+log "Switching current -> releases/$RELEASE_ID"
+switch_and_reload "$RELEASE_ID"
 
-if health_check "post-switch" "$SHA"; then
-  log "releases/$SHA is healthy - deploy successful"
+if health_check "post-switch" "$SHA" "$BUILD_ID"; then
+  log "releases/$RELEASE_ID is healthy - deploy successful"
   "$PM2_BIN" save
 
   # --- Retention: keep the newest KEEP_RELEASES releases, never the one
@@ -225,20 +282,20 @@ if health_check "post-switch" "$SHA"; then
   exit 0
 fi
 
-echo "Health check failed for releases/$SHA."
+echo "Health check failed for releases/$RELEASE_ID."
 
-if [[ -z "$PREVIOUS_SHA" ]]; then
+if [[ -z "$PREVIOUS_RELEASE_ID" ]]; then
   echo "No previous release to roll back to (this was the first artifact deploy). PRODUCTION MAY BE DOWN - manual intervention required."
   exit 1
 fi
 
-log "Rolling back: current -> releases/$PREVIOUS_SHA"
-switch_and_reload "$PREVIOUS_SHA"
+log "Rolling back: current -> releases/$PREVIOUS_RELEASE_ID"
+switch_and_reload "$PREVIOUS_RELEASE_ID"
 
-if health_check "post-rollback" "$PREVIOUS_SHA"; then
-  echo "Rolled back successfully to releases/$PREVIOUS_SHA. Deploy of $SHA failed but production is healthy on the previous release."
+if health_check "post-rollback" "$(release_id_sha "$PREVIOUS_RELEASE_ID")" "$(release_id_build "$PREVIOUS_RELEASE_ID")"; then
+  echo "Rolled back successfully to releases/$PREVIOUS_RELEASE_ID. Deploy of $RELEASE_ID failed but production is healthy on the previous release."
   exit 1
 fi
 
-echo "ROLLBACK ALSO FAILED. PRODUCTION REQUIRES IMMEDIATE MANUAL INTERVENTION. Neither releases/$SHA nor releases/$PREVIOUS_SHA is confirmed healthy."
+echo "ROLLBACK ALSO FAILED. PRODUCTION REQUIRES IMMEDIATE MANUAL INTERVENTION. Neither releases/$RELEASE_ID nor releases/$PREVIOUS_RELEASE_ID is confirmed healthy."
 exit 1

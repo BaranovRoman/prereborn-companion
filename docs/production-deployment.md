@@ -5,21 +5,37 @@ GitHub Actions builds a versioned, self-contained release artifact on the
 runner itself (see `scripts/build-release-artifact.sh`) - the production
 server never runs `pnpm install`, `next build`, or `tsc`. The artifact is
 uploaded over SSH, then `release.sh` on the server extracts it into
-`releases/<sha>/`, applies database migrations against its compiled output,
-atomically switches the `current` symlink, reloads PM2, and runs health
-checks - automatically rolling `current` back to the previous release if the
-new one doesn't come up healthy. See
+`releases/<sha>-<build_id>/`, applies database migrations against its
+compiled output, atomically switches the `current` symlink, reloads PM2, and
+runs health checks - automatically rolling `current` back to the previous
+release if the new one doesn't come up healthy. See
 `docs/research/wk-80-build-outside-production.md` for the full design and
 `scripts/test-release-sh.sh` for a local dry run of the whole flow (extract,
 migrate, atomic switch, health check, automatic rollback) against a
 throwaway Postgres database and real PM2, no production server involved.
 
+**WK-96 - release identity is `<sha>-<build_id>`, not just `<sha>`:** the web
+artifact bakes in build-time-only inputs that aren't part of the git tree
+(currently the Companion download version/URL, resolved live from GitHub's
+"latest release" - see `scripts/resolve-companion-release.sh`), so two
+builds of the identical commit can produce genuinely different artifacts.
+`build_id` is the first 12 hex chars of the artifact tarball's own sha256
+(already computed by `build-release-artifact.sh`, no extra build step) -
+`release.sh` only treats a deploy as "already current" (safe no-op) when
+both the commit SHA *and* the artifact content match; a same-SHA deploy with
+different build inputs is a genuinely new release and goes live. `/api/health`
+(`releaseBuildId`) and the web root response (`X-Release-Build-Id` header)
+expose this alongside the existing `releaseSha`/`X-Release-Sha` (unchanged
+meaning: the git commit a release was built from) so the deploy pipeline's
+health check can confirm the exact artifact just switched to is the one
+actually serving, not just any artifact of the right commit.
+
 ## Production layout
 
 ```
 /var/www/www-root/data/www/prereborn.ru/
-├── releases/<sha>/        # one directory per deployed commit - web/api build output + node_modules
-├── current -> releases/<sha>   # atomically repointed on every successful deploy
+├── releases/<sha>-<build_id>/   # one directory per deployed artifact - web/api build output + node_modules
+├── current -> releases/<sha>-<build_id>   # atomically repointed on every successful deploy
 ├── shared/
 │   ├── .env                    # written by "Install production environment" - never per-release
 │   └── logs/                   # PM2 error/out logs
@@ -32,7 +48,7 @@ the PM2-managed Node processes on fixed loopback ports (5100/5102), so
 nginx never needs to know which release is current - only
 `ecosystem.config.cjs` (via the `current` symlink) and `release.sh` do.
 `apps/api/src/config/env.ts`'s `UPLOADS_DIR` deliberately keeps uploaded
-files out of the versioned `releases/<sha>/` tree entirely - `process.cwd()`
+files out of the versioned `releases/<sha>-<build_id>/` tree entirely - `process.cwd()`
 inside a release resolves to that release's own directory, which would
 otherwise silently scope user uploads to whichever release happened to be
 current when they were uploaded, and orphan them on the next switch.
