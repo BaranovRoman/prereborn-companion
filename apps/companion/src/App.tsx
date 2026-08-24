@@ -1,8 +1,8 @@
 import "./App.css";
-import { HomePage } from "./pages/HomePage";
+import { AppShell } from "./components/AppShell";
 
 function App() {
-  return <HomePage />;
+  return <AppShell />;
 }
 
 export default App;

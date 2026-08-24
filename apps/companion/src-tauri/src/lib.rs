@@ -109,12 +109,34 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        // Companion UI 2.0 - "Запускать вместе с Windows" toggle
+        // (Settings). `--hidden` is appended to the launch command the OS
+        // registers (Windows Run key) - checked below in `setup()` to hide
+        // the main window immediately on an autostart launch, matching
+        // AutostartSetting's hint text ("откроется свёрнутым в трей"). A
+        // normal user-initiated launch (double-clicking the app, no
+        // `--hidden` arg) is unaffected - the window still opens visible.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--hidden"]),
+        ))
         .manage(AppState::new())
         .manage(diagnostics::DiagnosticsState::new())
         .manage(silero::SileroState::new())
         .manage(hotkeys::HotkeysState::new())
         .setup(|app| {
             let handle = app.handle().clone();
+
+            // Autostart launch (see the `tauri_plugin_autostart::init` call
+            // above) - the window already exists at this point (Tauri
+            // creates windows declared in tauri.conf.json before running
+            // `setup()`), so hide it immediately rather than letting it
+            // flash visible before the tray takes over.
+            if std::env::args().any(|arg| arg == "--hidden") {
+                if let Some(window) = handle.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
 
             storage::init(&handle)?;
             // One-shot safety net for installs that accumulated a legacy
