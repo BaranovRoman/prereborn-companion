@@ -3,7 +3,18 @@
 // tournament post-match summary), not a variant of Between Matches. Reuses
 // the same design language (colors, --font-title "Reaver" / --font-ui
 // "Radiance", see app/globals.css) for family resemblance, but no shared
-// selectors/classes with queue-scene-ui.tsx.
+// selectors/classes with queue-scene-ui.tsx. (PreloadedVideo IS imported
+// from there in stream-ended-scene.tsx - it's a general-purpose hero-media
+// loader, not Between Matches structure - but its own two trivial utility
+// classes, videoPosterLayer/videoPlaybackLayer, still live in that module.)
+//
+// Sizing note: every clamp() below is deliberately budgeted against a fixed
+// 1080px-tall canvas (the primary target, see stream-ended-scene.tsx) so
+// that up to 5 stacked history rows (the worst case across all four density
+// tiers - see getHistoryDensity) still fit without the canvas scrolling.
+// `.scene` keeps `overflow: hidden` as a hard backstop, but the real fix is
+// this budget, not clipping - see the WK-98 visual-refinement report for the
+// row-by-row math this was tuned against.
 
 .scene {
     position: fixed;
@@ -11,60 +22,67 @@
     width: 100vw;
     height: 100vh;
     overflow: hidden;
-    display: grid;
-    place-items: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(8px, 1.1vh, 14px);
+    padding: 2vh 4vw;
     color: #c8c4bd;
     background:
-        radial-gradient(ellipse at 50% 8%, rgba(137, 11, 24, 0.28) 0%, rgba(86, 6, 16, 0.12) 30%, transparent 60%),
-        radial-gradient(ellipse at 50% 100%, rgba(34, 2, 8, 0.32) 0%, transparent 55%),
+        radial-gradient(ellipse at 50% 0%, rgba(137, 11, 24, 0.26) 0%, rgba(86, 6, 16, 0.11) 30%, transparent 58%),
+        radial-gradient(ellipse at 50% 100%, rgba(34, 2, 8, 0.3) 0%, transparent 55%),
         linear-gradient(180deg, #120a0c 0%, #0a0507 45%, #060304 100%);
 }
+
+// ---------------------------------------------------------------------
+// Session result (top) - budgeted to ~280px tall at 1080p.
+// ---------------------------------------------------------------------
 
 .content {
     display: flex;
     flex-direction: column;
     align-items: center;
     text-align: center;
-    gap: clamp(6px, 1vh, 14px);
-    padding: 4vh 4vw;
+    flex: 0 0 auto;
 }
 
 .brand {
     font-family: var(--font-ui);
-    font-size: clamp(11px, 0.85vw, 18px);
-    letter-spacing: 0.32em;
+    font-size: clamp(10px, 0.7vw, 15px);
+    letter-spacing: 0.3em;
     color: #6f6a63;
     text-transform: uppercase;
 }
 
 .rule {
-    width: clamp(64px, 5vw, 120px);
+    width: clamp(48px, 3.8vw, 92px);
     height: 1px;
-    margin: clamp(6px, 1vh, 12px) 0;
+    margin: clamp(4px, 0.6vh, 8px) 0;
     background: linear-gradient(90deg, transparent, rgba(178, 163, 111, 0.55), transparent);
 }
 
 .eyebrow {
     font-family: var(--font-ui);
-    font-size: clamp(14px, 1.1vw, 26px);
-    letter-spacing: 0.22em;
+    font-size: clamp(12px, 0.9vw, 20px);
+    letter-spacing: 0.18em;
     color: #b2a36f;
     text-transform: uppercase;
-    margin-bottom: clamp(4px, 1vh, 10px);
+    margin-bottom: clamp(2px, 0.5vh, 6px);
 }
 
 .record {
     display: flex;
     align-items: baseline;
-    gap: clamp(10px, 1vw, 22px);
+    gap: clamp(7px, 0.75vw, 15px);
     font-family: var(--font-title);
     font-weight: 400;
-    font-size: clamp(88px, 8.3vw, 220px);
+    font-size: clamp(52px, 5.6vw, 112px);
     line-height: 1;
     color: #f2ece3;
     font-variant-numeric: tabular-nums;
     position: relative;
-    padding-bottom: clamp(10px, 1.4vh, 20px);
+    padding-bottom: clamp(6px, 0.9vh, 12px);
 
     em {
         font-style: normal;
@@ -78,7 +96,7 @@
         bottom: 0;
         left: 50%;
         transform: translateX(-50%);
-        width: clamp(90px, 7vw, 180px);
+        width: clamp(64px, 4.6vw, 120px);
         height: 3px;
         background: #6f6a63;
     }
@@ -91,13 +109,13 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
-    margin-top: clamp(6px, 1vh, 12px);
+    gap: 2px;
+    margin-top: clamp(3px, 0.5vh, 8px);
 
     b {
         font-family: var(--font-title);
         font-weight: 400;
-        font-size: clamp(32px, 2.9vw, 64px);
+        font-size: clamp(19px, 1.9vw, 36px);
         color: #d8d3c9;
         font-variant-numeric: tabular-nums;
 
@@ -107,7 +125,7 @@
 
     small {
         font-family: var(--font-ui);
-        font-size: clamp(13px, 1vw, 22px);
+        font-size: clamp(11px, 0.72vw, 15px);
         color: #837e77;
         font-variant-numeric: tabular-nums;
     }
@@ -116,132 +134,207 @@
 .secondary {
     display: flex;
     align-items: center;
-    gap: clamp(18px, 1.8vw, 36px);
-    margin-top: clamp(14px, 2vh, 26px);
+    gap: clamp(14px, 1.4vw, 28px);
+    margin-top: clamp(8px, 1.1vh, 16px);
 
     > div {
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 4px;
+        gap: 2px;
     }
 
     b {
         font-family: var(--font-title);
         font-weight: 400;
-        font-size: clamp(18px, 1.5vw, 32px);
+        font-size: clamp(14px, 1.1vw, 22px);
         color: #c8c4bd;
         font-variant-numeric: tabular-nums;
     }
 
     span {
         font-family: var(--font-ui);
-        font-size: clamp(9px, 0.6vw, 13px);
-        letter-spacing: 0.14em;
+        font-size: clamp(8.5px, 0.54vw, 11px);
+        letter-spacing: 0.13em;
         text-transform: uppercase;
         color: #6f6a63;
     }
 
     i {
         width: 1px;
-        height: clamp(20px, 2.2vh, 34px);
+        height: clamp(15px, 1.6vh, 24px);
         background: rgba(178, 163, 111, 0.28);
         font-style: normal;
     }
 }
 
-.matchStrip {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    align-items: flex-start;
-    gap: clamp(6px, 0.6vw, 12px);
-    max-width: min(1400px, 88vw);
-    margin-top: clamp(20px, 3vh, 40px);
-    padding-top: clamp(14px, 2vh, 24px);
-    border-top: 1px solid rgba(178, 163, 111, 0.18);
-}
+// ---------------------------------------------------------------------
+// Match history (bottom) - see getHistoryDensity() in stream-ended-scene.tsx
+// for the four tiers this grid is driven by. Landscape hero-art bands, not
+// square icons - the composition this whole section replaces. Row budget:
+// spacious/cozy top out at 4 rows (4 matches in 1 column, or 8 in 2), dense
+// tops out near 5 (14 matches / 3 columns), compact near 5 (20 / 4) - every
+// tier's art/caption sizing below is budgeted against ITS worst-case row
+// count fitting the remaining canvas height, not just against 1080px raw.
+// ---------------------------------------------------------------------
 
-.matchChip {
+.history {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    width: 100%;
+    flex: 0 1 auto;
+    min-height: 0;
+    gap: clamp(4px, 0.7vh, 8px);
+    padding-top: clamp(6px, 1vh, 12px);
+    border-top: 1px solid rgba(178, 163, 111, 0.16);
 }
 
-.matchChipPortrait {
-    position: relative;
-    display: grid;
-    place-items: center;
-    width: clamp(36px, 2.9vw, 64px);
-    height: clamp(36px, 2.9vw, 64px);
-    overflow: hidden;
-    background: #15191a;
-    border: 2px solid #4a4741;
+.historyLabel {
+    font-family: var(--font-ui);
+    font-size: clamp(9px, 0.68vw, 13px);
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
     color: #6f6a63;
-    font-family: var(--font-ui);
-    font-size: 12px;
-
-    img { width: 100%; height: 100%; object-fit: cover; }
-
-    &[data-result="win"] { border-color: #9bbb76; }
-    &[data-result="loss"] { border-color: #bd655e; }
-    &[data-result="abandon"] { border-color: #c29a69; }
 }
 
-.matchChipMark {
+.historyGrid {
+    display: grid;
+    grid-template-columns: repeat(var(--history-columns), minmax(0, 1fr));
+    gap: 12px;
+    // Spacious/cozy stay noticeably narrower than the full canvas width - a
+    // single (or double) column stretched to ~1700px produced a heavily
+    // distorted, over-cropped hero-art band (object-fit: cover magnifying a
+    // comparatively narrow source video across an extreme width). Dense/
+    // compact use the full width because more columns keep each one narrow
+    // regardless.
+    width: min(900px, 66vw);
+
+    &[data-density="cozy"] { width: min(1360px, 84vw); gap: 10px; }
+    &[data-density="dense"] { width: min(1720px, 92vw); gap: 8px; }
+    &[data-density="compact"] { width: min(1720px, 92vw); gap: 6px; }
+}
+
+.historyMore {
+    font-family: var(--font-ui);
+    font-size: clamp(10px, 0.75vw, 14px);
+    color: #837e77;
+    letter-spacing: 0.04em;
+}
+
+.entry {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.entryArt {
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(150deg, transparent 28%, rgba(118, 41, 40, 0.12) 48%, transparent 70%), linear-gradient(#171b1c, #090c0d);
+    // Budgeted for up to 4 stacked rows (spacious's worst case, 4 matches
+    // in 1 column) within the remaining canvas height after the summary
+    // block and history label/border above.
+    height: clamp(64px, 8.4vh, 100px);
+
+    .historyGrid[data-density="cozy"] & { height: clamp(52px, 6.8vh, 82px); }
+    .historyGrid[data-density="dense"] & { height: clamp(42px, 5.4vh, 64px); }
+    .historyGrid[data-density="compact"] & { height: clamp(34px, 4.4vh, 52px); }
+}
+
+.entry[data-result="win"] .entryArt { box-shadow: inset 0 -3px 0 #9bbb76; }
+.entry[data-result="loss"] .entryArt { box-shadow: inset 0 -3px 0 #bd655e; }
+.entry[data-result="abandon"] .entryArt { box-shadow: inset 0 -3px 0 #c29a69; }
+.entry[data-result="unknown"] .entryArt { box-shadow: inset 0 -3px 0 #4a4741; }
+
+.entryArtMedia {
     position: absolute;
-    right: -3px;
-    bottom: -3px;
-    width: 14px;
-    height: 14px;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center 24%;
+    opacity: 0.92;
+    filter: saturate(0.85) contrast(1.06) brightness(0.9) sepia(0.03);
+}
+
+.entryArtUnknown {
+    position: absolute;
+    inset: 0;
     display: grid;
     place-items: center;
-    font-size: 9px;
-    line-height: 1;
-    font-style: normal;
-    color: #0a0507;
-    background: #6f6a63;
-    border-radius: 50%;
-    box-shadow: 0 0 0 2px #0a0507;
-
-    &[data-result="win"] { background: #9bbb76; }
-    &[data-result="win"]::before { content: "✓"; }
-    &[data-result="loss"] { background: #bd655e; }
-    &[data-result="loss"]::before { content: "✕"; }
-    &[data-result="abandon"] { background: #c29a69; }
-    &[data-result="abandon"]::before { content: "!"; }
-    &[data-result="unknown"] { background: #4a4741; }
-    &[data-result="unknown"]::before { content: "?"; }
+    color: #4a4741;
+    font-family: var(--font-title);
+    font-size: 1.4em;
 }
 
-.matchChipDelta {
-    font-family: var(--font-ui);
-    font-size: clamp(10px, 0.7vw, 15px);
-    color: #837e77;
-    font-variant-numeric: tabular-nums;
+.entryCaption {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding-top: 4px;
+}
 
+.entryCaptionRow {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+
+    b {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-family: var(--font-title);
+        font-weight: 400;
+        letter-spacing: 0.01em;
+        color: #d8d3c9;
+        font-size: clamp(12px, 0.78vw, 15px);
+
+        .historyGrid[data-density="cozy"] & { font-size: clamp(11px, 0.68vw, 13px); }
+        .historyGrid[data-density="dense"] & { font-size: clamp(9.5px, 0.6vw, 11.5px); }
+        .historyGrid[data-density="compact"] & { font-size: clamp(9px, 0.52vw, 10px); }
+    }
+
+    em {
+        flex: 0 0 auto;
+        font-style: normal;
+        font-family: var(--font-ui);
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+        font-size: clamp(9px, 0.6vw, 11.5px);
+
+        .historyGrid[data-density="dense"] &,
+        .historyGrid[data-density="compact"] & { font-size: clamp(8px, 0.5vw, 9.5px); }
+
+        &[data-result="win"] { color: #9bbb76; }
+        &[data-result="loss"] { color: #bd655e; }
+        &[data-result="abandon"] { color: #c29a69; }
+        &[data-result="unknown"] { color: #6f6a63; }
+    }
+
+    > span {
+        font-family: var(--font-ui);
+        color: #837e77;
+        font-variant-numeric: tabular-nums;
+        font-size: clamp(10px, 0.62vw, 12px);
+
+        .historyGrid[data-density="dense"] &,
+        .historyGrid[data-density="compact"] & { font-size: clamp(8.5px, 0.5vw, 10px); }
+    }
+}
+
+.entryDelta {
     &[data-tone="positive"] { color: #9bbb76; }
     &[data-tone="negative"] { color: #bd655e; }
 }
 
-.matchStripMore {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: clamp(36px, 2.9vw, 64px);
-    height: clamp(36px, 2.9vw, 64px);
-    font-family: var(--font-ui);
-    font-size: clamp(11px, 0.85vw, 16px);
-    color: #837e77;
-    background: #15191a;
-    border: 1px dashed #4a4741;
-}
-
 // Below the Full HD design target - graceful degradation only, not a tuned
 // breakpoint: the fluid clamp()-based sizing above already shrinks smoothly,
-// this just tightens spacing so nothing overlaps at small viewports.
+// this just tightens spacing further so nothing overlaps at small viewports.
 @media (max-width: 1280px), (max-height: 720px) {
-    .content { gap: 4px; padding: 3vh 4vw; }
-    .matchStrip { gap: 6px; }
+    .scene { gap: 5px; padding: 1.6vh 3vw; }
+    .history { gap: 3px; padding-top: 5px; }
+    .historyGrid { gap: 5px; }
 }
