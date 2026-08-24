@@ -44,7 +44,7 @@ export interface StatusSnapshot {
   obs_config: ObsConfig;
   obs_connected: boolean;
   obs_state: ConnectionState;
-  obs_active_scene: "betweenMatches" | "draft" | "gameplay" | null;
+  obs_active_scene: "betweenMatches" | "draft" | "gameplay" | "postStream" | null;
   obs_last_error: string | null;
   companion_version: string;
 }
@@ -57,4 +57,8 @@ export interface ObsConfig {
   between_matches_scene: string;
   draft_scene: string;
   gameplay_scene: string;
+  // WK-99 - fourth scene binding, on equal footing with the other three -
+  // the real OBS scene Companion switches to once the stream session
+  // becomes `ended` (see obs.rs's BroadcastScene::PostStream).
+  post_stream_scene: string;
 }

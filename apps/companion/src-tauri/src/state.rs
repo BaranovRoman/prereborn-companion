@@ -123,6 +123,13 @@ pub struct InnerState {
     pub obs_last_checked_at: Option<Instant>,
     pub obs_check_pending: bool,
     pub obs_last_error: Option<String>,
+    // WK-99 - set by backend::poll_session_state (a periodic poll of the
+    // existing GET /stream/companion/session endpoint, WK-83), read by
+    // obs::resolve_desired_scene. Defaults to `false` (Default derive),
+    // matching "unknown session state behaves like active" - automation
+    // runs normally until the first poll actually learns otherwise, never
+    // the reverse.
+    pub session_ended: bool,
 }
 
 pub struct AppState(pub Mutex<InnerState>);

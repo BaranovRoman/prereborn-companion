@@ -12,12 +12,14 @@ const sceneLabel = {
   betweenMatches: "Между матчами",
   draft: "Драфт",
   gameplay: "Игра",
+  postStream: "Post Stream",
 };
 
 const mappingKey = {
   betweenMatches: "between_matches_scene",
   draft: "draft_scene",
   gameplay: "gameplay_scene",
+  postStream: "post_stream_scene",
 } as const;
 
 export function ObsScenePanel({ status, onStatus }: Props) {

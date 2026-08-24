@@ -21,6 +21,13 @@ pub struct ObsConfig {
     pub between_matches_scene: String,
     pub draft_scene: String,
     pub gameplay_scene: String,
+    // WK-99 - fourth scene binding, on equal footing with the other three
+    // (see mapped_scene_names/validate_mapping below) rather than a special
+    // case: the streamer builds this scene themselves in OBS (existing
+    // public overlay Browser Source + their own webcam + whatever else),
+    // Companion just needs a real OBS scene name to switch to once the
+    // stream session becomes `ended` - see BroadcastScene::PostStream.
+    pub post_stream_scene: String,
 }
 
 impl Default for ObsConfig {
@@ -33,16 +40,18 @@ impl Default for ObsConfig {
             between_matches_scene: "Dota — Между матчами".into(),
             draft_scene: "Dota — Драфт".into(),
             gameplay_scene: "Dota — Игра".into(),
+            post_stream_scene: "Dota — Post Stream".into(),
         }
     }
 }
 
 impl ObsConfig {
-    pub fn mapped_scene_names(&self) -> [&str; 3] {
+    pub fn mapped_scene_names(&self) -> [&str; 4] {
         [
             self.between_matches_scene.as_str(),
             self.draft_scene.as_str(),
             self.gameplay_scene.as_str(),
+            self.post_stream_scene.as_str(),
         ]
     }
 
@@ -57,7 +66,7 @@ impl ObsConfig {
     }
 
     pub fn validate_mapping(&self, available_scenes: Option<&[String]>) -> Result<(), String> {
-        let labels = ["Между матчами", "Драфт", "Игра"];
+        let labels = ["Между матчами", "Драфт", "Игра", "Post Stream"];
         let empty: Vec<&str> = labels
             .into_iter()
             .zip(self.mapped_scene_names())
@@ -91,6 +100,13 @@ pub enum BroadcastScene {
     BetweenMatches,
     Draft,
     Gameplay,
+    // WK-99 - never derived from GSI (see from_gsi below, unchanged) - only
+    // ever requested via handle_session_state, and only ever actually
+    // reached through resolve_desired_scene's override (see schedule_switch)
+    // once the stream session is `ended`. Kept in the same enum as the
+    // other three rather than a parallel type so it flows through the exact
+    // same mapping/validation/retry/manual-override machinery as them.
+    PostStream,
 }
 
 impl BroadcastScene {
@@ -114,7 +130,24 @@ impl BroadcastScene {
             Self::BetweenMatches => &config.between_matches_scene,
             Self::Draft => &config.draft_scene,
             Self::Gameplay => &config.gameplay_scene,
+            Self::PostStream => &config.post_stream_scene,
         }
+    }
+}
+
+// WK-99 - the one precedence rule this whole feature adds, in one place:
+// once the stream session is `ended`, Post Stream wins over whatever scene
+// GSI/a remote test command/a config-save reapply would otherwise request -
+// mirrors the public web overlay's own getActiveScene precedence (WK-53:
+// "ended" wins over sceneOverride/GSI, unconditionally). Extracted as a
+// pure function (no AppState/IO) so this is unit-testable without spinning
+// up a thread or a real OBS connection - see schedule_switch, its only
+// caller, and the tests module below.
+fn resolve_desired_scene(requested: BroadcastScene, session_ended: bool) -> BroadcastScene {
+    if session_ended {
+        BroadcastScene::PostStream
+    } else {
+        requested
     }
 }
 
@@ -333,10 +366,33 @@ pub fn reapply_current_mapping(app: &AppHandle, desired: BroadcastScene) {
     schedule_switch(app, desired, true);
 }
 
+// WK-99 - called from backend/mod.rs's periodic stream-session poll (not
+// GSI, not the remote-command mailbox - a third, independent trigger). Only
+// `ended` ever proactively requests a switch here: once the session goes
+// back to active (Start New), there's nothing urgent to force - the next
+// real GSI tick already resumes normal Gameplay/Draft/BetweenMatches
+// automation on its own (see resolve_desired_scene/handle_gsi), exactly the
+// same way it already does after Companion starts up or reconnects.
+pub fn handle_session_state(app: &AppHandle, ended: bool) {
+    {
+        let state = app.state::<AppState>();
+        state.0.lock().unwrap().session_ended = ended;
+    }
+    if ended {
+        schedule_switch(app, BroadcastScene::PostStream, true);
+    }
+}
+
 fn schedule_switch(app: &AppHandle, desired: BroadcastScene, require_enabled: bool) {
-    let config = {
+    // WK-99 - resolved once, here, and shadowed for the rest of the
+    // function (including the spawned thread below) - every caller
+    // (handle_gsi, handle_remote_command, reapply_current_mapping,
+    // handle_session_state) gets the ended-wins-over-everything precedence
+    // for free, see resolve_desired_scene.
+    let (desired, config) = {
         let state = app.state::<AppState>();
         let mut inner = state.0.lock().unwrap();
+        let desired = resolve_desired_scene(desired, inner.session_ended);
         if require_enabled && !inner.obs_config.enabled {
             return;
         }
@@ -359,7 +415,7 @@ fn schedule_switch(app: &AppHandle, desired: BroadcastScene, require_enabled: bo
         }
         inner.obs_switch_pending = Some(desired);
         inner.obs_retry_at = None;
-        inner.obs_config.clone()
+        (desired, inner.obs_config.clone())
     };
 
     let app_for_switch = app.clone();
@@ -473,6 +529,12 @@ mod tests {
         assert_eq!(config.between_matches_scene, "Dota — Между матчами");
         assert_eq!(config.draft_scene, "Dota — Драфт");
         assert_eq!(config.gameplay_scene, "Custom gameplay");
+        // WK-99 - a config saved by a version of Companion that predates
+        // Post Stream (no `post_stream_scene` key at all in the JSON on
+        // disk) must not fail to load or silently lose the other fields -
+        // it gets the same field-default treatment as every other absent
+        // key here.
+        assert_eq!(config.post_stream_scene, "Dota — Post Stream");
     }
 
     #[test]
@@ -488,7 +550,13 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(config.mapped_scene_names(), ["Queue", "Draft", "Gameplay"]);
+        // WK-99 - this JSON predates post_stream_scene (same "legacy" shape
+        // as the test name describes) - mapped_scene_names must still come
+        // back with exactly 4 entries, the 4th filled by the field default.
+        assert_eq!(
+            config.mapped_scene_names(),
+            ["Queue", "Draft", "Gameplay", "Dota — Post Stream"]
+        );
         assert_eq!(config.host, "obs.local");
         assert_eq!(config.port, 4456);
         assert_eq!(config.password, "secret");
@@ -502,10 +570,25 @@ mod tests {
         let available = vec![
             config.between_matches_scene.clone(),
             config.gameplay_scene.clone(),
+            config.post_stream_scene.clone(),
         ];
         assert_eq!(
             config.validate_mapping(Some(&available)).unwrap_err(),
             "В OBS не найдены выбранные сцены: Dota — Драфт"
+        );
+    }
+
+    #[test]
+    fn mapping_validation_requires_post_stream_like_the_other_three() {
+        // WK-99 - Post Stream is "наравне" (on equal footing) with the
+        // other three bindings, per the task - an empty mapping for it
+        // fails validation exactly like an empty draft/gameplay mapping
+        // already does, not silently ignored as optional.
+        let mut config = ObsConfig::default();
+        config.post_stream_scene = "  ".into();
+        assert_eq!(
+            config.validate_mapping(None).unwrap_err(),
+            "Выберите сцены OBS для: Post Stream"
         );
     }
 
@@ -536,5 +619,161 @@ mod tests {
             config.validate_mapping(None).unwrap_err(),
             "Выберите сцены OBS для: Драфт"
         );
+    }
+
+    // WK-99 - OBS Post Stream scene. resolve_desired_scene is the one new
+    // precedence rule this feature adds (ended wins over everything) and is
+    // deliberately a pure function - see its doc comment - so these tests
+    // exercise the resolver/state machine directly, without needing a
+    // thread or a real OBS connection, per the task's own guidance.
+    mod post_stream {
+        use super::*;
+
+        #[test]
+        fn active_session_requests_the_normal_gsi_derived_scene() {
+            assert_eq!(
+                resolve_desired_scene(BroadcastScene::Gameplay, false),
+                BroadcastScene::Gameplay
+            );
+            assert_eq!(
+                resolve_desired_scene(BroadcastScene::BetweenMatches, false),
+                BroadcastScene::BetweenMatches
+            );
+            assert_eq!(
+                resolve_desired_scene(BroadcastScene::Draft, false),
+                BroadcastScene::Draft
+            );
+        }
+
+        #[test]
+        fn ended_session_wins_over_any_requested_scene() {
+            // Mirrors the public web overlay's getActiveScene precedence
+            // (WK-53): once the session is ended, Post Stream wins
+            // regardless of what GSI/a remote command/a config reapply
+            // would otherwise have asked for.
+            for requested in [
+                BroadcastScene::Gameplay,
+                BroadcastScene::Draft,
+                BroadcastScene::BetweenMatches,
+                BroadcastScene::PostStream,
+            ] {
+                assert_eq!(
+                    resolve_desired_scene(requested, true),
+                    BroadcastScene::PostStream
+                );
+            }
+        }
+
+        #[test]
+        fn a_finished_match_alone_does_not_request_post_stream() {
+            // "Обычное завершение матча" - the post-game GSI state maps to
+            // BetweenMatches (see maps_gsi_states_to_broadcast_scenes
+            // above), which only becomes PostStream through
+            // resolve_desired_scene if session_ended is separately true.
+            // Simulates handle_gsi's own composition of the two.
+            let post_game_desired = BroadcastScene::from_gsi(&json!({
+                "map": { "game_state": "DOTA_GAMERULES_STATE_POST_GAME" },
+                "player": { "activity": "playing" }
+            }));
+            assert_eq!(post_game_desired, BroadcastScene::BetweenMatches);
+            assert_eq!(
+                resolve_desired_scene(post_game_desired, false),
+                BroadcastScene::BetweenMatches
+            );
+        }
+
+        #[test]
+        fn lost_gsi_signal_alone_does_not_request_post_stream() {
+            // No player/map at all (GSI silence/timeout) - from_gsi's
+            // fallback is BetweenMatches, same as any other non-playing
+            // tick. session_ended is a wholly separate signal (set only by
+            // backend::poll_session_state), so losing GSI can never flip it
+            // on its own.
+            let desired = BroadcastScene::from_gsi(&json!({}));
+            assert_eq!(desired, BroadcastScene::BetweenMatches);
+            assert_eq!(
+                resolve_desired_scene(desired, false),
+                BroadcastScene::BetweenMatches
+            );
+        }
+
+        #[test]
+        fn post_stream_is_bound_and_validated_on_equal_footing_with_the_other_three() {
+            let config = ObsConfig::default();
+            assert_eq!(config.mapped_scene_names().len(), 4);
+            assert_eq!(
+                BroadcastScene::PostStream.obs_scene_name(&config),
+                config.post_stream_scene
+            );
+            assert!(config.validate_mapping(None).is_ok());
+        }
+
+        #[test]
+        fn manual_scene_switch_after_post_stream_is_not_dragged_back() {
+            // The actual "don't fight the user" mechanism: once Companion's
+            // own record of the active scene says PostStream and the
+            // mapping hasn't changed, is_active_mapping treats a repeated
+            // request for PostStream as a no-op - schedule_switch's caller
+            // (a GSI tick, the 3s session poll, or a remote command) never
+            // re-issues SetCurrentProgramScene, so a scene the user picked
+            // by hand directly in OBS is left alone. Same mechanism the
+            // other three scenes already rely on (see
+            // changed_mapping_is_not_treated_as_an_already_active_scene).
+            let config = ObsConfig::default();
+            let active_name = config.post_stream_scene.clone();
+            assert!(config.is_active_mapping(
+                BroadcastScene::PostStream,
+                Some(BroadcastScene::PostStream),
+                Some(&active_name)
+            ));
+        }
+
+        #[test]
+        fn reapplying_a_changed_post_stream_mapping_is_not_treated_as_already_active() {
+            let mut config = ObsConfig::default();
+            let active_name = config.post_stream_scene.clone();
+            config.post_stream_scene = "Renamed post stream".into();
+            assert!(!config.is_active_mapping(
+                BroadcastScene::PostStream,
+                Some(BroadcastScene::PostStream),
+                Some(&active_name)
+            ));
+        }
+
+        #[test]
+        fn missing_post_stream_binding_fails_fast_without_touching_the_network() {
+            // "Post Stream scene not configured" - switch_scene's empty-name
+            // guard is synchronous, no socket involved, so this is fast and
+            // deterministic to assert directly (no thread/mock OBS needed).
+            let mut config = ObsConfig::default();
+            config.post_stream_scene = String::new();
+            let error = switch_scene(&config, BroadcastScene::PostStream).unwrap_err();
+            assert_eq!(error, "Название сцены OBS не задано");
+        }
+
+        #[test]
+        fn session_ended_defaults_to_false_so_automation_runs_normally_until_told_otherwise() {
+            // Before the first successful poll_session_state (no companion
+            // token yet, backend unreachable, Companion just launched), the
+            // resolver must behave exactly as it did before this feature -
+            // GSI-driven automation, never a surprise Post Stream switch.
+            assert!(!crate::state::InnerState::default().session_ended);
+        }
+
+        // "OBS unavailable / Post Stream scene not configured must not block
+        // End Stream": handle_session_state (backend/mod.rs -> obs.rs) sets
+        // AppState's session_ended in its own short-lived lock, as plain
+        // synchronous field assignment, strictly before the separate
+        // `if ended { schedule_switch(..) }` line that may go on to spawn a
+        // thread and fail against OBS - visible directly in
+        // handle_session_state's body above. Consistent with the rest of
+        // this file's testing boundary (schedule_switch/handle_gsi/
+        // handle_remote_command's AppHandle-driven paths are exercised
+        // manually/end-to-end, not via a mocked Tauri app here either) -
+        // this project's tauri dependency isn't built with the `test`
+        // feature, so asserting this specific line via a real AppHandle
+        // would need a new dev-dependency just for one field assignment;
+        // the pure resolve_desired_scene tests above already cover the
+        // actual decision logic this whole feature adds.
     }
 }
