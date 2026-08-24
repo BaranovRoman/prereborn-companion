@@ -143,8 +143,16 @@ export function AppShell() {
           onDismiss={updater.dismiss}
         />
 
+        {/* Companion UI 2.0 follow-up - "endedNewOnly" is now covered by the
+            always-visible StreamSessionCard on Главная (see HomePage.tsx),
+            which offers the same "Начать новый стрим" action without
+            requiring the user to be on Главная to see it hidden behind a
+            dismissible nudge. This banner now only ever fires for the
+            genuinely different "stale-but-still-active" case
+            ("continueOrNew") - showing both would duplicate the same
+            control (задача: "не должно остаться дублирующих controls"). */}
         <SessionPromptBanner
-          show={sessionPrompt.showPrompt}
+          show={sessionPrompt.showPrompt && sessionPrompt.promptMode !== "endedNewOnly"}
           mode={sessionPrompt.promptMode}
           session={sessionPrompt.promptData}
           busy={sessionPrompt.busy}
@@ -185,6 +193,9 @@ export function AppShell() {
             busy={busy}
             run={run}
             autostart={autostart}
+            hotkeyStatus={chatSession.skipHotkeyStatus}
+            hotkeyBusy={chatSession.skipHotkeyBusy}
+            onUpdateHotkey={chatSession.updateSkipHotkey}
           />
         )}
         {section === "diagnostics" && (

@@ -68,6 +68,23 @@ describe("useStreamSessionPrompt", () => {
     expect(result.current.promptData).toBeNull();
   });
 
+  // Companion UI 2.0 follow-up - the initial fetch's catch handler used to
+  // only console.warn, leaving `error` permanently null. That was invisible
+  // to the old stale-session BANNER (which just stays hidden either way),
+  // but the new always-visible StreamSessionCard (see pages/HomePage.tsx)
+  // needs `error` set to tell "still loading" apart from "genuinely
+  // unavailable" (задача state D) - without this fix it would show a
+  // "Проверяем состояние…" spinner forever instead of an honest message.
+  it("sets `error` when the initial session fetch fails, so callers can distinguish loading from unavailable", async () => {
+    vi.mocked(getStreamSession).mockRejectedValue(new Error("Сначала добавьте companion token."));
+
+    const { result } = renderHook(() => useStreamSessionPrompt());
+
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+    expect(result.current.error).toContain("Сначала добавьте companion token.");
+    expect(result.current.promptData).toBeNull();
+  });
+
   it("shows a prompt for an old session and hides it after Начать новый стрим", async () => {
     vi.mocked(getStreamSession).mockResolvedValue(OLD_SESSION);
     vi.mocked(resetStreamSession).mockResolvedValue(NEW_SESSION);

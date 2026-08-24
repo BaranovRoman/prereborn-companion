@@ -32,7 +32,7 @@ export function BackendStatusPanel({ status, busy, onResend }: Props) {
           Последняя ошибка: {status.backend_last_error}
         </p>
       )}
-      <button onClick={onResend} disabled={busy}>
+      <button className="button" onClick={onResend} disabled={busy}>
         Отправить текущее состояние повторно
       </button>
     </section>

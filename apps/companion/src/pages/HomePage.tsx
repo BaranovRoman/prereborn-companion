@@ -1,4 +1,6 @@
 import { CompanionTokenForm } from "../components/CompanionTokenForm";
+import { StreamSessionCard } from "../components/StreamSessionCard";
+import type { StreamSessionPromptState } from "../hooks/useStreamSessionPrompt";
 import * as api from "../services/dotaCompanionApi";
 import type { StatusSnapshot } from "../types/status";
 import type { BackendStatusDescription } from "../utils/backendStatus";
@@ -36,13 +38,6 @@ function StatusCard({ label, value, detail, tone }: {
   );
 }
 
-interface SessionPromptSlice {
-  showPrompt: boolean;
-  busy: boolean;
-  error: string | null;
-  onEndStream: () => Promise<void>;
-}
-
 interface Props {
   status: StatusSnapshot | null;
   busy: boolean;
@@ -57,40 +52,43 @@ interface Props {
   provisionGsi: () => void;
   checkObs: () => void;
   setAutomaticMode: (enabled: boolean) => void;
-  sessionPrompt: SessionPromptSlice;
+  sessionPrompt: StreamSessionPromptState;
 }
 
-// Companion UI 2.0 - "Главная": stream-session controls (End Stream, OBS
-// automatic/manual + quick scene switch), at-a-glance connection status, and
-// (only on first run / when reopened via "Проверить настройку") the guided
-// setup checklist. Technical/troubleshooting detail (raw GSI events, backend
-// resend, GSI install fallbacks, diagnostics capture) lives in Диагностика;
-// OBS scene mapping and account/connection settings live in Настройки - see
-// AppShell for how this page is composed with the rest of the shell.
+// Companion UI 2.0 follow-up - StreamSessionCard now renders unconditionally
+// (both branches below), independent of setupOpen/OBS/GSI - see задача
+// "Stream controls must not depend on OBS/GSI". Everything else on this
+// page (readiness, status grid, OBS scene panel) still only appears once
+// the first-run wizard is dismissed/finished, unchanged from before.
 export function HomePage({
   status, busy, run, ready, backendStatus, hasGsiSignal, requestCount,
   setupOpen, setSetupOpen, finishSetup, provisionGsi, checkObs, setAutomaticMode, sessionPrompt,
 }: Props) {
   if (setupOpen) {
     return (
-      <section className="setup-guide" aria-labelledby="setup-title">
-        <div className="setup-guide__heading">
-          <div><span className="section-heading__eyebrow">Первый запуск</span><h2 id="setup-title">Подготовим Companion к стриму</h2><p>Статусы обновляются автоматически и восстановятся после временного сбоя.</p></div>
-          <button className="button" onClick={() => setSetupOpen(false)}>Продолжить позже</button>
-        </div>
-        <ol className="setup-steps">
-          <li className={status?.server_running ? "is-complete" : ""}><strong>Companion</strong><span>{status?.server_running ? "Локальный сервис работает" : status?.gsi_state === "recovering" ? "Перезапускает локальный сервис" : "Локальный сервис недоступен"}</span><small>{status?.gsi_last_error ?? "Запускается автоматически"}</small></li>
-          <li className={status?.gsi_installed && hasGsiSignal ? "is-complete" : ""}><strong>Dota 2 / GSI</strong><span>{hasGsiSignal ? "Данные поступают" : status?.gsi_installed ? "Конфигурация готова — запустите Dota 2" : "Нужна конфигурация GSI"}</span><button onClick={provisionGsi} disabled={busy}>{status?.gsi_installed ? "Проверить снова" : "Настроить автоматически"}</button></li>
-          <li className={backendStatus.ready ? "is-complete" : ""}><strong>Связь с PreReborn</strong><span>{backendStatus.label}</span><CompanionTokenForm status={status} busy={busy} onSave={(token) => run(() => api.saveCompanionToken(token))} /></li>
-          <li className={status?.obs_connected ? "is-complete" : ""}><strong>OBS</strong><span>{status?.obs_connected ? "WebSocket и сцены доступны" : status?.obs_state === "recovering" ? "Соединение восстанавливается" : "Настройте OBS WebSocket и сцены"}</span><button onClick={checkObs} disabled={busy || !status}>Проверить OBS</button><small>Маппинг сцен настраивается в разделе «Настройки».</small></li>
-        </ol>
-        <div className="setup-guide__footer"><p>{ready ? "Все обязательные компоненты готовы." : "Завершение станет доступно, когда все обязательные проверки успешны."}</p><button className="button button--primary" onClick={finishSetup} disabled={!ready}>Завершить настройку</button></div>
-      </section>
+      <>
+        <StreamSessionCard sessionPrompt={sessionPrompt} />
+        <section className="setup-guide" aria-labelledby="setup-title">
+          <div className="setup-guide__heading">
+            <div><span className="section-heading__eyebrow">Первый запуск</span><h2 id="setup-title">Подготовим Companion к стриму</h2><p>Статусы обновляются автоматически и восстановятся после временного сбоя.</p></div>
+            <button className="button" onClick={() => setSetupOpen(false)}>Продолжить позже</button>
+          </div>
+          <ol className="setup-steps">
+            <li className={status?.server_running ? "is-complete" : ""}><strong>Companion</strong><span>{status?.server_running ? "Локальный сервис работает" : status?.gsi_state === "recovering" ? "Перезапускает локальный сервис" : "Локальный сервис недоступен"}</span><small>{status?.gsi_last_error ?? "Запускается автоматически"}</small></li>
+            <li className={status?.gsi_installed && hasGsiSignal ? "is-complete" : ""}><strong>Dota 2 / GSI</strong><span>{hasGsiSignal ? "Данные поступают" : status?.gsi_installed ? "Конфигурация готова — запустите Dota 2" : "Нужна конфигурация GSI"}</span><button onClick={provisionGsi} disabled={busy}>{status?.gsi_installed ? "Проверить снова" : "Настроить автоматически"}</button></li>
+            <li className={backendStatus.ready ? "is-complete" : ""}><strong>Связь с PreReborn</strong><span>{backendStatus.label}</span><CompanionTokenForm status={status} busy={busy} onSave={(token) => run(() => api.saveCompanionToken(token))} /></li>
+            <li className={status?.obs_connected ? "is-complete" : ""}><strong>OBS</strong><span>{status?.obs_connected ? "WebSocket и сцены доступны" : status?.obs_state === "recovering" ? "Соединение восстанавливается" : "Настройте OBS WebSocket и сцены"}</span><button onClick={checkObs} disabled={busy || !status}>Проверить OBS</button><small>Маппинг сцен настраивается в разделе «Настройки».</small></li>
+          </ol>
+          <div className="setup-guide__footer"><p>{ready ? "Все обязательные компоненты готовы." : "Завершение станет доступно, когда все обязательные проверки успешны."}</p><button className="button button--primary" onClick={finishSetup} disabled={!ready}>Завершить настройку</button></div>
+        </section>
+      </>
     );
   }
 
   return (
     <>
+      <StreamSessionCard sessionPrompt={sessionPrompt} />
+
       <section className={`readiness ${ready ? "readiness--ok" : "readiness--warning"}`}>
         <div>
           <span className="readiness__label">Состояние эфира</span>
@@ -111,32 +109,8 @@ export function HomePage({
       <section className="control-panel">
         <div className="section-heading">
           <div><span className="section-heading__eyebrow">Управление эфиром</span><h2>Сцены OBS</h2></div>
-          <div className="control-panel__header-actions">
-            <span className={`connection-pill ${status?.obs_connected ? "is-online" : ""}`}>{status?.obs_connected ? "На связи" : "Не подключён"}</span>
-            {/* WK-100 - reuses the same backend endActiveSession the web
-                cabinet's own End button calls (see useStreamSessionPrompt's
-                onEndStream) - streamer no longer has to open the web
-                cabinet just to end a stream. A backend error surfaces
-                inline below and never flips this into a false "ended"
-                state (onEndStream only updates promptData on success). */}
-            <button
-              className="button button--danger"
-              disabled={sessionPrompt.busy}
-              onClick={() => {
-                if (window.confirm("Завершить стрим? OBS переключится на Post Stream.")) {
-                  void sessionPrompt.onEndStream();
-                }
-              }}
-            >
-              {sessionPrompt.busy ? "Завершаем…" : "Завершить стрим"}
-            </button>
-          </div>
+          <span className={`connection-pill ${status?.obs_connected ? "is-online" : ""}`}>{status?.obs_connected ? "На связи" : "Не подключён"}</span>
         </div>
-        {/* sessionPrompt.error is shared with SessionPromptBanner's own
-            action (onStartNew) - only show it here when that banner isn't
-            already displaying it, to avoid the same error rendering twice
-            on screen at once. */}
-        {sessionPrompt.error && !sessionPrompt.showPrompt && <p className="app__error">Ошибка: {sessionPrompt.error}</p>}
         <div className="mode-switch" role="group" aria-label="Режим переключения сцен">
           <button className={status?.obs_config.enabled ? "is-active" : ""} onClick={() => setAutomaticMode(true)} disabled={busy || !status}>Автоматический</button>
           <button className={!status?.obs_config.enabled ? "is-active" : ""} onClick={() => setAutomaticMode(false)} disabled={busy || !status}>Ручной</button>
