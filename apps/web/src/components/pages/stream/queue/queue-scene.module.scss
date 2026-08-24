@@ -422,12 +422,6 @@
     letter-spacing: .18em;
 }
 
-.overline {
-    color: #9a766f;
-    font-size: 12px;
-    letter-spacing: .22em;
-}
-
 .navOrnaments {
     display: flex;
     height: 100%;
@@ -732,8 +726,7 @@
 // WK-90 (second pass): first pass (WK-87, +2px) proved insufficient on a
 // real broadcast/Twitch-compressed view - primary values now take a much
 // bigger, deliberate step up. Labels stay secondary/small.
-.profileStats span,
-.matchStats span { color: #767c79; font-size: 11px; letter-spacing: .16em; }
+.profileStats span { color: #767c79; font-size: 11px; letter-spacing: .16em; }
 .profileStats b { margin-top: 5px; color: #c9c5bd; font-family: var(--font-title); font-size: 24px; font-weight: 400; }
 
 .streamProfileBody {
@@ -852,7 +845,7 @@
 
 .featuredMatch {
     display: grid;
-    grid-template-rows: 34px minmax(0, 1fr) 242px;
+    grid-template-rows: 34px minmax(0, 1fr) 264px;
 }
 
 .featuredMatch .panelTitle { grid-row: 1; }
@@ -987,21 +980,70 @@
     display: flex;
     align-items: baseline;
     justify-content: space-between;
+    gap: 16px;
     margin-top: 5px;
 }
 
-.heroNameRow strong { color: #d5d1c9; font-family: var(--font-title); font-size: 30px; font-weight: 400; letter-spacing: .04em; }
+.heroNameRow strong {
+    min-width: 0;
+    color: #d5d1c9;
+    font-family: var(--font-title);
+    font-size: 30px;
+    font-weight: 400;
+    letter-spacing: .04em;
+}
 // WK-90 (second pass): WK-87's first-pass 15px proved insufficient on a
-// real broadcast view - pushed further, alongside .matchStats b below.
-.heroNameRow em { color: #bd655e; font-size: 18px; font-style: normal; letter-spacing: .16em; }
+// real broadcast view - pushed further, alongside .statValue below.
+.heroNameRow em { flex: none; color: #bd655e; font-size: 20px; font-style: normal; letter-spacing: .16em; }
 .heroNameRow em[data-result="win"] { color: #9bbb76; }
 .heroNameRow em[data-result="abandon"] { color: #c29a69; }
-.matchStats { display: grid; grid-template-columns: 1.3fr 1fr 1fr; margin-top: 13px; padding-block: 13px; border-block: 1px solid #2d3334; }
-.matchStats div { display: flex; flex-direction: column; gap: 6px; border-right: 1px solid #2d3334; }
-.matchStats div:not(:first-child) { padding-left: 14px; }
-.matchStats div:last-child { border: 0; }
-.matchStats b { color: #c1beb7; font-family: var(--font-title); font-size: 20px; font-weight: 400; }
-.positive { color: #9bbb76 !important; }
+
+// WK-97: broadcast-style single flowing summary - no per-metric borders or
+// section headings, hierarchy comes from type scale/weight/opacity only.
+.matchMeta {
+    display: block;
+    margin-top: 5px;
+    color: #767c79;
+    font-size: 13px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+}
+
+.matchStats {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid #2d3334;
+}
+
+.statsPrimary {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    column-gap: 22px;
+    row-gap: 4px;
+}
+
+.statValue {
+    color: #c1beb7;
+    font-family: var(--font-title);
+    font-size: 24px;
+    font-weight: 400;
+    letter-spacing: .02em;
+    white-space: nowrap;
+}
+
+.statValue[data-tone="positive"] { color: #9bbb76; }
+.statValue[data-tone="negative"] { color: #bd655e; }
+
+.statsSecondary {
+    color: #767c79;
+    font-size: 13px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+}
 
 .inventory {
     display: flex;
