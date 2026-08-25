@@ -301,4 +301,154 @@ mod tests {
         assert_eq!(snapshot.gsi_state, ConnectionState::Waiting);
         assert_eq!(snapshot.backend_state, ConnectionState::Connected);
     }
+
+    // Post-0.5.27 diagnostic pass (real-stream report: "Главная shows GSI/
+    // Companion as not connected"). `gsi_state` had zero direct test
+    // coverage despite `backend_state` above having 7 - these close that
+    // gap and pin the exact 10s freshness boundary the manual report turned
+    // out to hinge on. `Instant::now() - Duration::from_secs(n)` gives a
+    // precise, fast (no real sleep) way to simulate "received n seconds
+    // ago" - Instant supports `Sub<Duration>` directly.
+    mod gsi_state_tests {
+        use super::*;
+        use std::time::Duration;
+
+        #[test]
+        fn unavailable_before_the_local_gsi_server_has_bound_at_all() {
+            let state = AppState::new();
+            // InnerState::default(): server_running=false, no gsi_last_error
+            // yet either (that only gets set on an actual bind failure) - in
+            // practice this is a sub-millisecond window at startup before
+            // server::start()'s background thread completes its first bind,
+            // not something a user is expected to ever actually observe.
+            assert_eq!(state.snapshot().gsi_state, ConnectionState::Unavailable);
+        }
+
+        #[test]
+        fn recovering_if_the_local_gsi_listener_itself_failed_to_bind() {
+            let state = AppState::new();
+            {
+                let mut inner = state.0.lock().unwrap();
+                inner.server_running = false;
+                inner.gsi_last_error = Some("Could not bind 127.0.0.1:3665: address in use".into());
+            }
+            assert_eq!(state.snapshot().gsi_state, ConnectionState::Recovering);
+        }
+
+        #[test]
+        fn waiting_when_the_server_is_up_but_dota_has_never_sent_a_packet() {
+            let state = AppState::new();
+            {
+                let mut inner = state.0.lock().unwrap();
+                inner.server_running = true;
+                // gsi_last_received_at stays None - GSI cfg may not even be
+                // loaded by Dota yet (game not started, or started before
+                // the cfg file existed - Dota only reads it at launch).
+            }
+            assert_eq!(state.snapshot().gsi_state, ConnectionState::Waiting);
+        }
+
+        #[test]
+        fn connected_immediately_after_a_fresh_packet() {
+            let state = AppState::new();
+            {
+                let mut inner = state.0.lock().unwrap();
+                inner.server_running = true;
+                inner.gsi_last_received_at = Some(Instant::now());
+            }
+            assert_eq!(state.snapshot().gsi_state, ConnectionState::Connected);
+        }
+
+        #[test]
+        fn still_connected_right_at_the_10s_boundary() {
+            let state = AppState::new();
+            {
+                let mut inner = state.0.lock().unwrap();
+                inner.server_running = true;
+                inner.gsi_last_received_at = Some(Instant::now() - Duration::from_secs(10));
+            }
+            assert_eq!(state.snapshot().gsi_state, ConnectionState::Connected);
+        }
+
+        #[test]
+        fn recovering_just_past_the_10s_freshness_window() {
+            let state = AppState::new();
+            {
+                let mut inner = state.0.lock().unwrap();
+                inner.server_running = true;
+                inner.gsi_last_received_at = Some(Instant::now() - Duration::from_secs(11));
+            }
+            assert_eq!(state.snapshot().gsi_state, ConnectionState::Recovering);
+        }
+
+        #[test]
+        fn a_new_packet_recovers_gsi_state_back_to_connected() {
+            let state = AppState::new();
+            {
+                let mut inner = state.0.lock().unwrap();
+                inner.server_running = true;
+                inner.gsi_last_received_at = Some(Instant::now() - Duration::from_secs(30));
+            }
+            assert_eq!(state.snapshot().gsi_state, ConnectionState::Recovering);
+            {
+                let mut inner = state.0.lock().unwrap();
+                inner.gsi_last_received_at = Some(Instant::now());
+            }
+            assert_eq!(state.snapshot().gsi_state, ConnectionState::Connected);
+        }
+
+        // Regression guard for the exact symptom reported: a healthy,
+        // actively-streaming GSI feed alongside a backend that hasn't
+        // completed its first send yet must show gsi_state=Connected
+        // regardless of backend_state - these are independent signals, one
+        // must never mask or depend on the other.
+        #[test]
+        fn gsi_connected_is_independent_of_backend_state_being_unconfirmed() {
+            let state = AppState::new();
+            {
+                let mut inner = state.0.lock().unwrap();
+                inner.server_running = true;
+                inner.gsi_last_received_at = Some(Instant::now());
+                // backend_attempted stays false - no companion token yet, or
+                // no send has completed - backend_state stays Waiting.
+            }
+            let snapshot = state.snapshot();
+            assert_eq!(snapshot.gsi_state, ConnectionState::Connected);
+            assert_eq!(snapshot.backend_state, ConnectionState::Waiting);
+        }
+    }
+
+    // Parity coverage for obs_state (confirmed working correctly in manual
+    // QA - these protect that, they don't change any behavior).
+    mod obs_state_tests {
+        use super::*;
+
+        #[test]
+        fn waiting_when_automation_is_off_and_nothing_has_failed() {
+            let state = AppState::new();
+            // InnerState::default(): obs_connected=false, obs_config.enabled
+            // defaults false, no last_error, nothing pending.
+            assert_eq!(state.snapshot().obs_state, ConnectionState::Waiting);
+        }
+
+        #[test]
+        fn connected_when_the_obs_websocket_is_up() {
+            let state = AppState::new();
+            {
+                let mut inner = state.0.lock().unwrap();
+                inner.obs_connected = true;
+            }
+            assert_eq!(state.snapshot().obs_state, ConnectionState::Connected);
+        }
+
+        #[test]
+        fn unavailable_when_automation_is_enabled_but_not_connected() {
+            let state = AppState::new();
+            {
+                let mut inner = state.0.lock().unwrap();
+                inner.obs_config.enabled = true;
+            }
+            assert_eq!(state.snapshot().obs_state, ConnectionState::Unavailable);
+        }
+    }
 }

@@ -42,6 +42,9 @@ function buildStatusFixture(overrides: Record<string, unknown> = {}) {
     legacy_cleanup_in_progress: false,
     backend_url: "https://prereborn.ru/api",
     companion_token_configured: true,
+    backend_state: "connected",
+    backend_last_sent_at: new Date().toISOString(),
+    backend_last_error: null,
     obs_config: {
       enabled: true,
       host: "localhost",
@@ -279,5 +282,63 @@ describe("Stream session controls are independent of OBS/GSI/setup state", () =>
 
     expect(onEndStream).toHaveBeenCalledTimes(1);
     vi.restoreAllMocks();
+  });
+
+  it("End Stream is available with an active session even when GSI has gone stale (no signal for a while)", () => {
+    statusFixture = buildStatusFixture({ gsi_state: "recovering" });
+    sessionPromptFixture = buildSessionPromptFixture({ promptData: ACTIVE_SESSION });
+    render(<AppShell />);
+    const endButton = screen.getByRole("button", { name: "Завершить стрим" }) as HTMLButtonElement;
+    expect(endButton.disabled).toBe(false);
+  });
+});
+
+// Post-0.5.27 diagnostic pass - real-stream report: "Главная shows GSI/
+// Companion as not connected". Root cause was not a data/pipeline
+// regression (state.rs/useStatus.ts/useGsiEvents.ts are unchanged since
+// before Companion UI 2.0 - see state.rs's new gsi_state_tests for the
+// data-layer coverage) but a misleading label: the card used to say
+// "Companion", which reads as "is the app itself broken" when it actually
+// reports backend-heartbeat status (`backendStatus`, the same signal the
+// setup wizard already calls "Связь с PreReborn"). These tests pin the
+// renamed label and confirm the status-grid renders a genuinely-connected
+// snapshot correctly (this was verified once already via a live Playwright
+// run against a mocked Tauri bridge - these give it permanent regression
+// coverage).
+describe("Главная status-grid (Companion label clarity fix)", () => {
+  it("labels the backend-heartbeat card 'Связь с PreReborn', matching the setup wizard's own wording - not the misleading 'Companion'", () => {
+    render(<AppShell />);
+    expect(screen.getByText("Связь с PreReborn")).toBeTruthy();
+    // Exact-match query: "Companion" still legitimately appears as a
+    // substring elsewhere (sidebar brand, readiness prose) - this only
+    // rules out an element whose *entire* text is the old bare label.
+    expect(screen.queryByText("Companion")).toBeNull();
+  });
+
+  it("renders all three cards as connected when the underlying snapshot genuinely reports connected", () => {
+    statusFixture = buildStatusFixture({ gsi_state: "connected", backend_state: "connected", obs_connected: true });
+    render(<AppShell />);
+    expect(screen.getByText("Подключено")).toBeTruthy();
+    expect(screen.getByText("Получает данные")).toBeTruthy();
+    expect(screen.getByText("Подключён")).toBeTruthy();
+  });
+
+  it("GSI going stale is reflected honestly (Recovering), independent of backend/OBS state", () => {
+    statusFixture = buildStatusFixture({ gsi_state: "recovering", backend_state: "connected", obs_connected: true });
+    render(<AppShell />);
+    expect(screen.getByText("Восстанавливается")).toBeTruthy();
+    // Backend/OBS stay reported as connected - one stale signal must never
+    // mask or drag down the other two.
+    expect(screen.getByText("Подключено")).toBeTruthy();
+    expect(screen.getByText("Подключён")).toBeTruthy();
+  });
+
+  it("a backend heartbeat that hasn't completed yet (Waiting) does not make GSI look disconnected too", () => {
+    statusFixture = buildStatusFixture({ gsi_state: "connected", backend_state: "waiting" });
+    render(<AppShell />);
+    // "Ожидание проверки" legitimately appears twice (sidebar footer pill +
+    // the status-grid card - both read the same backendStatus.label).
+    expect(screen.getAllByText("Ожидание проверки").length).toBeGreaterThan(0);
+    expect(screen.getByText("Получает данные")).toBeTruthy();
   });
 });
