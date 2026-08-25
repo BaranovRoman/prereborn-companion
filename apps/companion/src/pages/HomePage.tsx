@@ -98,8 +98,18 @@ export function HomePage({
         <div className="readiness__actions"><button className="button" onClick={() => setSetupOpen(true)}>Проверить настройку</button><button className="button" onClick={() => void run(api.getStatus)} disabled={busy}>Обновить</button></div>
       </section>
 
+      {/* This card's data (`backendStatus`) is a heartbeat to the PreReborn
+          backend, not "is Companion running" - the same signal the setup
+          wizard above already labels "Связь с PreReborn". It used to be
+          labeled "Companion" here, which reads as "is the desktop app
+          itself broken" to anyone glancing at Главная - misleading when
+          Companion, GSI, and OBS are all actually fine and this card is
+          just honestly reporting "Ожидание проверки" before the very first
+          backend send has had a chance to complete (see
+          utils/backendStatus.ts's WK-94 comment). Renamed to match the
+          wizard's own existing wording for the identical data, not invented. */}
       <section className="status-grid" aria-label="Состояние подключений">
-        <StatusCard label="Companion" value={backendStatus.label} detail={backendStatus.detail} tone={backendStatus.tone} />
+        <StatusCard label="Связь с PreReborn" value={backendStatus.label} detail={backendStatus.detail} tone={backendStatus.tone} />
         <StatusCard label="Dota 2 / GSI" value={hasGsiSignal ? "Получает данные" : status?.gsi_state === "recovering" ? "Восстанавливается" : status?.gsi_installed ? "Ожидает Dota 2" : "Не настроен"} detail={hasGsiSignal ? `Получено событий: ${requestCount}` : status?.gsi_last_error ?? (status?.gsi_installed ? "GSI установлен, запустите игру" : "Установите конфигурацию GSI")} tone={hasGsiSignal ? "ok" : status?.gsi_installed || status?.gsi_state === "recovering" ? "warning" : "error"} />
         <StatusCard label="OBS" value={status?.obs_connected ? "Подключён" : status?.obs_state === "recovering" ? "Восстанавливается" : "Нет связи"} detail={status?.obs_connected ? "OBS WebSocket отвечает" : status?.obs_last_error ?? "Проверьте OBS WebSocket"} tone={status?.obs_connected ? "ok" : status?.obs_state === "recovering" ? "warning" : "error"} />
       </section>
