@@ -80,6 +80,18 @@ const EndedSessionSummary = ({ summary }: { summary: SessionSummary }) => {
                             </span>
                         )}
                     </div>
+                    {/* WK-105 - delta выше = только матчи (см. ratingDelta в
+                        SessionSummary), поэтому ratingStart + delta честно
+                        может не сойтись с ratingEnd, если была абсолютная
+                        коррекция "Текущего MMR" - показываем её отдельной
+                        строкой, а не молчим о расхождении. */}
+                    {summary.ratingAdjustment !== 0 && (
+                        <div className={styles.savingHint}>
+                            включая ручную коррекцию Текущего MMR:{" "}
+                            {summary.ratingAdjustment > 0 ? "+" : ""}
+                            {summary.ratingAdjustment}
+                        </div>
+                    )}
                 </div>
             )}
             <div className={styles.statBlock}>
@@ -221,16 +233,34 @@ export const StreamSessionPanel = ({
         };
     }, [steamConnected, isActive]);
 
+    // WK-105 - "Установить текущий MMR": абсолютная коррекция точки отсчёта
+    // (backend: applyAbsoluteRatingCorrection), НЕ переписывание истории
+    // матчей - см. задачу. previousRating берём из lastSavedRatingRef (что
+    // реально было сохранено до этого блюра), а не из ratingInput на входе в
+    // функцию, чтобы сообщение показывало настоящую разницу, даже если
+    // пользователь поправил поле пару раз подряд без промежуточного сохранения.
     const handleRatingBlur = async () => {
-        if (ratingInput === lastSavedRatingRef.current) return;
+        const previousRating = lastSavedRatingRef.current;
+        if (ratingInput === previousRating) return;
         setRatingSaving(true);
         try {
             const updated = await streamSessionApi.patch({ rating: ratingInput });
             setLifecycle((current) => (current ? { ...current, session: updated } : current));
             lastSavedRatingRef.current = updated.rating;
             setRatingInput(updated.rating);
+            if (previousRating !== null && updated.rating !== null) {
+                const diff = updated.rating - previousRating;
+                if (diff !== 0) {
+                    messageApi.success(
+                        `Текущий MMR скорректирован с ${previousRating} до ${updated.rating} ` +
+                            `(${diff > 0 ? "+" : ""}${diff}). История матчей не изменится.`
+                    );
+                }
+            } else if (updated.rating !== null) {
+                messageApi.success(`Текущий MMR установлен: ${updated.rating}.`);
+            }
         } catch {
-            messageApi.error("Не удалось сохранить рейтинг");
+            messageApi.error("Не удалось сохранить MMR");
             setRatingInput(lastSavedRatingRef.current);
         } finally {
             setRatingSaving(false);
@@ -403,7 +433,7 @@ export const StreamSessionPanel = ({
                     </Popconfirm>
                     <Popconfirm
                         title="Начать новый стрим?"
-                        description="Победы, поражения и последний герой обнулятся. Рейтинг сохранится."
+                        description="Победы, поражения и последний герой обнулятся. Текущий MMR сохранится."
                         okText="Начать"
                         cancelText="Отмена"
                         onConfirm={handleReset}
@@ -421,7 +451,7 @@ export const StreamSessionPanel = ({
 
             <div className={styles.statsRow}>
                 <div className={styles.statBlock}>
-                    <span className={styles.statLabel}>Рейтинг</span>
+                    <span className={styles.statLabel}>Текущий MMR</span>
                     <div className={styles.ratingRow}>
                         <InputNumber
                             className={styles.ratingInput}

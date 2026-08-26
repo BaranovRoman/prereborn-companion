@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import {
+    applyAbsoluteRatingCorrection,
     endActiveSession,
     getLatestSessionForUser,
     getOrCreateActiveSession,
@@ -53,9 +54,31 @@ export const getSessionController = async (req: Request, res: Response) => {
     }
 };
 
+// WK-105 - `rating` в теле - отдельная операция (абсолютная коррекция
+// "Текущего MMR", см. applyAbsoluteRatingCorrection), а НЕ ещё одно поле
+// среди wins/losses/lastHeroId - см. задачу "ДВЕ РАЗНЫЕ операции". Текущий
+// UI (stream-session-panel.tsx) никогда не отправляет rating вместе с
+// другими полями в одном PATCH, поэтому здесь это не обрабатывается как
+// одновременная комбинация - если rating присутствует, остальные поля этого
+// же запроса игнорируются (осознанное упрощение, а не потеря данных: ни один
+// существующий вызывающий код так не делает).
 export const patchSessionController = async (req: Request, res: Response) => {
     try {
         const patch = patchSessionSchema.parse(req.body);
+
+        if ("rating" in patch) {
+            const correction = await applyAbsoluteRatingCorrection(
+                req.streamUserId as string,
+                patch.rating ?? null
+            );
+            if (!correction) {
+                return res
+                    .status(409)
+                    .json({ error: "Стрим завершён - нет активной сессии для изменения" });
+            }
+            return res.json(correction.session);
+        }
+
         const session = await updateActiveSession(
             req.streamUserId as string,
             patch

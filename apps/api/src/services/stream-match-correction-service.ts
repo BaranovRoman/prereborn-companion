@@ -67,6 +67,8 @@ interface MatchRow {
     rating_before: number | null;
     rating_delta: number | null;
     rating_after: number | null;
+    detected_rating_delta: number | null;
+    rating_delta_correction: number;
     result_source: ResultSource;
     rating_source: RatingSource | null;
     game_mode: StreamGameMode;
@@ -270,19 +272,37 @@ export const correctStreamMatch = async (
         let ratingDelta: number | null;
         let ratingAfter: number | null;
         let ratingSource: RatingSource | null = match.rating_source;
+        // WK-105 - detectedRatingDelta - то, что определил auto-detect,
+        // НИКОГДА не переписывается ручной коррекцией (только сбрасывается в
+        // null, если режим матча уходит в unranked/unknown - см. блок ниже, и
+        // заново фиксируется, если auto-правило впервые срабатывает для этого
+        // матча). ratingDeltaCorrection - разница поверх него: effective
+        // ratingDelta = detected + correction (инвариант, проверяемый ниже).
+        // Диффуется от match.detected_rating_delta, а не от 0, чтобы
+        // повторная правка (например, +25 -> +26 -> +25) не накапливала
+        // ошибку - см. задачу.
+        let detectedRatingDelta: number | null = match.detected_rating_delta;
+        let ratingDeltaCorrection: number = match.rating_delta_correction;
 
         if (newResult === "abandon") {
             ratingDelta = -DEFAULT_RATING_STEP;
             ratingAfter = ratingBefore !== null ? ratingBefore + ratingDelta : null;
             ratingSource = "default";
+            // ABANDON - фиксированное системное правило (см. AbandonRatingEditError
+            // выше: ручная дельта для него вообще запрещена), а не коррекция
+            // поверх чего-то - трактуем как свежий auto-detect.
+            detectedRatingDelta = ratingDelta;
+            ratingDeltaCorrection = 0;
         } else if (command.ratingAfter !== undefined) {
             ratingDelta = ratingBefore !== null ? command.ratingAfter - ratingBefore : null;
             ratingAfter = command.ratingAfter;
             ratingSource = "manual";
+            ratingDeltaCorrection = (ratingDelta ?? 0) - (detectedRatingDelta ?? 0);
         } else if (command.ratingDelta !== undefined) {
             ratingDelta = command.ratingDelta;
             ratingAfter = ratingBefore !== null ? ratingBefore + command.ratingDelta : null;
             ratingSource = "manual";
+            ratingDeltaCorrection = ratingDelta - (detectedRatingDelta ?? 0);
         } else if (matchIsRanked === true && (resultChanged || match.rating_delta === null)) {
             // Дефолтная +25/-25 - либо result впервые появился (needs_review
             // -> win/loss без ранее известной дельты), либо сменился
@@ -295,6 +315,14 @@ export const correctStreamMatch = async (
                       : -DEFAULT_RATING_STEP;
             ratingAfter =
                 ratingBefore !== null && ratingDelta !== null ? ratingBefore + ratingDelta : null;
+            // Ветка не трогает уже проставленную вручную дельту
+            // (match.rating_source === "manual") - detected/correction тоже
+            // остаются как есть. Иначе (свежее auto-правило впервые
+            // отработало для этого матча) - фиксируем его как detected.
+            if (match.rating_source !== "manual") {
+                detectedRatingDelta = ratingDelta;
+                ratingDeltaCorrection = 0;
+            }
         } else {
             ratingDelta = matchIsRanked === true ? match.rating_delta : null;
             ratingAfter =
@@ -305,6 +333,14 @@ export const correctStreamMatch = async (
             ratingDelta = null;
             ratingAfter = null;
             ratingSource = null;
+            // Матч больше не ranked - как и остальные rating_*, detected/
+            // correction перестают что-либо означать (см. задачу, п.10: не
+            // придумывать значение для unranked). Если позже снова станет
+            // ranked с явной дельтой, detected останется null (auto-detect по
+            // нему ни разу не отработал), а вся дельта уйдёт в correction -
+            // см. ветки выше.
+            detectedRatingDelta = null;
+            ratingDeltaCorrection = 0;
         }
 
         const newState: MatchState = resolvingReview ? "finalized" : match.state;
@@ -326,6 +362,7 @@ export const correctStreamMatch = async (
                  result_source = $5, rating_source = $6, corrected_at = CURRENT_TIMESTAMP,
                  state = $7, is_ranked = $8, mode_source = $9, confidence = $10,
                  finalize_reason = $11, game_mode = $12,
+                 detected_rating_delta = $15, rating_delta_correction = $16,
                  finalized_at = CASE WHEN $14 THEN COALESCE(finalized_at, CURRENT_TIMESTAMP) ELSE finalized_at END
              WHERE id = $13
              RETURNING ${MATCH_COLUMNS}`,
@@ -344,6 +381,8 @@ export const correctStreamMatch = async (
                 newGameMode,
                 match.id,
                 resolvingReview,
+                detectedRatingDelta,
+                ratingDeltaCorrection,
             ]
         );
         const updatedMatch = updatedRow.rows[0];

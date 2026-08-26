@@ -14,7 +14,7 @@ import { syncRecentMatches } from "../../services/dota-sync-service.js";
 import {
     getRecentFinalizedMatches,
     getRecentMatchesForSession,
-    getSessionStartRating,
+    getSessionMatchRatingDelta,
 } from "../../services/stream-match-service.js";
 import { getOverlayLayout } from "../../services/stream-overlay-layout-service.js";
 import { getQueueSettings } from "../../services/stream-queue-settings-service.js";
@@ -274,14 +274,16 @@ export const getOverlayController = async (req: Request, res: Response) => {
 
         // Суммарное изменение рейтинга за текущую сессию (см. задачу: рядом
         // с MMR показывать "+75"/"-25"/"±0") - только для ranked, unranked
-        // никогда не показывает рейтинг вообще (см. SessionStats). Если в
-        // сессии ещё не было ranked-матча с известным ratingBefore, менять
-        // было нечего - дельта 0, а не null, чтобы не отличать это от "нет
-        // изменений" на фронтенде.
+        // никогда не показывает рейтинг вообще (см. SessionStats). WK-105:
+        // сумма ratingDelta самих матчей сессии (getSessionMatchRatingDelta),
+        // а НЕ session.rating - ratingStart - абсолютная коррекция Текущего
+        // MMR (applyAbsoluteRatingCorrection) не должна задним числом
+        // выглядеть как результат матчей. Если в сессии ещё не было
+        // ranked-матча с известной дельтой, менять было нечего - дельта 0, а
+        // не null, чтобы не отличать это от "нет изменений" на фронтенде.
         let sessionRatingDelta: number | null = null;
         if (gameMode === "ranked" && session.rating !== null) {
-            const startRating = await getSessionStartRating(session.id);
-            sessionRatingDelta = startRating !== null ? session.rating - startRating : 0;
+            sessionRatingDelta = (await getSessionMatchRatingDelta(session.id)) ?? 0;
         }
 
         // Публичный poll overlay - единственный способ обновлять W/L/героя,

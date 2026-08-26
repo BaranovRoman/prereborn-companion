@@ -41,6 +41,15 @@ export interface StreamMatch {
     ratingBefore: number | null;
     ratingDelta: number | null;
     ratingAfter: number | null;
+    // WK-105 - разбивка ratingDelta на то, что определил auto-detect
+    // (детерминированное ±25 по правилу, см. RATING_DEFAULT_STEP), и то, что
+    // поверх этого добавила ручная коррекция - ratingDelta = detected +
+    // correction (см. stream-match-correction-service.ts). detected остаётся
+    // NULL, если auto-detect по этому матчу никогда не отработал (unranked/
+    // неизвестный режим, либо строка мигрирована до WK-105 без возможности
+    // восстановить исходное значение) - это "неизвестно", а не 0.
+    detectedRatingDelta: number | null;
+    ratingDeltaCorrection: number;
     resultSource: ResultSource;
     ratingSource: RatingSource | null;
     gameMode: StreamGameMode;
@@ -72,6 +81,8 @@ interface StreamMatchRow {
     rating_before: number | null;
     rating_delta: number | null;
     rating_after: number | null;
+    detected_rating_delta: number | null;
+    rating_delta_correction: number;
     result_source: ResultSource;
     rating_source: RatingSource | null;
     game_mode: StreamGameMode;
@@ -91,7 +102,8 @@ interface StreamMatchRow {
 
 export const MATCH_COLUMNS =
     "id, match_id, match_key, stream_session_id, hero_id, kills, deaths, assists, inventory, result, " +
-    "rating_before, rating_delta, rating_after, result_source, rating_source, game_mode, " +
+    "rating_before, rating_delta, rating_after, detected_rating_delta, rating_delta_correction, " +
+    "result_source, rating_source, game_mode, " +
     "state, is_ranked, is_party, mode_source, outcome_source, confidence, post_game_detected_at, " +
     "started_at, ended_at, finalized_at, finalize_reason, corrected_at";
 
@@ -114,6 +126,8 @@ export const toStreamMatch = (row: StreamMatchRow): StreamMatch => ({
     ratingBefore: row.rating_before,
     ratingDelta: row.rating_delta,
     ratingAfter: row.rating_after,
+    detectedRatingDelta: row.detected_rating_delta,
+    ratingDeltaCorrection: row.rating_delta_correction,
     resultSource: row.result_source,
     ratingSource: row.rating_source,
     gameMode: row.game_mode,
@@ -205,6 +219,30 @@ export const getSessionStartRating = async (
         [sessionId]
     );
     return result.rows[0]?.rating_before ?? null;
+};
+
+// WK-105 - "сколько рейтинга принесли именно матчи этой сессии", отдельно от
+// session.rating (см. задачу: абсолютная коррекция Текущего MMR не должна
+// просачиваться в session/Post Stream delta). Раньше это считалось как
+// `session.rating - ratingStart` (см. git history) - в отсутствие абсолютных
+// корректировок это математически то же самое (цепочка ratingBefore/After
+// каждого следующего матча продолжает предыдущую без разрывов, поэтому сумма
+// телескопируется в ту же разницу), но НЕ включает вклад
+// applyAbsoluteRatingCorrection, потому что суммирует только сами матчи, а не
+// текущее значение session.rating. null, если в сессии ещё вообще нет
+// ranked-финализированных матчей с известной дельтой - "неизвестно", а не 0
+// (0 означает "дельта есть и она нулевая").
+export const getSessionMatchRatingDelta = async (
+    sessionId: string
+): Promise<number | null> => {
+    const result = await pool.query<{ total: number | null }>(
+        `SELECT SUM(rating_delta)::int AS total
+         FROM stream_matches
+         WHERE stream_session_id = $1 AND state = 'finalized'
+           AND is_ranked = true AND rating_delta IS NOT NULL`,
+        [sessionId]
+    );
+    return result.rows[0]?.total ?? null;
 };
 
 // WK-53 - "количество матчей" for the end-of-stream summary. Only finalized
@@ -546,12 +584,17 @@ export const finalizeMatch = async (
         const ratingAfter =
             isRanked === true && ratingBefore !== null ? ratingBefore + (ratingDelta as number) : null;
 
+        // WK-105 - свежая финализация всегда auto-detected: detected_rating_delta
+        // = только что вычисленная дельта, correction = 0 (ручной правки ещё не
+        // было). correctStreamMatch - единственное место, которое двигает
+        // correction, и никогда не трогает detected задним числом.
         const updated = await client.query<{ id: number }>(
             `UPDATE stream_matches
              SET state = 'finalized', ended_at = CURRENT_TIMESTAMP, finalized_at = CURRENT_TIMESTAMP,
                  finalize_reason = $2, confidence = $3, is_ranked = $4, mode_source = $5,
                  rating_before = $6, rating_delta = $7, rating_after = $8,
-                 rating_source = $9, game_mode = $10
+                 rating_source = $9, game_mode = $10,
+                 detected_rating_delta = $7, rating_delta_correction = 0
              WHERE id = $1 AND finalized_at IS NULL
              RETURNING id`,
             [
