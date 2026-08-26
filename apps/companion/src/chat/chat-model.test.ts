@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { BoundedTtsQueue, DEFAULT_CHAT_SETTINGS, nextUnreadCount, prepareTtsText } from "./chat-model";
+import {
+  BoundedTtsQueue, DEFAULT_CHAT_SETTINGS, DEFAULT_SPEECH_VOLUME,
+  nextUnreadCount, normalizeSpeechVolume, prepareTtsText,
+} from "./chat-model";
 import type { TwitchChatMessage } from "../services/dotaCompanionApi";
 
 const message = (id: string, text = "hello", messageType = "text"): TwitchChatMessage => ({
@@ -279,6 +282,38 @@ describe("chat model", () => {
       queue.enqueue(from("2", "привет", "u2", "Wisp"), off, 0);
       expect(queue.takeNext(0)?.text).toBe("первое");
       expect(queue.takeNext(0)?.text).toBe("привет");
+    });
+  });
+
+  // WK-104 - repeated feedback that TTS reads louder than the streamer's own
+  // mic. 70, not 100, is the deliberately-lowered default - see
+  // normalizeSpeechVolume below for why an existing user's pre-WK-104
+  // settings must land on the same value, never a surprise jump to 100.
+  describe("speech volume (WK-104)", () => {
+    it("defaults to 70, not 100", () => {
+      expect(DEFAULT_SPEECH_VOLUME).toBe(70);
+      expect(DEFAULT_CHAT_SETTINGS.speechVolume).toBe(70);
+    });
+
+    it("normalizeSpeechVolume falls back to the 70 default for a missing/undefined field (pre-WK-104 persisted settings)", () => {
+      expect(normalizeSpeechVolume(undefined)).toBe(70);
+    });
+
+    it("normalizeSpeechVolume falls back to the 70 default for non-numeric or NaN values, not 0 or 100", () => {
+      expect(normalizeSpeechVolume(null)).toBe(70);
+      expect(normalizeSpeechVolume("80")).toBe(70);
+      expect(normalizeSpeechVolume(Number.NaN)).toBe(70);
+    });
+
+    it("clamps out-of-range numbers to the 0-100 boundary instead of falling back to the default", () => {
+      expect(normalizeSpeechVolume(-20)).toBe(0);
+      expect(normalizeSpeechVolume(150)).toBe(100);
+    });
+
+    it("passes through any valid in-range value unchanged, including both boundaries", () => {
+      expect(normalizeSpeechVolume(0)).toBe(0);
+      expect(normalizeSpeechVolume(100)).toBe(100);
+      expect(normalizeSpeechVolume(42)).toBe(42);
     });
   });
 });

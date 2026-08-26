@@ -121,6 +121,19 @@ export function TwitchChatPage({ session }: { session: TwitchChatSession }) {
           <label><input type="radio" name="ttsEngine" disabled={!settings.ttsEnabled} checked={settings.ttsEngine === "silero"} onChange={() => update("ttsEngine", "silero")} /> Silero (локальный, офлайн, рекомендуется)</label>
           <label><input type="radio" name="ttsEngine" disabled={!settings.ttsEnabled} checked={settings.ttsEngine === "system"} onChange={() => update("ttsEngine", "system")} /> Системный голос</label>
         </div>
+        <label className={`tts-volume ${!settings.ttsEnabled ? "is-disabled" : ""}`}>
+          <span className="tts-volume__row"><span>Громкость речи</span><span className="tts-volume__value">{settings.speechVolume}%</span></span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            disabled={!settings.ttsEnabled}
+            value={settings.speechVolume}
+            onChange={(event) => update("speechVolume", Number(event.target.value))}
+            aria-label="Громкость речи"
+          />
+        </label>
         {settings.ttsEnabled && settings.ttsEngine === "silero" && <>
           <label>Голос
             <select
