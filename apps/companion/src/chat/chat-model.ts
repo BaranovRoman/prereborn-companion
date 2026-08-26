@@ -21,7 +21,20 @@ export interface ChatSettings {
   // tts-normalize.ts's parsePronunciationOverrides. Deliberately a plain
   // string, not a structured list/editor.
   usernamePronunciations: string;
+  // 0-100, applied as `audio.volume = speechVolume / 100` (and mapped to
+  // SpeechSynthesisUtterance.volume, which is 0-1, the same way) on both
+  // engines. Only affects TTS playback - never the chat-notification beep()
+  // in useTwitchChatSession.ts, which has its own hardcoded gain and no
+  // relation to this setting. 0 means silent-but-still-queuing (WK-104), not
+  // a way to disable TTS - use ttsEnabled for that.
+  speechVolume: number;
 }
+// WK-104 - 70, not 100: repeated viewer feedback that TTS at full volume
+// reads louder than the streamer's own mic. Applies both to brand-new
+// settings and, via normalizeSpeechVolume below, to pre-WK-104 settings
+// blobs that were saved before this field existed - those must land on the
+// same intentionally-lowered 70, never silently default to a max-volume 100.
+export const DEFAULT_SPEECH_VOLUME = 70;
 export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   soundEnabled: false,
   ttsEnabled: false,
@@ -36,6 +49,16 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   // (see loadSettings in useTwitchChatSession.ts).
   sileroVoice: "xenia",
   usernamePronunciations: "",
+  speechVolume: DEFAULT_SPEECH_VOLUME,
+};
+
+// Clamps to 0-100 and normalizes anything that isn't a finite number
+// (missing field on a pre-WK-104 persisted blob, corrupted localStorage,
+// NaN from a stray JSON edit) to DEFAULT_SPEECH_VOLUME rather than to 0 or
+// 100 - see loadSettings in useTwitchChatSession.ts, the only call site.
+export const normalizeSpeechVolume = (value: unknown): number => {
+  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_SPEECH_VOLUME;
+  return Math.min(100, Math.max(0, value));
 };
 export const nextUnreadCount = (current: number, isAtBottom: boolean, added: number) =>
   isAtBottom ? 0 : current + added;

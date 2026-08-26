@@ -77,6 +77,11 @@ const CHAT_MESSAGE = {
 };
 const chatMessage = (id: string, text: string): typeof CHAT_MESSAGE => ({ ...CHAT_MESSAGE, id, text });
 
+// Mirrors useTwitchChatSession.ts's private STORAGE_KEY - not exported, so
+// the WK-104 persistence tests below read/write localStorage directly under
+// the same key the hook itself uses.
+const STORAGE_KEY = "companion-twitch-chat-settings-v1";
+
 describe("useTwitchChatSession", () => {
   beforeEach(() => {
     vi.mocked(getTwitchChat).mockReset().mockResolvedValue(STATUS);
@@ -544,6 +549,173 @@ describe("useTwitchChatSession", () => {
       // Still the old, working combo - never silently swapped to the
       // rejected/failed one.
       expect(session!.skipHotkeyStatus?.shortcut).toBe("CommandOrControl+Alt+F10");
+    });
+  });
+
+  // WK-104 - "Громкость речи" follow-up: repeated feedback that TTS reads
+  // louder than the streamer's own mic. These tests cover the persistence/
+  // migration contract (chat-model.test.ts covers normalizeSpeechVolume's
+  // pure logic in isolation) and that the setting actually reaches the
+  // Audio element's `.volume`, not just React state.
+  //
+  // Scoped-local `localStorage.clear()` (not in the file's shared
+  // beforeEach): the other describes in this file rely on TTS-enabled state
+  // leaking across tests via localStorage (each test's mount reads whatever
+  // the previous test last wrote), and adding a global clear made 6
+  // unrelated pre-existing tests fail on a real-timer race unrelated to
+  // WK-104. These tests need a genuinely fresh/controlled persisted blob to
+  // test migration and round-tripping, so they clear only for themselves.
+  describe("speech volume (WK-104)", () => {
+    beforeEach(() => localStorage.clear());
+
+    // Takes a getter, not a session snapshot - a `waitFor` callback that
+    // closes over a frozen `TwitchChatSession` object (as the existing
+    // skipTts describe's own enableSilero helper does) can never observe a
+    // later update, since `.settings` isn't a live binding, it's whatever
+    // that particular render returned. That bug is invisible in the skipTts
+    // describe only because localStorage there leaks ttsEnabled: true in
+    // from a prior test, making the check trivially true at call time; this
+    // describe deliberately starts from a clean localStorage (see the
+    // beforeEach above), so the check must re-read the current session on
+    // every poll via `getSession()` instead.
+    const enableSilero = async (getSession: () => TwitchChatSession) => {
+      getSession().updateSetting("ttsEnabled", true);
+      getSession().updateSetting("ttsEngine", "silero");
+      await waitFor(() => expect(getSession().settings.ttsEnabled).toBe(true), { timeout: 4000 });
+    };
+
+    it("loads a pre-WK-104 persisted settings blob (no speechVolume field) as 70, not 100", async () => {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        soundEnabled: true, ttsEnabled: true, speakAuthor: true, maxLength: 180,
+        ttsEngine: "silero", sileroVoice: "xenia", usernamePronunciations: "",
+      }));
+
+      let session: TwitchChatSession | undefined;
+      render(<Harness showChat={true} onSession={(s) => { session = s; }} />);
+      await waitFor(() => expect(session).toBeDefined());
+
+      expect(session!.settings.speechVolume).toBe(70);
+    });
+
+    it("persists a custom speech volume and restores the same value after a reload", async () => {
+      let session: TwitchChatSession | undefined;
+      const { unmount } = render(<Harness showChat={true} onSession={(s) => { session = s; }} />);
+      await waitFor(() => expect(session).toBeDefined());
+
+      session!.updateSetting("speechVolume", 42);
+      await waitFor(() => expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).speechVolume).toBe(42));
+      unmount();
+
+      // Fresh mount, same localStorage - simulates a Companion restart.
+      let reloaded: TwitchChatSession | undefined;
+      render(<Harness showChat={true} onSession={(s) => { reloaded = s; }} />);
+      await waitFor(() => expect(reloaded).toBeDefined());
+      expect(reloaded!.settings.speechVolume).toBe(42);
+    });
+
+    it("applies the configured percentage as the Audio element's volume (0-1 scale) for chat-message playback", async () => {
+      let capturedVolume: number | undefined;
+      vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(function (this: HTMLAudioElement) {
+        capturedVolume = this.volume;
+        return Promise.resolve();
+      });
+      vi.mocked(synthesizeSileroTts).mockReset().mockResolvedValue(btoa("wav bytes"));
+
+      let session: TwitchChatSession | undefined;
+      render(<Harness showChat={true} onSession={(s) => { session = s; }} />);
+      await waitFor(() => expect(session).toBeDefined());
+      await enableSilero(() => session!);
+      session!.updateSetting("speechVolume", 55);
+
+      vi.mocked(getTwitchChat).mockResolvedValue({ ...STATUS, messages: [chatMessage("msg-1", "привет")] });
+      await waitFor(() => expect(window.HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1), { timeout: 4000 });
+
+      expect(capturedVolume).toBeCloseTo(0.55);
+    });
+
+    it("0% plays chat-message TTS fully silent without disabling TTS or stalling the queue for the next message", async () => {
+      let firstAudio: HTMLAudioElement | undefined;
+      vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(function (this: HTMLAudioElement) {
+        firstAudio ??= this;
+        return Promise.resolve();
+      });
+      vi.mocked(synthesizeSileroTts).mockReset()
+        .mockResolvedValueOnce(btoa("wav for one"))
+        .mockResolvedValueOnce(btoa("wav for two"));
+
+      let session: TwitchChatSession | undefined;
+      render(<Harness showChat={true} onSession={(s) => { session = s; }} />);
+      await waitFor(() => expect(session).toBeDefined());
+      await enableSilero(() => session!);
+      session!.updateSetting("speechVolume", 0);
+
+      vi.mocked(getTwitchChat).mockResolvedValue({
+        ...STATUS, messages: [chatMessage("msg-1", "первое"), chatMessage("msg-2", "второе")],
+      });
+      await waitFor(() => expect(window.HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1), { timeout: 4000 });
+      expect(firstAudio?.volume).toBe(0);
+
+      // 0% is silent playback, not a skip/disable - a natural "ended" must
+      // still advance the queue exactly like any other volume would.
+      firstAudio!.onended?.(new Event("ended"));
+      await waitFor(() => expect(vi.mocked(synthesizeSileroTts)).toHaveBeenCalledTimes(2));
+      expect(session!.settings.ttsEnabled).toBe(true);
+    });
+
+    it("100% maps to full Audio volume (1.0), the other boundary", async () => {
+      let capturedVolume: number | undefined;
+      vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(function (this: HTMLAudioElement) {
+        capturedVolume = this.volume;
+        return Promise.resolve();
+      });
+      vi.mocked(synthesizeSileroTts).mockReset().mockResolvedValue(btoa("wav bytes"));
+
+      let session: TwitchChatSession | undefined;
+      render(<Harness showChat={true} onSession={(s) => { session = s; }} />);
+      await waitFor(() => expect(session).toBeDefined());
+      await enableSilero(() => session!);
+      session!.updateSetting("speechVolume", 100);
+
+      vi.mocked(getTwitchChat).mockResolvedValue({ ...STATUS, messages: [chatMessage("msg-1", "привет")] });
+      await waitFor(() => expect(window.HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1), { timeout: 4000 });
+
+      expect(capturedVolume).toBe(1);
+    });
+
+    it("does not change the notification-sound beep's gain when speech volume is adjusted", async () => {
+      // Minimal Web Audio fake for beep() in useTwitchChatSession.ts - only
+      // what it actually calls (createOscillator/createGain, gain params,
+      // start/stop). The point of the test is the assertion below: beep's
+      // gain is a hardcoded 0.08, wired up completely independently of
+      // ChatSettings.speechVolume.
+      const gain = { setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() };
+      const gainNode = { gain, connect: vi.fn().mockReturnThis() };
+      const oscillator = { frequency: { value: 0 }, connect: vi.fn().mockReturnValue(gainNode), start: vi.fn(), stop: vi.fn(), onended: null as (() => void) | null };
+      class FakeAudioContext {
+        currentTime = 0;
+        destination = {};
+        createGain() { return gainNode; }
+        createOscillator() { return oscillator; }
+        close() { return Promise.resolve(); }
+      }
+      Object.defineProperty(window, "AudioContext", { configurable: true, value: FakeAudioContext });
+
+      let session: TwitchChatSession | undefined;
+      render(<Harness showChat={true} onSession={(s) => { session = s; }} />);
+      await waitFor(() => expect(session).toBeDefined());
+      session!.updateSetting("soundEnabled", true);
+      // Deliberately a low, unrelated value - proves the beep's gain doesn't
+      // track/scale with speechVolume in any way.
+      session!.updateSetting("speechVolume", 12);
+      await waitFor(() => expect(session!.settings.speechVolume).toBe(12));
+
+      vi.mocked(getTwitchChat).mockResolvedValue({ ...STATUS, messages: [chatMessage("msg-1", "привет")] });
+      await waitFor(() => expect(gain.setValueAtTime).toHaveBeenCalled(), { timeout: 4000 });
+
+      expect(gain.setValueAtTime).toHaveBeenCalledWith(0.08, 0);
+
+      // @ts-expect-error - restoring jsdom's (nonexistent) original descriptor
+      delete window.AudioContext;
     });
   });
 });

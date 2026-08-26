@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { BoundedTtsQueue, DEFAULT_CHAT_SETTINGS, nextUnreadCount, type ChatSettings } from "./chat-model";
+import { BoundedTtsQueue, DEFAULT_CHAT_SETTINGS, nextUnreadCount, normalizeSpeechVolume, type ChatSettings } from "./chat-model";
 import {
   diagnosticsTraceTtsFrontend, getSileroTtsStatus, getSkipHotkeyStatus, getTwitchChat,
   setSileroTtsEnabled, setSkipHotkey, synthesizeSileroTts,
@@ -42,6 +42,10 @@ const loadSettings = (): ChatSettings => {
     // anymore, which would otherwise silently stop speaking messages for
     // exactly the users who had explicitly opted into Piper.
     if ((merged.ttsEngine as string) === "piper") merged.ttsEngine = "silero";
+    // WK-104 - a settings blob saved before speechVolume existed (or one
+    // with a corrupted value) must normalize to DEFAULT_SPEECH_VOLUME (70),
+    // not silently default to a max-volume 100 for existing users.
+    merged.speechVolume = normalizeSpeechVolume(merged.speechVolume);
     return merged;
   }
   catch { return DEFAULT_CHAT_SETTINGS; }
@@ -143,6 +147,7 @@ export function useTwitchChatSession(): TwitchChatSession {
     if (trace.detail.engine === undefined) trace.detail.engine = "system";
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "ru-RU";
+    utterance.volume = settingsRef.current.speechVolume / 100;
     trace.stages.audioReadyAt = performance.now();
     utterance.onstart = () => { trace.stages.actualPlaybackStartedAt = performance.now(); };
     utterance.onend = done;
@@ -173,6 +178,7 @@ export function useTwitchChatSession(): TwitchChatSession {
       const url = URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
       trace.stages.audioReadyAt = performance.now();
       const audio = new Audio(url);
+      audio.volume = settingsRef.current.speechVolume / 100;
       currentAudio.current = audio;
       const cleanup = () => {
         URL.revokeObjectURL(url);
@@ -285,6 +291,17 @@ export function useTwitchChatSession(): TwitchChatSession {
       traces.current.clear();
     }
   }, [settings]);
+
+  // WK-104 - HTMLMediaElement.volume can be reassigned mid-playback and
+  // takes effect immediately (unlike SpeechSynthesisUtterance.volume, which
+  // the spec only reads once at speak() time and can't be changed for an
+  // utterance already in flight) - so a volume change applies to Silero
+  // audio that's already playing, not just the next queued message. The
+  // system-voice fallback and any in-flight synthesis still only pick up
+  // the new value on their next speakWithSystem/speakWithSilero call.
+  useEffect(() => {
+    if (currentAudio.current) currentAudio.current.volume = settings.speechVolume / 100;
+  }, [settings.speechVolume]);
 
   const sileroActive = settings.ttsEnabled && settings.ttsEngine === "silero";
   useEffect(() => {
@@ -402,6 +419,7 @@ export function useTwitchChatSession(): TwitchChatSession {
         const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
         const url = URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
         const audio = new Audio(url);
+        audio.volume = settingsRef.current.speechVolume / 100;
         currentAudio.current = audio;
         const cleanup = () => {
           URL.revokeObjectURL(url);
