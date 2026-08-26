@@ -108,6 +108,94 @@ export const getSkipHotkeyStatus = () => invoke<SkipHotkeyStatus>("get_skip_hotk
 export const setSkipHotkey = (enabled: boolean, shortcut: string) =>
   invoke<SkipHotkeyStatus>("set_skip_hotkey", { enabled, shortcut });
 
+// WK-106 - Custom Game Sounds. Types mirror the `#[serde(rename_all =
+// "camelCase")]` Rust structs/enums in src-tauri/src/game_sounds - see that
+// module's catalog.rs/config.rs/mod.rs for the authoritative shape.
+export type GameSoundEventKind = "itemUsed" | "abilityCast";
+export type ItemSignal = "cooldown" | "chargesOrConsumed";
+
+export interface TrackedItem {
+  id: string;
+  displayName: string;
+  iconUrl: string;
+  supported: boolean;
+  signal: ItemSignal | null;
+  reason: string | null;
+}
+export interface TrackedAbility {
+  id: string;
+  displayName: string;
+  iconUrl: string;
+  supported: boolean;
+  reason: string | null;
+}
+export interface TrackedHero {
+  id: string;
+  displayName: string;
+  iconUrl: string;
+  abilities: TrackedAbility[];
+}
+export interface GameSoundCatalog {
+  items: TrackedItem[];
+  heroes: TrackedHero[];
+}
+
+export interface ManagedSoundAsset {
+  id: string;
+  fileName: string;
+  originalName: string;
+  sizeBytes: number;
+}
+export interface SoundBinding {
+  eventId: string;
+  kind: GameSoundEventKind;
+  assetId: string;
+}
+export interface GameSoundSettings {
+  schemaVersion: number;
+  enabled: boolean;
+  masterVolume: number;
+  bindings: SoundBinding[];
+  assets: ManagedSoundAsset[];
+}
+export interface GameSoundPreviewPayload {
+  base64: string;
+  mime: string;
+}
+// Emitted on every detected item/ability transition, independent of the
+// master toggle (see game_sounds/mod.rs's handle_gsi) - "event detection
+// может продолжать работать" even while audio playback is off.
+export interface GameSoundEventNotification {
+  kind: GameSoundEventKind;
+  id: string;
+  timestamp: string;
+}
+// Emitted only when the master toggle is on AND a binding exists for the
+// detected event - the one event useGameSoundEngine.ts actually plays.
+export interface GameSoundPlayNotification {
+  eventId: string;
+  base64: string;
+  mime: string;
+  volume: number;
+}
+
+export const getGameSoundCatalog = () => invoke<GameSoundCatalog>("get_game_sound_catalog");
+export const getGameSoundSettings = () => invoke<GameSoundSettings>("get_game_sound_settings");
+export const updateGameSoundMaster = (enabled: boolean, volume: number) =>
+  invoke<GameSoundSettings>("update_game_sound_master", { enabled, volume });
+export const setGameSoundBinding = (eventId: string, kind: GameSoundEventKind, assetId: string) =>
+  invoke<GameSoundSettings>("set_game_sound_binding", { eventId, kind, assetId });
+export const removeGameSoundBinding = (eventId: string) =>
+  invoke<GameSoundSettings>("remove_game_sound_binding", { eventId });
+// Import + bind happen as one Tauri command (see game_sounds/mod.rs's
+// import_and_bind) - a bind failure right after a successful import can
+// never leave an orphaned managed file with nothing pointing at it, since
+// there's no separate awaited step in between for it to happen in.
+export const importAndBindGameSound = (eventId: string, kind: GameSoundEventKind) =>
+  invoke<GameSoundSettings>("import_and_bind_game_sound", { eventId, kind });
+export const previewGameSound = (assetId: string) =>
+  invoke<GameSoundPreviewPayload>("preview_game_sound", { assetId });
+
 // Diagnostic-mode GSI capture - off by default, see src-tauri/src/diagnostics.
 export const diagnosticsGetStatus = () =>
   invoke<DiagnosticsStatusSnapshot>("diagnostics_get_status");

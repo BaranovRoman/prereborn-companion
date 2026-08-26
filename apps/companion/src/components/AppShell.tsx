@@ -13,15 +13,18 @@ import { useUpdater } from "../hooks/useUpdater";
 import { DiagnosticsPage } from "../pages/DiagnosticsPage";
 import { HomePage } from "../pages/HomePage";
 import { SettingsPage } from "../pages/SettingsPage";
+import { SoundsPage } from "../pages/SoundsPage";
 import * as api from "../services/dotaCompanionApi";
+import { useGameSoundEngine } from "../sounds/useGameSoundEngine";
 import type { StatusSnapshot } from "../types/status";
 import { describeBackendStatus } from "../utils/backendStatus";
 
-type Section = "home" | "chat" | "settings" | "diagnostics";
+type Section = "home" | "chat" | "settings" | "sounds" | "diagnostics";
 
 const NAV_ITEMS: { key: Section; label: string; hint: string }[] = [
   { key: "home", label: "Главная", hint: "Статус и управление эфиром" },
   { key: "chat", label: "Чат", hint: "Twitch-чат и озвучка" },
+  { key: "sounds", label: "Звуки", hint: "Реакции на предметы и способности" },
   { key: "settings", label: "Настройки", hint: "OBS, автозапуск, подключение" },
   { key: "diagnostics", label: "Диагностика", hint: "Для разработчика" },
 ];
@@ -44,6 +47,11 @@ export function AppShell() {
   // TwitchChatPage, so chat polling/dedup and TTS keep running regardless
   // of which section is currently visible.
   const chatSession = useTwitchChatSession();
+  // WK-106 - hoisted here (not inside SoundsPage) for the same reason
+  // chatSession is (see the WK-78 note above): the "game-sound-play"
+  // listener/playback must keep working regardless of which sidebar section
+  // is currently visible, not just while the user is looking at "Звуки".
+  const gameSoundEngine = useGameSoundEngine();
   const sessionPrompt = useStreamSessionPrompt();
   const [section, setSection] = useState<Section>("home");
   const [busy, setBusy] = useState(false);
@@ -186,6 +194,7 @@ export function AppShell() {
           />
         )}
         {section === "chat" && <TwitchChatPage session={chatSession} />}
+        {section === "sounds" && <SoundsPage engine={gameSoundEngine} />}
         {section === "settings" && (
           <SettingsPage
             status={status}

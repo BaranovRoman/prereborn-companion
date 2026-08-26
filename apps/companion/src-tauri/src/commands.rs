@@ -5,6 +5,12 @@ use tauri_plugin_opener::OpenerExt;
 
 use crate::backend;
 use crate::diagnostics::{self, DiagnosticsStatusSnapshot};
+use crate::game_sounds::{
+    self,
+    config::GameSoundSettings,
+    events::GameSoundEventKind,
+    GameSoundCatalog, GameSoundPreviewPayload,
+};
 use crate::gsi::{config, finder};
 use crate::hotkeys::{self, SkipHotkeyStatus};
 use crate::obs::{self, BroadcastScene, ObsConfig};
@@ -449,4 +455,71 @@ pub fn diagnostics_export(app: AppHandle) -> Result<String, String> {
         .map_err(|e| format!("Invalid save location: {e}"))?;
 
     diagnostics::export(&app, output_path)
+}
+
+// WK-106 - Custom Game Sounds. Detection itself runs unconditionally inside
+// server/mod.rs's process_gsi_body -> game_sounds::handle_gsi (mirrors how
+// obs::handle_gsi is wired in) - everything here is just the settings/
+// catalog/managed-file surface the "Звуки" UI reads and writes through.
+
+#[tauri::command]
+pub fn get_game_sound_catalog() -> GameSoundCatalog {
+    game_sounds::get_catalog()
+}
+
+#[tauri::command]
+pub fn get_game_sound_settings(app: AppHandle) -> GameSoundSettings {
+    game_sounds::get_settings(&app)
+}
+
+#[tauri::command]
+pub fn update_game_sound_master(app: AppHandle, enabled: bool, volume: u8) -> Result<GameSoundSettings, String> {
+    game_sounds::update_master(&app, enabled, volume)
+}
+
+#[tauri::command]
+pub fn set_game_sound_binding(
+    app: AppHandle,
+    event_id: String,
+    kind: GameSoundEventKind,
+    asset_id: String,
+) -> Result<GameSoundSettings, String> {
+    game_sounds::set_binding(&app, event_id, kind, asset_id)
+}
+
+#[tauri::command]
+pub fn remove_game_sound_binding(app: AppHandle, event_id: String) -> Result<GameSoundSettings, String> {
+    game_sounds::remove_binding(&app, event_id)
+}
+
+// WK-106 self-review - import and bind happen as one Tauri command
+// (game_sounds::import_and_bind) rather than two separate round-trips, so a
+// failure partway through can never leave an imported file with nothing
+// bound to it (see that function's doc comment).
+#[tauri::command]
+pub fn import_and_bind_game_sound(
+    app: AppHandle,
+    event_id: String,
+    kind: GameSoundEventKind,
+) -> Result<GameSoundSettings, String> {
+    let picked = app
+        .dialog()
+        .file()
+        .add_filter("Audio", &["wav", "mp3", "ogg"])
+        .blocking_pick_file();
+    let Some(picked) = picked else {
+        return Err("Выбор файла отменён.".to_string());
+    };
+    let original_name = picked
+        .as_path()
+        .and_then(|p| p.file_name())
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "sound".to_string());
+    let path = picked.into_path().map_err(|e| format!("Некорректный путь к файлу: {e}"))?;
+    game_sounds::import_and_bind(&app, event_id, kind, path, original_name)
+}
+
+#[tauri::command]
+pub fn preview_game_sound(app: AppHandle, asset_id: String) -> Result<GameSoundPreviewPayload, String> {
+    game_sounds::preview_sound(&app, asset_id)
 }

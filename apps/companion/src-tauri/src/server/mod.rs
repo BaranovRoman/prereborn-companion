@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::diagnostics;
+use crate::game_sounds;
 use crate::obs;
 use crate::state::{AppState, LastEvent, GSI_PORT};
 use crate::storage;
@@ -80,6 +81,7 @@ fn process_gsi_body(app: &AppHandle, remote_addr: &str, body: &str) -> LastEvent
     };
     if let Some(parsed) = result.parsed.as_ref() {
         obs::handle_gsi(app, parsed);
+        game_sounds::handle_gsi(app, parsed);
     }
 
     {
