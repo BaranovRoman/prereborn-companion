@@ -439,23 +439,36 @@ fn classify(tick_diff: &[DiffEntry], last_snapshot_at: Option<DateTime<Local>>, 
     if tick_diff.iter().any(|e| e.kind == ChangeKind::Added) {
         return Some(Reason::FieldAdded);
     }
-    // draft.*/abilities.* aren't in SIGNIFICANT_PATHS (their sub-field
-    // names - ability0..abilityN, whatever draft.* actually contains - are
-    // unknown until a real session captures them, so nothing is hardcoded
-    // here) - a prefix match instead, so any value change under either
-    // section gets its own snapshot immediately rather than waiting for the
-    // next periodic checkpoint. This is specifically for WK-diagnostics
-    // field-timing resolution: the generic diff already records every
-    // changed field regardless, this only controls how promptly it's
-    // captured. If abilities.* cooldown turns out to be a live per-tick
-    // countdown this can snapshot every tick during any cooldown - accepted,
-    // the existing SIZE_LIMIT_BYTES cap already degrades gracefully (stops
-    // full snapshots, keeps timeline/catalog) for exactly this kind of case.
+    // draft.*/abilities.*/items.* aren't in SIGNIFICANT_PATHS (their
+    // sub-field names - ability0..abilityN, slot0..slotN, whatever draft.*
+    // actually contains - are unknown until a real session captures them,
+    // so nothing is hardcoded here) - a prefix match instead, so any value
+    // change under any of the three sections gets its own snapshot
+    // immediately rather than waiting for the next periodic checkpoint.
+    // This is specifically for WK-diagnostics field-timing resolution: the
+    // generic diff already records every changed field regardless, this
+    // only controls how promptly it's captured. If abilities.*/items.*
+    // cooldown/charges turn out to be a live per-tick countdown this can
+    // snapshot every tick during any cooldown - accepted, the existing
+    // SIZE_LIMIT_BYTES cap already degrades gracefully (stops full
+    // snapshots, keeps timeline/catalog) for exactly this kind of case.
+    //
+    // WK-106 follow-up - items.* was missing from this prefix list even
+    // though abilities.* was already covered: an item-only change (e.g.
+    // using a Tango) had no significant-path trigger of its own and would
+    // silently fall through to whatever the next periodic (30s) snapshot
+    // happened to catch, unlike an ability cast. Needed for WK-106's
+    // production verification - the new Custom Game Sounds feature detects
+    // item.used the same way it detects ability.cast (see
+    // game_sounds::events::detect_item_events), and a tester needs the raw
+    // GSI transition captured promptly enough to actually correlate with a
+    // detected event.
     let significant_changed = tick_diff.iter().any(|e| {
         e.kind == ChangeKind::ValueChanged
             && (SIGNIFICANT_PATHS.iter().any(|p| e.path == format!("$.{p}"))
                 || e.path.starts_with("$.draft")
-                || e.path.starts_with("$.abilities"))
+                || e.path.starts_with("$.abilities")
+                || e.path.starts_with("$.items"))
     });
     if significant_changed {
         return Some(Reason::SignificantValueChanged);
@@ -525,6 +538,35 @@ mod tests {
         // 31s after the first snapshot - periodic trigger fires.
         session.record_tick(Some(&payload), 10, t0 + Duration::seconds(31));
         assert_eq!(session.snapshot_count, 2);
+    }
+
+    // WK-106 follow-up - items.* used to be absent from classify()'s
+    // significant-path prefix list (unlike abilities.*/draft.*, see the
+    // comment on `significant_changed` above) - an item-only change had to
+    // wait up to PERIODIC_INTERVAL_SECS (30s) to be captured at all, long
+    // after the moment a real item use actually happened. This pins the fix:
+    // an items.* value change gets its own snapshot immediately, the same
+    // way an abilities.* change already did.
+    #[test]
+    fn item_only_change_triggers_an_immediate_snapshot_like_abilities_already_did() {
+        let (_guard, mut session) = new_session();
+        let t0 = session.started_at;
+        session.record_tick(
+            Some(&json!({ "items": { "slot0": { "name": "item_tango", "charges": 2 } } })),
+            10,
+            t0,
+        );
+        assert_eq!(session.snapshot_count, 1);
+
+        // 1s later - well within PERIODIC_INTERVAL_SECS - only `items`
+        // changed (a Tango charge was consumed).
+        session.record_tick(
+            Some(&json!({ "items": { "slot0": { "name": "item_tango", "charges": 1 } } })),
+            10,
+            t0 + Duration::seconds(1),
+        );
+        assert_eq!(session.snapshot_count, 2);
+        assert_eq!(fs::read_dir(session.dir.join("diffs")).unwrap().count(), 1);
     }
 
     #[test]
