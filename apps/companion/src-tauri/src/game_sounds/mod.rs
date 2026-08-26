@@ -9,6 +9,7 @@ use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::state::AppState;
+use crate::storage;
 use events::{detect_events, hero_identity_changed, GameSoundEventKind};
 
 #[derive(Debug, Clone, Serialize)]
@@ -61,7 +62,7 @@ pub fn init(app: &AppHandle) {
 /// `Value` - "sound subsystem не должен сам сравнивать raw GSI snapshots"
 /// per the task.
 pub fn handle_gsi(app: &AppHandle, payload: &Value) {
-    let (detected, enabled, master_volume, bindings, known_assets) = {
+    let (detected, previous_for_evidence, enabled, master_volume, bindings, known_assets) = {
         let state = app.state::<AppState>();
         let mut inner = state.0.lock().unwrap();
 
@@ -79,7 +80,7 @@ pub fn handle_gsi(app: &AppHandle, payload: &Value) {
         inner.game_sounds_previous_gsi = Some(payload.clone());
 
         let settings = inner.game_sounds_settings.clone();
-        (detected, settings.enabled, settings.master_volume, settings.bindings, settings.assets)
+        (detected, previous, settings.enabled, settings.master_volume, settings.bindings, settings.assets)
     };
 
     if detected.is_empty() {
@@ -89,6 +90,19 @@ pub fn handle_gsi(app: &AppHandle, payload: &Value) {
     // Detection always fires this "something happened" signal, regardless
     // of the master toggle (задача п.8: "event detection может продолжать
     // работать" while audio doesn't play) - lightweight, no file IO.
+    //
+    // WK-106 follow-up (production verification diagnostics) - also writes
+    // one compact line per detected event to the existing rolling log
+    // (storage::append_rolling_log - already size-capped/rotated at 5MB,
+    // see storage.rs, the same mechanism every other feature's breadcrumbs
+    // already go through). Deliberately NOT a new capture file/subsystem:
+    // this only fires on an actual detected transition (never per-tick), so
+    // volume is inherently bounded by how often items/abilities actually
+    // get used. Lets a tester correlate "raw before -> after" (the
+    // diagnostics session's own timeline, now that items.* is also a
+    // significant-path trigger - see diagnostics/session.rs) against
+    // "normalized detected event" by timestamp, without needing a
+    // dedicated new bounded-capture mechanism.
     for event in &detected {
         let _ = app.emit(
             "game-sound-event",
@@ -97,6 +111,14 @@ pub fn handle_gsi(app: &AppHandle, payload: &Value) {
                 id: event.id.clone(),
                 timestamp: chrono::Local::now().to_rfc3339(),
             },
+        );
+        let evidence = previous_for_evidence
+            .as_ref()
+            .map(|prev| describe_transition(event.kind, &event.id, prev, payload))
+            .unwrap_or_else(|| "no previous snapshot".to_string());
+        storage::append_rolling_log(
+            app,
+            &format!("[game-sounds] detected {:?} {} ({evidence})", event.kind, event.id),
         );
     }
 
@@ -264,4 +286,99 @@ pub fn preview_sound(app: &AppHandle, asset_id: String) -> Result<GameSoundPrevi
     let bytes = assets::read_file(app, &asset)?;
     let ext = asset.file_name.rsplit('.').next().unwrap_or("wav");
     Ok(GameSoundPreviewPayload { base64: BASE64.encode(bytes), mime: assets::mime_for_extension(ext).to_string() })
+}
+
+/// Compact "field: before -> after" description for the rolling-log line in
+/// `handle_gsi` above - diagnostic-only, computed here rather than inside
+/// `events::detect_events` so the actual `GameSoundEvent` handed to the
+/// sound engine stays exactly what the task calls for (a normalized event,
+/// no raw GSI attached). Re-scans the same previous/current payload the
+/// detector already used, looking only at the one item/ability slot whose
+/// `name` matches `id` - not a general-purpose diff, just enough to answer
+/// "why did this fire" for WK-106's production verification.
+fn describe_transition(kind: GameSoundEventKind, id: &str, previous: &Value, current: &Value) -> String {
+    let section = match kind {
+        GameSoundEventKind::ItemUsed => "items",
+        GameSoundEventKind::AbilityCast => "abilities",
+    };
+    let find_slot = |payload: &Value| -> Option<Value> {
+        payload
+            .get(section)?
+            .as_object()?
+            .values()
+            .find(|slot| slot.get("name").and_then(Value::as_str) == Some(id))
+            .cloned()
+    };
+    let field = |slot: &Option<Value>, key: &str| -> String {
+        slot.as_ref()
+            .and_then(|s| s.get(key))
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "?".to_string())
+    };
+    let prev_slot = find_slot(previous);
+    let curr_slot = find_slot(current);
+
+    match kind {
+        GameSoundEventKind::ItemUsed if curr_slot.is_none() => {
+            format!("slot emptied (was charges={})", field(&prev_slot, "charges"))
+        }
+        GameSoundEventKind::ItemUsed => format!(
+            "charges {}\u{2192}{}, cooldown {}\u{2192}{}",
+            field(&prev_slot, "charges"),
+            field(&curr_slot, "charges"),
+            field(&prev_slot, "cooldown"),
+            field(&curr_slot, "cooldown"),
+        ),
+        GameSoundEventKind::AbilityCast => format!(
+            "cooldown {}\u{2192}{}",
+            field(&prev_slot, "cooldown"),
+            field(&curr_slot, "cooldown"),
+        ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn describes_a_charges_based_item_transition() {
+        let prev = json!({ "items": { "slot0": { "name": "item_tango", "charges": 2 } } });
+        let curr = json!({ "items": { "slot0": { "name": "item_tango", "charges": 1 } } });
+        assert_eq!(
+            describe_transition(GameSoundEventKind::ItemUsed, "item_tango", &prev, &curr),
+            "charges 2\u{2192}1, cooldown ?\u{2192}?"
+        );
+    }
+
+    #[test]
+    fn describes_an_item_consumed_out_of_its_slot() {
+        let prev = json!({ "items": { "slot0": { "name": "item_flask", "charges": 1 } } });
+        let curr = json!({ "items": { "slot0": { "name": "empty" } } });
+        assert_eq!(
+            describe_transition(GameSoundEventKind::ItemUsed, "item_flask", &prev, &curr),
+            "slot emptied (was charges=1)"
+        );
+    }
+
+    #[test]
+    fn describes_a_cooldown_based_item_transition() {
+        let prev = json!({ "items": { "slot0": { "name": "item_blink", "cooldown": 0 } } });
+        let curr = json!({ "items": { "slot0": { "name": "item_blink", "cooldown": 12 } } });
+        assert_eq!(
+            describe_transition(GameSoundEventKind::ItemUsed, "item_blink", &prev, &curr),
+            "charges ?\u{2192}?, cooldown 0\u{2192}12"
+        );
+    }
+
+    #[test]
+    fn describes_an_ability_cast_transition() {
+        let prev = json!({ "abilities": { "ability0": { "name": "pudge_meat_hook", "cooldown": 0 } } });
+        let curr = json!({ "abilities": { "ability0": { "name": "pudge_meat_hook", "cooldown": 13 } } });
+        assert_eq!(
+            describe_transition(GameSoundEventKind::AbilityCast, "pudge_meat_hook", &prev, &curr),
+            "cooldown 0\u{2192}13"
+        );
+    }
 }
