@@ -130,6 +130,17 @@ pub struct InnerState {
     // runs normally until the first poll actually learns otherwise, never
     // the reverse.
     pub session_ended: bool,
+    // WK-106 - Custom Game Sounds. Persisted settings/bindings/managed asset
+    // registry (see game_sounds/config.rs), loaded once at startup
+    // (game_sounds::init) and kept here the same way obs_config is. The
+    // detector's diff baseline is deliberately *not* persisted - it lives
+    // only in memory, so every Companion restart (and every hero-swap reset,
+    // see events::hero_identity_changed) starts from `None`/"no previous
+    // snapshot", which is exactly the initial-snapshot-safety the task
+    // requires: nothing on the very first tick is ever treated as a new
+    // item/ability use.
+    pub game_sounds_settings: crate::game_sounds::config::GameSoundSettings,
+    pub game_sounds_previous_gsi: Option<serde_json::Value>,
 }
 
 pub struct AppState(pub Mutex<InnerState>);

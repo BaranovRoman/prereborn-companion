@@ -129,6 +129,15 @@ vi.mock("../chat/useTwitchChatSession", () => ({
 vi.mock("./TwitchChatPage", () => ({
   TwitchChatPage: () => <div data-testid="chat-page-stub">Chat stub</div>,
 }));
+// WK-106 - "Звуки" section. Its own hook (data fetching, playback, catalog
+// wiring) is already covered by sounds/useGameSoundEngine.test.tsx and
+// pages/SoundsPage.test.tsx - AppShell only needs to prove the section is
+// reachable and swaps correctly with the others, so it's stubbed here the
+// same way TwitchChatPage is above.
+vi.mock("../sounds/useGameSoundEngine", () => ({ useGameSoundEngine: () => ({}) }));
+vi.mock("../pages/SoundsPage", () => ({
+  SoundsPage: () => <div data-testid="sounds-page-stub">Sounds stub</div>,
+}));
 
 // eslint-disable-next-line import/order
 import { AppShell } from "./AppShell";
@@ -164,6 +173,15 @@ describe("AppShell navigation", () => {
     expect(screen.getByTestId("chat-page-stub")).toBeTruthy();
     expect(screen.queryByText("Состояние эфира")).toBeNull();
     expect(screen.getByRole("button", { name: /Чат/ }).className).toContain("is-active");
+  });
+
+  it("switches to Звуки and hides every other section's content", () => {
+    render(<AppShell />);
+    clickNav("Звуки");
+    expect(screen.getByTestId("sounds-page-stub")).toBeTruthy();
+    expect(screen.queryByText("Состояние эфира")).toBeNull();
+    expect(screen.queryByTestId("chat-page-stub")).toBeNull();
+    expect(screen.getByRole("button", { name: /Звуки/ }).className).toContain("is-active");
   });
 
   it("switches to Настройки and hides Главная/Чат content", () => {

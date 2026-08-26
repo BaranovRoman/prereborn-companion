@@ -1,6 +1,7 @@
 mod backend;
 mod commands;
 mod diagnostics;
+mod game_sounds;
 mod gsi;
 mod hotkeys;
 mod obs;
@@ -178,6 +179,7 @@ pub fn run() {
             storage::cleanup_legacy_payloads(&handle);
             silero::init(&handle);
             hotkeys::init(&handle);
+            game_sounds::init(&handle);
             {
                 let state = handle.state::<AppState>();
                 let mut inner = state.0.lock().unwrap();
@@ -234,6 +236,13 @@ pub fn run() {
             commands::get_stream_session,
             commands::reset_stream_session,
             commands::end_stream_session,
+            commands::get_game_sound_catalog,
+            commands::get_game_sound_settings,
+            commands::update_game_sound_master,
+            commands::set_game_sound_binding,
+            commands::remove_game_sound_binding,
+            commands::import_and_bind_game_sound,
+            commands::preview_game_sound,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
