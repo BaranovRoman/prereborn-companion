@@ -523,3 +523,12 @@ pub fn import_and_bind_game_sound(
 pub fn preview_game_sound(app: AppHandle, asset_id: String) -> Result<GameSoundPreviewPayload, String> {
     game_sounds::preview_sound(&app, asset_id)
 }
+
+// WK-108 latency addendum - the frontend half of the Game Sounds timing
+// instrumentation (see game_sounds/mod.rs's log_frontend_timing doc
+// comment). useGameSoundEngine.ts calls this once per pipeline stage it
+// observes for an actually-played sound, never per GSI tick.
+#[tauri::command]
+pub fn log_game_sound_timing(app: AppHandle, correlation_id: String, stage: String, elapsed_ms: u64) {
+    game_sounds::log_frontend_timing(&app, &correlation_id, &stage, elapsed_ms);
+}

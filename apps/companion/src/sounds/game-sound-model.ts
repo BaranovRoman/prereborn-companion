@@ -11,6 +11,8 @@ export interface GameSoundPlayback {
   base64: string;
   mime: string;
   volume: number;
+  correlationId: string;
+  emittedAtMs: number;
 }
 
 export class BoundedGameSoundQueue {

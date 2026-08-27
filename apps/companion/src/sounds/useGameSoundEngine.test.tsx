@@ -10,6 +10,7 @@ vi.mock("../services/dotaCompanionApi", () => ({
   removeGameSoundBinding: vi.fn(),
   importAndBindGameSound: vi.fn(),
   previewGameSound: vi.fn(),
+  logGameSoundTiming: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Captured so tests can simulate the Rust-emitted "game-sound-play" event by
@@ -24,7 +25,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 import { listen } from "@tauri-apps/api/event";
 // eslint-disable-next-line import/order
 import {
-  getGameSoundSettings, importAndBindGameSound, previewGameSound, removeGameSoundBinding,
+  getGameSoundSettings, importAndBindGameSound, logGameSoundTiming, previewGameSound, removeGameSoundBinding,
   setGameSoundBinding, updateGameSoundMaster,
 } from "../services/dotaCompanionApi";
 // eslint-disable-next-line import/order
@@ -72,10 +73,16 @@ class MockAudio {
 const getPlayNotifyHandler = () => {
   const call = vi.mocked(listen).mock.calls.find(([eventName]) => eventName === "game-sound-play");
   if (!call) throw new Error("game-sound-play listener was never registered");
-  return call[1] as (event: { payload: { eventId: string; base64: string; mime: string; volume: number } }) => void;
+  return call[1] as (event: {
+    payload: {
+      eventId: string; base64: string; mime: string; volume: number; correlationId: string; emittedAtMs: number;
+    };
+  }) => void;
 };
 
-const playEvent = (eventId: string, volume = 70) => ({ eventId, base64: "AAAA", mime: "audio/wav", volume });
+const playEvent = (eventId: string, volume = 70) => ({
+  eventId, base64: "AAAA", mime: "audio/wav", volume, correlationId: `corr-${eventId}`, emittedAtMs: Date.now(),
+});
 
 describe("useGameSoundEngine", () => {
   beforeEach(() => {
@@ -85,6 +92,7 @@ describe("useGameSoundEngine", () => {
     vi.mocked(removeGameSoundBinding).mockReset();
     vi.mocked(importAndBindGameSound).mockReset();
     vi.mocked(previewGameSound).mockReset().mockResolvedValue({ base64: "AAAA", mime: "audio/wav" });
+    vi.mocked(logGameSoundTiming).mockReset().mockResolvedValue(undefined);
     vi.mocked(listen).mockClear().mockResolvedValue(() => {});
     MockAudio.instances = [];
     MockAudio.playImpl = () => Promise.resolve();
@@ -107,6 +115,21 @@ describe("useGameSoundEngine", () => {
 
     expect(MockAudio.instances).toHaveLength(1);
     expect(MockAudio.instances[0].volume).toBeCloseTo(0.42);
+  });
+
+  it("logs frontend-received/audio-play-requested/audio-playing timing stages for the played event's correlation id, without blocking playback", async () => {
+    let engine!: ReturnType<typeof useGameSoundEngine>;
+    render(<Harness onEngine={(e) => { engine = e; }} />);
+    await waitFor(() => expect(engine.settings).not.toBeNull());
+
+    getPlayNotifyHandler()({ payload: playEvent("item_blood_grenade") });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const stages = vi.mocked(logGameSoundTiming).mock.calls
+      .filter(([correlationId]) => correlationId === "corr-item_blood_grenade")
+      .map(([, stage]) => stage);
+    expect(stages).toEqual(["frontend-received", "audio-play-requested", "audio-playing"]);
   });
 
   it("does not play when the master toggle is off", async () => {

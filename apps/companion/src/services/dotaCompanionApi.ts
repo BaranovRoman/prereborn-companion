@@ -118,6 +118,13 @@ export type ItemSignal = "cooldown" | "chargesOrConsumed";
 // `name` itself flips to a "_stop"-suffixed variant while active (Reactive
 // Tazer) instead of pulsing a cooldown - see game_sounds/catalog.rs.
 export type AbilitySignal = "cooldown" | "charges" | "toggleActivateRename";
+// WK-108 - abilities carry a tri-state status instead of a plain boolean:
+// `supported` (real production capture proves the signal), `experimental`
+// (metadata-plausible, real GSI behavior not verified - see catalog.rs's
+// module doc comment for why metadata alone can never earn "supported"),
+// `unsupported` (no usable GSI signal exists at all). Items stay a plain
+// boolean - that side of the catalog is unchanged by WK-108.
+export type AbilityStatus = "supported" | "experimental" | "unsupported";
 
 export interface TrackedItem {
   id: string;
@@ -131,7 +138,7 @@ export interface TrackedAbility {
   id: string;
   displayName: string;
   iconUrl: string;
-  supported: boolean;
+  status: AbilityStatus;
   signal: AbilitySignal | null;
   // Only set for `toggleActivateRename` abilities - not needed by the UI
   // (bindings always use `id`, the canonical name), present for parity with
@@ -187,6 +194,14 @@ export interface GameSoundPlayNotification {
   base64: string;
   mime: string;
   volume: number;
+  // WK-108 latency addendum - correlates this payload's frontend-side
+  // timing stages with Rust's own gsi-received/detected/play-request-emitted
+  // stages in the shared rolling log; emittedAtMs is a wall-clock timestamp
+  // (same clock source as the frontend's Date.now()) so useGameSoundEngine.ts
+  // can measure real IPC/decode/play transit time - see
+  // game_sounds/mod.rs's now_ms doc comment.
+  correlationId: string;
+  emittedAtMs: number;
 }
 
 export const getGameSoundCatalog = () => invoke<GameSoundCatalog>("get_game_sound_catalog");
@@ -205,6 +220,12 @@ export const importAndBindGameSound = (eventId: string, kind: GameSoundEventKind
   invoke<GameSoundSettings>("import_and_bind_game_sound", { eventId, kind });
 export const previewGameSound = (assetId: string) =>
   invoke<GameSoundPreviewPayload>("preview_game_sound", { assetId });
+// WK-108 latency addendum - fire-and-forget timing breadcrumb, one call per
+// pipeline stage useGameSoundEngine.ts observes for an actually-played
+// sound (never per GSI tick) - appended to the same shared rolling log as
+// the Rust-side stages (see game_sounds/mod.rs's log_frontend_timing).
+export const logGameSoundTiming = (correlationId: string, stage: string, elapsedMs: number) =>
+  invoke<void>("log_game_sound_timing", { correlationId, stage, elapsedMs: Math.max(0, Math.round(elapsedMs)) });
 
 // Diagnostic-mode GSI capture - off by default, see src-tauri/src/diagnostics.
 export const diagnosticsGetStatus = () =>

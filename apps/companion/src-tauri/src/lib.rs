@@ -243,6 +243,7 @@ pub fn run() {
             commands::remove_game_sound_binding,
             commands::import_and_bind_game_sound,
             commands::preview_game_sound,
+            commands::log_game_sound_timing,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
