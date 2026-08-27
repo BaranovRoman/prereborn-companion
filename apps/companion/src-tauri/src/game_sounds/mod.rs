@@ -301,12 +301,24 @@ fn describe_transition(kind: GameSoundEventKind, id: &str, previous: &Value, cur
         GameSoundEventKind::ItemUsed => "items",
         GameSoundEventKind::AbilityCast => "abilities",
     };
+    // WK-107 - `id` is always the canonical ability id (see events.rs's
+    // detect_ability_events), but the raw GSI slot this tick's transition
+    // actually happened in may carry the alias name instead (Reactive
+    // Tazer's "_stop" variant) - canonicalize before matching so this still
+    // finds the right slot for a toggle-rename event, not just cooldown/
+    // charges-based ones.
+    let matches_id = |raw_name: &str| -> bool {
+        match kind {
+            GameSoundEventKind::AbilityCast => catalog::canonicalize_ability_name(raw_name) == id,
+            GameSoundEventKind::ItemUsed => raw_name == id,
+        }
+    };
     let find_slot = |payload: &Value| -> Option<Value> {
         payload
             .get(section)?
             .as_object()?
             .values()
-            .find(|slot| slot.get("name").and_then(Value::as_str) == Some(id))
+            .find(|slot| slot.get("name").and_then(Value::as_str).is_some_and(matches_id))
             .cloned()
     };
     let field = |slot: &Option<Value>, key: &str| -> String {
@@ -315,6 +327,14 @@ fn describe_transition(kind: GameSoundEventKind, id: &str, previous: &Value, cur
             .map(|v| v.to_string())
             .unwrap_or_else(|| "?".to_string())
     };
+    let raw_name = |slot: &Option<Value>| -> String {
+        slot.as_ref()
+            .and_then(|s| s.get("name"))
+            .and_then(Value::as_str)
+            .unwrap_or("?")
+            .to_string()
+    };
+    let has_field = |slot: &Option<Value>, key: &str| slot.as_ref().is_some_and(|s| s.get(key).is_some());
     let prev_slot = find_slot(previous);
     let curr_slot = find_slot(current);
 
@@ -329,6 +349,15 @@ fn describe_transition(kind: GameSoundEventKind, id: &str, previous: &Value, cur
             field(&prev_slot, "cooldown"),
             field(&curr_slot, "cooldown"),
         ),
+        // Toggle-rename ability (Reactive Tazer) - the name change itself
+        // is the evidence, cooldown/charges don't move.
+        GameSoundEventKind::AbilityCast if raw_name(&prev_slot) != raw_name(&curr_slot) => {
+            format!("name {}\u{2192}{}", raw_name(&prev_slot), raw_name(&curr_slot))
+        }
+        // Charge-based ultimate (Proximity Mines).
+        GameSoundEventKind::AbilityCast if has_field(&prev_slot, "charges") || has_field(&curr_slot, "charges") => {
+            format!("charges {}\u{2192}{}", field(&prev_slot, "charges"), field(&curr_slot, "charges"))
+        }
         GameSoundEventKind::AbilityCast => format!(
             "cooldown {}\u{2192}{}",
             field(&prev_slot, "cooldown"),
@@ -379,6 +408,30 @@ mod tests {
         assert_eq!(
             describe_transition(GameSoundEventKind::AbilityCast, "pudge_meat_hook", &prev, &curr),
             "cooldown 0\u{2192}13"
+        );
+    }
+
+    // WK-107 - `id` passed in is always the canonical ability id, but the
+    // current tick's raw slot may carry the alias name (Reactive Tazer) -
+    // this pins that describe_transition still finds it (rather than
+    // falling back to "?" for every field) and reports the rename itself.
+    #[test]
+    fn describes_a_toggle_activate_rename_ability_transition() {
+        let prev = json!({ "abilities": { "ability1": { "name": "techies_reactive_tazer", "cooldown": 0 } } });
+        let curr = json!({ "abilities": { "ability1": { "name": "techies_reactive_tazer_stop", "cooldown": 0 } } });
+        assert_eq!(
+            describe_transition(GameSoundEventKind::AbilityCast, "techies_reactive_tazer", &prev, &curr),
+            "name techies_reactive_tazer\u{2192}techies_reactive_tazer_stop"
+        );
+    }
+
+    #[test]
+    fn describes_a_charge_based_ability_transition() {
+        let prev = json!({ "abilities": { "ability3": { "name": "techies_land_mines", "cooldown": 0, "charges": 3 } } });
+        let curr = json!({ "abilities": { "ability3": { "name": "techies_land_mines", "cooldown": 0, "charges": 2 } } });
+        assert_eq!(
+            describe_transition(GameSoundEventKind::AbilityCast, "techies_land_mines", &prev, &curr),
+            "charges 3\u{2192}2"
         );
     }
 }

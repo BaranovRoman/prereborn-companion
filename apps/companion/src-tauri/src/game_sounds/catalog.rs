@@ -9,11 +9,24 @@ use serde::Serialize;
 // bundled from Valve's game files - these are hand-curated internal
 // name/display pairs (public, well-documented Dota 2 API identifiers, not
 // copyrighted assets) plus a `supported` verdict this repo can defend given
-// what's actually knowable about the GSI `items`/`abilities` sections (see
-// the WK-106 research report - no real GSI capture of these sections exists
-// in this repo, only Valve's publicly documented community GSI schema:
-// items carry `name`/`charges`/`cooldown`/`can_cast`/`passive`/`purchaser`,
-// abilities carry `name`/`level`/`cooldown`/`can_cast`/`ultimate`).
+// what's actually knowable about the GSI `items`/`abilities` sections.
+//
+// WK-106 shipped against only the publicly documented community GSI schema
+// (no real capture existed yet): items carry `name`/`charges`/`cooldown`/
+// `can_cast`/`passive`/`purchaser`, abilities carry `name`/`level`/
+// `cooldown`/`can_cast`/`ultimate`.
+//
+// WK-107 replaced that assumption with a real production diagnostics
+// capture (Techies + Tango + Blood Grenade, see events.rs's module doc
+// comment for the full forensic writeup). It confirmed the WK-106 shape for
+// every entry already in this catalog (still `Cooldown`/`ChargesOrConsumed`,
+// unchanged), added two real fields not previously known
+// (`max_cooldown`, `ability_active`), and revealed two GSI transition shapes
+// the original generic detector could not represent at all: a charge-based
+// ultimate (`charges`/`charge_cooldown`/`max_charges` instead of
+// `cooldown`) and a toggle ability whose GSI `name` itself flips to a
+// "_stop"-suffixed variant while active, instead of pulsing `cooldown`. See
+// `AbilitySignal` below.
 //
 // Icons are hotlinked to Valve's own public Dota 2 CDN (the same
 // `dota_react` image set OpenDota/Dotabuff/every other third-party Dota tool
@@ -52,6 +65,33 @@ pub struct TrackedItem {
     pub reason: Option<String>,
 }
 
+// WK-107 - the ability-side equivalent of ItemSignal, extended by a real
+// production capture (see events.rs's module doc comment for the full
+// forensic before/after values this is based on).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AbilitySignal {
+    // Ability has a real GSI `cooldown` that starts on cast (WK-106's
+    // original, only, signal - unchanged, still confirmed correct by the
+    // capture for every ability that uses it, e.g. Techies' Sticky Bomb and
+    // Blast Off!).
+    Cooldown,
+    // Charge-based ability (separate `charges`/`charge_cooldown`/
+    // `max_charges` fields, `cooldown` stays 0 and is never used) - a cast
+    // consumes one charge. Mirrors ItemSignal::ChargesOrConsumed's charges
+    // check, but abilities never get "consumed from a slot" the way an
+    // item can, so there's no consumed-fallback branch here.
+    Charges,
+    // GSI renames this ability's own `name` to a "_stop"-suffixed variant
+    // while toggled active, instead of pulsing `cooldown` at all (Techies'
+    // Reactive Tazer). Only the confirmed activation direction (base name
+    // -> alias) is treated as a cast - see TrackedAbility::toggle_active_alias
+    // and events::detect_ability_events. The reverse (deactivation) rename
+    // is not proven by the capture this is based on and is deliberately
+    // left undetected rather than guessed at.
+    ToggleActivateRename,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackedAbility {
@@ -59,6 +99,14 @@ pub struct TrackedAbility {
     pub display_name: String,
     pub icon_url: String,
     pub supported: bool,
+    pub signal: Option<AbilitySignal>,
+    // Only `Some` for `AbilitySignal::ToggleActivateRename` abilities - the
+    // raw GSI `name` this ability's slot takes on while toggled active (see
+    // events.rs's module doc comment: Reactive Tazer's GSI name flips to
+    // this suffixed variant instead of pulsing a cooldown). `id` and every
+    // catalog/binding lookup always use the base/canonical name; this is
+    // purely the detector's "which renamed variant means activated" signal.
+    pub toggle_active_alias: Option<&'static str>,
     pub reason: Option<String>,
 }
 
@@ -93,21 +141,19 @@ fn unsupported_item(id: &str, display_name: &str, reason: &str) -> TrackedItem {
     }
 }
 
-// WK-106 research report, section B ("Blood Grenade"): deliberately absent
-// from this catalog, not merely marked unsupported. "Blood Grenade" is not a
-// recognized Dota 2 base item internal name (every real active/consumable
-// item's GSI `name` begins with `item_`) and appears nowhere in this repo's
-// fixtures, diagnostics captures, or GSI docs. The most plausible
-// explanation is that it's a cosmetic skin/reflavor of an existing
-// consumable (Valve reskins routinely rename a base item's *displayed*
-// name/model without changing the `name` GSI reports) - in which case GSI
-// would report it under whatever base item it reskins, not as a distinct
-// id, so there is nothing to add a catalog row for. Showing it as
-// "unsupported" would wrongly imply it's a known, addressable item this
-// feature is choosing to block; it isn't one.
 pub fn item_catalog() -> Vec<TrackedItem> {
     vec![
         supported_item("item_tango", "Tango", ItemSignal::ChargesOrConsumed),
+        // WK-107 - confirmed present in a real production GSI capture as
+        // `item_blood_grenade` (slot1), contradicting WK-106's assumption
+        // that it wasn't a real distinct base item id. Same signal as
+        // Tango: the real capture shows a simultaneous `charges` decrease
+        // (2 -> 1) and `cooldown` start (0 -> 10) on use - `charges`
+        // decreasing alone is what ChargesOrConsumed already checks (see
+        // events.rs), so no detector change was needed for this one, only
+        // the catalog entry. See events.rs's module doc comment for the
+        // full before/after values.
+        supported_item("item_blood_grenade", "Blood Grenade", ItemSignal::ChargesOrConsumed),
         supported_item("item_flask", "Healing Salve", ItemSignal::ChargesOrConsumed),
         supported_item("item_enchanted_mango", "Enchanted Mango", ItemSignal::ChargesOrConsumed),
         supported_item("item_clarity", "Clarity", ItemSignal::ChargesOrConsumed),
@@ -151,12 +197,30 @@ pub fn item_catalog() -> Vec<TrackedItem> {
     ]
 }
 
-fn supported_ability(id: &str, display_name: &str) -> TrackedAbility {
+fn supported_ability(id: &str, display_name: &str, signal: AbilitySignal) -> TrackedAbility {
     TrackedAbility {
         id: id.to_string(),
         display_name: display_name.to_string(),
         icon_url: format!("{ABILITY_ICON_BASE}/{id}.png"),
         supported: true,
+        signal: Some(signal),
+        toggle_active_alias: None,
+        reason: None,
+    }
+}
+
+/// WK-107 - dedicated constructor for `AbilitySignal::ToggleActivateRename`
+/// abilities, so the id and its activation-alias name are set together and
+/// can't drift apart (see `TrackedAbility::toggle_active_alias`'s doc
+/// comment).
+fn supported_toggle_ability(id: &str, display_name: &str, active_alias: &'static str) -> TrackedAbility {
+    TrackedAbility {
+        id: id.to_string(),
+        display_name: display_name.to_string(),
+        icon_url: format!("{ABILITY_ICON_BASE}/{id}.png"),
+        supported: true,
+        signal: Some(AbilitySignal::ToggleActivateRename),
+        toggle_active_alias: Some(active_alias),
         reason: None,
     }
 }
@@ -167,6 +231,8 @@ fn unsupported_ability(id: &str, display_name: &str, reason: &str) -> TrackedAbi
         display_name: display_name.to_string(),
         icon_url: format!("{ABILITY_ICON_BASE}/{id}.png"),
         supported: false,
+        signal: None,
+        toggle_active_alias: None,
         reason: Some(reason.to_string()),
     }
 }
@@ -197,10 +263,10 @@ pub fn hero_catalog() -> Vec<TrackedHero> {
             display_name: "Pudge".into(),
             icon_url: format!("{HERO_ICON_BASE}/pudge.png"),
             abilities: vec![
-                supported_ability("pudge_meat_hook", "Meat Hook"),
+                supported_ability("pudge_meat_hook", "Meat Hook", AbilitySignal::Cooldown),
                 unsupported_ability("pudge_rot", "Rot", NO_COOLDOWN_TOGGLE),
                 unsupported_ability("pudge_flesh_heap", "Flesh Heap", PASSIVE_NO_CAST),
-                supported_ability("pudge_dismember", "Dismember"),
+                supported_ability("pudge_dismember", "Dismember", AbilitySignal::Cooldown),
             ],
         },
         TrackedHero {
@@ -208,10 +274,10 @@ pub fn hero_catalog() -> Vec<TrackedHero> {
             display_name: "Axe".into(),
             icon_url: format!("{HERO_ICON_BASE}/axe.png"),
             abilities: vec![
-                supported_ability("axe_berserkers_call", "Berserker's Call"),
-                supported_ability("axe_battle_hunger", "Battle Hunger"),
+                supported_ability("axe_berserkers_call", "Berserker's Call", AbilitySignal::Cooldown),
+                supported_ability("axe_battle_hunger", "Battle Hunger", AbilitySignal::Cooldown),
                 unsupported_ability("axe_counter_helix", "Counter Helix", PASSIVE_AUTO_PROC),
-                supported_ability("axe_culling_blade", "Culling Blade"),
+                supported_ability("axe_culling_blade", "Culling Blade", AbilitySignal::Cooldown),
             ],
         },
         TrackedHero {
@@ -219,10 +285,10 @@ pub fn hero_catalog() -> Vec<TrackedHero> {
             display_name: "Crystal Maiden".into(),
             icon_url: format!("{HERO_ICON_BASE}/crystal_maiden.png"),
             abilities: vec![
-                supported_ability("crystal_maiden_crystal_nova", "Crystal Nova"),
-                supported_ability("crystal_maiden_frostbite", "Frostbite"),
+                supported_ability("crystal_maiden_crystal_nova", "Crystal Nova", AbilitySignal::Cooldown),
+                supported_ability("crystal_maiden_frostbite", "Frostbite", AbilitySignal::Cooldown),
                 unsupported_ability("crystal_maiden_arcane_aura", "Arcane Aura", PASSIVE_NO_CAST),
-                supported_ability("crystal_maiden_freezing_field", "Freezing Field"),
+                supported_ability("crystal_maiden_freezing_field", "Freezing Field", AbilitySignal::Cooldown),
             ],
         },
         TrackedHero {
@@ -230,10 +296,10 @@ pub fn hero_catalog() -> Vec<TrackedHero> {
             display_name: "Lion".into(),
             icon_url: format!("{HERO_ICON_BASE}/lion.png"),
             abilities: vec![
-                supported_ability("lion_impale", "Earth Spike"),
-                supported_ability("lion_voodoo", "Hex"),
-                supported_ability("lion_mana_drain", "Mana Drain"),
-                supported_ability("lion_finger_of_death", "Finger of Death"),
+                supported_ability("lion_impale", "Earth Spike", AbilitySignal::Cooldown),
+                supported_ability("lion_voodoo", "Hex", AbilitySignal::Cooldown),
+                supported_ability("lion_mana_drain", "Mana Drain", AbilitySignal::Cooldown),
+                supported_ability("lion_finger_of_death", "Finger of Death", AbilitySignal::Cooldown),
             ],
         },
         TrackedHero {
@@ -241,10 +307,10 @@ pub fn hero_catalog() -> Vec<TrackedHero> {
             display_name: "Juggernaut".into(),
             icon_url: format!("{HERO_ICON_BASE}/juggernaut.png"),
             abilities: vec![
-                supported_ability("juggernaut_blade_fury", "Blade Fury"),
-                supported_ability("juggernaut_healing_ward", "Healing Ward"),
+                supported_ability("juggernaut_blade_fury", "Blade Fury", AbilitySignal::Cooldown),
+                supported_ability("juggernaut_healing_ward", "Healing Ward", AbilitySignal::Cooldown),
                 unsupported_ability("juggernaut_blade_dance", "Blade Dance", PASSIVE_AUTO_PROC),
-                supported_ability("juggernaut_omni_slash", "Omnislash"),
+                supported_ability("juggernaut_omni_slash", "Omnislash", AbilitySignal::Cooldown),
             ],
         },
         TrackedHero {
@@ -252,10 +318,10 @@ pub fn hero_catalog() -> Vec<TrackedHero> {
             display_name: "Windranger".into(),
             icon_url: format!("{HERO_ICON_BASE}/windrunner.png"),
             abilities: vec![
-                supported_ability("windrunner_shackleshot", "Shackleshot"),
-                supported_ability("windrunner_powershot", "Powershot"),
-                supported_ability("windrunner_windrun", "Windrun"),
-                supported_ability("windrunner_focusfire", "Focus Fire"),
+                supported_ability("windrunner_shackleshot", "Shackleshot", AbilitySignal::Cooldown),
+                supported_ability("windrunner_powershot", "Powershot", AbilitySignal::Cooldown),
+                supported_ability("windrunner_windrun", "Windrun", AbilitySignal::Cooldown),
+                supported_ability("windrunner_focusfire", "Focus Fire", AbilitySignal::Cooldown),
             ],
         },
         TrackedHero {
@@ -263,10 +329,10 @@ pub fn hero_catalog() -> Vec<TrackedHero> {
             display_name: "Sniper".into(),
             icon_url: format!("{HERO_ICON_BASE}/sniper.png"),
             abilities: vec![
-                supported_ability("sniper_shrapnel", "Shrapnel"),
+                supported_ability("sniper_shrapnel", "Shrapnel", AbilitySignal::Cooldown),
                 unsupported_ability("sniper_headshot", "Headshot", PASSIVE_AUTO_PROC),
                 unsupported_ability("sniper_take_aim", "Take Aim", PASSIVE_NO_CAST),
-                supported_ability("sniper_assassinate", "Assassinate"),
+                supported_ability("sniper_assassinate", "Assassinate", AbilitySignal::Cooldown),
             ],
         },
         TrackedHero {
@@ -274,14 +340,14 @@ pub fn hero_catalog() -> Vec<TrackedHero> {
             display_name: "Shadow Fiend".into(),
             icon_url: format!("{HERO_ICON_BASE}/nevermore.png"),
             abilities: vec![
-                supported_ability("nevermore_shadowraze1", "Shadowraze (Near)"),
+                supported_ability("nevermore_shadowraze1", "Shadowraze (Near)", AbilitySignal::Cooldown),
                 unsupported_ability("nevermore_necromastery", "Necromastery", PASSIVE_NO_CAST),
                 unsupported_ability(
                     "nevermore_presence_of_the_dark_lord",
                     "Presence of the Dark Lord",
                     PASSIVE_NO_CAST,
                 ),
-                supported_ability("nevermore_requiem", "Requiem of Souls"),
+                supported_ability("nevermore_requiem", "Requiem of Souls", AbilitySignal::Cooldown),
             ],
         },
         TrackedHero {
@@ -297,6 +363,43 @@ pub fn hero_catalog() -> Vec<TrackedHero> {
                     "Invoke",
                     "Invoker переключается между открытым набором заклинаний, которые эта первая версия плоской модели способностей не различает — помечено unsupported, а не угадано.",
                 ),
+            ],
+        },
+        // WK-107 - added from a real production diagnostics capture (see
+        // events.rs's module doc comment for the full forensic writeup),
+        // not from assumption - the first hero in this catalog to be so.
+        TrackedHero {
+            id: "npc_dota_hero_techies".into(),
+            display_name: "Techies".into(),
+            icon_url: format!("{HERO_ICON_BASE}/techies.png"),
+            abilities: vec![
+                // Confirmed cast transition: cooldown 0 -> 7 (max_cooldown
+                // 0 -> 8, can_cast true -> false) in the same tick.
+                supported_ability("techies_sticky_bomb", "Sticky Bomb", AbilitySignal::Cooldown),
+                // Confirmed activation transition: GSI `name` itself flips
+                // "techies_reactive_tazer" -> "techies_reactive_tazer_stop"
+                // (cooldown stays 0 throughout - only `max_cooldown` ticks
+                // 0 -> 1, which is not itself used as the signal). The
+                // reverse (deactivation) rename was not observed in the
+                // capture this is based on and is not modeled - see
+                // canonicalize_ability_name and events::detect_ability_events.
+                supported_toggle_ability(
+                    "techies_reactive_tazer",
+                    "Reactive Tazer",
+                    "techies_reactive_tazer_stop",
+                ),
+                // "Blast Off!" in current Dota's UI, internal name kept as
+                // `techies_suicide` since the old self-destruct spell was
+                // reworked. Confirmed cast transition: cooldown 0 -> 25
+                // (max_cooldown 0 -> 26, can_cast true -> false).
+                supported_ability("techies_suicide", "Blast Off!", AbilitySignal::Cooldown),
+                // "Proximity Mines" in current Dota's UI, internal name kept
+                // as `techies_land_mines`. Charge-based ultimate - `cooldown`
+                // stays 0 the whole time; the confirmed cast transition is
+                // `charges` 3 -> 2 with `charge_cooldown` 0 -> 15 in the same
+                // tick. This is the one ability in this capture that a plain
+                // cooldown-only detector could never have found at all.
+                supported_ability("techies_land_mines", "Proximity Mines", AbilitySignal::Charges),
             ],
         },
     ]
@@ -330,8 +433,33 @@ pub fn find_item(id: &str) -> Option<TrackedItem> {
     item_index().get(id).cloned()
 }
 
+/// Derived from each `TrackedAbility::toggle_active_alias` already in the
+/// catalog (see `supported_toggle_ability`), not a second hand-maintained
+/// list - the alias lives in exactly one place. Only abilities catalogued
+/// with `AbilitySignal::ToggleActivateRename` (currently just Techies'
+/// Reactive Tazer, confirmed by the WK-107 production capture) ever appear
+/// here, so a future toggle ability only needs its catalog entry, not a
+/// matching edit somewhere else that's easy to forget.
+fn alias_index() -> &'static HashMap<&'static str, String> {
+    static INDEX: OnceLock<HashMap<&'static str, String>> = OnceLock::new();
+    INDEX.get_or_init(|| {
+        hero_catalog()
+            .into_iter()
+            .flat_map(|hero| hero.abilities)
+            .filter_map(|ability| ability.toggle_active_alias.map(|alias| (alias, ability.id)))
+            .collect()
+    })
+}
+
+/// Maps a raw GSI ability `name` to this catalog's canonical lookup key -
+/// identity for every ability except a confirmed toggle-activation alias
+/// (see `alias_index` above).
+pub fn canonicalize_ability_name(raw: &str) -> &str {
+    alias_index().get(raw).map(String::as_str).unwrap_or(raw)
+}
+
 pub fn find_ability(id: &str) -> Option<TrackedAbility> {
-    ability_index().get(id).cloned()
+    ability_index().get(canonicalize_ability_name(id)).cloned()
 }
 
 #[cfg(test)]
@@ -383,16 +511,76 @@ mod tests {
     }
 
     #[test]
-    fn blood_grenade_is_not_present_anywhere_in_the_catalog() {
-        // WK-106 - see the module doc comment: not a real base item id, so
-        // it must not appear as a false "unsupported" row either.
-        assert!(item_catalog().iter().all(|i| !i.id.to_lowercase().contains("grenade")));
-        assert!(item_catalog().iter().all(|i| !i.display_name.to_lowercase().contains("grenade")));
+    fn supported_abilities_always_carry_a_signal_and_unsupported_ones_never_do() {
+        for hero in hero_catalog() {
+            for ability in hero.abilities {
+                assert_eq!(ability.signal.is_some(), ability.supported, "{}", ability.id);
+            }
+        }
+    }
+
+    #[test]
+    fn only_toggle_activate_rename_abilities_carry_an_alias() {
+        for hero in hero_catalog() {
+            for ability in hero.abilities {
+                let is_toggle = ability.signal == Some(AbilitySignal::ToggleActivateRename);
+                assert_eq!(ability.toggle_active_alias.is_some(), is_toggle, "{}", ability.id);
+            }
+        }
+    }
+
+    // WK-107 - reverses WK-106's "blood_grenade_is_not_present_anywhere_in_
+    // the_catalog": a real production capture confirmed `item_blood_grenade`
+    // is a genuine, distinct GSI item id (see the module doc comment and
+    // events.rs's forensic writeup) - WK-106's assumption it wasn't a real
+    // item has been disproven by actual data, not just relaxed.
+    #[test]
+    fn blood_grenade_is_present_and_supported() {
+        let item = find_item("item_blood_grenade").expect("item_blood_grenade must be in the catalog");
+        assert!(item.supported);
+        assert_eq!(item.signal, Some(ItemSignal::ChargesOrConsumed));
+    }
+
+    #[test]
+    fn techies_hero_has_all_four_captured_abilities_with_human_display_names() {
+        let heroes = hero_catalog();
+        let techies = heroes
+            .iter()
+            .find(|h| h.id == "npc_dota_hero_techies")
+            .expect("Techies must be in the hero catalog");
+        let by_id: std::collections::HashMap<&str, &TrackedAbility> =
+            techies.abilities.iter().map(|a| (a.id.as_str(), a)).collect();
+
+        assert_eq!(by_id["techies_sticky_bomb"].display_name, "Sticky Bomb");
+        assert!(by_id["techies_sticky_bomb"].supported);
+
+        assert_eq!(by_id["techies_reactive_tazer"].display_name, "Reactive Tazer");
+        assert!(by_id["techies_reactive_tazer"].supported);
+        // Not a second, separate ability entry for the "_stop" variant.
+        assert!(!by_id.contains_key("techies_reactive_tazer_stop"));
+
+        assert_eq!(by_id["techies_suicide"].display_name, "Blast Off!");
+        assert!(by_id["techies_suicide"].supported);
+
+        assert_eq!(by_id["techies_land_mines"].display_name, "Proximity Mines");
+        assert!(by_id["techies_land_mines"].supported);
+        assert_eq!(by_id["techies_land_mines"].signal, Some(AbilitySignal::Charges));
+    }
+
+    #[test]
+    fn reactive_tazer_stop_alias_resolves_to_the_same_canonical_catalog_entry() {
+        assert_eq!(canonicalize_ability_name("techies_reactive_tazer_stop"), "techies_reactive_tazer");
+        assert_eq!(canonicalize_ability_name("techies_reactive_tazer"), "techies_reactive_tazer");
+        let via_alias = find_ability("techies_reactive_tazer_stop").unwrap();
+        let via_base = find_ability("techies_reactive_tazer").unwrap();
+        assert_eq!(via_alias.id, via_base.id);
+        assert_eq!(via_alias.toggle_active_alias, Some("techies_reactive_tazer_stop"));
     }
 
     #[test]
     fn find_item_and_find_ability_resolve_known_ids() {
         assert!(find_item("item_tango").is_some());
+        assert!(find_item("item_blood_grenade").is_some());
         assert!(find_item("item_does_not_exist").is_none());
         assert!(find_ability("pudge_meat_hook").is_some());
         assert!(find_ability("pudge_rot").is_some());
