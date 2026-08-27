@@ -4,6 +4,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::diagnostics;
 use crate::game_sounds;
+use crate::local_runtime;
 use crate::obs;
 use crate::state::{AppState, LastEvent, GSI_PORT};
 use crate::storage;
@@ -82,6 +83,13 @@ fn process_gsi_body(app: &AppHandle, remote_addr: &str, body: &str) -> LastEvent
     if let Some(parsed) = result.parsed.as_ref() {
         obs::handle_gsi(app, parsed);
         game_sounds::handle_gsi(app, parsed);
+        // WK-111 - passive local-runtime shadow mirror (see
+        // local_runtime/mod.rs's doc comment). Runs alongside the
+        // backend-forwarding queue below, never in place of it - a failure
+        // or slowdown here must never affect GSI ingest, OBS automation, or
+        // backend forwarding, the same isolation obs::handle_gsi and
+        // game_sounds::handle_gsi already have from each other.
+        local_runtime::handle_gsi(app, parsed);
     }
 
     {

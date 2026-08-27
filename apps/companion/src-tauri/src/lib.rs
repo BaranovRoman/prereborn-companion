@@ -4,6 +4,7 @@ mod diagnostics;
 mod game_sounds;
 mod gsi;
 mod hotkeys;
+mod local_runtime;
 mod obs;
 mod server;
 mod silero;
@@ -156,6 +157,7 @@ pub fn run() {
         .manage(diagnostics::DiagnosticsState::new())
         .manage(silero::SileroState::new())
         .manage(hotkeys::HotkeysState::new())
+        .manage(local_runtime::LocalRuntimeState::new())
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -180,6 +182,7 @@ pub fn run() {
             silero::init(&handle);
             hotkeys::init(&handle);
             game_sounds::init(&handle);
+            local_runtime::init(&handle);
             {
                 let state = handle.state::<AppState>();
                 let mut inner = state.0.lock().unwrap();

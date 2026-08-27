@@ -42,6 +42,13 @@ base64 = "0.22"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-autostart = "2.5.1"
 tauri-plugin-window-state = "2.4.1"
+# WK-111 - local durable runtime (stream-session/match shadow mirror).
+# "bundled" compiles SQLite from vendored C source instead of linking a
+# system libsqlite3 - same "no extra native build deps on Windows CI"
+# constraint that already drove the reqwest/rustls and zip/deflate choices
+# above (see their comments).
+rusqlite = { version = "0.31", features = ["bundled"] }
+uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
