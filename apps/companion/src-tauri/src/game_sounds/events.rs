@@ -182,6 +182,21 @@ fn detect_item_events(previous: &Value, current: &Value, events: &mut Vec<GameSo
         .filter_map(|(_, v)| v.get("name").and_then(Value::as_str))
         .collect();
 
+    // WK-109 - every item name present ANYWHERE in `current`, regardless of
+    // whether it was already there before this tick. Stronger than
+    // `newly_appeared_names` (which only proves a same-tick relocation):
+    // used below for the last-charge case, where a relocation might not
+    // finish landing in its destination slot within the very same tick the
+    // source slot clears. If the name still exists anywhere in `current`,
+    // the player provably still owns at least one, so this vanish cannot be
+    // "consumed the very last one" - regardless of which tick the
+    // destination shows up in.
+    let current_item_names: std::collections::HashSet<&str> = current_slots
+        .iter()
+        .filter_map(|(_, v)| v.get("name").and_then(Value::as_str))
+        .filter(|name| *name != "empty")
+        .collect();
+
     for slot in slot_keys {
         let previous_item = previous_slots.iter().find(|(s, _)| s == slot).map(|(_, v)| v);
         let current_item = current_slots.iter().find(|(s, _)| s == slot).map(|(_, v)| v);
@@ -215,19 +230,52 @@ fn detect_item_events(previous: &Value, current: &Value, events: &mut Vec<GameSo
                     let current_item = current_item.expect("current_name implies current_item exists");
                     let curr_charges = current_item.get("charges").and_then(Value::as_i64);
                     matches!((prev_charges, curr_charges), (Some(prev), Some(curr)) if curr < prev)
+                } else if !matches!(current_name, None | Some("empty")) {
+                    // A genuinely different item now occupies this slot -
+                    // never a use of `previous_name` (sell/swap), regardless
+                    // of how many charges it had.
+                    false
+                } else if prev_charges.is_none() {
+                    // Single-instance consumable with no charges field at
+                    // all (Healing Salve, Smoke, ...) - a genuine use, UNLESS
+                    // the same name simply reappeared elsewhere this exact
+                    // tick, which proves relocation rather than consumption
+                    // (see `newly_appeared_names` above).
+                    !newly_appeared_names.contains(previous_name)
+                } else if prev_charges == Some(1) {
+                    // WK-109 - the last-charge case (задача B). A
+                    // charge-tracked item at exactly 1 remaining charge that
+                    // vanishes from its slot IS a genuine use, UNLESS the
+                    // player still owns this item name ANYWHERE ELSE in the
+                    // current snapshot - which would mean they still have at
+                    // least one left, so this vanish must have been a
+                    // relocation/merge, not a full consumption. Checking the
+                    // *entire current snapshot* (not just this-tick
+                    // `newly_appeared_names`) also safely covers a
+                    // relocation whose destination slot doesn't land in the
+                    // very same tick the source slot clears.
+                    //
+                    // Known residual risk, accepted deliberately rather than
+                    // guessed around: selling the very last charge of this
+                    // item produces the exact same shape (vanishes, no
+                    // longer exists anywhere) and would also be reported as
+                    // a use. No GSI field distinguishes "consumed" from
+                    // "sold" for a fully-depleted stack - this is a real
+                    // schema limitation, not an oversight. Judged an
+                    // acceptable, rare trade-off: selling a cheap, nearly-
+                    // spent consumable is uncommon player behavior, unlike
+                    // the routine purchase/relocation cases this guard still
+                    // fully protects against.
+                    !current_item_names.contains(previous_name)
                 } else {
-                    // The item left this slot entirely. Only a "use" when
-                    // BOTH hold: (a) this slot never reported a `charges`
-                    // field for it (a genuinely single-instance consumable -
-                    // the charges-decrease branch above is the only trusted
-                    // signal for anything that does carry one, per the
-                    // WK-108 root-cause comment on this function), and
-                    // (b) the same item name did not simply reappear
-                    // elsewhere this same tick (that would be a relocation,
-                    // not a use - see `newly_appeared_names` above).
-                    prev_charges.is_none()
-                        && matches!(current_name, None | Some("empty"))
-                        && !newly_appeared_names.contains(previous_name)
+                    // 2+ charges remaining and the item still vanished
+                    // outright without a same-slot decrease ever being
+                    // observed first - exactly the shape a courier purchase
+                    // or a stack merge/split produces (see the WK-108
+                    // root-cause comment on this function). No positive
+                    // evidence this was a use; stays silent rather than risk
+                    // a false positive.
+                    false
                 }
             }
             None => false,
@@ -664,10 +712,63 @@ mod tests {
             // The existing grenade's slot goes empty for a tick (simulating
             // whatever internal bookkeeping a merge/courier-arrival causes)
             // without ever showing a same-slot charges decrease first -
-            // exactly the shape this repo cannot prove is a real use.
-            let holding_one = with_hero(1, json!({ "items": { "slot1": { "name": "item_blood_grenade", "charges": 1, "cooldown": 0 } } }));
-            let slot_cleared_by_purchase = with_hero(1, json!({ "items": { "slot1": { "name": "empty" } } }));
+            // exactly the shape this repo cannot prove is a real use. Real
+            // Dota GSI reports the FULL `items` inventory every tick (every
+            // slot key, not just what changed), so the newly-purchased
+            // grenade landing at courier is present in this SAME snapshot -
+            // WK-109's `current_item_names` check (see detect_item_events)
+            // relies on exactly this to rule out the last-charge case below.
+            let holding_one = with_hero(1, json!({ "items": {
+                "slot1": { "name": "item_blood_grenade", "charges": 1, "cooldown": 0 },
+                "courier0": { "name": "empty" }
+            } }));
+            let slot_cleared_by_purchase = with_hero(1, json!({ "items": {
+                "slot1": { "name": "empty" },
+                "courier0": { "name": "item_blood_grenade", "charges": 1, "cooldown": 0 }
+            } }));
             assert!(detect_events(Some(&holding_one), &slot_cleared_by_purchase).is_empty());
+        }
+
+        // WK-109 задача B - the last-charge case. The grenade's own slot
+        // going straight from `charges: 1` to fully gone, with the item
+        // name not existing anywhere else in the same snapshot, IS a
+        // genuine use - this was previously undetectable at all (see the
+        // WK-108 root-cause comment on this function, which deliberately
+        // never fired for ANY charge-tracked item leaving its slot).
+        #[test]
+        fn using_the_last_charge_of_a_charge_tracked_item_is_detected() {
+            let prev = with_hero(1, json!({ "items": { "slot1": { "name": "item_blood_grenade", "charges": 1, "cooldown": 0 } } }));
+            let curr = with_hero(1, json!({ "items": { "slot1": { "name": "empty" } } }));
+            assert_eq!(
+                detect_events(Some(&prev), &curr),
+                vec![GameSoundEvent { kind: GameSoundEventKind::ItemUsed, id: "item_blood_grenade".into() }]
+            );
+        }
+
+        // The same vanish-from-slot shape, but the item still exists
+        // elsewhere in this exact snapshot (relocated, not consumed) - must
+        // stay silent even though prev_charges was exactly 1.
+        #[test]
+        fn last_charge_relocating_to_another_slot_in_the_same_tick_is_not_a_use() {
+            let prev = with_hero(1, json!({ "items": {
+                "slot1": { "name": "item_blood_grenade", "charges": 1, "cooldown": 0 },
+                "stash0": { "name": "empty" }
+            } }));
+            let curr = with_hero(1, json!({ "items": {
+                "slot1": { "name": "empty" },
+                "stash0": { "name": "item_blood_grenade", "charges": 1, "cooldown": 0 }
+            } }));
+            assert!(detect_events(Some(&prev), &curr).is_empty());
+        }
+
+        // A charge-tracked item with 2+ charges remaining that vanishes
+        // outright (no same-slot decrease ever observed) still never fires -
+        // the last-charge relaxation is scoped to exactly `charges == 1`.
+        #[test]
+        fn vanishing_with_two_or_more_charges_remaining_and_no_trace_elsewhere_is_still_not_a_use() {
+            let prev = with_hero(1, json!({ "items": { "slot1": { "name": "item_blood_grenade", "charges": 2, "cooldown": 0 } } }));
+            let curr = with_hero(1, json!({ "items": { "slot1": { "name": "empty" } } }));
+            assert!(detect_events(Some(&prev), &curr).is_empty());
         }
 
         #[test]

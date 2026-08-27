@@ -431,7 +431,10 @@ fn describe_transition(kind: GameSoundEventKind, id: &str, previous: &Value, cur
             GameSoundEventKind::ItemUsed => raw_name == id,
         }
     };
-    let find_slot = |payload: &Value| -> Option<Value> {
+    let slot_at = |payload: &Value, key: &str| -> Option<Value> {
+        payload.get(section)?.as_object()?.get(key).cloned()
+    };
+    let find_slot_by_name = |payload: &Value| -> Option<Value> {
         payload
             .get(section)?
             .as_object()?
@@ -453,11 +456,50 @@ fn describe_transition(kind: GameSoundEventKind, id: &str, previous: &Value, cur
             .to_string()
     };
     let has_field = |slot: &Option<Value>, key: &str| slot.as_ref().is_some_and(|s| s.get(key).is_some());
-    let prev_slot = find_slot(previous);
-    let curr_slot = find_slot(current);
+    // WK-109 forensic finding: the old version of this function searched
+    // `current` independently by name, which can pick the WRONG slot when
+    // the same item name occupies more than one slot at once (e.g. two
+    // Blood Grenades mid-courier-purchase - one just used, one sitting
+    // unrelated at the courier). That produced evidence text describing a
+    // real-looking but IRRELEVANT transition (e.g. "charges 2\u{2192}2, cooldown
+    // 0\u{2192}9" from the untouched courier slot) for an event that actually
+    // fired from a completely different, correctly-matched slot - a
+    // misleading-diagnostics bug, not a detection bug (the actual
+    // ItemUsed/AbilityCast decision was always correct; only this evidence
+    // string could lie about which slot/values produced it).
+    //
+    // Fix: among every slot key in `previous` whose name matches `id`,
+    // prefer the one where `previous[key] != current[key]` - i.e. the slot
+    // where something actually changed, the same slot the real detector
+    // would have matched. Only falls back to the first found key when none
+    // of the candidates changed at all (a static id whose evidence is
+    // legitimately "nothing moved here").
+    let candidate_keys: Vec<String> = previous
+        .get(section)
+        .and_then(Value::as_object)
+        .map(|obj| {
+            obj.iter()
+                .filter(|(_, slot)| slot.get("name").and_then(Value::as_str).is_some_and(matches_id))
+                .map(|(key, _)| key.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    let slot_key = candidate_keys
+        .into_iter()
+        .max_by_key(|key| (slot_at(previous, key) != slot_at(current, key)) as u8);
+    let (prev_slot, curr_slot) = match &slot_key {
+        Some(key) => (slot_at(previous, key), slot_at(current, key)),
+        None => (find_slot_by_name(previous), find_slot_by_name(current)),
+    };
+    // "Gone" covers both shapes GSI can use for an emptied slot: the key
+    // dropped entirely, or the key still present with name "empty" - the
+    // same two-shape check detect_item_events itself uses.
+    let is_gone = |slot: &Option<Value>| -> bool {
+        slot.is_none() || slot.as_ref().and_then(|s| s.get("name")).and_then(Value::as_str) == Some("empty")
+    };
 
     match kind {
-        GameSoundEventKind::ItemUsed if curr_slot.is_none() => {
+        GameSoundEventKind::ItemUsed if is_gone(&curr_slot) => {
             format!("slot emptied (was charges={})", field(&prev_slot, "charges"))
         }
         GameSoundEventKind::ItemUsed => format!(
@@ -543,6 +585,30 @@ mod tests {
         assert_eq!(
             describe_transition(GameSoundEventKind::ItemUsed, "item_tango", &prev, &curr),
             "charges 2\u{2192}1, cooldown ?\u{2192}?"
+        );
+    }
+
+    // WK-109 forensic finding - two simultaneous Blood-Grenade-named slots
+    // (e.g. one just used, one an unrelated duplicate sitting at the
+    // courier) used to make this function grab whichever slot came first in
+    // key order, regardless of which one actually changed - producing
+    // real-looking-but-irrelevant evidence text like "charges 2\u{2192}2" for an
+    // event that really came from a different slot. `slot0` is the
+    // untouched decoy (alphabetically first, so old code would have picked
+    // it); `slot1` is where the real transition happened.
+    #[test]
+    fn describes_the_slot_that_actually_changed_not_whichever_matching_slot_sorts_first() {
+        let prev = json!({ "items": {
+            "slot0": { "name": "item_blood_grenade", "charges": 2, "cooldown": 0 },
+            "slot1": { "name": "item_blood_grenade", "charges": 2, "cooldown": 0 }
+        } });
+        let curr = json!({ "items": {
+            "slot0": { "name": "item_blood_grenade", "charges": 2, "cooldown": 0 },
+            "slot1": { "name": "item_blood_grenade", "charges": 1, "cooldown": 10 }
+        } });
+        assert_eq!(
+            describe_transition(GameSoundEventKind::ItemUsed, "item_blood_grenade", &prev, &curr),
+            "charges 2\u{2192}1, cooldown 0\u{2192}10"
         );
     }
 
