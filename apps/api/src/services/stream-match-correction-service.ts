@@ -104,11 +104,25 @@ export class RankedRatingRequiredError extends Error {
     }
 }
 
-interface SessionRow {
-    id: number;
-    wins: number;
-    losses: number;
-    rating: number | null;
+// WK-105 audit (post-review) - a match's rating correction must never
+// silently diverge the account's CURRENT MMR from what its own session
+// shows. Once a session has ended, correcting one of its matches would
+// only ever update THAT (orphaned) session's `rating` column - nothing
+// propagates the shift forward into the account's actual current session,
+// nor into any later session's ratingStart. Properly supporting that would
+// mean walking forward through every later session and re-anchoring each
+// one, while preserving whatever independent absolute corrections those
+// later sessions already accumulated - a materially bigger, riskier
+// feature than this ticket's scope. Rather than leave the behavior
+// undefined/silently inconsistent, rating corrections are rejected outright
+// for matches whose session has already ended - explicit and testable
+// instead of "случайное" behavior.
+export class MatchSessionEndedError extends Error {
+    constructor() {
+        super(
+            "Match belongs to a session that has already ended - rating corrections are only accepted for the account's current active session"
+        );
+    }
 }
 
 const DEFAULT_RATING_STEP = 25;
@@ -174,6 +188,30 @@ export const correctStreamMatch = async (
             return { match: toStreamMatch(discarded.rows[0]), session: null };
         }
 
+        // WK-105 - see MatchSessionEndedError above. Locks the session row
+        // here (held for the rest of the transaction) and captures its
+        // CURRENT ended_at/rating for later - avoids a second read below and
+        // closes the race where a concurrent absolute correction
+        // (applyAbsoluteRatingCorrection) could land between "read
+        // session.rating" and "write session.rating". Session-less matches
+        // (stream_session_id === null) skip this entirely - they never had a
+        // session total to keep consistent. Whether an ended session
+        // actually BLOCKS this command is decided below, once we know
+        // whether the command touches rating at all (see commandTouchesRating) -
+        // a pure result/W-L fix on an unranked (or already-unranked-bound)
+        // match never moves session.rating, so there's nothing to protect.
+        let sessionRatingBeforeCorrection: number | null = null;
+        let sessionEnded = false;
+        if (match.stream_session_id !== null) {
+            const sessionLock = await client.query<{ ended_at: Date | null; rating: number | null }>(
+                `SELECT ended_at, rating FROM stream_sessions WHERE id = $1 FOR UPDATE`,
+                [match.stream_session_id]
+            );
+            const sessionRow = sessionLock.rows[0];
+            sessionEnded = !sessionRow || sessionRow.ended_at !== null;
+            sessionRatingBeforeCorrection = sessionRow?.rating ?? null;
+        }
+
         // Разрешение needs_review (первое подтверждение результата) - режим
         // (is_ranked/mode_source) уже зафиксирован в момент СОЗДАНИЯ матча
         // (см. createMatch/resolveIsRanked в stream-match-service.ts) и
@@ -187,6 +225,27 @@ export const correctStreamMatch = async (
         const resolvingReview = match.state === "needs_review" && command.result !== undefined;
         const matchIsRanked = command.isRanked ?? match.is_ranked;
         const changingToRanked = command.isRanked === true && match.is_ranked !== true;
+
+        // WK-105 (post-review fix) - the ended-session guard must only
+        // reject commands that would actually move session.rating - a pure
+        // result fix on an unranked match, or resolving a needs_review
+        // match that stays unranked, never touches the rating chain at all
+        // and must remain correctable regardless of session state (blocking
+        // it too would be a real capability regression, not a fix for the
+        // rating-divergence bug this guard exists for). ratingDelta/
+        // ratingAfter/isRanked always touch rating when present; a bare
+        // `result` change only does when the match IS (or already was)
+        // ranked, via the default-rebuild branch further down.
+        const commandTouchesRating =
+            command.ratingDelta !== undefined ||
+            command.ratingAfter !== undefined ||
+            command.isRanked !== undefined ||
+            (command.result !== undefined && matchIsRanked === true);
+
+        if (sessionEnded && commandTouchesRating) {
+            await client.query("ROLLBACK");
+            throw new MatchSessionEndedError();
+        }
 
         if (
             changingToRanked &&
@@ -261,11 +320,12 @@ export const correctStreamMatch = async (
         // то же самое финализация делает для обычного (не needs_review)
         // первого матча сессии (см. finalizeMatch: `session?.rating ?? null`).
         if (!hasEarlierMatch && ratingBefore === null && matchIsRanked === true) {
-            const sessionRating = await client.query<{ rating: number | null }>(
-                `SELECT rating FROM stream_sessions WHERE id = $1`,
-                [match.stream_session_id]
-            );
-            ratingBefore = sessionRating.rows[0]?.rating ?? null;
+            // WK-105 (post-review cleanup) - the session row is already
+            // locked FOR UPDATE above (sessionRatingBeforeCorrection) inside
+            // this same transaction with no writes to stream_sessions.rating
+            // in between - re-reading it here would only ever return the
+            // same value, so reuse it instead of a redundant round trip.
+            ratingBefore = sessionRatingBeforeCorrection;
         }
 
         const ratingChainAnchor = ratingBefore;
@@ -297,7 +357,22 @@ export const correctStreamMatch = async (
             ratingDelta = ratingBefore !== null ? command.ratingAfter - ratingBefore : null;
             ratingAfter = command.ratingAfter;
             ratingSource = "manual";
-            ratingDeltaCorrection = (ratingDelta ?? 0) - (detectedRatingDelta ?? 0);
+            // WK-105 (post-review fix) - when ratingBefore is still unknown
+            // (no anchor - see the UI hint "рейтинг до матча восстановит
+            // сервер"), ratingDelta above is null, not a real number. Naively
+            // computing (ratingDelta ?? 0) - detected would fabricate a
+            // nonzero "correction" next to a null effective delta, breaking
+            // the detected+correction=effective invariant and permanently
+            // hiding this match from getSessionMatchRatingDelta's sum. Honest
+            // choice: with no anchor, there is nothing meaningful to say
+            // about "how much was corrected" yet - null out both, exactly
+            // like the unranked case below.
+            if (ratingDelta === null) {
+                detectedRatingDelta = null;
+                ratingDeltaCorrection = 0;
+            } else {
+                ratingDeltaCorrection = ratingDelta - (detectedRatingDelta ?? 0);
+            }
         } else if (command.ratingDelta !== undefined) {
             ratingDelta = command.ratingDelta;
             ratingAfter = ratingBefore !== null ? ratingBefore + command.ratingDelta : null;
@@ -342,6 +417,24 @@ export const correctStreamMatch = async (
             detectedRatingDelta = null;
             ratingDeltaCorrection = 0;
         }
+
+        // WK-105 audit (post-review) - how much session.rating needs to
+        // shift by, independent of session.rating_adjustment. Every match
+        // strictly after the edited one shifts its own before/after by this
+        // exact same constant (see the cascade loop below), so it also
+        // equals exactly how much the tail's final value moves - but unlike
+        // recomputing "the new tail value" from scratch (see the write
+        // further down), this is computed purely from what changed on THIS
+        // match, so adding it to the session's CURRENT rating (captured in
+        // sessionRatingBeforeCorrection above) can never lose an absolute
+        // Current-MMR correction that happened after this match's
+        // rating_before was last anchored - that correction lives only in
+        // session.rating/rating_adjustment, never in any stream_matches row,
+        // so it would otherwise be silently erased by an unconditional
+        // "session.rating = freshly recomputed chain value" overwrite.
+        const oldContribution = match.rating_delta ?? 0;
+        const newContribution = ratingDelta ?? 0;
+        const contributionDifference = newContribution - oldContribution;
 
         const newState: MatchState = resolvingReview ? "finalized" : match.state;
         // Без isRanked режим остаётся зафиксированным при создании. Явное
@@ -403,13 +496,9 @@ export const correctStreamMatch = async (
 
         const sessionId = match.stream_session_id;
 
-        // Лочим строку сессии на время каскада, даже не читая её значения -
-        // конкурентный GSI POST_GAME не должен вставить новый матч в
-        // середину пересчитываемой цепочки.
-        await client.query<SessionRow>(
-            `SELECT id FROM stream_sessions WHERE id = $1 FOR UPDATE`,
-            [sessionId]
-        );
+        // Сессия уже залочена FOR UPDATE выше (см. sessionRatingBeforeCorrection) -
+        // конкурентный GSI POST_GAME не может вставить новый матч в середину
+        // пересчитываемой цепочки, лочить второй раз незачем.
 
         const tailResult = await client.query<MatchRow>(
             `SELECT ${MATCH_COLUMNS} FROM stream_matches
@@ -492,10 +581,41 @@ export const correctStreamMatch = async (
             });
         }
 
-        if (tailRatingAfter !== null) {
+        // WK-105 audit (post-review) - diff-based, NOT "rating =
+        // tailRatingAfter" outright: session.rating may already include an
+        // absolute Current-MMR correction (rating_adjustment) that isn't
+        // reachable from the match chain at all (applyAbsoluteRatingCorrection
+        // never touches stream_matches) - overwriting it with a freshly
+        // recomputed chain value would silently erase that adjustment. Every
+        // match at/after the edited one shifts by exactly
+        // contributionDifference (see the cascade loop above), so adding
+        // that same constant to the session's CURRENT rating preserves
+        // whatever adjustment is already baked into it, regardless of when
+        // it was applied. Falls back to the freshly computed tailRatingAfter
+        // only when the session had no valid rating to begin with (self-
+        // healing a null session.rating from the chain - same fallback the
+        // pre-WK-105 code already relied on).
+        // WK-105 audit (post-review fix #2) - the diff-based branch below
+        // needs no fresh chain value at all (contributionDifference is
+        // computed purely from THIS match's own old/new rating_delta,
+        // independent of tailRatingAfter) - gating the whole write on
+        // `tailRatingAfter !== null` (a leftover from the old
+        // "session.rating = tailRatingAfter" overwrite) silently dropped a
+        // real, nonzero contributionDifference whenever the edited match
+        // itself has no rating_before anchor of its own (e.g. it's the
+        // session's first match and is being turned unranked) - session.rating
+        // then kept the match's old contribution baked in forever, corrupting
+        // every later resetActiveSession's carried-forward ratingStart. Only
+        // the true self-heal fallback (session had no rating at all) still
+        // needs tailRatingAfter, and only when there is one to fall back to.
+        if (sessionRatingBeforeCorrection !== null || tailRatingAfter !== null) {
+            const nextSessionRating =
+                sessionRatingBeforeCorrection !== null
+                    ? sessionRatingBeforeCorrection + contributionDifference
+                    : tailRatingAfter;
             await client.query(
                 `UPDATE stream_sessions SET rating = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
-                [tailRatingAfter, sessionId]
+                [nextSessionRating, sessionId]
             );
         }
 

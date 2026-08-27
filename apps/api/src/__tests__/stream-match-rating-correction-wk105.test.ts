@@ -7,6 +7,7 @@ import { app } from "../app.js";
 import { pool } from "../db/client.js";
 import { createTables } from "../db/migrate.js";
 import { finalizeMatch, processGsiPayloadForMatch } from "../services/stream-match-service.js";
+import { setGameMode } from "../services/stream-user-service.js";
 import { correctStreamMatch } from "../services/stream-match-correction-service.js";
 import {
     applyAbsoluteRatingCorrection,
@@ -388,6 +389,43 @@ describe("WK-105: per-match ratingDelta correction (detected vs correction)", ()
             rating_delta_correction: 0,
         });
     });
+
+    // WK-105 audit (post-review fix #2) - found alongside the
+    // contributionDifference fix: when the edited match has no rating_before
+    // anchor of its own (first match of the session, played while
+    // session.rating was still null) AND the whole tail stays anchor-less
+    // too, `tailRatingAfter` never leaves null - the old
+    // `if (tailRatingAfter !== null)` guard then skipped the
+    // `UPDATE stream_sessions SET rating = ...` entirely, even though the
+    // match's own contribution to session.rating (backed in later via an
+    // absolute correction landing on top of it) must still be backed out.
+    it("backs out the match's own contribution from session.rating even with no rating_before anchor of its own", async () => {
+        const { streamUserId } = await createTestUser();
+        await getOrCreateActiveSession(streamUserId);
+        // session.rating stays null through this match - finalizeMatch's
+        // `rating = COALESCE($3, rating)` never touches it since
+        // ratingAfter is null with no anchor.
+        await playRankedMatch(streamUserId, 10, "700000014", "win"); // rating_delta +25, rating_after null
+
+        expect((await getActiveSessionRow(streamUserId)).rating).toBeNull();
+
+        await applyAbsoluteRatingCorrection(streamUserId, 6000);
+        expect((await getActiveSessionRow(streamUserId)).rating).toBe(6000);
+
+        const rows = await getMatchRows(streamUserId);
+        await correctStreamMatch(streamUserId, rows[0].id.toString(), { isRanked: false });
+
+        const updated = (await getMatchRows(streamUserId))[0];
+        expect(updated).toMatchObject({
+            is_ranked: false,
+            rating_before: null,
+            rating_delta: null,
+            rating_after: null,
+        });
+        // The match's old +25 contribution must be backed out of
+        // session.rating, not left stale at 6000.
+        expect((await getActiveSessionRow(streamUserId)).rating).toBe(5975);
+    });
 });
 
 describe("WK-105: absolute Current MMR correction (applyAbsoluteRatingCorrection)", () => {
@@ -483,6 +521,94 @@ describe("WK-105: absolute Current MMR correction (applyAbsoluteRatingCorrection
     });
 });
 
+describe("WK-105 audit (post-review): absolute adjustment must survive a later match correction", () => {
+    // Found during review: correctStreamMatch used to write
+    // `session.rating = tailRatingAfter` outright, which silently erased
+    // any rating_adjustment that wasn't reachable from the match chain
+    // itself (applyAbsoluteRatingCorrection never touches stream_matches).
+    // Fixed to shift the session's CURRENT rating by exactly the edited
+    // match's own delta change instead of overwriting it wholesale - see
+    // stream-match-correction-service.ts's contributionDifference comment.
+    it("adjustment applied BEFORE a match correction is preserved, not swallowed", async () => {
+        const { streamUserId } = await createTestUser();
+        await getOrCreateActiveSession(streamUserId);
+        await setSessionRating(streamUserId, 6000);
+        await playRankedMatch(streamUserId, 10, "700000501", "win"); // -> 6025
+
+        const adjustment = await applyAbsoluteRatingCorrection(streamUserId, 6030); // +5
+        expect(adjustment!.adjustmentDelta).toBe(5);
+        expect((await getActiveSessionRow(streamUserId)).rating).toBe(6030);
+
+        const rows = await getMatchRows(streamUserId);
+        await correctStreamMatch(streamUserId, rows[0].id.toString(), { ratingDelta: 26 }); // +1
+
+        const session = await getActiveSessionRow(streamUserId);
+        expect(session.rating).toBe(6031); // 6030 + 1, not 6026
+        expect(session.rating_adjustment).toBe(5); // ledger itself is untouched by match corrections
+
+        const match = (await getMatchRows(streamUserId))[0];
+        expect(match).toMatchObject({ rating_before: 6000, rating_delta: 26, rating_after: 6026 });
+    });
+
+    it("adjustment applied AFTER a match correction, then a second correction, still preserves it", async () => {
+        const { streamUserId } = await createTestUser();
+        await getOrCreateActiveSession(streamUserId);
+        await setSessionRating(streamUserId, 6000);
+        await playRankedMatch(streamUserId, 10, "700000502", "win"); // -> 6025
+
+        const rows = await getMatchRows(streamUserId);
+        await correctStreamMatch(streamUserId, rows[0].id.toString(), { ratingDelta: 26 });
+        expect((await getActiveSessionRow(streamUserId)).rating).toBe(6026);
+
+        const adjustment = await applyAbsoluteRatingCorrection(streamUserId, 6030); // +4
+        expect(adjustment!.adjustmentDelta).toBe(4);
+
+        await correctStreamMatch(streamUserId, rows[0].id.toString(), { ratingDelta: 27 }); // +1 more
+        const session = await getActiveSessionRow(streamUserId);
+        expect(session.rating).toBe(6031); // 6030 + 1
+        expect(session.rating_adjustment).toBe(4); // still exactly the +4, not consumed
+    });
+
+    it("Set Current MMR correctly reflects the match's ratingBefore for the NEXT real match", async () => {
+        // Audit concern #5's second half: if Current MMR is corrected
+        // between M1 and M2, M2 must anchor to the corrected value, not a
+        // stale derived one.
+        const { streamUserId } = await createTestUser();
+        await getOrCreateActiveSession(streamUserId);
+        await setSessionRating(streamUserId, 6000);
+        await playRankedMatch(streamUserId, 10, "700000503", "win"); // M1 -> 6025
+
+        await applyAbsoluteRatingCorrection(streamUserId, 6040); // streamer syncs with Dota mid-stream
+
+        await playRankedMatch(streamUserId, 10, "700000504", "win"); // M2, should anchor at 6040
+        const rows = await getMatchRows(streamUserId);
+        expect(rows[1]).toMatchObject({ rating_before: 6040, rating_delta: 25, rating_after: 6065 });
+        expect((await getActiveSessionRow(streamUserId)).rating).toBe(6065);
+    });
+});
+
+describe("WK-105 audit (post-review): rating_adjustment is a cumulative offset, not a running diff", () => {
+    it("matches the audit's exact worked numbers: 6025 -> set 6030 (+5) -> set 6028 (+3 total) -> set 6032 (+7 total)", async () => {
+        const { streamUserId } = await createTestUser();
+        await getOrCreateActiveSession(streamUserId);
+        await setSessionRating(streamUserId, 6000);
+        await playRankedMatch(streamUserId, 10, "700000505", "win"); // -> 6025
+
+        const first = await applyAbsoluteRatingCorrection(streamUserId, 6030);
+        expect(first).toMatchObject({ adjustmentDelta: 5 });
+        expect(first!.session.ratingAdjustment).toBe(5);
+
+        const second = await applyAbsoluteRatingCorrection(streamUserId, 6028);
+        expect(second).toMatchObject({ adjustmentDelta: -2 });
+        expect(second!.session.ratingAdjustment).toBe(3); // NOT -2, and not a fresh/reset value
+
+        const third = await applyAbsoluteRatingCorrection(streamUserId, 6032);
+        expect(third).toMatchObject({ adjustmentDelta: 4 });
+        expect(third!.session.ratingAdjustment).toBe(7);
+        expect(third!.session.rating).toBe(6032);
+    });
+});
+
 describe("WK-105: the task's own worked example end-to-end", () => {
     it("6000 -> +25 / auto+0->manual+26 / -25 => 6026, then Set Current MMR=6029 => adjustment +3, session delta stays +26", async () => {
         const { streamUserId } = await createTestUser();
@@ -553,34 +679,104 @@ describe("WK-105: the task's own worked example end-to-end", () => {
     });
 });
 
-describe("WK-105: cross-session isolation and historical summaries", () => {
-    it("correcting a match from an ended session does not affect a different, later active session's totals", async () => {
-        const { streamUserId } = await createTestUser();
+describe("WK-105: correction of a match from an already-ended session is rejected outright", () => {
+    // Audit finding (post-implementation review): correcting a match whose
+    // session has already ended would only ever update THAT (orphaned)
+    // session's own `rating` column - it can never propagate forward into
+    // the account's actual current session (nor shift any later session's
+    // ratingStart), because resetActiveSession copies `rating` as a one-shot
+    // snapshot at transition time, not a live reference. Properly supporting
+    // "fix an old match and have it ripple forward through every later
+    // session, preserving each one's own independent absolute corrections"
+    // is a materially bigger feature than this ticket's scope - so instead
+    // of leaving the behavior silently inconsistent (an undefined "gap"
+    // between what an ended session shows and what the current one shows),
+    // correctStreamMatch rejects the command outright (MatchSessionEndedError)
+    // for any match belonging to a non-active session. This test proves that
+    // explicitly, using exactly the scenario from the audit: Session A
+    // (start 6000, +25 -> ends at 6025), Session B (start 6025, +25 -> 6050).
+    it("rejects a rating correction on Session A's match once Session B is active, and leaves everything untouched", async () => {
+        const { streamUserId, jwtToken } = await createTestUser();
         await getOrCreateActiveSession(streamUserId);
-        await setSessionRating(streamUserId, 5000);
-        await playRankedMatch(streamUserId, 15, "700000301", "win"); // session A -> 5025
+        await setSessionRating(streamUserId, 6000);
+        await playRankedMatch(streamUserId, 15, "700000301", "win"); // session A: 6000 -> 6025
 
-        await request(app).post("/api/stream/account/session/end").set(
-            "Authorization",
-            `Bearer ${jwt.sign({ streamUserId }, process.env.STREAM_JWT_SECRET!, { expiresIn: "5m" })}`
-        );
-        const sessionB = await resetActiveSession(streamUserId);
-        await playRankedMatch(streamUserId, 16, "700000302", "loss"); // session B -> 5025 - 25... anchored to whatever B's rating is
+        const sessionAId = (await getActiveSessionRow(streamUserId)).id;
+        await request(app)
+            .post("/api/stream/account/session/end")
+            .set("Authorization", `Bearer ${jwtToken}`);
 
-        const beforeCorrection = await pool.query<{ rating: number | null }>(
-            `SELECT rating FROM stream_sessions WHERE id = $1`,
-            [sessionB.id]
-        );
+        const sessionB = await resetActiveSession(streamUserId); // starts at 6025
+        await playRankedMatch(streamUserId, 16, "700000302", "win"); // session B: 6025 -> 6050
 
         const rows = await getMatchRows(streamUserId);
-        const sessionAMatch = rows.find((r) => r.stream_session_id !== Number(sessionB.id))!;
-        await correctStreamMatch(streamUserId, sessionAMatch.id.toString(), { ratingDelta: 100 });
+        const sessionAMatch = rows.find((r) => r.stream_session_id === sessionAId)!;
 
-        const afterCorrection = await pool.query<{ rating: number | null }>(
+        const sessionARowBefore = await pool.query<{ rating: number | null }>(
+            `SELECT rating FROM stream_sessions WHERE id = $1`,
+            [sessionAId]
+        );
+        const sessionBRowBefore = await pool.query<{ rating: number | null }>(
             `SELECT rating FROM stream_sessions WHERE id = $1`,
             [sessionB.id]
         );
-        expect(afterCorrection.rows[0].rating).toBe(beforeCorrection.rows[0].rating);
+        expect(sessionARowBefore.rows[0].rating).toBe(6025);
+        expect(sessionBRowBefore.rows[0].rating).toBe(6050);
+
+        await expect(
+            correctStreamMatch(streamUserId, sessionAMatch.id.toString(), { ratingDelta: 26 })
+        ).rejects.toThrow("already ended");
+
+        // Nothing moved: not Session A's own (now orphaned) rating, not
+        // Session B's (the account's actual current MMR), and not the
+        // match row itself. No "Session A end = 6026 / Session B start =
+        // 6025" gap can appear, because the command never took effect.
+        const sessionARowAfter = await pool.query<{ rating: number | null }>(
+            `SELECT rating FROM stream_sessions WHERE id = $1`,
+            [sessionAId]
+        );
+        const sessionBRowAfter = await pool.query<{ rating: number | null }>(
+            `SELECT rating FROM stream_sessions WHERE id = $1`,
+            [sessionB.id]
+        );
+        expect(sessionARowAfter.rows[0].rating).toBe(6025);
+        expect(sessionBRowAfter.rows[0].rating).toBe(6050);
+
+        const untouchedMatch = (await getMatchRows(streamUserId)).find(
+            (r) => r.id === sessionAMatch.id
+        )!;
+        expect(untouchedMatch.rating_delta).toBe(25);
+
+        // The API surface (used by the "Полная история" UI) rejects with a
+        // 409, not a silent 200 - the correction is unreachable end-to-end.
+        const res = await request(app)
+            .patch(`/api/stream/account/me/matches/${sessionAMatch.id}`)
+            .set("Authorization", `Bearer ${jwtToken}`)
+            .send({ ratingDelta: 26 });
+        expect(res.status).toBe(409);
+    });
+
+    it("still allows discard (needs_review resolution) regardless of session state - it never touches rating", async () => {
+        const { streamUserId, jwtToken } = await createTestUser();
+        await getOrCreateActiveSession(streamUserId);
+        await setSessionRating(streamUserId, 6000);
+        await playRankedMatch(streamUserId, 17, "700000303", "win");
+
+        await request(app)
+            .post("/api/stream/account/session/end")
+            .set("Authorization", `Bearer ${jwtToken}`);
+
+        // A match still in an ended session can be discarded (if it were
+        // needs_review) without hitting the new guard - discard returns
+        // early before the session-active check and never touches rating.
+        const rows = await getMatchRows(streamUserId);
+        await pool.query(`UPDATE stream_matches SET state = 'needs_review' WHERE id = $1`, [
+            rows[0].id,
+        ]);
+        const result = await correctStreamMatch(streamUserId, rows[0].id.toString(), {
+            discard: true,
+        });
+        expect(result.match.finalizeReason).toBe("manual_discard");
     });
 
     it("an ended session continues to show correct historical ratingDelta via getSessionSummary", async () => {
@@ -603,5 +799,230 @@ describe("WK-105: cross-session isolation and historical summaries", () => {
             .set("Authorization", `Bearer ${jwtToken}`);
         expect(getRes.body.state).toBe("ended");
         expect(getRes.body.summary.ratingDelta).toBe(50);
+    });
+});
+
+describe("WK-105 audit: legacy (migrated) rows with detected_rating_delta = NULL", () => {
+    // Simulates exactly what db/migrate.ts's backfill produces for a match
+    // that was manually corrected BEFORE WK-105 shipped: the pre-migration
+    // code overwrote rating_delta in place with no history, so the true
+    // original auto-detected value is genuinely unrecoverable - the backfill
+    // honestly leaves detected_rating_delta NULL and attributes the entire
+    // current rating_delta to rating_delta_correction (see migrate.ts).
+    // Mutates a normally-finalized row directly via SQL to reach that exact
+    // state without needing to fabricate a full legacy INSERT.
+    // Also keeps stream_sessions.rating in sync with the mutated match row -
+    // the real pre-migration correctStreamMatch always did (its own bug
+    // aside, it never left rating_after and session.rating pointing at
+    // different numbers) - these tests use a single-match session, so the
+    // match's new rating_after IS the session's rating.
+    const markAsLegacyManualCorrection = async (matchId: number, ratingDelta: number) => {
+        const row = await pool.query<{ rating_before: number | null; stream_session_id: number | null }>(
+            `SELECT rating_before, stream_session_id FROM stream_matches WHERE id = $1`,
+            [matchId]
+        );
+        const ratingBefore = row.rows[0].rating_before!;
+        const ratingAfter = ratingBefore + ratingDelta;
+        await pool.query(
+            `UPDATE stream_matches
+             SET rating_delta = $2, rating_after = $3, rating_source = 'manual',
+                 detected_rating_delta = NULL, rating_delta_correction = $2
+             WHERE id = $1`,
+            [matchId, ratingDelta, ratingAfter]
+        );
+        await pool.query(`UPDATE stream_sessions SET rating = $2 WHERE id = $1`, [
+            row.rows[0].stream_session_id,
+            ratingAfter,
+        ]);
+    };
+
+    it("effectiveRatingDelta for a legacy row is exactly its rating_delta (detected treated as 0), not NULL", async () => {
+        const { streamUserId } = await createTestUser();
+        await getOrCreateActiveSession(streamUserId);
+        await setSessionRating(streamUserId, 6000);
+        await playRankedMatch(streamUserId, 10, "700000601", "win"); // rating_delta=25 initially
+
+        const rows = await getMatchRows(streamUserId);
+        await markAsLegacyManualCorrection(rows[0].id, 40); // "legacy" pre-migration correction to +40
+
+        const legacy = (await getMatchRows(streamUserId))[0];
+        expect(legacy.detected_rating_delta).toBeNull();
+        expect(legacy.rating_delta_correction).toBe(40);
+        expect(legacy.rating_delta).toBe(40); // (detected ?? 0) + correction = 0 + 40 = 40
+    });
+
+    it("repeated edits on a legacy null-detected row do not accumulate error: +40 -> +25 -> +40 -> +25", async () => {
+        const { streamUserId } = await createTestUser();
+        await getOrCreateActiveSession(streamUserId);
+        await setSessionRating(streamUserId, 6000);
+        await playRankedMatch(streamUserId, 10, "700000602", "win");
+
+        const rows = await getMatchRows(streamUserId);
+        await markAsLegacyManualCorrection(rows[0].id, 40);
+        const matchId = rows[0].id.toString();
+
+        await correctStreamMatch(streamUserId, matchId, { ratingDelta: 25 });
+        let row = (await getMatchRows(streamUserId))[0];
+        expect(row).toMatchObject({ detected_rating_delta: null, rating_delta_correction: 25, rating_delta: 25 });
+        expect((await getActiveSessionRow(streamUserId)).rating).toBe(6025);
+
+        await correctStreamMatch(streamUserId, matchId, { ratingDelta: 40 });
+        row = (await getMatchRows(streamUserId))[0];
+        expect(row).toMatchObject({ detected_rating_delta: null, rating_delta_correction: 40, rating_delta: 40 });
+        expect((await getActiveSessionRow(streamUserId)).rating).toBe(6040);
+
+        await correctStreamMatch(streamUserId, matchId, { ratingDelta: 25 });
+        row = (await getMatchRows(streamUserId))[0];
+        // Exactly back to the first correction's state - no drift from the
+        // repeated null-baseline diffing.
+        expect(row).toMatchObject({ detected_rating_delta: null, rating_delta_correction: 25, rating_delta: 25 });
+        expect((await getActiveSessionRow(streamUserId)).rating).toBe(6025);
+    });
+
+    it("a repeated/late finalizeMatch call on a legacy corrected row is a no-op - detected/correction/effective stay exactly as corrected", async () => {
+        const { streamUserId } = await createTestUser();
+        await getOrCreateActiveSession(streamUserId);
+        await setSessionRating(streamUserId, 6000);
+        await playRankedMatch(streamUserId, 10, "700000603", "win");
+
+        const rows = await getMatchRows(streamUserId);
+        await markAsLegacyManualCorrection(rows[0].id, 40);
+        await correctStreamMatch(streamUserId, rows[0].id.toString(), { ratingDelta: 33 });
+
+        const beforeRetry = (await getMatchRows(streamUserId))[0];
+        expect(beforeRetry).toMatchObject({
+            detected_rating_delta: null,
+            rating_delta_correction: 33,
+            rating_delta: 33,
+        });
+
+        // Simulate a duplicate GSI delivery reaching finalizeMatch again for
+        // this same (already finalized, since migrated) row.
+        const finalizedAgain = await finalizeMatch(rows[0].id, "late_duplicate_delivery");
+        expect(finalizedAgain).toBe(false);
+
+        const afterRetry = (await getMatchRows(streamUserId))[0];
+        expect(afterRetry).toEqual(beforeRetry);
+        expect((await getActiveSessionRow(streamUserId)).rating).toBe(6033);
+    });
+});
+
+describe("WK-105 audit concern #9: Post Stream delta reflects matches only, never the absolute adjustment", () => {
+    it("start 6000, matches give +25, Set Current MMR=6030 (+5 adjustment) -> Post Stream shows +25, current MMR is 6030", async () => {
+        const { streamUserId, jwtToken } = await createTestUser();
+        await getOrCreateActiveSession(streamUserId);
+        await setSessionRating(streamUserId, 6000);
+        await playRankedMatch(streamUserId, 10, "700000701", "win"); // +25 -> 6025
+
+        await applyAbsoluteRatingCorrection(streamUserId, 6030); // +5, syncing with Dota client
+
+        const session = await getOrCreateActiveSession(streamUserId);
+        const summary = await getSessionSummary(streamUserId, session!);
+        expect(summary.ratingDelta).toBe(25); // matches only, NOT +30
+        expect(summary.ratingEnd).toBe(6030); // current MMR, includes the adjustment
+        expect(summary.ratingAdjustment).toBe(5);
+
+        // Same story via the actual "Завершить стрим" HTTP endpoint.
+        const endRes = await request(app)
+            .post("/api/stream/account/session/end")
+            .set("Authorization", `Bearer ${jwtToken}`);
+        expect(endRes.body.summary.ratingDelta).toBe(25);
+        expect(endRes.body.summary.ratingEnd).toBe(6030);
+        expect(endRes.body.summary.ratingAdjustment).toBe(5);
+    });
+});
+
+describe("WK-105 second-pass code review fixes", () => {
+    it("finding: correcting via ratingAfter with an unknown ratingBefore no longer fabricates a nonzero correction", async () => {
+        // A ranked match whose session.rating was null at finalize time -
+        // rating_delta=25/detected=25 get set (finalizeMatch doesn't need an
+        // anchor to compute the default step), but rating_before/after stay
+        // null (no anchor). Correcting it via ratingAfter (not ratingDelta)
+        // used to compute ratingDeltaCorrection = (null ?? 0) - 25 = -25
+        // next to a null rating_delta, violating detected+correction=effective
+        // and silently dropping the match from getSessionMatchRatingDelta's
+        // sum while still moving session.rating.
+        const { streamUserId } = await createTestUser();
+        await getOrCreateActiveSession(streamUserId); // session.rating stays null - never set
+        await playRankedMatch(streamUserId, 10, "700000801", "win");
+
+        const rows = await getMatchRows(streamUserId);
+        expect(rows[0]).toMatchObject({
+            rating_before: null,
+            rating_delta: 25,
+            rating_after: null,
+            detected_rating_delta: 25,
+        });
+
+        await correctStreamMatch(streamUserId, rows[0].id.toString(), { ratingAfter: 4025 });
+        const corrected = (await getMatchRows(streamUserId))[0];
+        expect(corrected.rating_delta).toBeNull(); // still no anchor, still honestly unknown
+        expect(corrected.rating_after).toBe(4025);
+        // Honest null/0, not a fabricated -25 "correction" sitting next to a
+        // null effective delta.
+        expect(corrected.detected_rating_delta).toBeNull();
+        expect(corrected.rating_delta_correction).toBe(0);
+    });
+
+    it("finding: the ended-session guard only blocks rating-affecting commands, not plain result/W-L fixes", async () => {
+        const { streamUserId, jwtToken } = await createTestUser();
+        await getOrCreateActiveSession(streamUserId);
+        await setSessionRating(streamUserId, 6000);
+        await playRankedMatch(streamUserId, 10, "700000802", "win"); // ranked
+        await setGameMode(streamUserId, "unranked");
+        await processGsiPayloadForMatch(streamUserId, heroSelectionTick(11, "700000803"));
+        await processGsiPayloadForMatch(
+            streamUserId,
+            postGameTick(11, "loss", { matchId: "700000803" })
+        );
+        await processGsiPayloadForMatch(
+            streamUserId,
+            postGameTick(11, "loss", { matchId: "700000803" })
+        );
+
+        const rows = await getMatchRows(streamUserId);
+        const rankedMatch = rows[0];
+        const unrankedMatch = rows[1];
+
+        await request(app)
+            .post("/api/stream/account/session/end")
+            .set("Authorization", `Bearer ${jwtToken}`);
+
+        // Ranked match, session ended, result-only fix (no rating fields at
+        // all) - still rejected, because the default-rebuild branch WOULD
+        // move rating_delta for a ranked match's result change.
+        await expect(
+            correctStreamMatch(streamUserId, rankedMatch.id.toString(), { result: "loss" })
+        ).rejects.toThrow("already ended");
+
+        // Unranked match in the SAME ended session - a pure result fix never
+        // touches rating and must remain correctable, matching pre-WK-105
+        // behavior for exactly this kind of edit.
+        const result = await correctStreamMatch(streamUserId, unrankedMatch.id.toString(), {
+            result: "win",
+        });
+        expect(result.match.result).toBe("win");
+        expect(result.match.ratingDelta).toBeNull();
+        // Before: 1 win (the ranked match) + 1 loss (this unranked match).
+        // After flipping this match's result loss -> win: 2 wins, 0 losses.
+        expect(result.session?.wins).toBe(2);
+        expect(result.session?.losses).toBe(0);
+    });
+
+    it("finding: PATCH /account/session rejects rating combined with wins/losses/lastHeroId at the schema level", async () => {
+        const { streamUserId, jwtToken } = await createTestUser();
+        await getOrCreateActiveSession(streamUserId);
+
+        const res = await request(app)
+            .patch("/api/stream/account/session")
+            .set("Authorization", `Bearer ${jwtToken}`)
+            .send({ rating: 6000, wins: 5 });
+
+        expect(res.status).toBe(400);
+
+        // Confirmed rejected outright, not silently applied-partially.
+        const row = await getActiveSessionRow(streamUserId);
+        expect(row.rating).toBeNull();
+        expect(row.wins).toBe(0);
     });
 });

@@ -6,6 +6,7 @@ import {
     correctStreamMatch,
     MatchNotEditableError,
     MatchNotFoundError,
+    MatchSessionEndedError,
     RankedRatingRequiredError,
     UnrankedRatingEditError,
 } from "../../services/stream-match-correction-service.js";
@@ -102,6 +103,11 @@ export const patchMatchController = async (req: Request, res: Response) => {
         }
         if (error instanceof MatchNotEditableError) {
             return res.status(409).json({ error: "Матч ещё не завершён и недоступен для правки" });
+        }
+        if (error instanceof MatchSessionEndedError) {
+            return res.status(409).json({
+                error: "Матч относится к уже завершённой сессии - коррекция рейтинга доступна только для текущего стрима",
+            });
         }
         logger.error("Stream patch match error", {
             requestId: req.requestId,
