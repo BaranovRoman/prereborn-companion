@@ -24,7 +24,7 @@ export interface TwitchChatStatus {
   messages: TwitchChatMessage[];
 }
 import { invoke } from "@tauri-apps/api/core";
-import type { DiagnosticsStatusSnapshot, ObsConfig, StatusSnapshot } from "../types/status";
+import type { DiagnosticsStatusSnapshot, LifecycleStatus, ObsConfig, StatusSnapshot } from "../types/status";
 import type { StreamSessionSummary } from "../session/session-prompt";
 
 export const getStatus = () => invoke<StatusSnapshot>("get_status");
@@ -44,6 +44,14 @@ export const getStreamSession = () => invoke<StreamSessionSummary>("get_stream_s
 export const resetStreamSession = () => invoke<StreamSessionSummary>("reset_stream_session");
 // WK-100 - "Завершить стрим" action on the main screen.
 export const endStreamSession = () => invoke<StreamSessionSummary>("end_stream_session");
+
+// WK-112 - OBS-driven local stream lifecycle (see local_runtime::lifecycle).
+// No "start"/"end" calls here on purpose - normal lifecycle is automatic,
+// driven by OBS Start/Stop Streaming; these two actions only ever apply to
+// the rare stale-session manual-recovery prompt.
+export const getLocalLifecycleStatus = () => invoke<LifecycleStatus>("get_local_lifecycle_status");
+export const staleRecoveryContinue = () => invoke<void>("local_lifecycle_stale_continue");
+export const staleRecoveryEnd = () => invoke<void>("local_lifecycle_stale_end");
 
 // WK-81 - local Silero TTS sidecar, the primary (and, since WK-80 removed
 // Piper, only local) synthesis engine - system speechSynthesis is the

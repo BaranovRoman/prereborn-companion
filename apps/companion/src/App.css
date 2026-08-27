@@ -179,6 +179,18 @@ h1, h2, p { margin-top: 0; }
 .session-bar__info p { margin: 0; color: var(--danger); font-size: .8rem; }
 .session-bar__actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .session-bar__error { flex-basis: 100%; margin: 0; }
+.session-bar__hint { margin: 0; color: var(--ui-muted, #9a8f86); font-size: .8rem; }
+
+/* WK-112 - manual backend-session controls (WK-83/WK-100), collapsed by
+   default: still fully functional as a recovery/debug fallback, just no
+   longer presented as a required first step now that OBS Start/Stop
+   Streaming drives the local session automatically (see
+   LocalStreamLifecycleCard above it on Главная). */
+.session-fallback { margin-bottom: 16px; }
+.session-fallback > summary { cursor: pointer; color: var(--ui-muted, #9a8f86); font-size: .85rem; padding: 4px 0; }
+.session-fallback > summary:hover { color: var(--ui-text); }
+.session-fallback[open] > summary { margin-bottom: 8px; }
+.session-fallback .session-bar { margin-bottom: 0; }
 
 .control-panel { margin-bottom: 16px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-panel), var(--ui-well)); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
 .section-heading, .scene-summary { display: flex; align-items: center; justify-content: space-between; }

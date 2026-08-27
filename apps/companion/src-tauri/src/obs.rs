@@ -168,10 +168,16 @@ pub fn init(app: AppHandle) {
             inner.obs_retry_at = Some(Instant::now());
         }
     }
+    let app_for_recovery = app.clone();
     std::thread::spawn(move || loop {
         std::thread::sleep(RECOVERY_TICK);
-        retry_pending(&app);
+        retry_pending(&app_for_recovery);
     });
+
+    // WK-112 - independent of the retry_pending loop above (scene-switch
+    // connectivity); see start_stream_state_watcher's doc comment for why
+    // these two must stay separate.
+    start_stream_state_watcher(app);
 }
 
 fn retry_pending(app: &AppHandle) {
@@ -246,12 +252,28 @@ fn authentication(password: &str, salt: &str, challenge: &str) -> String {
     BASE64.encode(Sha256::digest(format!("{secret}{challenge}").as_bytes()))
 }
 
-fn open(config: &ObsConfig) -> Result<ObsSocket, String> {
+// WK-112 - `read_timeout`/`event_subscriptions` are the two knobs the new
+// stream-state watcher needs that the existing short-lived request/response
+// callers (`test_connection`, `switch_scene`) don't: a persistent
+// event-listening connection must block indefinitely on `read()` waiting
+// for the next unsolicited event (a 4s read timeout - fine for "wait for
+// the one response we expect" - would time out every few seconds with
+// nothing wrong, and be indistinguishable from a real disconnect once
+// converted to a `String` error, causing a busy reconnect loop) and must
+// explicitly subscribe to OBS's Outputs event category (`StreamStateChanged`
+// lives there) since it never sends further requests after the initial one
+// to receive anything unsolicited on. `None`/`None` for both keeps the two
+// existing callers' behavior byte-for-byte unchanged.
+fn open(
+    config: &ObsConfig,
+    read_timeout: Option<Duration>,
+    event_subscriptions: Option<u32>,
+) -> Result<ObsSocket, String> {
     let url = format!("ws://{}:{}", config.host, config.port);
     let (mut socket, _) =
         connect(&url).map_err(|e| format!("Не удалось подключиться к OBS: {e}"))?;
     if let MaybeTlsStream::Plain(stream) = socket.get_mut() {
-        let _ = stream.set_read_timeout(Some(Duration::from_secs(4)));
+        let _ = stream.set_read_timeout(read_timeout);
         let _ = stream.set_write_timeout(Some(Duration::from_secs(4)));
     }
     let hello = read_json(&mut socket)?;
@@ -275,6 +297,9 @@ fn open(config: &ObsConfig) -> Result<ObsSocket, String> {
     let mut identify = json!({ "op": 1, "d": { "rpcVersion": 1 } });
     if let Some(auth) = auth {
         identify["d"]["authentication"] = Value::String(auth);
+    }
+    if let Some(subscriptions) = event_subscriptions {
+        identify["d"]["eventSubscriptions"] = Value::from(subscriptions);
     }
     socket
         .send(Message::Text(identify.to_string().into()))
@@ -327,7 +352,7 @@ fn request(
 }
 
 pub fn test_connection(config: &ObsConfig) -> Result<Vec<String>, String> {
-    let mut socket = open(config)?;
+    let mut socket = open(config, Some(Duration::from_secs(4)), None)?;
     let response = request(&mut socket, "GetSceneList", json!({}))?;
     Ok(response
         .pointer("/d/responseData/scenes")
@@ -344,7 +369,7 @@ pub fn switch_scene(config: &ObsConfig, scene: BroadcastScene) -> Result<(), Str
     if scene_name.trim().is_empty() {
         return Err("Название сцены OBS не задано".into());
     }
-    let mut socket = open(config)?;
+    let mut socket = open(config, Some(Duration::from_secs(4)), None)?;
     request(
         &mut socket,
         "SetCurrentProgramScene",
@@ -470,6 +495,98 @@ fn schedule_switch(app: &AppHandle, desired: BroadcastScene, require_enabled: bo
         );
         let _ = app_for_switch.emit("obs-status", app_for_switch.state::<AppState>().snapshot());
     });
+}
+
+// WK-112 - obs-websocket v5 EventSubscription bitmask. Only the "Outputs"
+// category (bit 6) is needed - `StreamStateChanged` lives there, and
+// nothing else this watcher does relies on any other category. Deliberately
+// narrower than the implicit "subscribe to everything" default the other,
+// short-lived connections get by omitting this field entirely (see
+// `open`'s doc comment) - explicit here since this is the one connection
+// that actually consumes events.
+const EVENT_SUBSCRIPTION_OUTPUTS: u32 = 1 << 6;
+
+fn fetch_stream_status(socket: &mut ObsSocket) -> Result<bool, String> {
+    let response = request(socket, "GetStreamStatus", json!({}))?;
+    response
+        .pointer("/d/responseData/outputActive")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| "OBS: GetStreamStatus response missing outputActive".to_string())
+}
+
+/// WK-112 - persistent connection dedicated to observing OBS's own
+/// streaming state (Start Streaming / Stop Streaming), independent of the
+/// short-lived per-request connections `switch_scene`/`test_connection`
+/// use for scene automation, and independent of `obs_connected`/`obs_state`
+/// - this file's one principled distinction (see the doc comments on
+/// `StatusSnapshot::obs_streaming` in state.rs): whether Companion can
+/// currently *talk to* OBS is a different question from whether OBS is
+/// currently *streaming*. This function never writes `obs_connected`/
+/// `obs_state` at all - only `local_runtime::lifecycle::on_obs_streaming_known`,
+/// which records the streaming truth and reconciles the local session
+/// lifecycle. Started once from `init`, runs for the app's lifetime.
+pub fn start_stream_state_watcher(app: AppHandle) {
+    std::thread::spawn(move || {
+        let mut attempt: u32 = 0;
+        loop {
+            let enabled = app.state::<AppState>().0.lock().unwrap().obs_config.enabled;
+            if !enabled {
+                // Not configured/enabled at all - don't hammer localhost:4455
+                // forever; re-check occasionally in case the user enables it
+                // in Настройки while Companion is running.
+                std::thread::sleep(Duration::from_secs(2));
+                continue;
+            }
+            let config = app.state::<AppState>().0.lock().unwrap().obs_config.clone();
+            if let Err(error) = run_stream_state_watcher_once(&app, &config) {
+                storage::append_rolling_log(&app, &format!("OBS stream-state watcher: {error}"));
+            }
+            // Any exit from run_stream_state_watcher_once (connect failure,
+            // auth failure, or the read loop's connection dropping) means
+            // "not currently connected" - back off before retrying, same
+            // capped-exponential shape as the scene-switch path uses.
+            // Deliberately does NOT touch obs_connected/obs_state (see doc
+            // comment above) and does NOT touch LocalSession state either -
+            // per WK-112's explicit rule, losing this connection alone must
+            // never end a session; reconciliation only ever runs again once
+            // reconnected and a fresh GetStreamStatus succeeds.
+            attempt = attempt.saturating_add(1);
+            std::thread::sleep(retry_delay(attempt));
+        }
+    });
+}
+
+/// One connection attempt's lifetime: connect, identify (subscribing to
+/// Outputs events), fetch the current streaming truth once, then block
+/// reading events until the connection breaks. Only returns (always with an
+/// `Err`) once the connection is gone - no read timeout is set on this
+/// socket (`open(.., None, ..)`), so the blocking `read_json` call below
+/// waits indefinitely for either a real message or the OS reporting the
+/// connection closed, rather than erroring out on an idle timer the way the
+/// short-lived request/response connections intentionally do.
+fn run_stream_state_watcher_once(app: &AppHandle, config: &ObsConfig) -> Result<(), String> {
+    let mut socket = open(config, None, Some(EVENT_SUBSCRIPTION_OUTPUTS))?;
+    let streaming = fetch_stream_status(&mut socket)?;
+    // WK-112 rule #5: every (re)connect always re-fetches GetStreamStatus
+    // and reconciles from OBS's real, current answer - never from an
+    // assumption that whatever we knew before the disconnect still holds.
+    crate::local_runtime::lifecycle::on_obs_streaming_known(app, streaming);
+
+    loop {
+        let message = read_json(&mut socket)?;
+        if message.get("op").and_then(Value::as_i64) != Some(5) {
+            continue; // not an Event message (e.g. a stray Hello/other op) - ignore
+        }
+        if message.pointer("/d/eventType").and_then(Value::as_str) != Some("StreamStateChanged") {
+            continue; // some other Outputs-category event (e.g. RecordStateChanged) - not our concern
+        }
+        if let Some(active) = message
+            .pointer("/d/eventData/outputActive")
+            .and_then(Value::as_bool)
+        {
+            crate::local_runtime::lifecycle::on_obs_streaming_known(app, active);
+        }
+    }
 }
 
 #[cfg(test)]

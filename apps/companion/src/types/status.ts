@@ -46,7 +46,22 @@ export interface StatusSnapshot {
   obs_state: ConnectionState;
   obs_active_scene: "betweenMatches" | "draft" | "gameplay" | "postStream" | null;
   obs_last_error: string | null;
+  // WK-112 - OBS's own last-known streaming truth, separate from
+  // obs_state/obs_connected above (connectivity vs. streaming - see
+  // obs.rs). `null` until the stream-state watcher has learned it at least
+  // once (e.g. OBS unreachable since Companion started).
+  obs_streaming: boolean | null;
   companion_version: string;
+}
+
+// WK-112 - OBS-driven local stream lifecycle (see local_runtime::lifecycle).
+export type LifecycleSessionState = "none" | "open" | "pending_end" | "needs_manual_recovery";
+
+export interface LifecycleStatus {
+  session_state: LifecycleSessionState;
+  session_started_at: string | null;
+  pending_end_at: string | null;
+  obs_streaming: boolean | null;
 }
 
 export interface ObsConfig {

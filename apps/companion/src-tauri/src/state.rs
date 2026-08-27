@@ -62,6 +62,14 @@ pub struct StatusSnapshot {
     pub obs_state: ConnectionState,
     pub obs_active_scene: Option<BroadcastScene>,
     pub obs_last_error: Option<String>,
+    // WK-112 - OBS's own last-known streaming truth (from GetStreamStatus /
+    // StreamStateChanged, see obs.rs's stream-state watcher), deliberately
+    // separate from `obs_state`/`obs_connected` above: whether Companion
+    // can currently talk to OBS at all is a different question from
+    // whether OBS is currently streaming. `None` until the watcher has
+    // learned it at least once (e.g. OBS unreachable since Companion
+    // started) - never guessed.
+    pub obs_streaming: Option<bool>,
     pub companion_version: String,
 }
 
@@ -141,6 +149,8 @@ pub struct InnerState {
     // item/ability use.
     pub game_sounds_settings: crate::game_sounds::config::GameSoundSettings,
     pub game_sounds_previous_gsi: Option<serde_json::Value>,
+    // WK-112 - see the field doc on StatusSnapshot::obs_streaming above.
+    pub obs_streaming: Option<bool>,
 }
 
 pub struct AppState(pub Mutex<InnerState>);
@@ -214,6 +224,7 @@ impl AppState {
             obs_state,
             obs_active_scene: inner.obs_active_scene,
             obs_last_error: inner.obs_last_error.clone(),
+            obs_streaming: inner.obs_streaming,
             companion_version: COMPANION_VERSION.to_string(),
         }
     }
