@@ -37,8 +37,8 @@ const HERO: TrackedHero = {
   displayName: "Pudge",
   iconUrl: "https://example.com/pudge.png",
   abilities: [
-    { id: "pudge_meat_hook", displayName: "Meat Hook", iconUrl: "https://example.com/hook.png", supported: true, reason: null },
-    { id: "pudge_rot", displayName: "Rot", iconUrl: "https://example.com/rot.png", supported: false, reason: "Тоггл-способность без кулдауна." },
+    { id: "pudge_meat_hook", displayName: "Meat Hook", iconUrl: "https://example.com/hook.png", supported: true, signal: "cooldown", toggleActiveAlias: null, reason: null },
+    { id: "pudge_rot", displayName: "Rot", iconUrl: "https://example.com/rot.png", supported: false, signal: null, toggleActiveAlias: null, reason: "Тоггл-способность без кулдауна." },
   ],
 };
 

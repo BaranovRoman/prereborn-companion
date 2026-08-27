@@ -113,6 +113,11 @@ export const setSkipHotkey = (enabled: boolean, shortcut: string) =>
 // module's catalog.rs/config.rs/mod.rs for the authoritative shape.
 export type GameSoundEventKind = "itemUsed" | "abilityCast";
 export type ItemSignal = "cooldown" | "chargesOrConsumed";
+// WK-107 - two signals added alongside Techies (real production capture):
+// a charge-based ultimate (Proximity Mines) and a toggle ability whose GSI
+// `name` itself flips to a "_stop"-suffixed variant while active (Reactive
+// Tazer) instead of pulsing a cooldown - see game_sounds/catalog.rs.
+export type AbilitySignal = "cooldown" | "charges" | "toggleActivateRename";
 
 export interface TrackedItem {
   id: string;
@@ -127,6 +132,11 @@ export interface TrackedAbility {
   displayName: string;
   iconUrl: string;
   supported: boolean;
+  signal: AbilitySignal | null;
+  // Only set for `toggleActivateRename` abilities - not needed by the UI
+  // (bindings always use `id`, the canonical name), present for parity with
+  // the Rust catalog shape.
+  toggleActiveAlias: string | null;
   reason: string | null;
 }
 export interface TrackedHero {
