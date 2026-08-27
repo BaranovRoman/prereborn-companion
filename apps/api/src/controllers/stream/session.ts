@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import {
+    applyAbsoluteRatingCorrection,
     endActiveSession,
     getLatestSessionForUser,
     getOrCreateActiveSession,
@@ -16,12 +17,28 @@ import { logger } from "../../utils/logger.js";
 // чужую сессию через запрос структурно невозможно (не IDOR - не на что
 // подменять).
 
-const patchSessionSchema = z.object({
-    rating: z.number().int().positive().nullable().optional(),
-    wins: z.number().int().nonnegative().optional(),
-    losses: z.number().int().nonnegative().optional(),
-    lastHeroId: z.number().int().positive().nullable().optional(),
-});
+// WK-105 - `rating` (абсолютная коррекция Текущего MMR, см.
+// applyAbsoluteRatingCorrection) - отдельная операция от wins/losses/
+// lastHeroId, а не ещё одно поле рядом с ними (см. задачу "ДВЕ РАЗНЫЕ
+// операции"). .refine() отклоняет их одновременную передачу на уровне
+// схемы вместо того, чтобы контроллер молча проигнорировал остальные поля
+// при их совпадении - явная 400-ошибка лучше тихой потери данных, если
+// когда-нибудь появится вызывающий код, который пришлёт их вместе.
+const patchSessionSchema = z
+    .object({
+        rating: z.number().int().positive().nullable().optional(),
+        wins: z.number().int().nonnegative().optional(),
+        losses: z.number().int().nonnegative().optional(),
+        lastHeroId: z.number().int().positive().nullable().optional(),
+    })
+    .refine(
+        (data) =>
+            !(
+                "rating" in data &&
+                ("wins" in data || "losses" in data || "lastHeroId" in data)
+            ),
+        { message: "rating cannot be combined with wins/losses/lastHeroId in the same request" }
+    );
 
 // WK-53 - three-state lifecycle response: "active" (session in progress, see
 // `session`), "ended" (most recent session was explicitly ended - `session`
@@ -53,9 +70,28 @@ export const getSessionController = async (req: Request, res: Response) => {
     }
 };
 
+// WK-105 - `rating` в теле - отдельная операция (абсолютная коррекция
+// "Текущего MMR", см. applyAbsoluteRatingCorrection), а НЕ ещё одно поле
+// среди wins/losses/lastHeroId - см. задачу "ДВЕ РАЗНЫЕ операции" и
+// .refine() у схемы выше (их совместная передача уже отклонена на 400 раньше,
+// чем мы сюда попадём - здесь достаточно простого "if rating присутствует").
 export const patchSessionController = async (req: Request, res: Response) => {
     try {
         const patch = patchSessionSchema.parse(req.body);
+
+        if ("rating" in patch) {
+            const correction = await applyAbsoluteRatingCorrection(
+                req.streamUserId as string,
+                patch.rating ?? null
+            );
+            if (!correction) {
+                return res
+                    .status(409)
+                    .json({ error: "Стрим завершён - нет активной сессии для изменения" });
+            }
+            return res.json(correction.session);
+        }
+
         const session = await updateActiveSession(
             req.streamUserId as string,
             patch

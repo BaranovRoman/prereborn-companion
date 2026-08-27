@@ -343,6 +343,24 @@ export const QuickMatchPanel = ({ match, onUpdated }: QuickMatchPanelProps) => {
                                         Abandon — рейтинг всегда −{DELTA_STEP}
                                     </div>
                                 )}
+                                {/* WK-105 - разбивка сохранённого effective delta на
+                                    auto-detect и ручную коррекцию (см. задачу, п.D:
+                                    "сохранить отличие автоматически определённого
+                                    значения от ручной коррекции") - показываем только
+                                    когда коррекция реально есть, чтобы не шуметь на
+                                    обычных, никогда не правленных матчах. */}
+                                {match.ratingDeltaCorrection !== 0 && (
+                                    <div className={styles.deltaPreview}>
+                                        Определено автоматически:{" "}
+                                        {match.detectedRatingDelta === null
+                                            ? "неизвестно"
+                                            : `${match.detectedRatingDelta > 0 ? "+" : ""}${match.detectedRatingDelta}`}
+                                        {" · "}
+                                        Ручная коррекция:{" "}
+                                        {match.ratingDeltaCorrection > 0 ? "+" : ""}
+                                        {match.ratingDeltaCorrection}
+                                    </div>
+                                )}
                             </>
                         )}
                         {!isRanked && (

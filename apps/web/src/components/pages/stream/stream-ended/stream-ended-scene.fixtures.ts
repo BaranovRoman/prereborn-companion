@@ -31,6 +31,7 @@ export const buildSummary = (overrides: Partial<SessionSummary> = {}): SessionSu
     ratingStart: 5986,
     ratingEnd: 5936,
     ratingDelta: -50,
+    ratingAdjustment: 0,
     startedAt: new Date(0).toISOString(),
     endedAt: new Date(6_000_000).toISOString(),
     durationMs: 6_000_000,

@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { z } from "zod";
 import { upsertCompanionState } from "../../services/stream-companion-service.js";
 import {
-    getSessionStartRating,
+    getSessionMatchRatingDelta,
     processGsiPayloadForMatch,
 } from "../../services/stream-match-service.js";
 import {
@@ -125,11 +125,12 @@ export const getCompanionTwitchChatController = async (
 
 // WK-83/WK-53 - минимальная сводка сессии для startup-предложения Companion
 // ("продолжить прошлый стрим?" / "стрим завершён, начните новый"). Та же
-// композиция sessionRatingDelta, что и overlay.ts (getSessionStartRating +
-// getStreamUserGameMode) - не дублируем SQL, переиспользуем существующие
-// сервисные функции. `state` (WK-53) - явный сигнал фронтенду Companion: для
-// "ended" прошлую сессию нельзя предлагать "продолжить", только "начать
-// новую" (см. session-prompt.ts на стороне Companion).
+// композиция sessionRatingDelta, что и overlay.ts (WK-105:
+// getSessionMatchRatingDelta + getStreamUserGameMode) - не дублируем SQL,
+// переиспользуем существующие сервисные функции. `state` (WK-53) - явный
+// сигнал фронтенду Companion: для "ended" прошлую сессию нельзя предлагать
+// "продолжить", только "начать новую" (см. session-prompt.ts на стороне
+// Companion).
 interface CompanionSessionSummary {
     state: "active" | "ended";
     id: string;
@@ -150,8 +151,7 @@ const buildCompanionSessionSummary = async (
 
     let sessionRatingDelta: number | null = null;
     if (gameMode === "ranked" && session.rating !== null) {
-        const startRating = await getSessionStartRating(session.id);
-        sessionRatingDelta = startRating !== null ? session.rating - startRating : 0;
+        sessionRatingDelta = (await getSessionMatchRatingDelta(session.id)) ?? 0;
     }
 
     return {

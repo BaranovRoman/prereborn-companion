@@ -98,6 +98,33 @@
     color: var(--ui-text);
 }
 
+// WK-105 - "изменить" рядом с delta компактного превью (см. задачу: "для
+// каждого рейтингового матча, где показывается MMR delta, добавить
+// доступную ручную коррекцию") - открывает/скроллит к той же строке в
+// "Полной истории" ниже, а не дублирует форму правки.
+.compactEditButton {
+    flex-shrink: 0;
+    padding: 0;
+    height: auto;
+    font-size: 12px;
+}
+
+// Кратковременная подсветка строки в "Полной истории", к которой скроллит
+// клик по compactEditButton - иначе неочевидно, какая именно строка из
+// длинного списка теперь "та самая".
+.rowHighlighted {
+    animation: rowHighlight 1.6s ease-out;
+}
+
+@keyframes rowHighlight {
+    from {
+        background-color: rgba(255, 214, 102, 0.18);
+    }
+    to {
+        background-color: transparent;
+    }
+}
+
 .historyCollapse {
     margin-top: 4px;
 

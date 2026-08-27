@@ -12,6 +12,11 @@ export interface StreamSession {
     id: string;
     streamUserId: string;
     rating: number | null;
+    // WK-105 - кумулятивная абсолютная коррекция "Текущего MMR" за эту
+    // сессию (см. backend stream-session-service.ts::
+    // applyAbsoluteRatingCorrection) - 0, если её не было. Audit/
+    // transparency-поле: `rating` уже содержит итоговое значение.
+    ratingAdjustment: number;
     wins: number;
     losses: number;
     lastHeroId: number | null;
@@ -42,7 +47,14 @@ export interface SessionSummary {
     gameMode: StreamGameMode;
     ratingStart: number | null;
     ratingEnd: number | null;
+    // WK-105 - только вклад матчей сессии, НЕ ratingEnd - ratingStart -
+    // абсолютная коррекция Текущего MMR (ratingAdjustment ниже) сюда не
+    // включается, поэтому ratingStart + ratingDelta может честно не сойтись
+    // с ratingEnd, если коррекция была.
     ratingDelta: number | null;
+    // WK-105 - кумулятивная абсолютная коррекция Текущего MMR за эту сессию,
+    // не привязанная ни к одному матчу - 0, если её не было.
+    ratingAdjustment: number;
     startedAt: string;
     endedAt: string | null;
     durationMs: number | null;
@@ -135,6 +147,13 @@ export interface AccountStreamMatch extends StreamMatch {
     streamSessionId: string | null;
     resultSource: MatchResultSource;
     ratingSource: MatchRatingSource;
+    // WK-105 - разбивка ratingDelta: ratingDelta = detectedRatingDelta +
+    // ratingDeltaCorrection. detectedRatingDelta - null, если auto-detect по
+    // этому матчу ни разу не отработал (unranked/неизвестный режим, либо
+    // строка мигрирована до WK-105 без возможности восстановить исходное
+    // значение) - см. backend db/migrate.ts.
+    detectedRatingDelta: number | null;
+    ratingDeltaCorrection: number;
     correctedAt: string | null;
     state: MatchState;
 }

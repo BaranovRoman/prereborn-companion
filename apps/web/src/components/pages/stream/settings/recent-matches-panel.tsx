@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button, Collapse, InputNumber, Segmented, Select, message } from "antd";
 import type { CollapseProps } from "antd";
 import type { MessageInstance } from "antd/es/message/interface";
@@ -21,6 +21,9 @@ type RatingEditMode = "delta" | "after" | null;
 interface MatchRowProps {
     match: AccountStreamMatch;
     isCurrentSession: boolean;
+    // WK-105 - кратковременная подсветка после перехода сюда по "Изменить" в
+    // компактном превью (см. RecentMatchesPanel::handleCompactEdit).
+    highlighted?: boolean;
     onUpdated: (updated: AccountStreamMatch) => void;
     messageApi: MessageInstance;
 }
@@ -30,7 +33,7 @@ interface MatchRowProps {
 // Вариант B - итоговый рейтинг) - editMode блокирует второе поле, пока
 // редактируется первое, зеркаля backend'ный .refine(), который отклоняет
 // одновременную передачу обоих.
-const MatchRow = ({ match, isCurrentSession, onUpdated, messageApi }: MatchRowProps) => {
+const MatchRow = ({ match, isCurrentSession, highlighted, onUpdated, messageApi }: MatchRowProps) => {
     const hero = getHeroById(match.heroId);
     const needsReview = match.state === "needs_review";
     const [isRanked, setIsRanked] = useState(match.isRanked === true);
@@ -114,11 +117,18 @@ const MatchRow = ({ match, isCurrentSession, onUpdated, messageApi }: MatchRowPr
         }
     };
 
+    const rowClassName = [
+        styles.row,
+        !isCurrentSession && styles.rowPreviousSession,
+        highlighted && styles.rowHighlighted,
+    ]
+        .filter(Boolean)
+        .join(" ");
+
     return (
         <div
-            className={
-                isCurrentSession ? styles.row : `${styles.row} ${styles.rowPreviousSession}`
-            }
+            id={`stream-match-row-${match.id}`}
+            className={rowClassName}
             data-session={isCurrentSession ? "current" : "previous"}
         >
             <img
@@ -221,10 +231,21 @@ const RESULT_CLASS: Record<MatchResult, string> = {
     abandon: styles.compactResultAbandon,
 };
 
-const CompactMatchRow = ({ match }: { match: StreamMatch }) => {
+// onEdit присутствует только когда у этого матча реально есть
+// редактируемый аналог в "Полной истории" ниже (см. RecentMatchesPanel) -
+// WK-105, "для каждого рейтингового матча, где показывается MMR delta,
+// добавить доступную ручную коррекцию" (в т.ч. честный ±0, см. задачу).
+const CompactMatchRow = ({
+    match,
+    onEdit,
+}: {
+    match: StreamMatch;
+    onEdit?: () => void;
+}) => {
     const hero = getHeroById(match.heroId);
     const heroTitle = hero?.localizedName ?? `Hero ${match.heroId}`;
     const isRanked = match.gameMode === "ranked";
+    const showDelta = isRanked && match.ratingDelta !== null;
 
     return (
         <div className={styles.compactRow}>
@@ -245,15 +266,15 @@ const CompactMatchRow = ({ match }: { match: StreamMatch }) => {
             <span className={styles.compactKda}>
                 {match.kills}/{match.deaths}/{match.assists}
             </span>
-            {isRanked && match.ratingDelta !== null && (
+            {showDelta && (
                 <span
                     className={
-                        match.ratingDelta >= 0
+                        match.ratingDelta! >= 0
                             ? styles.compactDeltaPositive
                             : styles.compactDeltaNegative
                     }
                 >
-                    {match.ratingDelta > 0 ? "+" : ""}
+                    {match.ratingDelta! > 0 ? "+" : ""}
                     {match.ratingDelta}
                 </span>
             )}
@@ -261,6 +282,16 @@ const CompactMatchRow = ({ match }: { match: StreamMatch }) => {
                 <span className={styles.compactRatingAfter}>
                     {match.ratingAfter ?? "—"}
                 </span>
+            )}
+            {showDelta && onEdit && (
+                <Button
+                    type="link"
+                    size="small"
+                    className={styles.compactEditButton}
+                    onClick={onEdit}
+                >
+                    Изменить
+                </Button>
             )}
         </div>
     );
@@ -294,6 +325,12 @@ export const RecentMatchesPanel = ({
     onUpdated,
 }: RecentMatchesPanelProps) => {
     const [messageApi, contextHolder] = message.useMessage();
+    // WK-105 - какая карточка "Полной истории" (если открыта) подсветить
+    // после клика "Изменить" в компактном превью - сбрасывается таймером
+    // ниже, а не остаётся навсегда.
+    const [highlightedId, setHighlightedId] = useState<string | null>(null);
+    const [historyOpen, setHistoryOpen] = useState(false);
+    const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
     // Полная история - под Collapse (см. задачу, п.4: "необязательные
     // настройки можно убрать в Collapse/Drawer") - на мобильном первым
@@ -313,6 +350,7 @@ export const RecentMatchesPanel = ({
                                       match.streamSessionId,
                                       activeSessionId
                                   )}
+                                  highlighted={match.id === highlightedId}
                                   onUpdated={onUpdated}
                                   messageApi={messageApi}
                               />
@@ -322,6 +360,26 @@ export const RecentMatchesPanel = ({
               },
           ]
         : [];
+
+    // WK-105 - клик по "Изменить" в компактном превью открывает "Полную
+    // историю" (если ещё свёрнута) и скроллит/подсвечивает ту же строку по
+    // id (см. id={`stream-match-row-${match.id}`} в MatchRow) - без
+    // дублирования формы правки отдельным компонентом.
+    const handleCompactEdit = (matchId: string) => {
+        setHistoryOpen(true);
+        window.clearTimeout(highlightTimeoutRef.current);
+        // Коллапс разворачивается с анимацией - ждём кадр, прежде чем
+        // элемент вообще появится в DOM для scrollIntoView.
+        setTimeout(() => {
+            const element = document.getElementById(`stream-match-row-${matchId}`);
+            element?.scrollIntoView({ behavior: "smooth", block: "center" });
+            setHighlightedId(matchId);
+            highlightTimeoutRef.current = setTimeout(() => setHighlightedId(null), 1600);
+        }, 50);
+    };
+
+    const editableMatchIds =
+        matches !== null ? new Set(matches.map((match) => match.id)) : new Set<string>();
 
     return (
         <div className={sharedStyles.section}>
@@ -333,7 +391,15 @@ export const RecentMatchesPanel = ({
             ) : (
                 <div className={styles.compactList}>
                     {recentMatches.slice(0, 5).map((match) => (
-                        <CompactMatchRow key={match.id} match={match} />
+                        <CompactMatchRow
+                            key={match.id}
+                            match={match}
+                            onEdit={
+                                editableMatchIds.has(match.id)
+                                    ? () => handleCompactEdit(match.id)
+                                    : undefined
+                            }
+                        />
                     ))}
                 </div>
             )}
@@ -344,7 +410,10 @@ export const RecentMatchesPanel = ({
                 <Collapse
                     className={styles.historyCollapse}
                     items={historyItems}
-                    defaultActiveKey={[]}
+                    activeKey={historyOpen ? ["history"] : []}
+                    onChange={(keys) =>
+                        setHistoryOpen(Array.isArray(keys) ? keys.includes("history") : keys === "history")
+                    }
                     ghost
                 />
             )}

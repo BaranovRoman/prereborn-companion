@@ -29,6 +29,8 @@ const accountMatch = (id: string, streamSessionId: string | null): AccountStream
     streamSessionId,
     resultSource: "gsi",
     ratingSource: "default",
+    detectedRatingDelta: 25,
+    ratingDeltaCorrection: 0,
     correctedAt: null,
     state: "finalized",
 });

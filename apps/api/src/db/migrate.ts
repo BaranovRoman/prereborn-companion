@@ -495,6 +495,47 @@ export const createTables = async (): Promise<void> => {
       );
     `);
 
+        // WK-105 - разделяем "что определил auto-detect" и "что поверх этого
+        // поправил стример вручную" на самой строке матча, вместо того чтобы
+        // ручная коррекция необратимо перезаписывала rating_delta (как было
+        // раньше - см. stream-match-correction-service.ts). rating_delta
+        // остаётся materialized эффективным значением (detected + correction) -
+        // все существующие читатели (каскад, overlay, summary) не меняются.
+        // rating_delta_correction NOT NULL DEFAULT 0 - у ещё ни разу не
+        // скорректированного матча коррекция ровно нулевая, а не unknown.
+        await client.query(`
+      ALTER TABLE stream_matches ADD COLUMN IF NOT EXISTS detected_rating_delta INTEGER;
+      ALTER TABLE stream_matches ADD COLUMN IF NOT EXISTS rating_delta_correction INTEGER NOT NULL DEFAULT 0;
+    `);
+        // Бэкфилл существующих строк - без потери истории:
+        // - никогда не корректировались вручную (rating_source IS DISTINCT
+        //   FROM 'manual', включая NULL у unranked/unknown-режима) - текущее
+        //   rating_delta ЦЕЛИКОМ auto-detected, корректировки не было.
+        // - уже корректировались вручную ДО этой миграции - старый код
+        //   перезаписывал rating_delta в месте, не сохраняя, что именно
+        //   определил auto-detect до правки (это было безвозвратно потеряно
+        //   ещё тогда) - честно оставляем detected_rating_delta = NULL
+        //   ("неизвестно", а не выдуманное значение) и относим весь текущий
+        //   rating_delta на счёт коррекции.
+        await client.query(`
+      UPDATE stream_matches SET detected_rating_delta = rating_delta
+        WHERE detected_rating_delta IS NULL AND rating_source IS DISTINCT FROM 'manual';
+      UPDATE stream_matches SET rating_delta_correction = COALESCE(rating_delta, 0)
+        WHERE detected_rating_delta IS NULL AND rating_source = 'manual';
+    `);
+
+        // WK-105 - кумулятивный ledger абсолютных коррекций "Текущего MMR"
+        // (services/stream-session-service.ts::applyAbsoluteRatingCorrection),
+        // НЕ привязанных ни к одному матчу - см. задачу "Установить текущий
+        // MMR" не должно задним числом объяснять расхождение изменением
+        // прошлых матчей. DEFAULT 0 у всех существующих строк - `rating`
+        // продолжает означать ровно то же самое, что и раньше, везде, где он
+        // уже читается, пока стример ни разу не воспользуется новой абсолютной
+        // коррекцией.
+        await client.query(`
+      ALTER TABLE stream_sessions ADD COLUMN IF NOT EXISTS rating_adjustment INTEGER NOT NULL DEFAULT 0;
+    `);
+
         await client.query("COMMIT");
     } catch (error) {
         await client.query("ROLLBACK");

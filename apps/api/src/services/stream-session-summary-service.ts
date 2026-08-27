@@ -1,5 +1,9 @@
 import { getStreamUserGameMode, type StreamGameMode } from "./stream-user-service.js";
-import { getMatchCountForSession, getSessionStartRating } from "./stream-match-service.js";
+import {
+    getMatchCountForSession,
+    getSessionMatchRatingDelta,
+    getSessionStartRating,
+} from "./stream-match-service.js";
 import type { StreamSession } from "./stream-session-service.js";
 
 // WK-53 - "итог стрима": every field here already exists on the domain model
@@ -21,7 +25,19 @@ export interface SessionSummary {
     gameMode: StreamGameMode;
     ratingStart: number | null;
     ratingEnd: number | null;
+    // WK-105 - только вклад матчей этой сессии (см.
+    // stream-match-service.ts::getSessionMatchRatingDelta) - НЕ
+    // ratingEnd - ratingStart. Абсолютная коррекция "Текущего MMR"
+    // (ratingAdjustment ниже) больше не просачивается сюда, поэтому
+    // ratingStart + ratingDelta может честно не совпадать с ratingEnd - это
+    // ожидаемо и означает, что после последнего матча была ручная
+    // коррекция.
     ratingDelta: number | null;
+    // WK-105 - кумулятивная абсолютная коррекция Текущего MMR за эту сессию
+    // (applyAbsoluteRatingCorrection), не привязанная ни к одному матчу - 0,
+    // если её не было. См. комментарий у ratingDelta выше: ratingEnd =
+    // ratingStart + ratingDelta + ratingAdjustment (когда все три известны).
+    ratingAdjustment: number;
     startedAt: string;
     endedAt: string | null;
     durationMs: number | null;
@@ -41,11 +57,7 @@ export const getSessionSummary = async (
     if (gameMode === "ranked") {
         ratingStart = await getSessionStartRating(session.id);
         ratingDelta =
-            session.rating !== null
-                ? ratingStart !== null
-                    ? session.rating - ratingStart
-                    : 0
-                : null;
+            session.rating !== null ? (await getSessionMatchRatingDelta(session.id)) ?? 0 : null;
     }
 
     const endedAtMs = session.endedAt ? Date.parse(session.endedAt) : null;
@@ -61,6 +73,7 @@ export const getSessionSummary = async (
         ratingStart,
         ratingEnd: gameMode === "ranked" ? session.rating : null,
         ratingDelta,
+        ratingAdjustment: session.ratingAdjustment,
         startedAt: session.startedAt,
         endedAt: session.endedAt,
         durationMs,

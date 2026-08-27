@@ -1,4 +1,5 @@
 import { pool } from "../db/client.js";
+import { logger } from "../utils/logger.js";
 
 export type SyncStatus = "ok" | "not_found" | "rate_limited" | "unavailable";
 
@@ -6,6 +7,12 @@ export interface StreamSession {
     id: string;
     streamUserId: string;
     rating: number | null;
+    // WK-105 - кумулятивная сумма всех абсолютных коррекций "Текущего MMR"
+    // (applyAbsoluteRatingCorrection) за время жизни ЭТОЙ строки сессии - 0,
+    // если их не было. Чисто audit/transparency-поле: `rating` уже содержит
+    // итоговое значение и не требует его читать, чтобы работать правильно -
+    // см. комментарий у applyAbsoluteRatingCorrection.
+    ratingAdjustment: number;
     wins: number;
     losses: number;
     lastHeroId: number | null;
@@ -23,6 +30,7 @@ interface StreamSessionRow {
     id: number;
     stream_user_id: number;
     rating: number | null;
+    rating_adjustment: number;
     wins: number;
     losses: number;
     last_hero_id: number | null;
@@ -35,12 +43,13 @@ interface StreamSessionRow {
 }
 
 export const SESSION_COLUMNS =
-    "id, stream_user_id, rating, wins, losses, last_hero_id, started_at, ended_at, created_at, updated_at, last_synced_at, last_sync_status";
+    "id, stream_user_id, rating, rating_adjustment, wins, losses, last_hero_id, started_at, ended_at, created_at, updated_at, last_synced_at, last_sync_status";
 
 export const toStreamSession = (row: StreamSessionRow): StreamSession => ({
     id: row.id.toString(),
     streamUserId: row.stream_user_id.toString(),
     rating: row.rating,
+    ratingAdjustment: row.rating_adjustment,
     wins: row.wins,
     losses: row.losses,
     lastHeroId: row.last_hero_id,
@@ -86,8 +95,12 @@ export const getOrCreateActiveSession = async (
     return existing.rows[0] ? toStreamSession(existing.rows[0]) : null;
 };
 
+// WK-105 - НЕ содержит `rating` больше: это отдельная операция
+// (applyAbsoluteRatingCorrection ниже), а не поле среди прочих - см. задачу
+// "ручное изменение текущего MMR и correction конкретного матча - ДВЕ
+// РАЗНЫЕ операции". wins/losses/lastHeroId - по-прежнему простые счётчики
+// без истории, которым каскадная логика не нужна.
 export interface SessionPatch {
-    rating?: number | null;
     wins?: number;
     losses?: number;
     lastHeroId?: number | null;
@@ -114,7 +127,6 @@ export const updateActiveSession = async (
         setFragments.push(`${column} = $${values.length}`);
     };
 
-    if ("rating" in patch) addField("rating", patch.rating);
     if ("wins" in patch) addField("wins", patch.wins);
     if ("losses" in patch) addField("losses", patch.losses);
     if ("lastHeroId" in patch) addField("last_hero_id", patch.lastHeroId);
@@ -137,6 +149,77 @@ export const updateActiveSession = async (
         values
     );
     return toStreamSession(result.rows[0]);
+};
+
+export interface RatingCorrectionResult {
+    session: StreamSession;
+    previousRating: number | null;
+    adjustmentDelta: number;
+}
+
+// WK-105 - "Установить текущий MMR": абсолютная коррекция ТОЧКИ ОТСЧЁТА, а не
+// команда переписать историю матчей (см. задачу) - в отличие от старого
+// поведения (patch.rating внутри updateActiveSession выше), это НЕ прямой
+// перезаписывающий UPDATE. Разница `newRating - текущий rating` копится в
+// rating_adjustment - кумулятивном ledger'е коррекций, не привязанных ни к
+// одному матчу (см. StreamSession.ratingAdjustment). ratingBefore/ratingDelta/
+// ratingAfter уже существующих строк stream_matches не трогаются вообще - эта
+// функция не читает и не пишет stream_matches.
+//
+// diff считается только когда обе точки числовые: первичный ввод рейтинга
+// (была null) или явная очистка поля (newRating === null) - не коррекция, а
+// просто установка/сброс значения, поэтому adjustmentDelta = 0 в обоих
+// случаях (см. задачу: "не добавляй искусственные fallback значения" - не
+// выдумываем "коррекцию" там, где не было предыдущей точки для сравнения).
+export const applyAbsoluteRatingCorrection = async (
+    streamUserId: string,
+    rating: number | null
+): Promise<RatingCorrectionResult | null> => {
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+        const current = await client.query<{ id: number; rating: number | null }>(
+            `SELECT id, rating FROM stream_sessions
+             WHERE stream_user_id = $1 AND ended_at IS NULL
+             FOR UPDATE`,
+            [streamUserId]
+        );
+        const row = current.rows[0];
+        if (!row) {
+            await client.query("ROLLBACK");
+            return null;
+        }
+
+        const previousRating = row.rating;
+        const adjustmentDelta =
+            rating !== null && previousRating !== null ? rating - previousRating : 0;
+
+        const result = await client.query<StreamSessionRow>(
+            `UPDATE stream_sessions
+             SET rating = $1, rating_adjustment = rating_adjustment + $2, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $3
+             RETURNING ${SESSION_COLUMNS}`,
+            [rating, adjustmentDelta, row.id]
+        );
+
+        await client.query("COMMIT");
+        logger.info("Stream session rating manually set (absolute correction)", {
+            streamUserId,
+            previousRating,
+            rating,
+            adjustmentDelta,
+        });
+        return {
+            session: toStreamSession(result.rows[0]),
+            previousRating,
+            adjustmentDelta,
+        };
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
 };
 
 // "Начать новый стрим" - завершает текущую активную сессию (если она есть -
