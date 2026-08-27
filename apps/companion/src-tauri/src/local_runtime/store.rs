@@ -5,6 +5,7 @@ use uuid::Uuid;
 use super::model::{LocalMatch, LocalMatchState, LocalSession, MatchResult, RankedMode, SyncState};
 
 fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<LocalSession> {
+    let stale_ack: i64 = row.get(7)?;
     Ok(LocalSession {
         local_id: row.get(0)?,
         backend_id: row.get(1)?,
@@ -12,28 +13,33 @@ fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<LocalSession> {
         ended_at: row.get(3)?,
         rating_start: row.get(4)?,
         rating_current: row.get(5)?,
+        pending_end_at: row.get(6)?,
+        stale_ack: stale_ack != 0,
         sync_state: SyncState::Pending,
     })
 }
 
-const SESSION_COLUMNS: &str =
-    "local_id, backend_id, started_at, ended_at, rating_start, rating_current, sync_state";
+const SESSION_COLUMNS: &str = "local_id, backend_id, started_at, ended_at, rating_start, \
+     rating_current, pending_end_at, stale_ack";
+
+/// Mirrors `getOrCreateActiveSession`'s *read* half (stream-session-service.ts):
+/// the most recent session that hasn't ended, or `None`. Read-only - does
+/// not create anything, unlike `ensure_active_session` below, so lifecycle
+/// reconciliation (which must decide WHETHER to create one) can inspect
+/// current state without side effects.
+pub fn find_open_session(conn: &Connection) -> rusqlite::Result<Option<LocalSession>> {
+    conn.query_row(
+        &format!("SELECT {SESSION_COLUMNS} FROM local_sessions WHERE ended_at IS NULL ORDER BY rowid DESC LIMIT 1"),
+        [],
+        row_to_session,
+    )
+    .optional()
+}
 
 /// Mirrors `getOrCreateActiveSession` (stream-session-service.ts): finds the
-/// most recent session that hasn't ended, or creates a fresh one. WK-111
-/// never itself ends a session (that's OBS-driven lifecycle, WK-112) - this
-/// is purely "attach matches to *some* local session" bookkeeping.
+/// most recent session that hasn't ended, or creates a fresh one.
 pub fn ensure_active_session(conn: &Connection, now: DateTime<Utc>) -> rusqlite::Result<LocalSession> {
-    let existing = conn
-        .query_row(
-            &format!(
-                "SELECT {SESSION_COLUMNS} FROM local_sessions WHERE ended_at IS NULL ORDER BY rowid DESC LIMIT 1"
-            ),
-            [],
-            row_to_session,
-        )
-        .optional()?;
-    if let Some(session) = existing {
+    if let Some(session) = find_open_session(conn)? {
         return Ok(session);
     }
 
@@ -49,8 +55,49 @@ pub fn ensure_active_session(conn: &Connection, now: DateTime<Utc>) -> rusqlite:
         ended_at: None,
         rating_start: None,
         rating_current: None,
+        pending_end_at: None,
+        stale_ack: false,
         sync_state: SyncState::Pending,
     })
+}
+
+/// WK-112 - OBS reported "not streaming" for an open session with no
+/// pending-end yet: start the 30s grace countdown, durably.
+pub fn begin_pending_end(conn: &Connection, local_id: &str, now: DateTime<Utc>) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE local_sessions SET pending_end_at = ?2 WHERE local_id = ?1 AND ended_at IS NULL",
+        params![local_id, now.to_rfc3339()],
+    )?;
+    Ok(())
+}
+
+/// WK-112 - OBS reported "streaming" again before the grace period elapsed.
+pub fn cancel_pending_end(conn: &Connection, local_id: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE local_sessions SET pending_end_at = NULL WHERE local_id = ?1",
+        params![local_id],
+    )?;
+    Ok(())
+}
+
+/// WK-112 - grace period elapsed with OBS confirmed not-streaming, or a
+/// manual stale-recovery "end" action. `ended_at IS NULL` guard makes this
+/// idempotent against a repeated call for the same session.
+pub fn finalize_session_end(conn: &Connection, local_id: &str, now: DateTime<Utc>) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE local_sessions SET ended_at = ?2, pending_end_at = NULL WHERE local_id = ?1 AND ended_at IS NULL",
+        params![local_id, now.to_rfc3339()],
+    )?;
+    Ok(())
+}
+
+/// WK-112 - manual stale-recovery "continue this session" action.
+pub fn acknowledge_stale(conn: &Connection, local_id: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "UPDATE local_sessions SET stale_ack = 1 WHERE local_id = ?1",
+        params![local_id],
+    )?;
+    Ok(())
 }
 
 const ACTIVE_MATCH_STATES: &[LocalMatchState] = &[
@@ -298,6 +345,54 @@ mod tests {
         let first = ensure_active_session(&conn, now).unwrap();
         let second = ensure_active_session(&conn, now).unwrap();
         assert_eq!(first.local_id, second.local_id);
+    }
+
+    #[test]
+    fn find_open_session_does_not_create_one() {
+        let conn = test_conn();
+        assert!(find_open_session(&conn).unwrap().is_none());
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM local_sessions", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn begin_then_cancel_pending_end_round_trips() {
+        let conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&conn, now).unwrap();
+        begin_pending_end(&conn, &session.local_id, now).unwrap();
+        let pending = find_open_session(&conn).unwrap().unwrap();
+        assert_eq!(pending.pending_end_at, Some(now.to_rfc3339()));
+
+        cancel_pending_end(&conn, &session.local_id).unwrap();
+        let cancelled = find_open_session(&conn).unwrap().unwrap();
+        assert_eq!(cancelled.pending_end_at, None);
+    }
+
+    #[test]
+    fn finalize_session_end_is_idempotent_and_clears_pending_end() {
+        let conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&conn, now).unwrap();
+        begin_pending_end(&conn, &session.local_id, now).unwrap();
+
+        finalize_session_end(&conn, &session.local_id, now).unwrap();
+        assert!(find_open_session(&conn).unwrap().is_none(), "ended session must no longer be open");
+
+        // Idempotent: a second finalize call (e.g. a repeated sweep tick)
+        // against an already-ended session must not error or touch anything.
+        finalize_session_end(&conn, &session.local_id, now).unwrap();
+    }
+
+    #[test]
+    fn acknowledge_stale_persists_across_a_reread() {
+        let conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&conn, now).unwrap();
+        assert!(!find_open_session(&conn).unwrap().unwrap().stale_ack);
+
+        acknowledge_stale(&conn, &session.local_id).unwrap();
+        assert!(find_open_session(&conn).unwrap().unwrap().stale_ack);
     }
 
     #[test]

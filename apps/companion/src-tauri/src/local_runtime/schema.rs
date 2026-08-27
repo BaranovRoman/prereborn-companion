@@ -50,6 +50,21 @@ const MIGRATIONS: &[&str] = &[
     CREATE INDEX idx_local_matches_active
         ON local_matches (session_local_id, state);
     "#,
+    // v1 -> v2 (WK-112) - OBS-driven lifecycle. `pending_end_at` is the
+    // durable form of the 30s "Stop Streaming" grace countdown: it is
+    // committed to disk the moment the grace period begins, so a Companion
+    // crash/restart mid-countdown reconciles from this column plus a fresh
+    // `GetStreamStatus` call (see lifecycle.rs), never from an in-memory
+    // timer that could have silently stopped ticking. `stale_ack` records
+    // that the user explicitly chose "continue this session" during
+    // stale-session manual recovery (see lifecycle::is_stale) - without it,
+    // a legitimately long-running stream the user already confirmed would
+    // otherwise re-trigger the same recovery prompt on every reconciliation
+    // tick.
+    r#"
+    ALTER TABLE local_sessions ADD COLUMN pending_end_at TEXT;
+    ALTER TABLE local_sessions ADD COLUMN stale_ack INTEGER NOT NULL DEFAULT 0;
+    "#,
 ];
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {

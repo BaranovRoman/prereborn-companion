@@ -26,12 +26,13 @@
 
 mod detector;
 mod gsi;
+pub mod lifecycle;
 mod model;
 mod schema;
 mod store;
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use rusqlite::Connection;
 use serde_json::Value;
@@ -42,6 +43,13 @@ pub struct LocalRuntimeState(Mutex<Option<Connection>>);
 impl LocalRuntimeState {
     pub fn new() -> Self {
         Self(Mutex::new(None))
+    }
+
+    /// Convenience accessor used by `lifecycle.rs` (and anything else that
+    /// needs the connection outside this file) - same lock, just without
+    /// spelling out `.0.lock().unwrap()` at every call site.
+    pub fn lock(&self) -> MutexGuard<'_, Option<Connection>> {
+        self.0.lock().unwrap()
     }
 }
 

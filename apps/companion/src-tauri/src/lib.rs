@@ -196,6 +196,7 @@ pub fn run() {
             try_auto_provision(&handle);
             backend::init(handle.clone());
             obs::init(handle.clone());
+            local_runtime::lifecycle::start_sweep(handle.clone());
 
             build_tray(&handle)?;
 
@@ -211,6 +212,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_status,
+            commands::get_local_lifecycle_status,
+            commands::local_lifecycle_stale_continue,
+            commands::local_lifecycle_stale_end,
             commands::find_dota,
             commands::pick_dota_folder,
             commands::install_gsi,

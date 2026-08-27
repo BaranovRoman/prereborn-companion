@@ -1,5 +1,7 @@
 import { CompanionTokenForm } from "../components/CompanionTokenForm";
+import { LocalStreamLifecycleCard } from "../components/LocalStreamLifecycleCard";
 import { StreamSessionCard } from "../components/StreamSessionCard";
+import type { LocalLifecycleState } from "../hooks/useLocalLifecycle";
 import type { StreamSessionPromptState } from "../hooks/useStreamSessionPrompt";
 import * as api from "../services/dotaCompanionApi";
 import type { StatusSnapshot } from "../types/status";
@@ -53,6 +55,7 @@ interface Props {
   checkObs: () => void;
   setAutomaticMode: (enabled: boolean) => void;
   sessionPrompt: StreamSessionPromptState;
+  localLifecycle: LocalLifecycleState;
 }
 
 // Companion UI 2.0 follow-up - StreamSessionCard now renders unconditionally
@@ -62,12 +65,26 @@ interface Props {
 // the first-run wizard is dismissed/finished, unchanged from before.
 export function HomePage({
   status, busy, run, ready, backendStatus, hasGsiSignal, requestCount,
-  setupOpen, setSetupOpen, finishSetup, provisionGsi, checkObs, setAutomaticMode, sessionPrompt,
+  setupOpen, setSetupOpen, finishSetup, provisionGsi, checkObs, setAutomaticMode, sessionPrompt, localLifecycle,
 }: Props) {
+  // Companion UI 2.0 follow-up (WK-112) - the manual backend-session card
+  // (start/end via the web-cabinet session, WK-83/WK-100) is no longer the
+  // primary "is my stream running" control - LocalStreamLifecycleCard above
+  // is, driven automatically by OBS. This stays fully functional as a
+  // collapsed fallback rather than being removed, per the task's explicit
+  // "manual controls stay available, just not front-and-center" instruction.
+  const manualSessionFallback = (
+    <details className="session-fallback">
+      <summary>Ручное управление сессией (резерв)</summary>
+      <StreamSessionCard sessionPrompt={sessionPrompt} />
+    </details>
+  );
+
   if (setupOpen) {
     return (
       <>
-        <StreamSessionCard sessionPrompt={sessionPrompt} />
+        <LocalStreamLifecycleCard lifecycle={localLifecycle} />
+        {manualSessionFallback}
         <section className="setup-guide" aria-labelledby="setup-title">
           <div className="setup-guide__heading">
             <div><span className="section-heading__eyebrow">Первый запуск</span><h2 id="setup-title">Подготовим Companion к стриму</h2><p>Статусы обновляются автоматически и восстановятся после временного сбоя.</p></div>
@@ -87,7 +104,8 @@ export function HomePage({
 
   return (
     <>
-      <StreamSessionCard sessionPrompt={sessionPrompt} />
+      <LocalStreamLifecycleCard lifecycle={localLifecycle} />
+      {manualSessionFallback}
 
       <section className={`readiness ${ready ? "readiness--ok" : "readiness--warning"}`}>
         <div>

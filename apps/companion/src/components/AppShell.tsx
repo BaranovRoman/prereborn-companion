@@ -7,6 +7,7 @@ import { useTwitchChatSession } from "../chat/useTwitchChatSession";
 import { useAutostart } from "../hooks/useAutostart";
 import { useDiagnostics } from "../hooks/useDiagnostics";
 import { useGsiEvents } from "../hooks/useGsiEvents";
+import { useLocalLifecycle } from "../hooks/useLocalLifecycle";
 import { useStatus } from "../hooks/useStatus";
 import { useStreamSessionPrompt } from "../hooks/useStreamSessionPrompt";
 import { useUpdater } from "../hooks/useUpdater";
@@ -53,6 +54,9 @@ export function AppShell() {
   // is currently visible, not just while the user is looking at "Звуки".
   const gameSoundEngine = useGameSoundEngine();
   const sessionPrompt = useStreamSessionPrompt();
+  // WK-112 - OBS-driven local stream lifecycle, independent polling from
+  // the backend-session prompt above (see useLocalLifecycle's doc comment).
+  const localLifecycle = useLocalLifecycle();
   const [section, setSection] = useState<Section>("home");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -191,6 +195,7 @@ export function AppShell() {
             checkObs={checkObs}
             setAutomaticMode={setAutomaticMode}
             sessionPrompt={sessionPrompt}
+            localLifecycle={localLifecycle}
           />
         )}
         {section === "chat" && <TwitchChatPage session={chatSession} />}

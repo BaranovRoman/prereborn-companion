@@ -13,6 +13,7 @@ use crate::game_sounds::{
 };
 use crate::gsi::{config, finder};
 use crate::hotkeys::{self, SkipHotkeyStatus};
+use crate::local_runtime::lifecycle::{self, LifecycleStatus};
 use crate::obs::{self, BroadcastScene, ObsConfig};
 use crate::silero::{self, SileroStatus, SileroVoice};
 use crate::state::{AppState, StatusSnapshot, DEFAULT_WEB_ORIGIN};
@@ -21,6 +22,26 @@ use crate::storage;
 #[tauri::command]
 pub fn get_status(state: State<AppState>) -> StatusSnapshot {
     state.snapshot()
+}
+
+// WK-112 - OBS-driven local stream lifecycle. Read-only status plus the two
+// stale-session manual-recovery actions (see local_runtime::lifecycle) -
+// deliberately no "start"/"end" commands here: normal lifecycle is fully
+// automatic, driven by OBS Start/Stop Streaming, not by anything the UI
+// calls directly.
+#[tauri::command]
+pub fn get_local_lifecycle_status(app: AppHandle) -> LifecycleStatus {
+    lifecycle::status(&app)
+}
+
+#[tauri::command]
+pub fn local_lifecycle_stale_continue(app: AppHandle) -> Result<(), String> {
+    lifecycle::stale_recovery_continue(&app)
+}
+
+#[tauri::command]
+pub fn local_lifecycle_stale_end(app: AppHandle) -> Result<(), String> {
+    lifecycle::stale_recovery_end(&app)
 }
 
 #[tauri::command]
