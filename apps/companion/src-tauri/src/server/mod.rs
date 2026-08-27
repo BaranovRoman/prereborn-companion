@@ -109,6 +109,23 @@ fn process_gsi_body(app: &AppHandle, remote_addr: &str, body: &str) -> LastEvent
     last_event
 }
 
+// WK-109 forensic finding - Valve's `throttle` GSI setting counts from the
+// moment Dota's client receives OUR 2XX response, not from when it sent the
+// request (see the GSI cfg semantics documented at gsi/config.rs). Before
+// this fix, `process_gsi_body` (JSON parse, obs/game_sounds detection, a
+// mutex lock, and 1-3 synchronous rolling-log file open+write+close calls)
+// ran ENTIRELY before `request.respond()` - so any slowness in our own
+// processing (a slow disk, antivirus/OneDrive intercepting the log file's
+// open/write/close, or just accumulated small overheads) added directly on
+// top of the configured `throttle "0.1"`, inflating Dota's actual next-send
+// delay far past what the cfg requests. Production evidence: a suspiciously
+// uniform ~1.14-1.17s gap between consecutive "GSI request from ..." log
+// lines despite buffer/throttle both configured to 0.1 - too tight and too
+// regular to be explained by player action cadence. Responding to Dota
+// FIRST, before any of our own processing, removes Companion's own
+// processing time from Dota's throttle-gated next-send delay entirely -
+// whatever our processing costs, it can no longer be added on top of
+// what Dota itself decides to wait.
 fn handle_request(app: &AppHandle, mut request: tiny_http::Request) {
     let remote_addr = request
         .remote_addr()
@@ -118,10 +135,10 @@ fn handle_request(app: &AppHandle, mut request: tiny_http::Request) {
     let mut body = String::new();
     let _ = request.as_reader().read_to_string(&mut body);
 
-    process_gsi_body(app, &remote_addr, &body);
-
     let response = tiny_http::Response::from_string("{\"status\":\"ok\"}").with_header(
         tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap(),
     );
     let _ = request.respond(response);
+
+    process_gsi_body(app, &remote_addr, &body);
 }
