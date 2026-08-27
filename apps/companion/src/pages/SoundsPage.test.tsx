@@ -37,8 +37,8 @@ const HERO: TrackedHero = {
   displayName: "Pudge",
   iconUrl: "https://example.com/pudge.png",
   abilities: [
-    { id: "pudge_meat_hook", displayName: "Meat Hook", iconUrl: "https://example.com/hook.png", supported: true, signal: "cooldown", toggleActiveAlias: null, reason: null },
-    { id: "pudge_rot", displayName: "Rot", iconUrl: "https://example.com/rot.png", supported: false, signal: null, toggleActiveAlias: null, reason: "Тоггл-способность без кулдауна." },
+    { id: "pudge_meat_hook", displayName: "Meat Hook", iconUrl: "https://example.com/hook.png", status: "supported", signal: "cooldown", toggleActiveAlias: null, reason: null },
+    { id: "pudge_rot", displayName: "Rot", iconUrl: "https://example.com/rot.png", status: "unsupported", signal: null, toggleActiveAlias: null, reason: "Тоггл-способность без кулдауна." },
   ],
 };
 
@@ -147,9 +147,15 @@ describe("SoundsPage - Герои", () => {
     const modal = screen.getByRole("dialog");
     expect(within(modal).getByText("Meat Hook")).toBeTruthy();
     expect(within(modal).getByText("Rot")).toBeTruthy();
-    expect(within(modal).getByText("Тоггл-способность без кулдауна.")).toBeTruthy();
-    // Rot has no binding controls at all - only the unsupported label.
-    expect(within(modal).getByText("Недоступно для отслеживания")).toBeTruthy();
+    // Rot is unsupported: greyed out, disabled, no binding controls reachable.
+    const rotCard = within(modal).getByTitle(/Rot:/) as HTMLButtonElement;
+    expect(rotCard.className).toContain("hero-ability-card--unsupported");
+    expect(rotCard.disabled).toBe(true);
+
+    // Meat Hook is supported: clicking its card opens the binding controls.
+    expect(within(modal).queryByRole("button", { name: "Выбрать файл" })).toBeNull();
+    fireEvent.click(within(modal).getByTitle("Meat Hook"));
+    expect(within(modal).getByRole("button", { name: "Выбрать файл" })).toBeTruthy();
   });
 });
 

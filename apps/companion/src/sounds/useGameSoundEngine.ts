@@ -60,6 +60,7 @@ export function useGameSoundEngine() {
     const unlistenPromise = listen<GameSoundPlayNotification>("game-sound-play", (event) => {
       if (!settingsRef.current?.enabled) return;
       const item: GameSoundPlayback = event.payload;
+      logTiming(item, "frontend-received");
       if (playing.current) {
         // Bounded burst policy - a drop here is silent by design (задача:
         // "новое событие либо игнорируется, либо встаёт в bounded
@@ -163,5 +164,19 @@ function playPayload(
   };
   audio.onended = cleanup;
   audio.onerror = cleanup;
-  audio.play().catch(cleanup);
+  logTiming(item, "audio-play-requested");
+  audio.play()
+    .then(() => logTiming(item, "audio-playing"))
+    .catch(cleanup);
+}
+
+// WK-108 latency addendum - fire-and-forget breadcrumb into the shared
+// rolling log (see game_sounds/mod.rs's log_frontend_timing/now_ms doc
+// comments): correlates against Rust's own gsi-received/detected/play-
+// request-emitted lines for the same event, so the full local pipeline
+// (Dota GSI -> Companion detect -> frontend -> audio.play()) can be
+// reconstructed from app.log after a stream. Never awaited by the playback
+// path itself - a slow/failed log call must never delay or block a sound.
+function logTiming(item: GameSoundPlayback, stage: string) {
+  void api.logGameSoundTiming(item.correlationId, stage, Date.now() - item.emittedAtMs).catch(() => {});
 }

@@ -47,7 +47,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::catalog::{self, AbilitySignal, ItemSignal};
+use super::catalog::{self, AbilitySignal, AbilityStatus, ItemSignal};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -109,6 +109,36 @@ fn item_slots(payload: &Value) -> Vec<(String, Value)> {
         .collect()
 }
 
+// WK-108 root cause (false Blood Grenade trigger on a second purchase
+// arriving at courier) - GSI's `items` section has NO stable per-instance
+// identity: two simultaneously-existing stacks of the same item (hero-held
+// + courier-held, or hero-held + backpack-held) are indistinguishable from
+// "the same stack moved" using only `name`+slot-key+`charges`. A slot-level
+// diff alone therefore cannot tell "genuinely consumed" apart from "this
+// exact item now sits in a different slot" (hero<->backpack<->courier) or
+// "this stack got recreated at merge/split time" - both of which can make a
+// slot's `charges` drop or its `name` briefly read "empty" without the
+// player having used anything.
+//
+// The fix has two parts, both applied only to `ItemSignal::ChargesOrConsumed`
+// (Cooldown items were never at risk - see that branch, unchanged):
+//
+// 1. The "item left this slot entirely" fallback (for items with no
+//    `charges` field at all, e.g. a lone Healing Salve) now also checks
+//    that the same item name didn't simply reappear in a *different* slot
+//    this same tick - if it did, this was a relocation (hero<->backpack/
+//    courier), not a use, and the WHOLE tick's snapshot already available
+//    to this function is enough to prove that without inventing any new
+//    GSI field.
+// 2. That same fallback no longer fires at all for a slot that ever
+//    reported a `charges` field (Tango, Blood Grenade) - for those, the
+//    charges-decrease branch above is the *only* trusted "used" signal
+//    (see its own comment). A charge-tracked item vanishing from its slot
+//    without ever having shown a same-slot charges decrease first is
+//    exactly the shape a purchase-arriving-at-courier or a stack
+//    merge/split produces, and there is no way to prove from this schema
+//    alone that it wasn't one of those - per the task's own rule, this
+//    detector prefers a missed sound (false negative) over a wrong one.
 fn detect_item_events(previous: &Value, current: &Value, events: &mut Vec<GameSoundEvent>) {
     // A tick where the `items` section is missing entirely (e.g. GSI
     // briefly stops sending it around a match ending/menu transition) must
@@ -129,6 +159,28 @@ fn detect_item_events(previous: &Value, current: &Value, events: &mut Vec<GameSo
     let mut slot_keys: Vec<&str> = previous_slots.iter().chain(current_slots.iter()).map(|(s, _)| s.as_str()).collect();
     slot_keys.sort_unstable();
     slot_keys.dedup();
+
+    // WK-108 - every item name that occupies a slot in `current` which did
+    // NOT already hold that same name in `previous` - i.e. "newly showed up
+    // somewhere this tick". Used below to recognize a relocation
+    // (hero<->backpack/courier, or a merge/split recreating a stack
+    // elsewhere) even when there's no stable item-instance id to follow
+    // directly: if the exact name that just vanished from one slot shows up
+    // as newly-arrived in another slot in this same tick, that is a move,
+    // not a use, regardless of which slot key either side used.
+    let newly_appeared_names: std::collections::HashSet<&str> = current_slots
+        .iter()
+        .filter(|(slot, curr_item)| {
+            let curr_name = curr_item.get("name").and_then(Value::as_str);
+            let prev_name_here = previous_slots
+                .iter()
+                .find(|(s, _)| s == slot)
+                .and_then(|(_, v)| v.get("name"))
+                .and_then(Value::as_str);
+            curr_name.is_some() && curr_name != Some("empty") && curr_name != prev_name_here
+        })
+        .filter_map(|(_, v)| v.get("name").and_then(Value::as_str))
+        .collect();
 
     for slot in slot_keys {
         let previous_item = previous_slots.iter().find(|(s, _)| s == slot).map(|(_, v)| v);
@@ -164,24 +216,18 @@ fn detect_item_events(previous: &Value, current: &Value, events: &mut Vec<GameSo
                     let curr_charges = current_item.get("charges").and_then(Value::as_i64);
                     matches!((prev_charges, curr_charges), (Some(prev), Some(curr)) if curr < prev)
                 } else {
-                    // The item left this slot entirely (current is "empty",
-                    // missing, or - conservatively - anything else). Only
-                    // "genuinely gone" (empty/missing) counts as a use; a
-                    // *different* item now occupying the slot is a
-                    // sell/swap, not a use, and is excluded below.
-                    //
-                    // WK-107 self-review - a charge-tracked item that drains
-                    // to 0 and only *then* disappears from its slot on a
-                    // later tick would otherwise fire twice for the same
-                    // real use: once when charges hit 0 (the branch above,
-                    // on an earlier tick), and again here when the slot
-                    // empties. `prev_charges > 0` (or absent entirely, for
-                    // single-instance consumables that never carry a
-                    // `charges` field at all - see the test below) is
-                    // required so a charge reaching 0 is the one and only
-                    // moment that gets reported; the slot vanishing
-                    // afterward is just cleanup, not a second use.
-                    matches!(current_name, None | Some("empty")) && prev_charges.map_or(true, |charges| charges > 0)
+                    // The item left this slot entirely. Only a "use" when
+                    // BOTH hold: (a) this slot never reported a `charges`
+                    // field for it (a genuinely single-instance consumable -
+                    // the charges-decrease branch above is the only trusted
+                    // signal for anything that does carry one, per the
+                    // WK-108 root-cause comment on this function), and
+                    // (b) the same item name did not simply reappear
+                    // elsewhere this same tick (that would be a relocation,
+                    // not a use - see `newly_appeared_names` above).
+                    prev_charges.is_none()
+                        && matches!(current_name, None | Some("empty"))
+                        && !newly_appeared_names.contains(previous_name)
                 }
             }
             None => false,
@@ -214,7 +260,12 @@ fn detect_ability_events(previous: &Value, current: &Value, events: &mut Vec<Gam
         let Some(raw_current_name) = current_ability.get("name").and_then(Value::as_str) else { continue };
         let canonical_id = catalog::canonicalize_ability_name(raw_current_name);
         let Some(catalog_entry) = catalog::find_ability(canonical_id) else { continue };
-        if !catalog_entry.supported {
+        // WK-108 - `Experimental` abilities are attempted the same as
+        // `Supported` ones (both carry a real signal); only `Unsupported`
+        // (no usable signal at all - see catalog.rs) is skipped outright.
+        // The Supported/Experimental distinction is purely an honesty
+        // signal surfaced to the user in the UI, not a detection gate.
+        if catalog_entry.status == AbilityStatus::Unsupported {
             continue;
         }
         let Some(previous_ability) = previous_slots.iter().find(|(s, _)| *s == slot).map(|(_, v)| v) else { continue };
@@ -252,7 +303,7 @@ fn detect_ability_events(previous: &Value, current: &Value, events: &mut Vec<Gam
             // it must specifically land on the known alias.
             Some(AbilitySignal::ToggleActivateRename) => {
                 raw_previous_name != raw_current_name
-                    && catalog_entry.toggle_active_alias == Some(raw_current_name)
+                    && catalog_entry.toggle_active_alias.as_deref() == Some(raw_current_name)
             }
             None => false,
         };
@@ -597,6 +648,156 @@ mod tests {
             );
             assert!(detect_events(Some(&prev_mines), &curr_mines).is_empty());
         }
+
+    }
+
+    // WK-108 - a real production stream test surfaced a false Blood Grenade
+    // sound on buying a *second* one while already holding one (the new
+    // grenade lands at courier, not on the use of the existing one). These
+    // pin the fix: a charge-tracked item's slot going empty/replaced is
+    // never itself proof of use - only a same-slot charges decrease is.
+    mod wk108_item_purchase_move_merge_semantics {
+        use super::*;
+
+        #[test]
+        fn buying_a_second_charge_tracked_item_while_holding_one_is_not_a_use() {
+            // The existing grenade's slot goes empty for a tick (simulating
+            // whatever internal bookkeeping a merge/courier-arrival causes)
+            // without ever showing a same-slot charges decrease first -
+            // exactly the shape this repo cannot prove is a real use.
+            let holding_one = with_hero(1, json!({ "items": { "slot1": { "name": "item_blood_grenade", "charges": 1, "cooldown": 0 } } }));
+            let slot_cleared_by_purchase = with_hero(1, json!({ "items": { "slot1": { "name": "empty" } } }));
+            assert!(detect_events(Some(&holding_one), &slot_cleared_by_purchase).is_empty());
+        }
+
+        #[test]
+        fn hero_to_backpack_move_of_a_single_instance_consumable_is_not_a_use() {
+            // Healing Salve (no `charges` field at all) moves from the hero
+            // slot to a backpack/stash slot in the same tick - it reappears
+            // under a different slot key, so the vanish-from-slot0 branch
+            // must recognize the relocation and stay silent.
+            let prev = with_hero(1, json!({ "items": {
+                "slot0": { "name": "item_flask" },
+                "stash0": { "name": "empty" }
+            } }));
+            let curr = with_hero(1, json!({ "items": {
+                "slot0": { "name": "empty" },
+                "stash0": { "name": "item_flask" }
+            } }));
+            assert!(detect_events(Some(&prev), &curr).is_empty());
+        }
+
+        #[test]
+        fn hero_to_courier_transition_of_a_single_instance_consumable_is_not_a_use() {
+            let prev = with_hero(1, json!({ "items": {
+                "slot0": { "name": "item_flask" },
+                "courier0": { "name": "empty" }
+            } }));
+            let curr = with_hero(1, json!({ "items": {
+                "slot0": { "name": "empty" },
+                "courier0": { "name": "item_flask" }
+            } }));
+            assert!(detect_events(Some(&prev), &curr).is_empty());
+        }
+
+        #[test]
+        fn a_stack_merge_that_clears_the_source_slot_without_a_charges_decrease_is_not_a_use() {
+            // A merge that recreates the stack at a *different* slot key,
+            // with the source slot going straight to empty (no observed
+            // same-slot charges decrease) - the item reappearing elsewhere
+            // this same tick proves it was a merge, not depletion.
+            let prev = with_hero(1, json!({ "items": {
+                "slot0": { "name": "item_tango", "charges": 1 },
+                "slot1": { "name": "empty" }
+            } }));
+            let curr = with_hero(1, json!({ "items": {
+                "slot0": { "name": "empty" },
+                "slot1": { "name": "item_tango", "charges": 2 }
+            } }));
+            assert!(detect_events(Some(&prev), &curr).is_empty());
+        }
+
+        #[test]
+        fn real_charges_decrement_in_the_same_slot_still_fires_exactly_once() {
+            let prev = with_hero(1, json!({ "items": { "slot1": { "name": "item_blood_grenade", "charges": 2, "cooldown": 0 } } }));
+            let curr = with_hero(1, json!({ "items": { "slot1": { "name": "item_blood_grenade", "charges": 1, "cooldown": 10 } } }));
+            assert_eq!(
+                detect_events(Some(&prev), &curr),
+                vec![GameSoundEvent { kind: GameSoundEventKind::ItemUsed, id: "item_blood_grenade".into() }]
+            );
+        }
+
+        #[test]
+        fn cooldown_recovery_after_a_real_use_does_not_refire() {
+            let prev = with_hero(1, json!({ "items": { "slot1": { "name": "item_blood_grenade", "charges": 1, "cooldown": 10 } } }));
+            let curr = with_hero(1, json!({ "items": { "slot1": { "name": "item_blood_grenade", "charges": 1, "cooldown": 9 } } }));
+            assert!(detect_events(Some(&prev), &curr).is_empty());
+        }
+    }
+
+    // WK-108 - canonical ability identity for Rubick's Spell Steal. Ability
+    // detection never reads `hero.id`/`hero.name` at all (only the
+    // `abilities` section's own `name`/`cooldown`/`charges` fields) - so a
+    // stolen spell occupying one of RUBICK's ability slots under the
+    // ORIGINAL ability's own raw internal name (`pudge_meat_hook`, per the
+    // WK-108 research note in catalog.rs: dotaconstants has no separate
+    // "rubick_stolen_meat_hook"-style id, only a generic empty-slot
+    // placeholder when nothing is stolen) is detected and canonicalized
+    // exactly like Pudge casting his own Meat Hook - zero Rubick-specific
+    // code path exists for this to go through. These pin that architectural
+    // claim at the one layer where it actually matters (detection), not
+    // just as a catalog-lookup unit test.
+    mod wk108_rubick_stolen_spell_canonicalization {
+        use super::*;
+
+        const RUBICK_HERO_ID: i64 = 86;
+
+        #[test]
+        fn a_stolen_spell_appearing_in_rubicks_slot_for_the_first_time_is_not_a_cast() {
+            // No previous snapshot for this slot at all (Rubick just stole
+            // Meat Hook this tick) - "appeared" alone must never be treated
+            // as "cast", the same rule as any other ability/dynamic slot.
+            let prev = with_hero(RUBICK_HERO_ID, json!({ "abilities": { "ability3": { "name": "empty" } } }));
+            let curr = with_hero(RUBICK_HERO_ID, json!({ "abilities": { "ability3": { "name": "pudge_meat_hook", "cooldown": 0 } } }));
+            assert!(detect_events(Some(&prev), &curr).is_empty());
+        }
+
+        #[test]
+        fn stealing_a_different_spell_over_an_existing_stolen_one_is_not_a_cast() {
+            // The stolen spell slot being *replaced* by a newly-stolen
+            // different spell (Rubick re-casting Spell Steal) is a slot
+            // identity change, not a cast of either spell.
+            let prev = with_hero(RUBICK_HERO_ID, json!({ "abilities": { "ability3": { "name": "pudge_meat_hook", "cooldown": 0 } } }));
+            let curr = with_hero(RUBICK_HERO_ID, json!({ "abilities": { "ability3": { "name": "lion_impale", "cooldown": 0 } } }));
+            assert!(detect_events(Some(&prev), &curr).is_empty());
+        }
+
+        #[test]
+        fn a_genuine_cast_of_the_stolen_meat_hook_canonicalizes_to_pudge_meat_hook() {
+            let prev = with_hero(RUBICK_HERO_ID, json!({ "abilities": { "ability3": { "name": "pudge_meat_hook", "cooldown": 0 } } }));
+            let curr = with_hero(RUBICK_HERO_ID, json!({ "abilities": { "ability3": { "name": "pudge_meat_hook", "cooldown": 13 } } }));
+            let events = detect_events(Some(&prev), &curr);
+            assert_eq!(events, vec![GameSoundEvent { kind: GameSoundEventKind::AbilityCast, id: "pudge_meat_hook".into() }]);
+        }
+
+        #[test]
+        fn the_stolen_casts_id_is_the_exact_same_binding_key_as_pudges_own_cast() {
+            // The whole point of canonical identity: a sound bound once to
+            // "pudge_meat_hook" plays for BOTH Pudge's own hook and a
+            // Rubick-stolen one, with no separate binding ever needed.
+            let pudge_prev = with_hero(14, json!({ "abilities": { "ability0": { "name": "pudge_meat_hook", "cooldown": 0 } } }));
+            let pudge_curr = with_hero(14, json!({ "abilities": { "ability0": { "name": "pudge_meat_hook", "cooldown": 13 } } }));
+            let rubick_prev = with_hero(RUBICK_HERO_ID, json!({ "abilities": { "ability3": { "name": "pudge_meat_hook", "cooldown": 0 } } }));
+            let rubick_curr = with_hero(RUBICK_HERO_ID, json!({ "abilities": { "ability3": { "name": "pudge_meat_hook", "cooldown": 13 } } }));
+
+            let pudge_events = detect_events(Some(&pudge_prev), &pudge_curr);
+            let rubick_events = detect_events(Some(&rubick_prev), &rubick_curr);
+            assert_eq!(pudge_events, rubick_events);
+        }
+    }
+
+    mod wk107_reconnect_safety {
+        use super::*;
 
         #[test]
         fn techies_abilities_never_fire_on_the_initial_snapshot_or_after_a_reconnect() {

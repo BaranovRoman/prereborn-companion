@@ -3,6 +3,10 @@ pub mod catalog;
 pub mod config;
 pub mod events;
 
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde::Serialize;
 use serde_json::Value;
@@ -10,7 +14,30 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::state::AppState;
 use crate::storage;
-use events::{detect_events, hero_identity_changed, GameSoundEventKind};
+use catalog::AbilityStatus;
+use events::{detect_events, hero_identity_changed, GameSoundEvent, GameSoundEventKind};
+
+/// Wall-clock milliseconds since the Unix epoch - deliberately the OS clock,
+/// not a monotonic `Instant`, so a Rust-side timestamp embedded in an IPC
+/// payload (`GameSoundPlayPayload::emitted_at_ms`) can be compared directly
+/// against a `Date.now()` timestamp taken on the frontend side of the same
+/// machine (see useGameSoundEngine.ts) - both read the same underlying
+/// system clock, so the cross-language/cross-process gap is meaningful
+/// without needing to synchronize two different clock sources.
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+/// WK-108 latency addendum - short id correlating one detected event's
+/// stages across the local pipeline (Rust detect -> emit -> frontend
+/// receive -> audio.play()) in the shared rolling log, so a tester can grep
+/// one id and read the whole timeline after a stream. A monotonic counter is
+/// enough - this only needs to be unique within one Companion session's log
+/// file, not globally.
+fn next_correlation_id() -> String {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    format!("{:06x}", COUNTER.fetch_add(1, Ordering::Relaxed) & 0xFFFFFF)
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,6 +65,11 @@ struct GameSoundPlayPayload {
     base64: String,
     mime: String,
     volume: u8,
+    // WK-108 latency addendum - lets the frontend correlate its own
+    // stage logs with Rust's, and measure the actual IPC/decode/play
+    // transit time against a shared wall clock (see `now_ms` above).
+    correlation_id: String,
+    emitted_at_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -55,6 +87,33 @@ pub fn init(app: &AppHandle) {
     app.state::<AppState>().0.lock().unwrap().game_sounds_settings = settings;
 }
 
+/// Resolves which bound asset (if any) should play for each detected event -
+/// pure local-settings lookup, deliberately taking only `bindings`/
+/// `known_assets` (both already-cloned `GameSoundSettings` fields) and never
+/// anything backend/session/heartbeat-shaped. This is the architectural
+/// backend-independence guard for Game Sounds (see this module's doc
+/// comment and the WK-108 latency investigation): a valid Dota GSI
+/// transition resolves to "play this asset" purely from local state, so it
+/// behaves identically whether or not prereborn.ru is reachable - there is
+/// no backend-shaped value this function could even consult. A future
+/// change that made playback depend on backend reachability would have to
+/// thread a new parameter into this signature, which
+/// `playback_resolution_never_depends_on_backend_state` below pins against.
+fn resolve_playback<'a>(
+    detected: &[GameSoundEvent],
+    bindings: &[config::SoundBinding],
+    known_assets: &'a [config::ManagedSoundAsset],
+) -> Vec<(String, &'a config::ManagedSoundAsset)> {
+    detected
+        .iter()
+        .filter_map(|event| {
+            let binding = bindings.iter().find(|b| b.event_id == event.id && b.kind == event.kind)?;
+            let asset = known_assets.iter().find(|a| a.id == binding.asset_id)?;
+            Some((event.id.clone(), asset))
+        })
+        .collect()
+}
+
 /// Entry point called from server/mod.rs's process_gsi_body, mirroring
 /// obs::handle_gsi - the one place raw GSI reaches this feature. Everything
 /// downstream (the event emitted to the frontend, the sound engine that
@@ -62,6 +121,13 @@ pub fn init(app: &AppHandle) {
 /// `Value` - "sound subsystem не должен сам сравнивать raw GSI snapshots"
 /// per the task.
 pub fn handle_gsi(app: &AppHandle, payload: &Value) {
+    // WK-108 latency addendum - as close as this process gets to "Companion
+    // received this GSI snapshot" (stage C in the pipeline this is meant to
+    // make measurable: player action in Dota -> GSI sent -> Companion
+    // receives -> detect -> frontend receives -> audio plays). A/B (what
+    // happens before this point, inside Dota/the OS network stack) can't be
+    // measured from here at all - see the WK-108 latency report.
+    let gsi_received_at = now_ms();
     let (detected, previous_for_evidence, enabled, master_volume, bindings, known_assets) = {
         let state = app.state::<AppState>();
         let mut inner = state.0.lock().unwrap();
@@ -103,6 +169,15 @@ pub fn handle_gsi(app: &AppHandle, payload: &Value) {
     // significant-path trigger - see diagnostics/session.rs) against
     // "normalized detected event" by timestamp, without needing a
     // dedicated new bounded-capture mechanism.
+    // WK-108 latency addendum - one correlation id per detected event, so
+    // its "gsi-received"/"detected" stages here and its "play-request-
+    // emitted"/"frontend-received"/"audio-play-requested"/"audio-playing"
+    // stages further down (Rust thread + frontend, see
+    // useGameSoundEngine.ts) all land under the same id in the shared
+    // rolling log. Only ever generated for an event `detect_events` actually
+    // found - never once per GSI tick.
+    let mut correlation_ids: HashMap<String, String> = HashMap::new();
+
     for event in &detected {
         let _ = app.emit(
             "game-sound-event",
@@ -116,9 +191,19 @@ pub fn handle_gsi(app: &AppHandle, payload: &Value) {
             .as_ref()
             .map(|prev| describe_transition(event.kind, &event.id, prev, payload))
             .unwrap_or_else(|| "no previous snapshot".to_string());
+        let detected_at = now_ms();
+        let correlation_id = correlation_ids
+            .entry(event.id.clone())
+            .or_insert_with(next_correlation_id)
+            .clone();
         storage::append_rolling_log(
             app,
-            &format!("[game-sounds] detected {:?} {} ({evidence})", event.kind, event.id),
+            &format!(
+                "[game-sounds][{correlation_id}] gsi-received t={gsi_received_at}; detected {:?} {} (+{}ms) ({evidence})",
+                event.kind,
+                event.id,
+                detected_at.saturating_sub(gsi_received_at),
+            ),
         );
     }
 
@@ -126,16 +211,11 @@ pub fn handle_gsi(app: &AppHandle, payload: &Value) {
         return;
     }
 
-    for event in detected {
-        let Some(binding) = bindings.iter().find(|b| b.event_id == event.id && b.kind == event.kind) else {
-            continue;
-        };
-        let Some(asset) = known_assets.iter().find(|a| a.id == binding.asset_id).cloned() else {
-            continue;
-        };
+    for (event_id, asset) in resolve_playback(&detected, &bindings, &known_assets) {
+        let asset = asset.clone();
         let app_for_thread = app.clone();
-        let event_id = event.id.clone();
         let volume = master_volume;
+        let correlation_id = correlation_ids.get(&event_id).cloned().unwrap_or_else(next_correlation_id);
         // Never blocks the GSI thread (задача п.7) - file IO + base64
         // encoding happen off it, the same "spawn a thread, don't await it
         // here" shape every other GSI-triggered side effect in this
@@ -143,6 +223,14 @@ pub fn handle_gsi(app: &AppHandle, payload: &Value) {
         std::thread::spawn(move || {
             let Ok(bytes) = assets::read_file(&app_for_thread, &asset) else { return };
             let ext = asset.file_name.rsplit('.').next().unwrap_or("wav");
+            let emitted_at_ms = now_ms();
+            storage::append_rolling_log(
+                &app_for_thread,
+                &format!(
+                    "[game-sounds][{correlation_id}] play-request-emitted t={emitted_at_ms} (+{}ms since gsi-received)",
+                    emitted_at_ms.saturating_sub(gsi_received_at),
+                ),
+            );
             let _ = app_for_thread.emit(
                 "game-sound-play",
                 GameSoundPlayPayload {
@@ -150,10 +238,26 @@ pub fn handle_gsi(app: &AppHandle, payload: &Value) {
                     base64: BASE64.encode(bytes),
                     mime: assets::mime_for_extension(ext).to_string(),
                     volume,
+                    correlation_id,
+                    emitted_at_ms,
                 },
             );
         });
     }
+}
+
+/// Appends one frontend-side timing-instrumentation line to the same shared
+/// rolling log the Rust-side stages above write to - called from
+/// useGameSoundEngine.ts via the `log_game_sound_timing` command, once per
+/// stage ("frontend-received" / "audio-play-requested" / "audio-playing"),
+/// only for an event it actually received a "game-sound-play" for. Never
+/// awaited by playback itself (fire-and-forget on the frontend side) so this
+/// can't add latency to the thing it's measuring.
+pub fn log_frontend_timing(app: &AppHandle, correlation_id: &str, stage: &str, elapsed_ms: u64) {
+    storage::append_rolling_log(
+        app,
+        &format!("[game-sounds][{correlation_id}] {stage} (+{elapsed_ms}ms since play-request-emitted)"),
+    );
 }
 
 pub fn get_settings(app: &AppHandle) -> config::GameSoundSettings {
@@ -202,11 +306,18 @@ pub fn set_binding(
     kind: GameSoundEventKind,
     asset_id: String,
 ) -> Result<config::GameSoundSettings, String> {
-    let is_supported = match kind {
+    // WK-108 - `Experimental` abilities are bindable the same as `Supported`
+    // ones (both carry a real detector signal, see events.rs); only
+    // `Unsupported` (no usable GSI signal at all) is rejected here. The
+    // Supported/Experimental distinction is surfaced to the user in the UI
+    // as an honesty caveat, not enforced as a binding gate.
+    let is_bindable = match kind {
         GameSoundEventKind::ItemUsed => catalog::find_item(&event_id).is_some_and(|i| i.supported),
-        GameSoundEventKind::AbilityCast => catalog::find_ability(&event_id).is_some_and(|a| a.supported),
+        GameSoundEventKind::AbilityCast => {
+            catalog::find_ability(&event_id).is_some_and(|a| a.status != AbilityStatus::Unsupported)
+        }
     };
-    if !is_supported {
+    if !is_bindable {
         return Err("Это событие не поддерживается текущим GSI.".to_string());
     }
 
@@ -251,11 +362,18 @@ pub fn import_and_bind(
     source_path: std::path::PathBuf,
     original_name: String,
 ) -> Result<config::GameSoundSettings, String> {
-    let is_supported = match kind {
+    // WK-108 - `Experimental` abilities are bindable the same as `Supported`
+    // ones (both carry a real detector signal, see events.rs); only
+    // `Unsupported` (no usable GSI signal at all) is rejected here. The
+    // Supported/Experimental distinction is surfaced to the user in the UI
+    // as an honesty caveat, not enforced as a binding gate.
+    let is_bindable = match kind {
         GameSoundEventKind::ItemUsed => catalog::find_item(&event_id).is_some_and(|i| i.supported),
-        GameSoundEventKind::AbilityCast => catalog::find_ability(&event_id).is_some_and(|a| a.supported),
+        GameSoundEventKind::AbilityCast => {
+            catalog::find_ability(&event_id).is_some_and(|a| a.status != AbilityStatus::Unsupported)
+        }
     };
-    if !is_supported {
+    if !is_bindable {
         return Err("Это событие не поддерживается текущим GSI.".to_string());
     }
 
@@ -370,6 +488,53 @@ fn describe_transition(kind: GameSoundEventKind, id: &str, previous: &Value, cur
 mod tests {
     use super::*;
     use serde_json::json;
+
+    // WK-108 latency addendum - "Game Sounds must work 100% locally,
+    // independent of prereborn.ru". `resolve_playback`'s signature is the
+    // architectural proof: it only ever sees local `SoundBinding`/
+    // `ManagedSoundAsset` state, nothing backend/session/heartbeat-shaped,
+    // so a valid Dota GSI transition resolves to "play this asset"
+    // identically whether or not the backend is reachable. If a future
+    // change threaded backend reachability into this decision, this
+    // signature would have to change, and this test would need to change to
+    // cover it - that's the point of pinning it here.
+    #[test]
+    fn playback_resolution_never_depends_on_backend_state() {
+        let detected = vec![GameSoundEvent { kind: GameSoundEventKind::ItemUsed, id: "item_tango".to_string() }];
+        let bindings = vec![config::SoundBinding {
+            event_id: "item_tango".to_string(),
+            kind: GameSoundEventKind::ItemUsed,
+            asset_id: "asset-1".to_string(),
+        }];
+        let known_assets = vec![config::ManagedSoundAsset {
+            id: "asset-1".to_string(),
+            file_name: "asset-1.wav".to_string(),
+            original_name: "chomp.wav".to_string(),
+            size_bytes: 1024,
+        }];
+
+        let resolved = resolve_playback(&detected, &bindings, &known_assets);
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(resolved[0].0, "item_tango");
+        assert_eq!(resolved[0].1.id, "asset-1");
+    }
+
+    #[test]
+    fn playback_resolution_skips_events_with_no_binding_or_a_binding_pointing_at_a_missing_asset() {
+        let detected = vec![
+            GameSoundEvent { kind: GameSoundEventKind::ItemUsed, id: "item_no_binding".to_string() },
+            GameSoundEvent { kind: GameSoundEventKind::AbilityCast, id: "pudge_meat_hook".to_string() },
+        ];
+        let bindings = vec![config::SoundBinding {
+            event_id: "pudge_meat_hook".to_string(),
+            kind: GameSoundEventKind::AbilityCast,
+            asset_id: "asset-missing".to_string(),
+        }];
+        let known_assets: Vec<config::ManagedSoundAsset> = vec![];
+
+        assert!(resolve_playback(&detected, &bindings, &known_assets).is_empty());
+    }
 
     #[test]
     fn describes_a_charges_based_item_transition() {
