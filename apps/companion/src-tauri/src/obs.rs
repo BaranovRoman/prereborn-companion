@@ -804,8 +804,8 @@ mod tests {
             // No player/map at all (GSI silence/timeout) - from_gsi's
             // fallback is BetweenMatches, same as any other non-playing
             // tick. session_ended is a wholly separate signal (set only by
-            // backend::poll_session_state), so losing GSI can never flip it
-            // on its own.
+            // local_runtime::lifecycle::apply, WK-113), so losing GSI can
+            // never flip it on its own.
             let desired = BroadcastScene::from_gsi(&json!({}));
             assert_eq!(desired, BroadcastScene::BetweenMatches);
             assert_eq!(
@@ -870,10 +870,10 @@ mod tests {
 
         #[test]
         fn session_ended_defaults_to_false_so_automation_runs_normally_until_told_otherwise() {
-            // Before the first successful poll_session_state (no companion
-            // token yet, backend unreachable, Companion just launched), the
-            // resolver must behave exactly as it did before this feature -
-            // GSI-driven automation, never a surprise Post Stream switch.
+            // Before OBS's local lifecycle (local_runtime::lifecycle, WK-112/
+            // 113) has ever reconciled a session end, the resolver must
+            // behave exactly as it did before this feature - GSI-driven
+            // automation, never a surprise Post Stream switch.
             assert!(!crate::state::InnerState::default().session_ended);
         }
 

@@ -126,7 +126,7 @@ fn decide_with(
 /// ended) applies the local OBS side effect via `obs::handle_session_state`
 /// - never the other way around, so the UI/OBS scene can never observe
 /// "ended" while SQLite still says the session is open, or vice versa.
-fn apply(app: &AppHandle, conn: &Connection, open_session: Option<&SessionLifecycleView>, decision: LifecycleDecision, now: DateTime<Utc>) {
+fn apply(app: &AppHandle, conn: &mut Connection, open_session: Option<&SessionLifecycleView>, decision: LifecycleDecision, now: DateTime<Utc>) {
     match decision {
         LifecycleDecision::NoOp | LifecycleDecision::FlagStaleForManualRecovery => {}
         LifecycleDecision::StartNewSession => {
@@ -478,8 +478,8 @@ mod tests {
             let dir = TempDir::new().unwrap();
             let t0 = Utc::now();
             let session_id = {
-                let conn = open_at(&dir);
-                let session = store::ensure_active_session(&conn, t0).unwrap();
+                let mut conn = open_at(&dir);
+                let session = store::ensure_active_session(&mut conn, t0).unwrap();
                 // OBS reported "not streaming" - begin the grace countdown,
                 // durably, then "crash" (connection just drops here).
                 store::begin_pending_end(&conn, &session.local_id, t0).unwrap();
@@ -489,7 +489,7 @@ mod tests {
             // "Restart": brand new connection to the same file, 40s later
             // (grace already elapsed while Companion was down), OBS still
             // says not streaming once reconnected.
-            let conn = open_at(&dir);
+            let mut conn = open_at(&dir);
             let open = store::find_open_session(&conn).unwrap().unwrap();
             assert_eq!(open.local_id, session_id);
             assert_eq!(open.pending_end_at, Some(t0.to_rfc3339()));
@@ -497,7 +497,7 @@ mod tests {
             let view = SessionLifecycleView::from_session(&open).unwrap();
             let t1 = t0 + Duration::seconds(40);
             assert_eq!(decide(Some(&view), false, t1), LifecycleDecision::FinalizeEnd);
-            store::finalize_session_end(&conn, &open.local_id, t1).unwrap();
+            store::finalize_session_end(&mut conn, &open.local_id, t1).unwrap();
             assert!(store::find_open_session(&conn).unwrap().is_none());
         }
 
@@ -510,8 +510,8 @@ mod tests {
             let dir = TempDir::new().unwrap();
             let t0 = Utc::now();
             let session_id = {
-                let conn = open_at(&dir);
-                let session = store::ensure_active_session(&conn, t0).unwrap();
+                let mut conn = open_at(&dir);
+                let session = store::ensure_active_session(&mut conn, t0).unwrap();
                 store::begin_pending_end(&conn, &session.local_id, t0).unwrap();
                 session.local_id
             };
@@ -536,12 +536,12 @@ mod tests {
         // must not create a duplicate.
         #[test]
         fn repeated_streaming_true_answers_never_create_a_second_session() {
-            let conn = open_at(&TempDir::new().unwrap());
+            let mut conn = open_at(&TempDir::new().unwrap());
             let now = Utc::now();
 
             let first_decision = decide(None, true, now);
             assert_eq!(first_decision, LifecycleDecision::StartNewSession);
-            let created = store::ensure_active_session(&conn, now).unwrap();
+            let created = store::ensure_active_session(&mut conn, now).unwrap();
 
             // A second "streaming" answer arrives (event retransmit, or the
             // sweep tick) before anything else changes.
@@ -561,9 +561,9 @@ mod tests {
         // requires a streaming answer at all, only `decide` does.
         #[test]
         fn stale_session_is_flagged_by_status_independent_of_obs_reachability() {
-            let conn = open_at(&TempDir::new().unwrap());
+            let mut conn = open_at(&TempDir::new().unwrap());
             let ancient_start = Utc::now() - Duration::hours(30);
-            store::ensure_active_session(&conn, ancient_start).unwrap();
+            store::ensure_active_session(&mut conn, ancient_start).unwrap();
 
             let open = store::find_open_session(&conn).unwrap().unwrap();
             let view = SessionLifecycleView::from_session(&open).unwrap();

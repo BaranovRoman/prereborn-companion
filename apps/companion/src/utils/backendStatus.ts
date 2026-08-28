@@ -48,10 +48,15 @@ export function describeBackendStatus(status: BackendStatusInput): BackendStatus
         ready: false,
       };
     case "unavailable":
+      // WK-113 - backend unreachable is a SYNC problem, not a streaming
+      // problem: session/match/MMR/OBS/Game Sounds keep running locally and
+      // will sync automatically once the backend is reachable again (see
+      // local_runtime::sync's durable outbox) - the copy here says so
+      // explicitly instead of reading like something is broken.
       return {
-        label: "Backend недоступен",
-        detail: status.backend_last_error ?? "Проверьте подключение и токен",
-        tone: "error",
+        label: "PreReborn недоступен",
+        detail: "Стрим продолжает работать локально - данные синхронизируются позже.",
+        tone: "warning",
         ready: false,
       };
     case "waiting":

@@ -30,6 +30,7 @@ pub mod lifecycle;
 mod model;
 mod schema;
 mod store;
+pub mod sync;
 
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
@@ -115,18 +116,30 @@ pub fn init(app: &AppHandle) {
 pub fn handle_gsi(app: &AppHandle, payload: &Value) {
     let Some(snapshot) = gsi::parse(payload) else { return };
     let state = app.state::<LocalRuntimeState>();
-    let mut guard = state.0.lock().unwrap();
+    let mut guard = state.lock();
     let Some(conn) = guard.as_mut() else { return };
 
-    let now = chrono::Utc::now();
-    let session = match store::ensure_active_session(conn, now) {
-        Ok(session) => session,
+    // WK-113 - session CREATION is exclusively OBS-driven now (see
+    // lifecycle::apply's StartNewSession branch, the only place
+    // store::ensure_active_session is called). A bare GSI tick used to
+    // lazily create one too (WK-111/112's shadow-mirror stage) - now that
+    // creating a session must also durably enqueue a session_started sync
+    // event, a GSI-triggered creation would bypass that entirely and would
+    // never reach the backend. If OBS hasn't told the local lifecycle a
+    // stream is live yet, there is nothing to attach this tick's match
+    // detection to, and none is attempted.
+    let session = match store::find_open_session(conn) {
+        Ok(Some(session)) => session,
+        Ok(None) => return,
         Err(error) => {
-            crate::storage::append_rolling_log(app, &format!("Local runtime: ensure_active_session failed ({error})"));
+            crate::storage::append_rolling_log(app, &format!("Local runtime: find_open_session failed ({error})"));
             return;
         }
     };
-    if let Err(error) = detector::handle_snapshot(conn, &session.local_id, &snapshot, now) {
+
+    let now = chrono::Utc::now();
+    let ranked_mode = sync::cached_ranked_mode(conn);
+    if let Err(error) = detector::handle_snapshot(conn, &session.local_id, ranked_mode, &snapshot, now) {
         crate::storage::append_rolling_log(app, &format!("Local runtime: handle_snapshot failed ({error})"));
     }
 }
@@ -169,14 +182,14 @@ mod tests {
 
         {
             let mut conn = open_at(&dir);
-            let session = store::ensure_active_session(&conn, now).unwrap();
-            detector::handle_snapshot(&mut conn, &session.local_id, &in_progress_tick("111", 14), now).unwrap();
+            let session = store::ensure_active_session(&mut conn, now).unwrap();
+            detector::handle_snapshot(&mut conn, &session.local_id, model::RankedMode::Unknown, &in_progress_tick("111", 14), now).unwrap();
             // Connection dropped here without any explicit close/flush call -
             // WAL mode (schema::migrate) is what makes this safe.
         }
 
-        let conn = open_at(&dir);
-        let session = store::ensure_active_session(&conn, now).unwrap();
+        let mut conn = open_at(&dir);
+        let session = store::ensure_active_session(&mut conn, now).unwrap();
         let active = store::find_active_match(&conn, &session.local_id).unwrap();
         assert!(active.is_some(), "the in-progress match must survive a Companion restart");
         assert_eq!(active.unwrap().state, model::LocalMatchState::InProgress);
@@ -191,9 +204,9 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let now = Utc::now();
         let mut conn = open_at(&dir);
-        let session = store::ensure_active_session(&conn, now).unwrap();
+        let session = store::ensure_active_session(&mut conn, now).unwrap();
 
-        detector::handle_snapshot(&mut conn, &session.local_id, &in_progress_tick("222", 14), now).unwrap();
+        detector::handle_snapshot(&mut conn, &session.local_id, model::RankedMode::Ranked, &in_progress_tick("222", 14), now).unwrap();
         let post_game = GsiSnapshot {
             game_state: "DOTA_GAMERULES_STATE_POST_GAME".to_string(),
             activity: Some("playing".to_string()),
@@ -203,8 +216,8 @@ mod tests {
             hero_id: Some(14),
             team_name: Some("radiant".to_string()),
         };
-        detector::handle_snapshot(&mut conn, &session.local_id, &post_game, now).unwrap();
-        detector::handle_snapshot(&mut conn, &session.local_id, &post_game, now).unwrap();
+        detector::handle_snapshot(&mut conn, &session.local_id, model::RankedMode::Ranked, &post_game, now).unwrap();
+        detector::handle_snapshot(&mut conn, &session.local_id, model::RankedMode::Ranked, &post_game, now).unwrap();
 
         let (state, result): (String, String) = conn
             .query_row("SELECT state, result FROM local_matches WHERE match_id = '222'", [], |row| {
@@ -224,8 +237,8 @@ mod tests {
         let now = Utc::now();
 
         let session_id = {
-            let conn = open_at(&dir);
-            let session = store::ensure_active_session(&conn, now).unwrap();
+            let mut conn = open_at(&dir);
+            let session = store::ensure_active_session(&mut conn, now).unwrap();
             conn.execute(
                 "UPDATE local_sessions SET rating_current = 6050 WHERE local_id = ?1",
                 [&session.local_id],
@@ -234,8 +247,8 @@ mod tests {
             session.local_id
         };
 
-        let conn = open_at(&dir);
-        let session = store::ensure_active_session(&conn, now).unwrap();
+        let mut conn = open_at(&dir);
+        let session = store::ensure_active_session(&mut conn, now).unwrap();
         assert_eq!(session.local_id, session_id);
         assert_eq!(session.rating_current, Some(6050));
     }

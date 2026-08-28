@@ -37,24 +37,50 @@ pub fn find_open_session(conn: &Connection) -> rusqlite::Result<Option<LocalSess
 }
 
 /// Mirrors `getOrCreateActiveSession` (stream-session-service.ts): finds the
-/// most recent session that hasn't ended, or creates a fresh one.
-pub fn ensure_active_session(conn: &Connection, now: DateTime<Utc>) -> rusqlite::Result<LocalSession> {
+/// most recent session that hasn't ended, or creates a fresh one. The ONLY
+/// place a new LocalSession is created (see local_runtime::mod.rs's
+/// handle_gsi, which used to also call this on any GSI tick - removed in
+/// WK-113 so creation always durably enqueues a sync event, see below).
+pub fn ensure_active_session(conn: &mut Connection, now: DateTime<Utc>) -> rusqlite::Result<LocalSession> {
     if let Some(session) = find_open_session(conn)? {
         return Ok(session);
     }
 
+    // WK-113 - MMR carry-over, mirroring the backend's own
+    // resetActiveSession (stream-session-service.ts): a brand new local
+    // session's starting rating is the last session's known rating_current,
+    // not null - the account's last-known MMR doesn't reset just because a
+    // new stream (OBS Start Streaming) began. Genuinely null only for this
+    // device's very first session ever.
+    let carried_rating: Option<i64> = conn
+        .query_row("SELECT rating_current FROM local_sessions ORDER BY rowid DESC LIMIT 1", [], |row| row.get(0))
+        .optional()?
+        .flatten();
+
     let local_id = Uuid::new_v4().to_string();
-    conn.execute(
-        "INSERT INTO local_sessions (local_id, started_at) VALUES (?1, ?2)",
-        params![local_id, now.to_rfc3339()],
+    let tx = conn.transaction()?;
+    tx.execute(
+        "INSERT INTO local_sessions (local_id, started_at, rating_start, rating_current) VALUES (?1, ?2, ?3, ?3)",
+        params![local_id, now.to_rfc3339(), carried_rating],
     )?;
+    // WK-113 - durable outbox entry, in the SAME transaction as the insert
+    // above - see local_runtime::sync's doc comment for why this atomicity
+    // is the whole point.
+    let payload = serde_json::json!({
+        "localSessionId": local_id,
+        "startedAt": now.to_rfc3339(),
+        "ratingStart": carried_rating,
+    });
+    super::sync::enqueue(&tx, "session", &local_id, "session_started", &payload, now)?;
+    tx.commit()?;
+
     Ok(LocalSession {
         local_id,
         backend_id: None,
         started_at: now.to_rfc3339(),
         ended_at: None,
-        rating_start: None,
-        rating_current: None,
+        rating_start: carried_rating,
+        rating_current: carried_rating,
         pending_end_at: None,
         stale_ack: false,
         sync_state: SyncState::Pending,
@@ -82,13 +108,20 @@ pub fn cancel_pending_end(conn: &Connection, local_id: &str) -> rusqlite::Result
 
 /// WK-112 - grace period elapsed with OBS confirmed not-streaming, or a
 /// manual stale-recovery "end" action. `ended_at IS NULL` guard makes this
-/// idempotent against a repeated call for the same session.
-pub fn finalize_session_end(conn: &Connection, local_id: &str, now: DateTime<Utc>) -> rusqlite::Result<()> {
-    conn.execute(
+/// idempotent against a repeated call for the same session - including for
+/// WK-113's outbox enqueue below, which only fires on the write that
+/// actually changed something (`changed > 0`), never on a no-op repeat.
+pub fn finalize_session_end(conn: &mut Connection, local_id: &str, now: DateTime<Utc>) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    let changed = tx.execute(
         "UPDATE local_sessions SET ended_at = ?2, pending_end_at = NULL WHERE local_id = ?1 AND ended_at IS NULL",
         params![local_id, now.to_rfc3339()],
     )?;
-    Ok(())
+    if changed > 0 {
+        let payload = serde_json::json!({ "localSessionId": local_id, "endedAt": now.to_rfc3339() });
+        super::sync::enqueue(&tx, "session", local_id, "session_ended", &payload, now)?;
+    }
+    tx.commit()
 }
 
 /// WK-112 - manual stale-recovery "continue this session" action.
@@ -174,6 +207,7 @@ pub fn create_match(
     match_id: Option<&str>,
     hero_id: i64,
     player_team: &str,
+    ranked_mode: RankedMode,
     now: DateTime<Utc>,
 ) -> rusqlite::Result<()> {
     let match_key = match match_id {
@@ -183,9 +217,18 @@ pub fn create_match(
     let local_id = Uuid::new_v4().to_string();
     conn.execute(
         "INSERT OR IGNORE INTO local_matches \
-            (local_id, session_local_id, match_id, match_key, hero_id, player_team, state, started_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'in_progress', ?7)",
-        params![local_id, session_local_id, match_id, match_key, hero_id, player_team, now.to_rfc3339()],
+            (local_id, session_local_id, match_id, match_key, hero_id, player_team, ranked_mode, state, started_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'in_progress', ?8)",
+        params![
+            local_id,
+            session_local_id,
+            match_id,
+            match_key,
+            hero_id,
+            player_team,
+            ranked_mode.as_db_str(),
+            now.to_rfc3339()
+        ],
     )?;
     Ok(())
 }
@@ -253,6 +296,7 @@ pub fn finalize_match(
     session_local_id: &str,
     ranked_mode: RankedMode,
     result: MatchResult,
+    confidence: &str,
     now: DateTime<Utc>,
 ) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
@@ -266,6 +310,14 @@ pub fn finalize_match(
         .optional()?
         .flatten();
 
+    // WK-113 - needed only to build the sync outbox payload below (match_id/
+    // hero_id/started_at aren't otherwise touched by this function).
+    let (match_id, hero_id, started_at): (Option<String>, i64, String) = tx.query_row(
+        "SELECT match_id, hero_id, started_at FROM local_matches WHERE local_id = ?1",
+        params![local_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )?;
+
     let is_ranked = matches!(ranked_mode, RankedMode::Ranked);
     let rating_delta = is_ranked.then_some(if matches!(result, MatchResult::Win) {
         RATING_DEFAULT_STEP
@@ -278,11 +330,20 @@ pub fn finalize_match(
         _ => None,
     };
 
-    tx.execute(
+    // WK-113 self-review addition - defense in depth against a double
+    // finalize (structurally shouldn't happen: detector.rs only reaches a
+    // Finalize* decision for a row `find_active_match` returned, and a
+    // finalized row immediately drops out of that active-states filter -
+    // but this guard, plus gating the session update/outbox enqueue below
+    // on `changed > 0`, makes a hypothetical second call a safe no-op
+    // instead of double-crediting the session or double-enqueueing a sync
+    // event, mirroring finalizeMatch's own `WHERE finalized_at IS NULL`
+    // guard on the backend.
+    let changed = tx.execute(
         "UPDATE local_matches \
          SET state = 'finalized', result = ?2, rating_before = ?3, detected_rating_delta = ?4, \
              rating_after = ?5, finalized_at = ?6 \
-         WHERE local_id = ?1",
+         WHERE local_id = ?1 AND state != 'finalized'",
         params![
             local_id,
             result.as_db_str(),
@@ -292,6 +353,9 @@ pub fn finalize_match(
             now.to_rfc3339(),
         ],
     )?;
+    if changed == 0 {
+        return tx.commit();
+    }
 
     if rating_after.is_some() {
         tx.execute(
@@ -302,6 +366,33 @@ pub fn finalize_match(
             params![session_local_id, rating_after, rating_before],
         )?;
     }
+
+    // WK-113 - the match's fully-resolved outcome, durably queued in the
+    // SAME transaction as the finalize above (see local_runtime::sync's doc
+    // comment for why this atomicity is the whole point of the outbox
+    // pattern). `isRanked` is `null` (not `false`) when ranked_mode is
+    // Unknown - the backend must never read "unranked" out of "we never
+    // found out" (see model::RankedMode's own doc comment).
+    let is_ranked_field: Option<bool> = match ranked_mode {
+        RankedMode::Ranked => Some(true),
+        RankedMode::Unranked => Some(false),
+        RankedMode::Unknown => None,
+    };
+    let payload = serde_json::json!({
+        "localSessionId": session_local_id,
+        "localMatchId": local_id,
+        "matchId": match_id,
+        "heroId": hero_id,
+        "result": result.as_db_str(),
+        "isRanked": is_ranked_field,
+        "ratingBefore": rating_before,
+        "detectedRatingDelta": rating_delta,
+        "ratingAfter": rating_after,
+        "confidence": confidence,
+        "startedAt": started_at,
+        "finalizedAt": now.to_rfc3339(),
+    });
+    super::sync::enqueue(&tx, "match", local_id, "match_finalized", &payload, now)?;
 
     tx.commit()
 }
@@ -340,11 +431,42 @@ mod tests {
 
     #[test]
     fn ensure_active_session_creates_once_then_reuses() {
-        let conn = test_conn();
+        let mut conn = test_conn();
         let now = Utc::now();
-        let first = ensure_active_session(&conn, now).unwrap();
-        let second = ensure_active_session(&conn, now).unwrap();
+        let first = ensure_active_session(&mut conn, now).unwrap();
+        let second = ensure_active_session(&mut conn, now).unwrap();
         assert_eq!(first.local_id, second.local_id);
+    }
+
+    #[test]
+    fn ensure_active_session_carries_the_previous_sessions_rating_forward() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let first = ensure_active_session(&mut conn, now).unwrap();
+        conn.execute("UPDATE local_sessions SET rating_current = 6050 WHERE local_id = ?1", params![first.local_id])
+            .unwrap();
+        finalize_session_end(&mut conn, &first.local_id, now).unwrap();
+
+        let second = ensure_active_session(&mut conn, now + chrono::Duration::seconds(1)).unwrap();
+        assert_eq!(second.rating_start, Some(6050));
+        assert_eq!(second.rating_current, Some(6050));
+    }
+
+    #[test]
+    fn ensure_active_session_enqueues_exactly_one_outbox_event_on_creation() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        ensure_active_session(&mut conn, now).unwrap(); // reuse - must not enqueue again
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sync_outbox WHERE entity_local_id = ?1 AND event_type = 'session_started'",
+                params![session.local_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
     }
 
     #[test]
@@ -357,9 +479,9 @@ mod tests {
 
     #[test]
     fn begin_then_cancel_pending_end_round_trips() {
-        let conn = test_conn();
+        let mut conn = test_conn();
         let now = Utc::now();
-        let session = ensure_active_session(&conn, now).unwrap();
+        let session = ensure_active_session(&mut conn, now).unwrap();
         begin_pending_end(&conn, &session.local_id, now).unwrap();
         let pending = find_open_session(&conn).unwrap().unwrap();
         assert_eq!(pending.pending_end_at, Some(now.to_rfc3339()));
@@ -371,24 +493,33 @@ mod tests {
 
     #[test]
     fn finalize_session_end_is_idempotent_and_clears_pending_end() {
-        let conn = test_conn();
+        let mut conn = test_conn();
         let now = Utc::now();
-        let session = ensure_active_session(&conn, now).unwrap();
+        let session = ensure_active_session(&mut conn, now).unwrap();
         begin_pending_end(&conn, &session.local_id, now).unwrap();
 
-        finalize_session_end(&conn, &session.local_id, now).unwrap();
+        finalize_session_end(&mut conn, &session.local_id, now).unwrap();
         assert!(find_open_session(&conn).unwrap().is_none(), "ended session must no longer be open");
 
         // Idempotent: a second finalize call (e.g. a repeated sweep tick)
         // against an already-ended session must not error or touch anything.
-        finalize_session_end(&conn, &session.local_id, now).unwrap();
+        finalize_session_end(&mut conn, &session.local_id, now).unwrap();
+
+        let outbox_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sync_outbox WHERE entity_local_id = ?1 AND event_type = 'session_ended'",
+                params![session.local_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(outbox_count, 1, "a repeated no-op end must not enqueue a second session_ended event");
     }
 
     #[test]
     fn acknowledge_stale_persists_across_a_reread() {
-        let conn = test_conn();
+        let mut conn = test_conn();
         let now = Utc::now();
-        let session = ensure_active_session(&conn, now).unwrap();
+        let session = ensure_active_session(&mut conn, now).unwrap();
         assert!(!find_open_session(&conn).unwrap().unwrap().stale_ack);
 
         acknowledge_stale(&conn, &session.local_id).unwrap();
@@ -397,11 +528,11 @@ mod tests {
 
     #[test]
     fn create_match_is_idempotent_on_the_same_match_id() {
-        let conn = test_conn();
+        let mut conn = test_conn();
         let now = Utc::now();
-        let session = ensure_active_session(&conn, now).unwrap();
-        create_match(&conn, &session.local_id, Some("999"), 14, "radiant", now).unwrap();
-        create_match(&conn, &session.local_id, Some("999"), 14, "radiant", now).unwrap();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        create_match(&conn, &session.local_id, Some("999"), 14, "radiant", RankedMode::Unknown, now).unwrap();
+        create_match(&conn, &session.local_id, Some("999"), 14, "radiant", RankedMode::Unknown, now).unwrap();
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM local_matches", [], |row| row.get(0))
             .unwrap();
@@ -409,19 +540,29 @@ mod tests {
     }
 
     #[test]
+    fn create_match_persists_the_ranked_mode_it_was_given() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        create_match(&conn, &session.local_id, Some("42"), 14, "radiant", RankedMode::Ranked, now).unwrap();
+        let active = find_active_match(&conn, &session.local_id).unwrap().unwrap();
+        assert_eq!(active.ranked_mode, RankedMode::Ranked);
+    }
+
+    #[test]
     fn finalize_ranked_win_updates_session_rating() {
         let mut conn = test_conn();
         let now = Utc::now();
-        let session = ensure_active_session(&conn, now).unwrap();
+        let session = ensure_active_session(&mut conn, now).unwrap();
         conn.execute(
             "UPDATE local_sessions SET rating_current = 6000 WHERE local_id = ?1",
             params![session.local_id],
         )
         .unwrap();
-        create_match(&conn, &session.local_id, Some("1"), 14, "radiant", now).unwrap();
+        create_match(&conn, &session.local_id, Some("1"), 14, "radiant", RankedMode::Ranked, now).unwrap();
         let active = find_active_match(&conn, &session.local_id).unwrap().unwrap();
 
-        finalize_match(&mut conn, &active.local_id, &session.local_id, RankedMode::Ranked, MatchResult::Win, now)
+        finalize_match(&mut conn, &active.local_id, &session.local_id, RankedMode::Ranked, MatchResult::Win, "confirmed", now)
             .unwrap();
 
         let updated = find_active_match(&conn, &session.local_id).unwrap();
@@ -437,14 +578,62 @@ mod tests {
     }
 
     #[test]
+    fn finalize_match_enqueues_exactly_one_outbox_event() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        create_match(&conn, &session.local_id, Some("77"), 14, "radiant", RankedMode::Ranked, now).unwrap();
+        let active = find_active_match(&conn, &session.local_id).unwrap().unwrap();
+        finalize_match(&mut conn, &active.local_id, &session.local_id, RankedMode::Ranked, MatchResult::Win, "confirmed", now)
+            .unwrap();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sync_outbox WHERE entity_local_id = ?1 AND event_type = 'match_finalized'",
+                params![active.local_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn calling_finalize_match_twice_never_double_credits_the_session_or_the_outbox() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        conn.execute("UPDATE local_sessions SET rating_current = 6000 WHERE local_id = ?1", params![session.local_id]).unwrap();
+        create_match(&conn, &session.local_id, Some("88"), 14, "radiant", RankedMode::Ranked, now).unwrap();
+        let active = find_active_match(&conn, &session.local_id).unwrap().unwrap();
+
+        finalize_match(&mut conn, &active.local_id, &session.local_id, RankedMode::Ranked, MatchResult::Win, "confirmed", now).unwrap();
+        // Hypothetical second call against the same already-finalized row.
+        finalize_match(&mut conn, &active.local_id, &session.local_id, RankedMode::Ranked, MatchResult::Win, "confirmed", now).unwrap();
+
+        let rating: Option<i64> = conn
+            .query_row("SELECT rating_current FROM local_sessions WHERE local_id = ?1", params![session.local_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rating, Some(6025), "a second finalize call must not add +25 again");
+
+        let outbox_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sync_outbox WHERE entity_local_id = ?1 AND event_type = 'match_finalized'",
+                params![active.local_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(outbox_count, 1, "a second finalize call must not enqueue a second sync event");
+    }
+
+    #[test]
     fn finalize_with_unknown_ranked_mode_never_fabricates_a_rating() {
         let mut conn = test_conn();
         let now = Utc::now();
-        let session = ensure_active_session(&conn, now).unwrap();
-        create_match(&conn, &session.local_id, Some("2"), 14, "radiant", now).unwrap();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        create_match(&conn, &session.local_id, Some("2"), 14, "radiant", RankedMode::Unknown, now).unwrap();
         let active = find_active_match(&conn, &session.local_id).unwrap().unwrap();
 
-        finalize_match(&mut conn, &active.local_id, &session.local_id, RankedMode::Unknown, MatchResult::Win, now)
+        finalize_match(&mut conn, &active.local_id, &session.local_id, RankedMode::Unknown, MatchResult::Win, "confirmed", now)
             .unwrap();
 
         let session_row: Option<i64> = conn

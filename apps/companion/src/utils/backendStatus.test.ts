@@ -44,14 +44,19 @@ describe("describeBackendStatus", () => {
     expect(result.detail).toContain("connection refused");
   });
 
-  it("only reports a hard error once the backend is confirmed unavailable", () => {
+  // WK-113 - a confirmed-unavailable backend is a SYNC problem now, not a
+  // streaming problem (session/match/MMR/OBS/Game Sounds keep running
+  // locally - see local_runtime): "warning", not "error", and reassuring
+  // copy instead of the raw backend error, which read like something in
+  // Companion itself was broken.
+  it("treats a confirmed-unavailable backend as a non-blocking sync warning, not a hard error", () => {
     const result = describeBackendStatus({
       companion_token_configured: true,
       backend_state: "unavailable",
       backend_last_error: "Backend ответил 503",
     });
-    expect(result.tone).toBe("error");
+    expect(result.tone).toBe("warning");
     expect(result.ready).toBe(false);
-    expect(result.detail).toContain("503");
+    expect(result.detail.toLowerCase()).toContain("локально");
   });
 });

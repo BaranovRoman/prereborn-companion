@@ -197,6 +197,7 @@ pub fn run() {
             backend::init(handle.clone());
             obs::init(handle.clone());
             local_runtime::lifecycle::start_sweep(handle.clone());
+            local_runtime::sync::start_sync_worker(handle.clone());
 
             build_tray(&handle)?;
 

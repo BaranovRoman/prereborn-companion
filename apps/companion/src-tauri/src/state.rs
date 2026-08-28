@@ -131,12 +131,14 @@ pub struct InnerState {
     pub obs_last_checked_at: Option<Instant>,
     pub obs_check_pending: bool,
     pub obs_last_error: Option<String>,
-    // WK-99 - set by backend::poll_session_state (a periodic poll of the
-    // existing GET /stream/companion/session endpoint, WK-83), read by
+    // WK-99, now set by local_runtime::lifecycle::apply (WK-113) whenever
+    // the local, OBS-driven session lifecycle finalizes an end/start - no
+    // longer by a backend poll (see backend/mod.rs's removed
+    // poll_session_state). Also still set by the legacy manual "Завершить
+    // стрим" button on success (backend::end_stream_session). Read by
     // obs::resolve_desired_scene. Defaults to `false` (Default derive),
     // matching "unknown session state behaves like active" - automation
-    // runs normally until the first poll actually learns otherwise, never
-    // the reverse.
+    // runs normally until told otherwise, never the reverse.
     pub session_ended: bool,
     // WK-106 - Custom Game Sounds. Persisted settings/bindings/managed asset
     // registry (see game_sounds/config.rs), loaded once at startup
