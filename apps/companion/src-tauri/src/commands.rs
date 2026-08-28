@@ -53,6 +53,15 @@ pub fn get_local_session_summary(app: AppHandle) -> crate::local_runtime::summar
     crate::local_runtime::summary::get(&app)
 }
 
+// WK-119 - sync_outbox (WK-113) had zero UI surface until now: pending/
+// dead-lettered counts for ProblemBar's pending/dead-letter states and
+// Диагностика's detail view. Read-only, same "inert if local runtime failed
+// to open" contract as the two commands above.
+#[tauri::command]
+pub fn get_sync_outbox_status(app: AppHandle) -> crate::local_runtime::sync::SyncOutboxStatus {
+    crate::local_runtime::sync::status(&app)
+}
+
 #[tauri::command]
 pub fn find_dota(app: AppHandle, state: State<AppState>) -> StatusSnapshot {
     if let Some(path) = finder::find_dota_auto() {

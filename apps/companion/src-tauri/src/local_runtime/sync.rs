@@ -20,6 +20,7 @@ use std::time::Duration as StdDuration;
 
 use chrono::{DateTime, Duration, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
 use uuid::Uuid;
@@ -159,6 +160,72 @@ fn is_eligible(conn: &Connection, row: &OutboxRow, cutover_at: DateTime<Utc>) ->
         Some(started_at) => Ok(started_at >= cutover_at),
         None => Ok(false),
     }
+}
+
+/// Read-only outbox visibility for the Companion UI (WK-119 §5/§7 -
+/// `sync_outbox` has existed since WK-113 with zero UI surface until now).
+/// Deliberately excludes pre-cutover shadow rows dead-lettered by
+/// `is_eligible` above from `failed_count` - those were never real sync
+/// attempts (see `drain_outbox`'s "pre-cutover shadow data, never synced"
+/// message) and would otherwise permanently show as a false "failed to
+/// sync" warning on every install that upgraded through the WK-111/112
+/// shadow-mirror stage.
+#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncOutboxStatus {
+    pub pending_count: i64,
+    pub failed_count: i64,
+    pub oldest_pending_at: Option<String>,
+    pub last_error: Option<String>,
+}
+
+const SHADOW_DEAD_LETTER_ERROR: &str = "pre-cutover shadow data, never synced";
+
+pub fn outbox_status(conn: &Connection) -> rusqlite::Result<SyncOutboxStatus> {
+    let pending_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sync_outbox WHERE delivered_at IS NULL AND failed_at IS NULL",
+        [],
+        |row| row.get(0),
+    )?;
+    let oldest_pending_at: Option<String> = conn
+        .query_row(
+            "SELECT created_at FROM sync_outbox WHERE delivered_at IS NULL AND failed_at IS NULL ORDER BY rowid ASC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let failed_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sync_outbox WHERE failed_at IS NOT NULL AND last_error IS NOT ?1",
+        params![SHADOW_DEAD_LETTER_ERROR],
+        |row| row.get(0),
+    )?;
+    let last_error: Option<String> = conn
+        .query_row(
+            "SELECT last_error FROM sync_outbox WHERE failed_at IS NOT NULL AND last_error IS NOT ?1 ORDER BY failed_at DESC LIMIT 1",
+            params![SHADOW_DEAD_LETTER_ERROR],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    Ok(SyncOutboxStatus {
+        pending_count,
+        failed_count,
+        oldest_pending_at,
+        last_error,
+    })
+}
+
+/// `AppHandle` wrapper for the Tauri command - mirrors `summary::get`'s
+/// "inert if the local runtime failed to open" contract, returning the
+/// default (empty) status rather than an error the UI would have to
+/// special-case.
+pub fn status(app: &AppHandle) -> SyncOutboxStatus {
+    let state = app.state::<LocalRuntimeState>();
+    let mut guard = state.lock();
+    let Some(conn) = guard.as_mut() else {
+        return SyncOutboxStatus::default();
+    };
+    outbox_status(conn).unwrap_or_default()
 }
 
 fn mark_delivered(conn: &Connection, id: &str, now: DateTime<Utc>) -> rusqlite::Result<()> {
@@ -854,6 +921,69 @@ mod tests {
     // pull_corrections, refresh_game_mode - all `fn(&AppHandle)`, never
     // exposed to store/detector/lifecycle) are allowed to. `enqueue` itself
     // takes only a `Transaction` (local SQLite) and plain data.
+    // WK-119 - the UI's "healthy" state (nothing shown) depends on this
+    // returning all-zero for a fresh outbox.
+    #[test]
+    fn outbox_status_on_an_empty_outbox_is_all_zero() {
+        let conn = test_conn();
+        let status = outbox_status(&conn).unwrap();
+        assert_eq!(status, SyncOutboxStatus::default());
+    }
+
+    #[test]
+    fn outbox_status_counts_pending_rows_and_reports_the_oldest() {
+        let conn = test_conn();
+        let earlier = Utc::now() - Duration::minutes(5);
+        let later = Utc::now();
+        {
+            let tx = conn.unchecked_transaction().unwrap();
+            enqueue(&tx, "session", "s1", "session_started", &serde_json::json!({}), earlier).unwrap();
+            enqueue(&tx, "match", "m1", "match_finalized", &serde_json::json!({}), later).unwrap();
+            tx.commit().unwrap();
+        }
+        let status = outbox_status(&conn).unwrap();
+        assert_eq!(status.pending_count, 2);
+        assert_eq!(status.failed_count, 0);
+        assert_eq!(status.oldest_pending_at.as_deref(), Some(earlier.to_rfc3339().as_str()));
+    }
+
+    #[test]
+    fn outbox_status_counts_a_real_dead_letter_and_surfaces_its_error() {
+        let conn = test_conn();
+        let now = Utc::now();
+        let tx = conn.unchecked_transaction().unwrap();
+        enqueue(&tx, "session", "s1", "session_started", &serde_json::json!({}), now).unwrap();
+        tx.commit().unwrap();
+        let row = next_pending(&conn, now).unwrap().unwrap();
+        mark_failed(&conn, &row.id, "422 invalid payload", now).unwrap();
+
+        let status = outbox_status(&conn).unwrap();
+        assert_eq!(status.pending_count, 0);
+        assert_eq!(status.failed_count, 1);
+        assert_eq!(status.last_error.as_deref(), Some("422 invalid payload"));
+    }
+
+    // WK-119 - a shadow-mirror row dead-lettered purely for predating cutover
+    // (see `drain_outbox`'s "pre-cutover shadow data, never synced" branch)
+    // must never surface as a sync FAILURE to the user - it was never a real
+    // sync attempt, and every install that upgraded through WK-111/112's
+    // shadow-mirror stage has at least one of these.
+    #[test]
+    fn outbox_status_excludes_pre_cutover_shadow_dead_letters_from_failed_count() {
+        let conn = test_conn();
+        let now = Utc::now();
+        let tx = conn.unchecked_transaction().unwrap();
+        enqueue(&tx, "session", "shadow", "session_started", &serde_json::json!({}), now).unwrap();
+        tx.commit().unwrap();
+        let row = next_pending(&conn, now).unwrap().unwrap();
+        mark_failed(&conn, &row.id, SHADOW_DEAD_LETTER_ERROR, now).unwrap();
+
+        let status = outbox_status(&conn).unwrap();
+        assert_eq!(status.pending_count, 0);
+        assert_eq!(status.failed_count, 0, "a pre-cutover shadow dead-letter must not count as a real sync failure");
+        assert_eq!(status.last_error, None);
+    }
+
     #[test]
     fn outbox_enqueue_never_depends_on_backend_state() {
         fn _type_check(tx: &Transaction, entity_type: &str, entity_local_id: &str, event_type: &str, payload: &Value, now: DateTime<Utc>) -> rusqlite::Result<()> {

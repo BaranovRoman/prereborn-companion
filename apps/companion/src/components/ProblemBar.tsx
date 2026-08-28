@@ -1,4 +1,4 @@
-import type { StatusSnapshot } from "../types/status";
+import type { StatusSnapshot, SyncOutboxStatus } from "../types/status";
 import type { BackendStatusDescription } from "../utils/backendStatus";
 
 interface ProblemItem {
@@ -11,6 +11,7 @@ interface ProblemItem {
 interface Props {
   status: StatusSnapshot | null;
   backendStatus: BackendStatusDescription;
+  syncStatus: SyncOutboxStatus | null;
 }
 
 // WK-114 - replaces the permanent status-grid cards that used to sit on
@@ -23,7 +24,7 @@ interface Props {
 // categorically softer (always "warning", never "error") than GSI/OBS ones,
 // matching utils/backendStatus.ts's WK-113 design: a sync problem never
 // touches the live stream, a GSI/OBS problem can.
-export function ProblemBar({ status, backendStatus }: Props) {
+export function ProblemBar({ status, backendStatus, syncStatus }: Props) {
   if (!status) return null;
   const items: ProblemItem[] = [];
 
@@ -45,7 +46,27 @@ export function ProblemBar({ status, backendStatus }: Props) {
   }
 
   if (backendStatus.tone !== "ok" && (status.backend_state === "recovering" || status.backend_state === "unavailable")) {
-    items.push({ key: "backend", tone: "warning", label: backendStatus.label, detail: backendStatus.detail });
+    // WK-119 - while the backend is unreachable, tell the user how much is
+    // waiting instead of just that it's waiting (the brief's "Pending: N
+    // изменений ожидают отправки" state) - reusing this same item rather
+    // than adding a second one, per the "no separate big sync card" rule.
+    const pending = syncStatus?.pendingCount ?? 0;
+    const detail = pending > 0 ? `${backendStatus.detail} Ожидает отправки: ${pending}.` : backendStatus.detail;
+    items.push({ key: "backend", tone: "warning", label: backendStatus.label, detail });
+  }
+
+  // WK-119 - dead-lettered sync events (the backend permanently rejected
+  // them) are a real, standing problem independent of current connectivity -
+  // surfaced here regardless of backend_state, with detail in Диагностика
+  // (BackendStatusPanel) per the brief's "ProblemBar + Diagnostics details"
+  // dead-letter requirement.
+  if (syncStatus && syncStatus.failedCount > 0) {
+    items.push({
+      key: "sync-dead-letter",
+      tone: "error",
+      label: "Часть данных не синхронизирована",
+      detail: `${syncStatus.failedCount} событий отклонены сервером. Подробности — в Диагностике.`,
+    });
   }
 
   if (items.length === 0) return null;
