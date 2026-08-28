@@ -194,6 +194,35 @@ pub fn find_active_match(conn: &Connection, session_local_id: &str) -> rusqlite:
     .optional()
 }
 
+/// WK-114 - powers the Home page's "recent matches" list. Ordered newest
+/// first, including the currently in-progress match if any (the caller
+/// distinguishes by `state`) - mirrors `find_active_match`'s "always
+/// re-derive from durable storage" approach rather than an in-memory cache.
+pub fn list_recent_matches(conn: &Connection, session_local_id: &str, limit: i64) -> rusqlite::Result<Vec<LocalMatch>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {MATCH_COLUMNS} FROM local_matches WHERE session_local_id = ?1 ORDER BY rowid DESC LIMIT ?2"
+    ))?;
+    let rows = stmt.query_map(params![session_local_id, limit], row_to_match)?;
+    rows.collect()
+}
+
+/// WK-114 - session-wide win/loss tally for the Home page, counted directly
+/// in SQL rather than derived from `list_recent_matches`'s bounded result so
+/// the count stays correct regardless of the recent-matches display limit.
+pub fn session_match_tally(conn: &Connection, session_local_id: &str) -> rusqlite::Result<(i64, i64)> {
+    let wins: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM local_matches WHERE session_local_id = ?1 AND result = 'win'",
+        params![session_local_id],
+        |row| row.get(0),
+    )?;
+    let losses: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM local_matches WHERE session_local_id = ?1 AND result = 'loss'",
+        params![session_local_id],
+        |row| row.get(0),
+    )?;
+    Ok((wins, losses))
+}
+
 fn synthesized_match_key(session_local_id: &str, now: DateTime<Utc>, hero_id: i64) -> String {
     format!("session:{session_local_id}:{}:{hero_id}", now.timestamp_millis())
 }
@@ -644,5 +673,58 @@ mod tests {
             )
             .unwrap();
         assert_eq!(session_row, None, "unknown ranked mode must leave the session rating untouched, not default to 0/false");
+    }
+
+    #[test]
+    fn list_recent_matches_is_newest_first_and_includes_the_active_match() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        create_match(&conn, &session.local_id, Some("1"), 1, "radiant", RankedMode::Ranked, now).unwrap();
+        let first_active_id = find_active_match(&conn, &session.local_id).unwrap().unwrap().local_id;
+        finalize_match(&mut conn, &first_active_id, &session.local_id, RankedMode::Ranked, MatchResult::Win, "confirmed", now).unwrap();
+        create_match(&conn, &session.local_id, Some("2"), 2, "radiant", RankedMode::Ranked, now).unwrap();
+
+        let recent = list_recent_matches(&conn, &session.local_id, 10).unwrap();
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].match_id.as_deref(), Some("2"), "newest (still in progress) match must come first");
+        assert_eq!(recent[0].state, LocalMatchState::InProgress);
+        assert_eq!(recent[1].match_id.as_deref(), Some("1"));
+        assert_eq!(recent[1].state, LocalMatchState::Finalized);
+    }
+
+    #[test]
+    fn list_recent_matches_respects_the_limit() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        for match_id in ["1", "2", "3"] {
+            create_match(&conn, &session.local_id, Some(match_id), 1, "radiant", RankedMode::Ranked, now).unwrap();
+            let active = find_active_match(&conn, &session.local_id).unwrap().unwrap();
+            finalize_match(&mut conn, &active.local_id, &session.local_id, RankedMode::Ranked, MatchResult::Win, "confirmed", now).unwrap();
+        }
+
+        let recent = list_recent_matches(&conn, &session.local_id, 2).unwrap();
+        assert_eq!(recent.len(), 2);
+        assert_eq!(recent[0].match_id.as_deref(), Some("3"));
+        assert_eq!(recent[1].match_id.as_deref(), Some("2"));
+    }
+
+    #[test]
+    fn session_match_tally_counts_wins_and_losses_only() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        create_match(&conn, &session.local_id, Some("1"), 1, "radiant", RankedMode::Ranked, now).unwrap();
+        let first_active_id = find_active_match(&conn, &session.local_id).unwrap().unwrap().local_id;
+        finalize_match(&mut conn, &first_active_id, &session.local_id, RankedMode::Ranked, MatchResult::Win, "confirmed", now).unwrap();
+        create_match(&conn, &session.local_id, Some("2"), 2, "radiant", RankedMode::Ranked, now).unwrap();
+        let second_active_id = find_active_match(&conn, &session.local_id).unwrap().unwrap().local_id;
+        finalize_match(&mut conn, &second_active_id, &session.local_id, RankedMode::Ranked, MatchResult::Loss, "confirmed", now).unwrap();
+        create_match(&conn, &session.local_id, Some("3"), 3, "radiant", RankedMode::Ranked, now).unwrap();
+        // Match 3 stays in progress (no result yet) - must not be counted either way.
+
+        let (wins, losses) = session_match_tally(&conn, &session.local_id).unwrap();
+        assert_eq!((wins, losses), (1, 1));
     }
 }

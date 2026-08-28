@@ -12,12 +12,13 @@ interface Props {
 
 type Tab = "items" | "heroes";
 
-// "Звуки" - Companion UI 2.0's Dota-inventory-inspired sidebar section
-// (задача п.1-3). Not a copy of Valve's shop UI pixel-for-pixel and no new
-// copyrighted assets bundled - item/hero/ability icons are hotlinked from
-// Valve's own public Dota 2 CDN (see catalog.rs), the grid/panel chrome
-// itself reuses this app's existing dark bevelled-panel language
-// (.settings-panel/.status-card tokens in App.css), not a new design system.
+// "Звуки" - Companion UI 2.0's Dota-inventory-inspired section (задача
+// п.1-3), reachable from the WK-114 header's main nav. Not a copy of
+// Valve's shop UI pixel-for-pixel and no new copyrighted assets bundled -
+// item/hero/ability icons are hotlinked from Valve's own public Dota 2 CDN
+// (see catalog.rs), the grid/panel chrome itself reuses this app's existing
+// dark bevelled-panel language (.sounds-panel/.sound-tile tokens in
+// App.css), not a new design system.
 export function SoundsPage({ engine }: Props) {
   const [tab, setTab] = useState<Tab>("items");
   const [selectedItem, setSelectedItem] = useState<TrackedItem | null>(null);

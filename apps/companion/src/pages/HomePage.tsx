@@ -1,10 +1,8 @@
 import { CompanionTokenForm } from "../components/CompanionTokenForm";
 import { LocalStreamLifecycleCard } from "../components/LocalStreamLifecycleCard";
-import { StreamSessionCard } from "../components/StreamSessionCard";
 import type { LocalLifecycleState } from "../hooks/useLocalLifecycle";
-import type { StreamSessionPromptState } from "../hooks/useStreamSessionPrompt";
 import * as api from "../services/dotaCompanionApi";
-import type { StatusSnapshot } from "../types/status";
+import type { LocalMatchSummary, LocalSessionSummary, StatusSnapshot } from "../types/status";
 import type { BackendStatusDescription } from "../utils/backendStatus";
 
 type Scene = "betweenMatches" | "draft" | "gameplay";
@@ -15,28 +13,35 @@ const sceneLabels: Record<Scene, string> = {
   gameplay: "Игра",
 };
 
-// WK-99 - "Активная сцена" below must display Post Stream too, but it's
-// deliberately not one of the manual quick-switch buttons above (those stay
-// the 3 GSI-phase scenes, per `sceneLabels`/`Scene` - Post Stream is only
-// ever entered automatically once the stream session ends, not something a
-// streamer picks by hand mid-match).
 const activeSceneLabels: Record<Scene | "postStream", string> = {
   ...sceneLabels,
   postStream: "Post Stream",
 };
 
-function StatusCard({ label, value, detail, tone }: {
-  label: string;
-  value: string;
-  detail: string;
-  tone: "ok" | "warning" | "error";
-}) {
+const RESULT_LABEL: Record<NonNullable<LocalMatchSummary["result"]>, string> = {
+  win: "Победа",
+  loss: "Поражение",
+  abandon: "Прервано",
+};
+
+function matchDelta(match: LocalMatchSummary): string | null {
+  if (match.ratingBefore == null || match.ratingAfter == null) return null;
+  const delta = match.ratingAfter - match.ratingBefore;
+  return delta >= 0 ? `+${delta}` : `${delta}`;
+}
+
+function MatchRow({ match, current }: { match: LocalMatchSummary; current?: boolean }) {
+  const delta = matchDelta(match);
   return (
-    <article className={`status-card status-card--${tone}`}>
-      <div className="status-card__heading"><span className="status-card__dot" />{label}</div>
-      <strong>{value}</strong>
-      <p>{detail}</p>
-    </article>
+    <li className={`match-row ${current ? "match-row--current" : ""}`}>
+      <span className="match-row__hero">Герой #{match.heroId}</span>
+      <span className={`match-row__result match-row__result--${match.result ?? "pending"}`}>
+        {current && match.state !== "finalized"
+          ? match.state === "post_game_pending" ? "Подтверждаем результат…" : match.state === "interrupted" ? "Матч прерван" : "Матч идёт"
+          : match.result ? RESULT_LABEL[match.result] : "—"}
+      </span>
+      {delta && <span className="match-row__delta">{delta}</span>}
+    </li>
   );
 }
 
@@ -47,44 +52,31 @@ interface Props {
   ready: boolean;
   backendStatus: BackendStatusDescription;
   hasGsiSignal: boolean;
-  requestCount: number;
   setupOpen: boolean;
   setSetupOpen: (open: boolean) => void;
   finishSetup: () => void;
   provisionGsi: () => void;
   checkObs: () => void;
   setAutomaticMode: (enabled: boolean) => void;
-  sessionPrompt: StreamSessionPromptState;
   localLifecycle: LocalLifecycleState;
+  sessionSummary: LocalSessionSummary | null;
 }
 
-// Companion UI 2.0 follow-up - StreamSessionCard now renders unconditionally
-// (both branches below), independent of setupOpen/OBS/GSI - see задача
-// "Stream controls must not depend on OBS/GSI". Everything else on this
-// page (readiness, status grid, OBS scene panel) still only appears once
-// the first-run wizard is dismissed/finished, unchanged from before.
+// WK-114 - Главная rebuilt around the local-first runtime: the local
+// session's own MMR/W-L/current+recent matches (see
+// hooks/useLocalSessionSummary) are the primary content, not a backend
+// session card. Backend/sync state is now only ever shown as a problem bar
+// under the header (see AppShell/ProblemBar) - never a permanent status
+// card here. Manual/legacy backend-session controls (WK-83/WK-100) moved to
+// Диагностика, the new recovery/debug home for that kind of control.
 export function HomePage({
-  status, busy, run, ready, backendStatus, hasGsiSignal, requestCount,
-  setupOpen, setSetupOpen, finishSetup, provisionGsi, checkObs, setAutomaticMode, sessionPrompt, localLifecycle,
+  status, busy, run, ready, backendStatus, hasGsiSignal,
+  setupOpen, setSetupOpen, finishSetup, provisionGsi, checkObs, setAutomaticMode, localLifecycle, sessionSummary,
 }: Props) {
-  // Companion UI 2.0 follow-up (WK-112) - the manual backend-session card
-  // (start/end via the web-cabinet session, WK-83/WK-100) is no longer the
-  // primary "is my stream running" control - LocalStreamLifecycleCard above
-  // is, driven automatically by OBS. This stays fully functional as a
-  // collapsed fallback rather than being removed, per the task's explicit
-  // "manual controls stay available, just not front-and-center" instruction.
-  const manualSessionFallback = (
-    <details className="session-fallback">
-      <summary>Ручное управление сессией (резерв)</summary>
-      <StreamSessionCard sessionPrompt={sessionPrompt} />
-    </details>
-  );
-
   if (setupOpen) {
     return (
       <>
         <LocalStreamLifecycleCard lifecycle={localLifecycle} />
-        {manualSessionFallback}
         <section className="setup-guide" aria-labelledby="setup-title">
           <div className="setup-guide__heading">
             <div><span className="section-heading__eyebrow">Первый запуск</span><h2 id="setup-title">Подготовим Companion к стриму</h2><p>Статусы обновляются автоматически и восстановятся после временного сбоя.</p></div>
@@ -94,7 +86,7 @@ export function HomePage({
             <li className={status?.server_running ? "is-complete" : ""}><strong>Companion</strong><span>{status?.server_running ? "Локальный сервис работает" : status?.gsi_state === "recovering" ? "Перезапускает локальный сервис" : "Локальный сервис недоступен"}</span><small>{status?.gsi_last_error ?? "Запускается автоматически"}</small></li>
             <li className={status?.gsi_installed && hasGsiSignal ? "is-complete" : ""}><strong>Dota 2 / GSI</strong><span>{hasGsiSignal ? "Данные поступают" : status?.gsi_installed ? "Конфигурация готова — запустите Dota 2" : "Нужна конфигурация GSI"}</span><button onClick={provisionGsi} disabled={busy}>{status?.gsi_installed ? "Проверить снова" : "Настроить автоматически"}</button></li>
             <li className={backendStatus.ready ? "is-complete" : ""}><strong>Связь с PreReborn</strong><span>{backendStatus.label}</span><CompanionTokenForm status={status} busy={busy} onSave={(token) => run(() => api.saveCompanionToken(token))} /></li>
-            <li className={status?.obs_connected ? "is-complete" : ""}><strong>OBS</strong><span>{status?.obs_connected ? "WebSocket и сцены доступны" : status?.obs_state === "recovering" ? "Соединение восстанавливается" : "Настройте OBS WebSocket и сцены"}</span><button onClick={checkObs} disabled={busy || !status}>Проверить OBS</button><small>Маппинг сцен настраивается в разделе «Настройки».</small></li>
+            <li className={status?.obs_connected ? "is-complete" : ""}><strong>OBS</strong><span>{status?.obs_connected ? "WebSocket и сцены доступны" : status?.obs_state === "recovering" ? "Соединение восстанавливается" : "Настройте OBS WebSocket и сцены"}</span><button onClick={checkObs} disabled={busy || !status}>Проверить OBS</button><small>Маппинг сцен настраивается через значок настроек.</small></li>
           </ol>
           <div className="setup-guide__footer"><p>{ready ? "Все обязательные компоненты готовы." : "Завершение станет доступно, когда все обязательные проверки успешны."}</p><button className="button button--primary" onClick={finishSetup} disabled={!ready}>Завершить настройку</button></div>
         </section>
@@ -102,37 +94,44 @@ export function HomePage({
     );
   }
 
+  const summaryActive = status?.obs_manual_summary_active ?? false;
+  const hasSession = sessionSummary?.hasSession ?? false;
+  const sessionDelta = hasSession && sessionSummary?.ratingStart != null && sessionSummary?.ratingCurrent != null
+    ? sessionSummary.ratingCurrent - sessionSummary.ratingStart
+    : null;
+
   return (
     <>
-      <LocalStreamLifecycleCard lifecycle={localLifecycle} />
-      {manualSessionFallback}
+      <div className="stream-status-row">
+        <LocalStreamLifecycleCard lifecycle={localLifecycle} />
+        <button className="link-button" onClick={() => setSetupOpen(true)}>Проверить настройку</button>
+      </div>
 
-      <section className={`readiness ${ready ? "readiness--ok" : "readiness--warning"}`}>
-        <div>
-          <span className="readiness__label">Состояние эфира</span>
-          <h2>{ready ? "Всё готово к стриму" : "Проверьте подключения"}</h2>
-          <p>{ready ? "Companion получает данные и управляет сценами OBS." : "Один или несколько сервисов требуют внимания."}</p>
+      <section className="mmr-panel">
+        <div className="mmr-panel__stat">
+          <span className="section-heading__eyebrow">Текущий MMR</span>
+          <strong>{hasSession && sessionSummary?.ratingCurrent != null ? sessionSummary.ratingCurrent : "—"}</strong>
+          {sessionDelta != null && <span className={`mmr-panel__delta ${sessionDelta >= 0 ? "is-positive" : "is-negative"}`}>{sessionDelta >= 0 ? `+${sessionDelta}` : sessionDelta} за сессию</span>}
         </div>
-        <div className="readiness__actions"><button className="button" onClick={() => setSetupOpen(true)}>Проверить настройку</button><button className="button" onClick={() => void run(api.getStatus)} disabled={busy}>Обновить</button></div>
+        <div className="mmr-panel__stat">
+          <span className="section-heading__eyebrow">Победы / Поражения</span>
+          <strong>{hasSession ? `${sessionSummary?.wins ?? 0} – ${sessionSummary?.losses ?? 0}` : "—"}</strong>
+        </div>
       </section>
 
-      {/* This card's data (`backendStatus`) is a heartbeat to the PreReborn
-          backend, not "is Companion running" - the same signal the setup
-          wizard above already labels "Связь с PreReborn". It used to be
-          labeled "Companion" here, which reads as "is the desktop app
-          itself broken" to anyone glancing at Главная - misleading when
-          Companion, GSI, and OBS are all actually fine and this card is
-          just honestly reporting "Ожидание проверки" before the very first
-          backend send has had a chance to complete (see
-          utils/backendStatus.ts's WK-94 comment). Renamed to match the
-          wizard's own existing wording for the identical data, not invented. */}
-      <section className="status-grid" aria-label="Состояние подключений">
-        <StatusCard label="Связь с PreReborn" value={backendStatus.label} detail={backendStatus.detail} tone={backendStatus.tone} />
-        <StatusCard label="Dota 2 / GSI" value={hasGsiSignal ? "Получает данные" : status?.gsi_state === "recovering" ? "Восстанавливается" : status?.gsi_installed ? "Ожидает Dota 2" : "Не настроен"} detail={hasGsiSignal ? `Получено событий: ${requestCount}` : status?.gsi_last_error ?? (status?.gsi_installed ? "GSI установлен, запустите игру" : "Установите конфигурацию GSI")} tone={hasGsiSignal ? "ok" : status?.gsi_installed || status?.gsi_state === "recovering" ? "warning" : "error"} />
-        <StatusCard label="OBS" value={status?.obs_connected ? "Подключён" : status?.obs_state === "recovering" ? "Восстанавливается" : "Нет связи"} detail={status?.obs_connected ? "OBS WebSocket отвечает" : status?.obs_last_error ?? "Проверьте OBS WebSocket"} tone={status?.obs_connected ? "ok" : status?.obs_state === "recovering" ? "warning" : "error"} />
+      <section className="matches-panel">
+        <div className="section-heading"><div><span className="section-heading__eyebrow">Матчи сессии</span><h2>Текущий и недавние</h2></div></div>
+        {!hasSession && <p className="matches-panel__empty">Сессия ещё не началась.</p>}
+        {hasSession && !sessionSummary?.currentMatch && sessionSummary?.recentMatches.length === 0 && (
+          <p className="matches-panel__empty">Матчи появятся здесь, как только Dota начнёт передавать данные.</p>
+        )}
+        {hasSession && (sessionSummary?.currentMatch || (sessionSummary?.recentMatches.length ?? 0) > 0) && (
+          <ul className="match-list">
+            {sessionSummary?.currentMatch && <MatchRow match={sessionSummary.currentMatch} current />}
+            {sessionSummary?.recentMatches.map((match, index) => <MatchRow key={`${match.matchId ?? "m"}-${index}`} match={match} />)}
+          </ul>
+        )}
       </section>
-
-      {status?.obs_last_error && <p className="app__error">OBS: {status.obs_last_error}</p>}
 
       <section className="control-panel">
         <div className="section-heading">
@@ -152,6 +151,20 @@ export function HomePage({
               <small>{scene === "betweenMatches" ? "Лобби и паузы" : scene === "draft" ? "Выбор героев" : "Матч идёт"}</small>
             </button>
           ))}
+        </div>
+        <div className="poststream-actions">
+          {!summaryActive ? (
+            <button className="button" disabled={busy || !status?.obs_connected} onClick={() => void run(api.showStreamSummaryScene)}>
+              Итоги стрима
+            </button>
+          ) : (
+            <>
+              <button className="button button--primary" disabled={busy} onClick={() => void run(api.resumeLiveScene)}>
+                Вернуться к трансляции
+              </button>
+              <small>OBS показывает Post Stream. Стрим и сессия продолжаются — это не завершение эфира.</small>
+            </>
+          )}
         </div>
       </section>
     </>

@@ -30,6 +30,7 @@ pub mod lifecycle;
 mod model;
 mod schema;
 mod store;
+pub mod summary;
 pub mod sync;
 
 use std::path::PathBuf;

@@ -135,16 +135,20 @@ impl BroadcastScene {
     }
 }
 
-// WK-99 - the one precedence rule this whole feature adds, in one place:
-// once the stream session is `ended`, Post Stream wins over whatever scene
-// GSI/a remote test command/a config-save reapply would otherwise request -
-// mirrors the public web overlay's own getActiveScene precedence (WK-53:
-// "ended" wins over sceneOverride/GSI, unconditionally). Extracted as a
-// pure function (no AppState/IO) so this is unit-testable without spinning
-// up a thread or a real OBS connection - see schedule_switch, its only
-// caller, and the tests module below.
-fn resolve_desired_scene(requested: BroadcastScene, session_ended: bool) -> BroadcastScene {
-    if session_ended {
+// WK-99/WK-114 - the precedence rules this feature adds, in one place: once
+// the stream session is `ended`, OR the user has manually pinned "Итоги
+// стрима" (see `handle_session_state`/the `show_stream_summary_scene`
+// command), Post Stream wins over whatever scene GSI/a remote test command/a
+// config-save reapply would otherwise request - mirrors the public web
+// overlay's own getActiveScene precedence (WK-53: "ended" wins over
+// sceneOverride/GSI, unconditionally). `manual_summary_override` is a
+// *second*, independent reason to force Post Stream - the stream is NOT
+// ended, GSI keeps flowing, this just says "don't let it change the scene
+// right now". Extracted as a pure function (no AppState/IO) so this is
+// unit-testable without spinning up a thread or a real OBS connection - see
+// schedule_switch, its only caller, and the tests module below.
+fn resolve_desired_scene(requested: BroadcastScene, session_ended: bool, manual_summary_override: bool) -> BroadcastScene {
+    if session_ended || manual_summary_override {
         BroadcastScene::PostStream
     } else {
         requested
@@ -401,7 +405,16 @@ pub fn reapply_current_mapping(app: &AppHandle, desired: BroadcastScene) {
 pub fn handle_session_state(app: &AppHandle, ended: bool) {
     {
         let state = app.state::<AppState>();
-        state.0.lock().unwrap().session_ended = ended;
+        let mut inner = state.0.lock().unwrap();
+        inner.session_ended = ended;
+        // WK-114 - a new/continuing local session starting must never
+        // inherit last stream's "Итоги стрима" pin; the override is
+        // exclusively a same-session, manual, user-reversible action (see
+        // resume_live_scene) - it must not silently survive into the next
+        // stream and keep OBS stuck on Post Stream.
+        if !ended {
+            inner.obs_manual_summary_override = false;
+        }
     }
     if ended {
         schedule_switch(app, BroadcastScene::PostStream, true);
@@ -417,7 +430,7 @@ fn schedule_switch(app: &AppHandle, desired: BroadcastScene, require_enabled: bo
     let (desired, config) = {
         let state = app.state::<AppState>();
         let mut inner = state.0.lock().unwrap();
-        let desired = resolve_desired_scene(desired, inner.session_ended);
+        let desired = resolve_desired_scene(desired, inner.session_ended, inner.obs_manual_summary_override);
         if require_enabled && !inner.obs_config.enabled {
             return;
         }
@@ -749,15 +762,15 @@ mod tests {
         #[test]
         fn active_session_requests_the_normal_gsi_derived_scene() {
             assert_eq!(
-                resolve_desired_scene(BroadcastScene::Gameplay, false),
+                resolve_desired_scene(BroadcastScene::Gameplay, false, false),
                 BroadcastScene::Gameplay
             );
             assert_eq!(
-                resolve_desired_scene(BroadcastScene::BetweenMatches, false),
+                resolve_desired_scene(BroadcastScene::BetweenMatches, false, false),
                 BroadcastScene::BetweenMatches
             );
             assert_eq!(
-                resolve_desired_scene(BroadcastScene::Draft, false),
+                resolve_desired_scene(BroadcastScene::Draft, false, false),
                 BroadcastScene::Draft
             );
         }
@@ -775,10 +788,31 @@ mod tests {
                 BroadcastScene::PostStream,
             ] {
                 assert_eq!(
-                    resolve_desired_scene(requested, true),
+                    resolve_desired_scene(requested, true, false),
                     BroadcastScene::PostStream
                 );
             }
+        }
+
+        #[test]
+        fn manual_summary_override_wins_over_any_requested_scene_without_the_session_being_ended() {
+            // WK-114 - "Итоги стрима": the stream is NOT ended (session_ended
+            // stays false), but the user has manually pinned Post Stream -
+            // GSI/remote-command/reapply requests must still resolve to it.
+            for requested in [BroadcastScene::Gameplay, BroadcastScene::Draft, BroadcastScene::BetweenMatches] {
+                assert_eq!(
+                    resolve_desired_scene(requested, false, true),
+                    BroadcastScene::PostStream
+                );
+            }
+        }
+
+        #[test]
+        fn clearing_the_manual_summary_override_lets_the_requested_scene_through_again() {
+            assert_eq!(
+                resolve_desired_scene(BroadcastScene::Gameplay, false, false),
+                BroadcastScene::Gameplay
+            );
         }
 
         #[test]
@@ -794,7 +828,7 @@ mod tests {
             }));
             assert_eq!(post_game_desired, BroadcastScene::BetweenMatches);
             assert_eq!(
-                resolve_desired_scene(post_game_desired, false),
+                resolve_desired_scene(post_game_desired, false, false),
                 BroadcastScene::BetweenMatches
             );
         }
@@ -809,7 +843,7 @@ mod tests {
             let desired = BroadcastScene::from_gsi(&json!({}));
             assert_eq!(desired, BroadcastScene::BetweenMatches);
             assert_eq!(
-                resolve_desired_scene(desired, false),
+                resolve_desired_scene(desired, false, false),
                 BroadcastScene::BetweenMatches
             );
         }
@@ -875,6 +909,13 @@ mod tests {
             // behave exactly as it did before this feature - GSI-driven
             // automation, never a surprise Post Stream switch.
             assert!(!crate::state::InnerState::default().session_ended);
+        }
+
+        #[test]
+        fn manual_summary_override_defaults_to_false_so_automation_runs_normally_until_asked() {
+            // WK-114 - "Итоги стрима" must never be on by default; only an
+            // explicit show_stream_summary_scene call turns it on.
+            assert!(!crate::state::InnerState::default().obs_manual_summary_override);
         }
 
         // "OBS unavailable / Post Stream scene not configured must not block

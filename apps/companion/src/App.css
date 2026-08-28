@@ -57,65 +57,87 @@ h1, h2, p { margin-top: 0; }
 }
 
 /* ---------------------------------------------------------------------
-   Companion UI 2.0 - desktop shell: fixed sidebar + fluid main content.
-   Bevelled dark panels (near-black outer border + a single lighter inset
-   line), sharp corners, a muted red/gold accent - the same restrained
-   engraved-panel language apps/web's stream dashboard already uses for its
-   own control surfaces (cards, header, buttons), not the stream overlay's
-   broadcast art and not a new design system.
+   WK-114 - Old Dota Companion shell: a heavy top header instead of the
+   Companion UI 2.0 sidebar (see the file's git history for that version).
+   Same bevelled-panel language as before (near-black borders, a single
+   inset highlight line, sharp corners, muted red/gold accent) - the change
+   is the shell's shape (header-first, like the old Dota client), not the
+   surface language. A subtle fixed atmospheric backdrop (radial vignette,
+   ::before on body) reads through every panel below via each panel's own
+   translucent fill, rather than sitting invisibly behind opaque cards.
    --------------------------------------------------------------------- */
-.app-shell { display: flex; min-height: 100vh; }
-
-.sidebar {
-  flex: 0 0 236px;
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-  padding: 22px 0;
-  border-right: 1px solid var(--border);
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background:
-    radial-gradient(120% 40% at 50% -10%, rgba(123, 53, 50, .16), transparent 60%),
+    radial-gradient(140% 60% at 50% -20%, rgba(123, 53, 50, .10), transparent 55%),
+    radial-gradient(120% 70% at 15% 110%, rgba(30, 40, 32, .35), transparent 60%),
+    radial-gradient(120% 70% at 85% 110%, rgba(30, 40, 32, .35), transparent 60%),
     var(--ui-void);
 }
-.sidebar__brand { display: flex; align-items: center; gap: 11px; padding: 0 18px; }
-.sidebar__logo { width: 40px; height: 40px; object-fit: contain; flex-shrink: 0; }
-.sidebar__brand > div { display: grid; gap: 1px; min-width: 0; }
-.sidebar__eyebrow { color: var(--ui-gold); font-size: .68rem; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
-.sidebar__brand strong { font-size: 1.08rem; color: var(--ui-text); font-weight: 600; }
-.sidebar__version { color: var(--ui-text-muted); font-size: .74rem; }
 
-/* Flat list, not a stack of rounded pill buttons - items are separated by a
-   hairline divider (::after) and the active state reads as an engraved
-   strip (left red bar + a horizontal red wash), mirroring
-   .ant-segmented-item-selected / .sectionTitle in the web dashboard. */
-.sidebar__nav { display: flex; flex-direction: column; }
-.sidebar__nav button {
-  position: relative;
+.app-shell { display: flex; flex-direction: column; min-height: 100vh; }
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-shrink: 0;
+  padding: 0 20px;
+  height: 56px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--ui-panel), var(--ui-well));
+  box-shadow: inset 0 -1px 0 var(--ui-edge-soft), 0 3px 10px rgba(0,0,0,.35);
+}
+.app-header__left { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.app-header__gear {
   display: grid;
-  gap: 2px;
-  text-align: left;
-  padding: 12px 18px;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--ui-raised), var(--ui-well));
+  box-shadow: inset 0 0 0 1px var(--ui-edge-soft);
+  color: var(--ui-text-soft);
+  font-size: 1.05rem;
+  line-height: 1;
+}
+.app-header__gear:hover { color: var(--ui-text); border-color: #190a0a; box-shadow: inset 0 0 0 1px var(--ui-red-hover); }
+.app-header__logo { object-fit: contain; flex-shrink: 0; }
+.app-header__brand { font-size: .98rem; color: var(--ui-text); font-weight: 600; letter-spacing: .01em; }
+
+/* Flat tab strip, not rounded pill buttons - a bottom-border underline reads
+   as the active tab, mirroring the old sidebar's left-bar treatment rotated
+   90°, matching a horizontal top-nav shape. */
+.app-header__nav { display: flex; align-items: stretch; gap: 4px; height: 100%; margin-left: 8px; }
+.app-header__nav button {
+  position: relative;
+  padding: 0 16px;
   border: 0;
-  border-left: 2px solid transparent;
   border-radius: 0;
+  border-bottom: 2px solid transparent;
   background: transparent;
   color: var(--ui-text-soft);
+  font-size: .92rem;
+  font-weight: 600;
 }
-.sidebar__nav button::after { content: ""; position: absolute; left: 18px; right: 18px; bottom: 0; height: 1px; background: var(--border); }
-.sidebar__nav button:last-child::after { display: none; }
-.sidebar__nav button span { color: inherit; font-size: .93rem; font-weight: 600; }
-.sidebar__nav button small { color: var(--ui-text-muted); font-size: .74rem; }
-.sidebar__nav button:hover:not(:disabled) { color: var(--ui-text); background: rgba(255,255,255,.02); }
-.sidebar__nav button.is-active {
-  color: #ddd8d0;
-  border-left-color: var(--ui-red-hover);
-  background: linear-gradient(90deg, rgba(123, 53, 50, .22), transparent 60%);
-}
-.sidebar__nav button.is-active span { color: #eee8df; }
+.app-header__nav button:hover:not(:disabled) { color: var(--ui-text); background: rgba(255,255,255,.02); }
+.app-header__nav button.is-active { color: #eee8df; border-bottom-color: var(--ui-red-hover); background: linear-gradient(180deg, rgba(123,53,50,.16), transparent 70%); }
 
-.sidebar__footer { margin-top: auto; padding: 0 18px; }
+.app-header__right { display: flex; align-items: center; gap: 14px; margin-left: auto; flex-shrink: 0; }
+/* Secondary placement (задача: "не должен конкурировать с основными
+   разделами") - smaller, muted, no active-tab underline treatment even when
+   selected, just a subtle color shift. */
+.app-header__diagnostics { border: 0; background: transparent; padding: 6px 4px; color: var(--ui-text-muted); font-size: .8rem; }
+.app-header__diagnostics:hover, .app-header__diagnostics.is-active { color: var(--ui-text-soft); }
+.app-header__version { color: var(--ui-text-muted); font-size: .72rem; }
 
-.main { flex: 1; min-width: 0; height: 100vh; overflow-y: auto; padding: 28px clamp(20px, 3vw, 44px) 48px; }
+.main { flex: 1; min-width: 0; overflow-y: auto; padding: 24px clamp(20px, 3vw, 44px) 48px; }
 .main > * { max-width: 1480px; margin-left: auto; margin-right: auto; }
 
 .app__eyebrow, .section-heading__eyebrow { color: var(--ui-gold); font-size: .72rem; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
@@ -125,11 +147,9 @@ h1, h2, p { margin-top: 0; }
    block below via each selector's own rule (kept per-selector, not a
    single reusable class, to match how the rest of this file is already
    organized around one rule per component). */
-.readiness { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 16px; padding: 20px 24px; border: 1px solid var(--border); border-radius: var(--radius); background: radial-gradient(ellipse at 15% 0, rgba(123,53,50,.16), transparent 45%), linear-gradient(180deg, var(--ui-panel), var(--ui-well)); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
-.readiness--ok { background: radial-gradient(ellipse at 15% 0, rgba(152,201,101,.14), transparent 45%), linear-gradient(180deg, var(--ui-panel), var(--ui-well)); }
-.readiness__label { color: var(--ui-text-soft); font-size: .78rem; font-weight: 600; }
-.readiness h2 { margin: 3px 0 2px; font-size: 1.5rem; color: var(--ui-text); font-weight: 600; }
-.readiness p { margin: 0; color: var(--ui-text-soft); }
+
+.link-button { border: 0; background: transparent; padding: 4px 2px; color: var(--ui-text-soft); font-size: .78rem; text-decoration: underline; text-underline-offset: 2px; flex-shrink: 0; }
+.link-button:hover { color: var(--ui-text); }
 
 .button, .action-buttons button, .companion-token button, .obs-panel button {
   border: 1px solid var(--border);
@@ -146,15 +166,20 @@ h1, h2, p { margin-top: 0; }
   box-shadow: inset 0 0 0 1px var(--ui-red-hover);
 }
 
-.status-grid, .scene-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
-.status-grid { margin-bottom: 16px; }
-.status-card { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-panel), var(--ui-well)); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
-.status-card__heading { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; color: var(--ui-text-soft); font-size: .76rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
-.status-card__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 6px currentColor; }
-.status-card--ok .status-card__dot { background: var(--success); box-shadow: 0 0 6px rgba(152,201,101,.5); }
-.status-card--warning .status-card__dot { background: var(--warning); }
-.status-card strong { display: block; font-size: 1.05rem; color: var(--ui-text); }
-.status-card p { margin: 4px 0 0; color: var(--ui-text-soft); font-size: .8rem; }
+.scene-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+
+/* WK-114 - problem bars: the ONLY connectivity chrome Companion ever shows,
+   and only while something is genuinely wrong (see components/ProblemBar.tsx
+   - a healthy snapshot renders none of this at all). Slim strips under the
+   header, not cards - several can stack without growing the layout. */
+.problem-bars { display: flex; flex-direction: column; flex-shrink: 0; }
+.problem-bar { display: flex; align-items: baseline; gap: 10px; padding: 7px 20px; border-bottom: 1px solid var(--border); font-size: .84rem; }
+.problem-bar--warning { background: rgba(201,161,90,.10); border-left: 3px solid var(--warning); }
+.problem-bar--error { background: rgba(123,53,50,.14); border-left: 3px solid var(--danger); }
+.problem-bar__label { color: var(--ui-text); font-weight: 700; text-transform: uppercase; font-size: .72rem; letter-spacing: .06em; flex-shrink: 0; }
+.problem-bar--warning .problem-bar__label { color: var(--warning); }
+.problem-bar--error .problem-bar__label { color: var(--danger); }
+.problem-bar__detail { color: var(--ui-text-soft); }
 
 /* Companion UI 2.0 follow-up - "Стрим-сессия" bar, modelled on apps/web's
    .broadcastBar (index.module.scss): a slim full-width strip, not another
@@ -181,16 +206,64 @@ h1, h2, p { margin-top: 0; }
 .session-bar__error { flex-basis: 100%; margin: 0; }
 .session-bar__hint { margin: 0; color: var(--ui-muted, #9a8f86); font-size: .8rem; }
 
-/* WK-112 - manual backend-session controls (WK-83/WK-100), collapsed by
-   default: still fully functional as a recovery/debug fallback, just no
-   longer presented as a required first step now that OBS Start/Stop
-   Streaming drives the local session automatically (see
-   LocalStreamLifecycleCard above it on Главная). */
+/* WK-112/WK-114 - manual backend-session controls (WK-83/WK-100), collapsed
+   by default: still fully functional as a recovery/debug fallback, just no
+   longer presented on Главная at all now that OBS Start/Stop Streaming
+   drives the local session automatically - this lives on Диагностика now
+   (see DiagnosticsPage.tsx), Companion's recovery/debug home. */
 .session-fallback { margin-bottom: 16px; }
 .session-fallback > summary { cursor: pointer; color: var(--ui-muted, #9a8f86); font-size: .85rem; padding: 4px 0; }
 .session-fallback > summary:hover { color: var(--ui-text); }
 .session-fallback[open] > summary { margin-bottom: 8px; }
 .session-fallback .session-bar { margin-bottom: 0; }
+
+/* WK-114 - LocalStreamLifecycleCard's ordinary states: one quiet text line,
+   not a card - the OBS-driven session is expected background state, not
+   something that should visually compete for attention on Главная. Only the
+   rare needs_manual_recovery variant (--attention) becomes a real bar. */
+.stream-status-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.stream-status-line { flex: 1; margin: 0; color: var(--ui-text-soft); font-size: .88rem; }
+.stream-status-line--attention {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 14px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: radial-gradient(circle at 10% 0, rgba(201,161,90,.20), transparent 40%), linear-gradient(180deg, var(--ui-panel), var(--ui-well));
+  box-shadow: inset 0 0 0 1px var(--warning);
+}
+.stream-status-line__info { display: grid; gap: 3px; color: var(--ui-text); }
+.stream-status-line__actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* WK-114 - MMR/W-L: the primary numbers on Главная now, a slim row of two
+   stats rather than a padded status card. */
+.mmr-panel { display: flex; gap: 32px; flex-wrap: wrap; margin-bottom: 16px; padding: 16px 20px; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-panel), var(--ui-well)); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
+.mmr-panel__stat { display: grid; gap: 4px; }
+.mmr-panel__stat strong { font-size: 1.65rem; color: var(--ui-text); font-weight: 600; line-height: 1; }
+.mmr-panel__delta { font-size: .82rem; font-weight: 600; }
+.mmr-panel__delta.is-positive { color: var(--success); }
+.mmr-panel__delta.is-negative { color: var(--danger); }
+
+.matches-panel { margin-bottom: 16px; padding: 18px 20px; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-panel), var(--ui-well)); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
+.matches-panel__empty { margin: 0; color: var(--ui-text-soft); font-size: .85rem; }
+.match-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.match-row { display: flex; align-items: center; gap: 12px; padding: 9px 4px; border-bottom: 1px solid var(--border); font-size: .88rem; }
+.match-row:last-child { border-bottom: 0; }
+.match-row--current { background: rgba(123,53,50,.10); }
+.match-row__hero { color: var(--ui-text); flex-shrink: 0; min-width: 90px; }
+.match-row__result { flex: 1; color: var(--ui-text-soft); }
+.match-row__result--win { color: var(--success); }
+.match-row__result--loss { color: var(--danger); }
+.match-row__delta { font-variant-numeric: tabular-nums; color: var(--ui-gold); flex-shrink: 0; }
+
+/* WK-114 - "Итоги стрима": a manual, reversible OBS scene action, kept
+   inside the existing OBS control panel since it IS an OBS scene action,
+   not a stream-lifecycle one - never labelled "Завершить стрим". */
+.poststream-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.poststream-actions small { color: var(--ui-text-soft); }
 
 .control-panel { margin-bottom: 16px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-panel), var(--ui-well)); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
 .section-heading, .scene-summary { display: flex; align-items: center; justify-content: space-between; }
@@ -224,24 +297,41 @@ h1, h2, p { margin-top: 0; }
   box-shadow: inset 0 0 0 1px var(--ui-edge-soft);
 }
 
-/* Settings - one continuous bevelled panel, groups separated by an internal
-   divider + label rather than 4 stacked rounded cards (задача: "снизить
-   количество декоративных контейнеров"). */
-.settings-panel { border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-panel), var(--ui-well)); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
-.settings-panel__group { padding: 20px 22px; }
-.settings-panel__group + .settings-panel__group { border-top: 1px solid var(--border); }
-.settings-group__label {
+/* WK-114 - "Настройки": a large system-style modal (old game client options
+   window) opened via the header's gear icon, not a page in the main nav.
+   Category rail on the left (flat list, same active-state language as the
+   header's own nav), one content pane on the right - not a stacked-card
+   grid. */
+.settings-modal__backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; background: rgba(5,6,7,.72); }
+.settings-modal {
+  width: min(880px, 92vw);
+  max-height: min(640px, 84vh);
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 14px;
-  color: var(--ui-text-soft);
-  font-size: .72rem;
-  font-weight: 700;
-  letter-spacing: .12em;
-  text-transform: uppercase;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--ui-panel), var(--ui-well));
+  box-shadow: inset 0 0 0 1px var(--ui-edge), 0 24px 56px rgba(0,0,0,.5);
 }
-.settings-group__label::before { content: "◆"; color: var(--ui-red-hover); font-size: .6rem; }
+.settings-modal__header { display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+.settings-modal__header h2 { margin: 0; font-size: 1.15rem; color: var(--ui-text); font-weight: 600; }
+.settings-modal__close { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ui-raised); color: var(--ui-text-soft); width: 28px; height: 28px; padding: 0; line-height: 1; }
+.settings-modal__body { flex: 1; min-height: 0; display: flex; }
+.settings-modal__rail { flex: 0 0 190px; display: flex; flex-direction: column; padding: 12px 0; border-right: 1px solid var(--border); overflow-y: auto; }
+.settings-modal__rail button {
+  text-align: left;
+  padding: 10px 18px;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ui-text-soft);
+  font-size: .88rem;
+  font-weight: 600;
+}
+.settings-modal__rail button:hover:not(:disabled) { color: var(--ui-text); background: rgba(255,255,255,.02); }
+.settings-modal__rail button.is-active { color: #eee8df; border-left-color: var(--ui-red-hover); background: linear-gradient(90deg, rgba(123,53,50,.22), transparent 60%); }
+.settings-modal__content { flex: 1; min-width: 0; padding: 20px 22px; overflow-y: auto; }
 
 .app__error { color: var(--danger); background: rgba(123,53,50,.16); border: 1px solid var(--border); padding: 9px 12px; border-radius: var(--radius); margin-bottom: 16px; }
 .app__log-dir { font-size: .78rem; word-break: break-all; }
@@ -309,19 +399,20 @@ h1, h2, p { margin-top: 0; }
 .hotkey-settings__status { margin: 4px 0 10px; }
 
 @media (max-width: 860px) {
-  .app-shell { flex-direction: column; }
-  .sidebar { flex: 0 0 auto; flex-direction: row; align-items: center; gap: 14px; padding: 10px 0; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border); }
-  .sidebar__brand { padding: 0 12px; }
-  .sidebar__nav { flex-direction: row; }
-  .sidebar__nav button { border-left: 0; border-bottom: 2px solid transparent; padding: 10px 14px; }
-  .sidebar__nav button::after { display: none; }
-  .sidebar__nav button.is-active { border-left-color: transparent; border-bottom-color: var(--ui-red-hover); background: linear-gradient(180deg, rgba(123,53,50,.22), transparent 70%); }
-  .sidebar__footer { margin-top: 0; margin-left: auto; padding: 0 12px; }
-  .main { height: auto; padding: 20px; }
+  .app-header { height: auto; flex-wrap: wrap; padding: 10px 12px; gap: 10px; }
+  .app-header__nav { margin-left: 0; height: auto; }
+  .app-header__nav button { padding: 8px 12px; }
+  .app-header__right { margin-left: 0; }
+  .main { padding: 16px; }
   .setup-guide__heading, .setup-guide__footer { align-items: stretch; flex-direction: column; }
   .setup-steps > li { grid-template-columns: 28px 1fr; }
-  .status-grid, .scene-actions { grid-template-columns: 1fr; }
+  .scene-actions { grid-template-columns: 1fr; }
   .mode-hint { display: block; margin: 8px 0 0; }
+  .settings-modal__body { flex-direction: column; }
+  .settings-modal__rail { flex-direction: row; flex: 0 0 auto; border-right: 0; border-bottom: 1px solid var(--border); overflow-x: auto; padding: 8px 0; }
+  .settings-modal__rail button { border-left: 0; border-bottom: 2px solid transparent; }
+  .settings-modal__rail button.is-active { border-left-color: transparent; border-bottom-color: var(--ui-red-hover); }
+  .mmr-panel { gap: 20px; }
 }
 
 .chat-page { min-height: 620px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-panel), var(--ui-well)); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
