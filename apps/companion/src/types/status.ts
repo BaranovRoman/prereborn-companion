@@ -51,6 +51,11 @@ export interface StatusSnapshot {
   // obs.rs). `null` until the stream-state watcher has learned it at least
   // once (e.g. OBS unreachable since Companion started).
   obs_streaming: boolean | null;
+  // WK-114 - "Итоги стрима": true while the user has manually pinned OBS to
+  // Post Stream without ending the local session (see obs.rs's
+  // `resolve_desired_scene`). Purely a display concern for the shell's
+  // "Вернуться к трансляции" affordance.
+  obs_manual_summary_active: boolean;
   companion_version: string;
 }
 
@@ -62,6 +67,35 @@ export interface LifecycleStatus {
   session_started_at: string | null;
   pending_end_at: string | null;
   obs_streaming: boolean | null;
+}
+
+// WK-114 - local-first Home page data (session MMR/W-L/current+recent
+// matches), mirrors local_runtime::summary's Rust structs field-for-field.
+export type LocalMatchResultValue = "win" | "loss" | "abandon";
+export type LocalRankedModeValue = "unknown" | "ranked" | "unranked";
+export type LocalMatchStateValue = "in_progress" | "post_game_pending" | "finalized" | "needs_review" | "interrupted";
+
+export interface LocalMatchSummary {
+  matchId: string | null;
+  heroId: number;
+  result: LocalMatchResultValue | null;
+  rankedMode: LocalRankedModeValue;
+  state: LocalMatchStateValue;
+  ratingBefore: number | null;
+  ratingAfter: number | null;
+  startedAt: string;
+  finalizedAt: string | null;
+}
+
+export interface LocalSessionSummary {
+  hasSession: boolean;
+  startedAt: string | null;
+  ratingStart: number | null;
+  ratingCurrent: number | null;
+  wins: number;
+  losses: number;
+  currentMatch: LocalMatchSummary | null;
+  recentMatches: LocalMatchSummary[];
 }
 
 export interface ObsConfig {

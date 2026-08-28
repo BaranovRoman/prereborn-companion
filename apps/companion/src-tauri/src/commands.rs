@@ -44,6 +44,15 @@ pub fn local_lifecycle_stale_end(app: AppHandle) -> Result<(), String> {
     lifecycle::stale_recovery_end(&app)
 }
 
+// WK-114 - read-only projection of the local session/match/MMR data for the
+// Home page (current session rating, W/L, current + recent matches) - see
+// local_runtime::summary's doc comment for why this is the first command to
+// expose LocalSession/LocalMatch data beyond the lifecycle state machine.
+#[tauri::command]
+pub fn get_local_session_summary(app: AppHandle) -> crate::local_runtime::summary::LocalSessionSummary {
+    crate::local_runtime::summary::get(&app)
+}
+
 #[tauri::command]
 pub fn find_dota(app: AppHandle, state: State<AppState>) -> StatusSnapshot {
     if let Some(path) = finder::find_dota_auto() {
@@ -352,6 +361,51 @@ pub fn switch_obs_scene(
             Err(error)
         }
     }
+}
+
+// WK-114 - "Итоги стрима": a manual OBS scene action, not a lifecycle action.
+// Switches to Post Stream (via the exact same primitive `switch_obs_scene`
+// above uses) and pins it there via `obs_manual_summary_override` so
+// automation (if enabled) doesn't drag the scene back on the next GSI tick -
+// see `obs::resolve_desired_scene`. Deliberately does NOT touch
+// `session_ended`, does not call `local_runtime::lifecycle`, and enqueues no
+// sync event: the local session and the real OBS stream both keep running.
+#[tauri::command]
+pub fn show_stream_summary_scene(app: AppHandle, state: State<AppState>) -> Result<StatusSnapshot, String> {
+    let config = state.0.lock().unwrap().obs_config.clone();
+    match obs::switch_scene(&config, BroadcastScene::PostStream) {
+        Ok(()) => {
+            let mut inner = state.0.lock().unwrap();
+            inner.obs_manual_summary_override = true;
+            inner.obs_connected = true;
+            inner.obs_active_scene = Some(BroadcastScene::PostStream);
+            inner.obs_active_scene_name = Some(BroadcastScene::PostStream.obs_scene_name(&config).to_string());
+            inner.obs_last_error = None;
+            drop(inner);
+            storage::append_rolling_log(&app, "Manual 'Итоги стрима' scene shown (Post Stream), session unaffected.");
+            Ok(state.snapshot())
+        }
+        Err(error) => {
+            let mut inner = state.0.lock().unwrap();
+            inner.obs_connected = false;
+            inner.obs_last_error = Some(error.clone());
+            drop(inner);
+            storage::append_rolling_log(&app, &format!("'Итоги стрима' scene switch failed: {error}"));
+            Err(error)
+        }
+    }
+}
+
+// WK-114 - reverses show_stream_summary_scene: clears the pin only. If OBS
+// automation is enabled, the very next GSI tick (~1s) naturally resolves and
+// switches to whatever scene the current match phase actually implies (see
+// obs::handle_gsi) - no scene is forced here. If automation is disabled
+// (manual mode), the user already controls scenes by hand via the existing
+// scene buttons, same as for any other manual scene change.
+#[tauri::command]
+pub fn resume_live_scene(state: State<AppState>) -> StatusSnapshot {
+    state.0.lock().unwrap().obs_manual_summary_override = false;
+    state.snapshot()
 }
 
 // Diagnostic-mode GSI capture - see src-tauri/src/diagnostics/mod.rs. Off by

@@ -24,7 +24,7 @@ export interface TwitchChatStatus {
   messages: TwitchChatMessage[];
 }
 import { invoke } from "@tauri-apps/api/core";
-import type { DiagnosticsStatusSnapshot, LifecycleStatus, ObsConfig, StatusSnapshot } from "../types/status";
+import type { DiagnosticsStatusSnapshot, LifecycleStatus, LocalSessionSummary, ObsConfig, StatusSnapshot } from "../types/status";
 import type { StreamSessionSummary } from "../session/session-prompt";
 
 export const getStatus = () => invoke<StatusSnapshot>("get_status");
@@ -52,6 +52,9 @@ export const endStreamSession = () => invoke<StreamSessionSummary>("end_stream_s
 export const getLocalLifecycleStatus = () => invoke<LifecycleStatus>("get_local_lifecycle_status");
 export const staleRecoveryContinue = () => invoke<void>("local_lifecycle_stale_continue");
 export const staleRecoveryEnd = () => invoke<void>("local_lifecycle_stale_end");
+
+// WK-114 - read-only local session/match/MMR data for Главная.
+export const getLocalSessionSummary = () => invoke<LocalSessionSummary>("get_local_session_summary");
 
 // WK-81 - local Silero TTS sidecar, the primary (and, since WK-80 removed
 // Piper, only local) synthesis engine - system speechSynthesis is the
@@ -101,6 +104,12 @@ export const testObsConnection = () =>
   invoke<string[]>("test_obs_connection");
 export const switchObsScene = (scene: "betweenMatches" | "draft" | "gameplay") =>
   invoke<StatusSnapshot>("switch_obs_scene", { scene });
+
+// WK-114 - "Итоги стрима": manual, reversible OBS scene action, independent
+// of the local session/OBS-stream lifecycle (see obs.rs's doc comments on
+// show_stream_summary_scene/resume_live_scene). Does not start/end anything.
+export const showStreamSummaryScene = () => invoke<StatusSnapshot>("show_stream_summary_scene");
+export const resumeLiveScene = () => invoke<StatusSnapshot>("resume_live_scene");
 
 // Global "skip current TTS" hotkey (WK-83 - see src-tauri/src/hotkeys.rs).
 // The hotkey press itself arrives as a "hotkeys://skip-tts" event (listened

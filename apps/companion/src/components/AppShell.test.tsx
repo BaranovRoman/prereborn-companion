@@ -2,27 +2,22 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Companion UI 2.0 - AppShell is the single owner of every app-root hook
-// (status/GSI/diagnostics/updater/chat/session-prompt/autostart) and the
-// sidebar navigation that swaps between the 4 real page components
-// (HomePage/SettingsPage/DiagnosticsPage render for real here - only
-// TwitchChatPage is stubbed, since its own session-shape contract is
-// already covered by chat/useTwitchChatSession.test.tsx and doesn't need
-// re-testing here). These tests pin: all 4 sections are reachable from the
-// sidebar, exactly one section's content is visible at a time, the
-// post-split cleanup actually happened (OBS mapping / companion token no
-// longer duplicated into Диагностика, hotkeys live in Настройки), and -
-// Companion UI 2.0 follow-up - stream session controls never depend on
-// OBS/GSI status (задача п.5).
+// WK-114 - Old Dota Companion shell: a header (brand + gear + Главная/Чат/
+// Звуки) replaces the old sidebar, Настройки moves from a nav page into a
+// modal opened by the gear, Диагностика is reachable but secondary (not one
+// of the 3 main tabs), and the legacy manual backend-session controls
+// (WK-83/WK-100) move into Диагностика as a recovery/debug tool instead of
+// living on Главная. These tests pin: the 3 main sections + Диагностика are
+// all reachable, exactly one section's content is visible at a time, the
+// gear opens/closes the Настройки modal without navigating away from the
+// current section, ProblemBar only ever renders for a genuine problem, and -
+// carried over from Companion UI 2.0 - stream session controls (now on
+// Диагностика) never depend on OBS/GSI status.
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
 }));
 
-// A realistic, fully-populated status so ObsScenePanel (which renders
-// nothing at all when status/config is null - see ObsScenePanel.tsx) has
-// something real to show. `let` (not `const`) so individual tests can swap
-// in an OBS/GSI-down variant to prove session controls are unaffected.
 let statusFixture: Record<string, unknown> = buildStatusFixture();
 
 function buildStatusFixture(overrides: Record<string, unknown> = {}) {
@@ -59,6 +54,8 @@ function buildStatusFixture(overrides: Record<string, unknown> = {}) {
     obs_state: "connected",
     obs_active_scene: "betweenMatches",
     obs_last_error: null,
+    obs_streaming: true,
+    obs_manual_summary_active: false,
     companion_version: "0.5.26",
     ...overrides,
   };
@@ -119,6 +116,12 @@ vi.mock("../hooks/useAutostart", () => ({
 vi.mock("../hooks/useStreamSessionPrompt", () => ({
   useStreamSessionPrompt: () => sessionPromptFixture,
 }));
+vi.mock("../hooks/useLocalLifecycle", () => ({
+  useLocalLifecycle: () => ({ status: { session_state: "open", session_started_at: null, pending_end_at: null, obs_streaming: true }, busy: false, error: null, onContinue: vi.fn(), onEnd: vi.fn() }),
+}));
+vi.mock("../hooks/useLocalSessionSummary", () => ({
+  useLocalSessionSummary: () => null,
+}));
 vi.mock("../chat/useTwitchChatSession", () => ({
   useTwitchChatSession: () => ({
     skipHotkeyStatus: { enabled: false, shortcut: "CommandOrControl+Alt+F10", registered: false, lastError: null },
@@ -129,11 +132,6 @@ vi.mock("../chat/useTwitchChatSession", () => ({
 vi.mock("./TwitchChatPage", () => ({
   TwitchChatPage: () => <div data-testid="chat-page-stub">Chat stub</div>,
 }));
-// WK-106 - "Звуки" section. Its own hook (data fetching, playback, catalog
-// wiring) is already covered by sounds/useGameSoundEngine.test.tsx and
-// pages/SoundsPage.test.tsx - AppShell only needs to prove the section is
-// reachable and swaps correctly with the others, so it's stubbed here the
-// same way TwitchChatPage is above.
 vi.mock("../sounds/useGameSoundEngine", () => ({ useGameSoundEngine: () => ({}) }));
 vi.mock("../pages/SoundsPage", () => ({
   SoundsPage: () => <div data-testid="sounds-page-stub">Sounds stub</div>,
@@ -147,9 +145,6 @@ const clickNav = (label: string) => {
 };
 
 beforeEach(() => {
-  // Skip the first-run setup wizard so Главная renders its normal content -
-  // matches how a returning user (the realistic post-update case) sees it.
-  // Individual tests override this where the wizard state itself matters.
   localStorage.setItem("companion-setup-complete", "true");
   statusFixture = buildStatusFixture();
   sessionPromptFixture = buildSessionPromptFixture();
@@ -163,7 +158,7 @@ afterEach(() => {
 describe("AppShell navigation", () => {
   it("shows Главная by default", () => {
     render(<AppShell />);
-    expect(screen.getByText("Состояние эфира")).toBeTruthy();
+    expect(screen.getByText("Текущий MMR")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Главная/ }).className).toContain("is-active");
   });
 
@@ -171,7 +166,7 @@ describe("AppShell navigation", () => {
     render(<AppShell />);
     clickNav("Чат");
     expect(screen.getByTestId("chat-page-stub")).toBeTruthy();
-    expect(screen.queryByText("Состояние эфира")).toBeNull();
+    expect(screen.queryByText("Текущий MMR")).toBeNull();
     expect(screen.getByRole("button", { name: /Чат/ }).className).toContain("is-active");
   });
 
@@ -179,46 +174,63 @@ describe("AppShell navigation", () => {
     render(<AppShell />);
     clickNav("Звуки");
     expect(screen.getByTestId("sounds-page-stub")).toBeTruthy();
-    expect(screen.queryByText("Состояние эфира")).toBeNull();
+    expect(screen.queryByText("Текущий MMR")).toBeNull();
     expect(screen.queryByTestId("chat-page-stub")).toBeNull();
     expect(screen.getByRole("button", { name: /Звуки/ }).className).toContain("is-active");
   });
 
-  it("switches to Настройки and hides Главная/Чат content", () => {
-    render(<AppShell />);
-    clickNav("Настройки");
-    expect(screen.getByRole("heading", { name: "Настройки" })).toBeTruthy();
-    expect(screen.queryByText("Состояние эфира")).toBeNull();
-    expect(screen.queryByTestId("chat-page-stub")).toBeNull();
-  });
-
-  it("switches to Диагностика and hides every other section's content", () => {
+  it("switches to Диагностика (secondary link) and hides every other section's content", () => {
     render(<AppShell />);
     clickNav("Диагностика");
     expect(screen.getByRole("heading", { name: "Диагностика" })).toBeTruthy();
-    expect(screen.queryByText("Состояние эфира")).toBeNull();
+    expect(screen.queryByText("Текущий MMR")).toBeNull();
     expect(screen.queryByTestId("chat-page-stub")).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Настройки" })).toBeNull();
   });
 
   it("navigating back to Главная restores its content", () => {
     render(<AppShell />);
     clickNav("Диагностика");
     clickNav("Главная");
-    expect(screen.getByText("Состояние эфира")).toBeTruthy();
+    expect(screen.getByText("Текущий MMR")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Диагностика" })).toBeNull();
+  });
+
+  it("Настройки is not one of the main nav tabs (only the gear button, outside the nav, is named that)", () => {
+    render(<AppShell />);
+    const nav = screen.getByRole("navigation", { name: "Разделы приложения" });
+    expect(within(nav).queryByRole("button", { name: /Настройки/ })).toBeNull();
   });
 });
 
-describe("AppShell post-split cleanup (Companion UI 2.0)", () => {
-  it("Настройки hosts the companion token form, OBS scene mapping, and hotkeys", () => {
+describe("AppShell Настройки modal (gear icon)", () => {
+  it("is closed by default and opens via the gear button, hosting the token form, OBS scene mapping, and hotkeys", () => {
     render(<AppShell />);
-    clickNav("Настройки");
-    const settingsView = screen.getByRole("heading", { name: "Настройки" }).closest(".settings-view") as HTMLElement;
-    expect(within(settingsView).getByText("Companion token")).toBeTruthy();
-    expect(within(settingsView).getByRole("heading", { name: "Сцены OBS" })).toBeTruthy();
-    expect(within(settingsView).getByRole("heading", { name: "Пропустить озвучку" })).toBeTruthy();
-    expect(within(settingsView).getByText("Запускать Companion вместе с Windows")).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Настройки" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Настройки" }));
+    const modal = screen.getByRole("dialog", { name: "Настройки" });
+    expect(within(modal).getByText("Companion token")).toBeTruthy();
+
+    fireEvent.click(within(modal).getByRole("button", { name: "OBS" }));
+    expect(within(modal).getByRole("heading", { name: "Сцены OBS" })).toBeTruthy();
+
+    fireEvent.click(within(modal).getByRole("button", { name: "Горячие клавиши" }));
+    expect(within(modal).getByRole("heading", { name: "Пропустить озвучку" })).toBeTruthy();
+  });
+
+  it("closes via the close button without changing the active main section", () => {
+    render(<AppShell />);
+    fireEvent.click(screen.getByRole("button", { name: "Настройки" }));
+    fireEvent.click(screen.getByRole("button", { name: "Закрыть настройки" }));
+    expect(screen.queryByRole("dialog", { name: "Настройки" })).toBeNull();
+    expect(screen.getByText("Текущий MMR")).toBeTruthy();
+  });
+
+  it("closes via Escape", () => {
+    render(<AppShell />);
+    fireEvent.click(screen.getByRole("button", { name: "Настройки" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Настройки" })).toBeNull();
   });
 
   it("Диагностика no longer duplicates the companion token form, OBS scene mapping, or hotkeys", () => {
@@ -229,7 +241,7 @@ describe("AppShell post-split cleanup (Companion UI 2.0)", () => {
     expect(screen.queryByRole("heading", { name: "Пропустить озвучку" })).toBeNull();
   });
 
-  it("Чат no longer hosts the hotkey controls (moved to Настройки)", () => {
+  it("Чат no longer hosts the hotkey controls (moved to the Настройки modal)", () => {
     render(<AppShell />);
     clickNav("Чат");
     expect(screen.queryByRole("heading", { name: "Пропустить озвучку" })).toBeNull();
@@ -237,32 +249,18 @@ describe("AppShell post-split cleanup (Companion UI 2.0)", () => {
   });
 });
 
-// Companion UI 2.0 follow-up (задача п.5) - "Stream controls must not
-// depend on OBS/GSI". StreamSessionCard is rendered unconditionally at the
-// top of Главная; these tests prove it stays fully functional across every
-// OBS/GSI/wizard permutation.
-describe("Stream session controls are independent of OBS/GSI/setup state", () => {
+// WK-114 - manual backend-session controls (WK-83/WK-100) moved from
+// Главная to a collapsed section inside Диагностика (recovery/debug home) -
+// no longer front-and-center, but still fully functional regardless of OBS/
+// GSI status per задача п.5's original guarantee.
+describe("Stream session controls (Диагностика) are independent of OBS/GSI/setup state", () => {
   it("End Stream is available with an active session even when OBS is disconnected and GSI has no signal", () => {
-    statusFixture = buildStatusFixture({
-      obs_connected: false,
-      obs_state: "disconnected",
-      gsi_state: "waiting",
-    });
+    statusFixture = buildStatusFixture({ obs_connected: false, obs_state: "unavailable", gsi_state: "waiting" });
     sessionPromptFixture = buildSessionPromptFixture({ promptData: ACTIVE_SESSION });
     render(<AppShell />);
+    clickNav("Диагностика");
+    fireEvent.click(screen.getByText("Ручное управление сессией (резерв на backend)"));
     expect(screen.getByText("Стрим идёт")).toBeTruthy();
-    const endButton = screen.getByRole("button", { name: "Завершить стрим" }) as HTMLButtonElement;
-    expect(endButton.disabled).toBe(false);
-  });
-
-  it("End Stream is available even when Dota/GSI was never configured at all", () => {
-    statusFixture = buildStatusFixture({
-      dota_found: false,
-      gsi_installed: false,
-      gsi_state: "waiting",
-    });
-    sessionPromptFixture = buildSessionPromptFixture({ promptData: ACTIVE_SESSION });
-    render(<AppShell />);
     const endButton = screen.getByRole("button", { name: "Завершить стрим" }) as HTMLButtonElement;
     expect(endButton.disabled).toBe(false);
   });
@@ -273,20 +271,10 @@ describe("Stream session controls are independent of OBS/GSI/setup state", () =>
       promptData: { ...ACTIVE_SESSION, state: "ended", endedAt: new Date().toISOString() },
     });
     render(<AppShell />);
+    clickNav("Диагностика");
+    fireEvent.click(screen.getByText("Ручное управление сессией (резерв на backend)"));
     const startButton = screen.getByRole("button", { name: "Начать новый стрим" }) as HTMLButtonElement;
     expect(startButton.disabled).toBe(false);
-  });
-
-  it("the session card renders even while the first-run setup wizard is open", () => {
-    localStorage.removeItem("companion-setup-complete");
-    sessionPromptFixture = buildSessionPromptFixture({ promptData: ACTIVE_SESSION });
-    render(<AppShell />);
-    // Wizard is showing (readiness/status-grid from the normal view are
-    // absent), but the session card and its End button are still there.
-    expect(screen.queryByText("Состояние эфира")).toBeNull();
-    expect(screen.getByText("Подготовим Companion к стриму")).toBeTruthy();
-    expect(screen.getByText("Стрим идёт")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Завершить стрим" })).toBeTruthy();
   });
 
   it("clicking End Stream calls onEndStream even though OBS is disconnected (does not treat OBS state as a precondition)", () => {
@@ -295,68 +283,56 @@ describe("Stream session controls are independent of OBS/GSI/setup state", () =>
     sessionPromptFixture = buildSessionPromptFixture({ promptData: ACTIVE_SESSION, onEndStream });
     vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<AppShell />);
+    clickNav("Диагностика");
+    fireEvent.click(screen.getByText("Ручное управление сессией (резерв на backend)"));
 
     fireEvent.click(screen.getByRole("button", { name: "Завершить стрим" }));
 
     expect(onEndStream).toHaveBeenCalledTimes(1);
     vi.restoreAllMocks();
   });
-
-  it("End Stream is available with an active session even when GSI has gone stale (no signal for a while)", () => {
-    statusFixture = buildStatusFixture({ gsi_state: "recovering" });
-    sessionPromptFixture = buildSessionPromptFixture({ promptData: ACTIVE_SESSION });
-    render(<AppShell />);
-    const endButton = screen.getByRole("button", { name: "Завершить стрим" }) as HTMLButtonElement;
-    expect(endButton.disabled).toBe(false);
-  });
 });
 
-// Post-0.5.27 diagnostic pass - real-stream report: "Главная shows GSI/
-// Companion as not connected". Root cause was not a data/pipeline
-// regression (state.rs/useStatus.ts/useGsiEvents.ts are unchanged since
-// before Companion UI 2.0 - see state.rs's new gsi_state_tests for the
-// data-layer coverage) but a misleading label: the card used to say
-// "Companion", which reads as "is the app itself broken" when it actually
-// reports backend-heartbeat status (`backendStatus`, the same signal the
-// setup wizard already calls "Связь с PreReborn"). These tests pin the
-// renamed label and confirm the status-grid renders a genuinely-connected
-// snapshot correctly (this was verified once already via a live Playwright
-// run against a mocked Tauri bridge - these give it permanent regression
-// coverage).
-describe("Главная status-grid (Companion label clarity fix)", () => {
-  it("labels the backend-heartbeat card 'Связь с PreReborn', matching the setup wizard's own wording - not the misleading 'Companion'", () => {
+// WK-114 - ProblemBar: replaces the permanent status-grid cards. A fully
+// healthy snapshot must render no problem chrome at all under the header;
+// a genuine, sustained problem on any of the 3 sources must be visible.
+describe("ProblemBar (Главная)", () => {
+  it("renders nothing when GSI/OBS/backend are all connected", () => {
     render(<AppShell />);
-    expect(screen.getByText("Связь с PreReborn")).toBeTruthy();
-    // Exact-match query: "Companion" still legitimately appears as a
-    // substring elsewhere (sidebar brand, readiness prose) - this only
-    // rules out an element whose *entire* text is the old bare label.
-    expect(screen.queryByText("Companion")).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
-  it("renders all three cards as connected when the underlying snapshot genuinely reports connected", () => {
-    statusFixture = buildStatusFixture({ gsi_state: "connected", backend_state: "connected", obs_connected: true });
+  it("shows a GSI problem bar only once signal has been lost (recovering), not while merely waiting for Dota to launch", () => {
+    statusFixture = buildStatusFixture({ gsi_state: "waiting" });
     render(<AppShell />);
-    expect(screen.getByText("Подключено")).toBeTruthy();
-    expect(screen.getByText("Получает данные")).toBeTruthy();
-    expect(screen.getByText("Подключён")).toBeTruthy();
+    expect(screen.queryByText("Нет сигнала Dota")).toBeNull();
+
+    cleanup();
+    statusFixture = buildStatusFixture({ gsi_state: "recovering" });
+    render(<AppShell />);
+    expect(screen.getByText("Нет сигнала Dota")).toBeTruthy();
   });
 
-  it("GSI going stale is reflected honestly (Recovering), independent of backend/OBS state", () => {
-    statusFixture = buildStatusFixture({ gsi_state: "recovering", backend_state: "connected", obs_connected: true });
+  it("shows an OBS problem bar when OBS is unavailable", () => {
+    statusFixture = buildStatusFixture({ obs_connected: false, obs_state: "unavailable", obs_last_error: "connection refused" });
     render(<AppShell />);
-    expect(screen.getByText("Восстанавливается")).toBeTruthy();
-    // Backend/OBS stay reported as connected - one stale signal must never
-    // mask or drag down the other two.
-    expect(screen.getByText("Подключено")).toBeTruthy();
-    expect(screen.getByText("Подключён")).toBeTruthy();
+    expect(screen.getByText("OBS не подключён")).toBeTruthy();
+    expect(screen.getByText("connection refused")).toBeTruthy();
   });
 
-  it("a backend heartbeat that hasn't completed yet (Waiting) does not make GSI look disconnected too", () => {
-    statusFixture = buildStatusFixture({ gsi_state: "connected", backend_state: "waiting" });
+  it("shows the backend/sync problem bar as a non-blocking warning when the backend is unavailable", () => {
+    statusFixture = buildStatusFixture({ backend_state: "unavailable", backend_last_error: "503" });
     render(<AppShell />);
-    // "Ожидание проверки" legitimately appears twice (sidebar footer pill +
-    // the status-grid card - both read the same backendStatus.label).
-    expect(screen.getAllByText("Ожидание проверки").length).toBeGreaterThan(0);
-    expect(screen.getByText("Получает данные")).toBeTruthy();
+    const bar = screen.getByText("PreReborn недоступен").closest(".problem-bar");
+    expect(bar?.className).toContain("problem-bar--warning");
+    expect(bar?.className).not.toContain("problem-bar--error");
+  });
+
+  it("multiple simultaneous problems all render without hiding one another", () => {
+    statusFixture = buildStatusFixture({ gsi_state: "recovering", obs_state: "unavailable", obs_connected: false, backend_state: "unavailable" });
+    render(<AppShell />);
+    expect(screen.getByText("Нет сигнала Dota")).toBeTruthy();
+    expect(screen.getByText("OBS не подключён")).toBeTruthy();
+    expect(screen.getByText("PreReborn недоступен")).toBeTruthy();
   });
 });

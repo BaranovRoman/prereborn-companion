@@ -70,6 +70,11 @@ pub struct StatusSnapshot {
     // learned it at least once (e.g. OBS unreachable since Companion
     // started) - never guessed.
     pub obs_streaming: Option<bool>,
+    // WK-114 - "Итоги стрима": true while the user has manually pinned OBS to
+    // the Post Stream scene without ending the local session (see obs.rs's
+    // `manual_summary_override`). Purely a display concern here - the pin
+    // itself lives in `InnerState`/`resolve_desired_scene`.
+    pub obs_manual_summary_active: bool,
     pub companion_version: String,
 }
 
@@ -153,6 +158,17 @@ pub struct InnerState {
     pub game_sounds_previous_gsi: Option<serde_json::Value>,
     // WK-112 - see the field doc on StatusSnapshot::obs_streaming above.
     pub obs_streaming: Option<bool>,
+    // WK-114 - "Итоги стрима" manual scene pin (see obs.rs's
+    // `resolve_desired_scene`): while true, every automatic scene resolution
+    // (GSI ticks, remote commands, config reapply) resolves to Post Stream
+    // instead of the normally-derived scene, exactly like `session_ended`
+    // already does - this is a second, independent reason to force Post
+    // Stream, not a replacement for it. Cleared automatically whenever a new
+    // local session starts (`obs::handle_session_state(_, false)`) so it can
+    // never leak into the next stream, and manually via `resume_live_scene`.
+    // Defaults to `false` (Default derive) - automation is unaffected until
+    // the user explicitly asks to see the summary scene.
+    pub obs_manual_summary_override: bool,
 }
 
 pub struct AppState(pub Mutex<InnerState>);
@@ -227,6 +243,7 @@ impl AppState {
             obs_active_scene: inner.obs_active_scene,
             obs_last_error: inner.obs_last_error.clone(),
             obs_streaming: inner.obs_streaming,
+            obs_manual_summary_active: inner.obs_manual_summary_override,
             companion_version: COMPANION_VERSION.to_string(),
         }
     }
