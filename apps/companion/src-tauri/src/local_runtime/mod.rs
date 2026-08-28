@@ -38,7 +38,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use rusqlite::Connection;
 use serde_json::Value;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 
 pub struct LocalRuntimeState(Mutex<Option<Connection>>);
 
@@ -114,7 +114,14 @@ pub fn init(app: &AppHandle) {
 /// reaches this feature. A no-op whenever `init` didn't manage to open the
 /// local store (see above) - mirrors `diagnostics::observe`'s
 /// "no-op unless active" shape.
-pub fn handle_gsi(app: &AppHandle, payload: &Value) {
+// WK-116 - generic over `R: Runtime` so this, the real production GSI
+// entry point (see server::process_gsi_body), can be driven end to end by
+// an integration test using `tauri::test::mock_app()` - previously only the
+// pure decision layer underneath it (detector.rs/store.rs) was testable,
+// which is exactly how the OBS-watcher wiring bug this ticket fixes went
+// undetected. Every real call site keeps compiling unchanged (`R = Wry` by
+// inference).
+pub fn handle_gsi<R: Runtime>(app: &AppHandle<R>, payload: &Value) {
     let Some(snapshot) = gsi::parse(payload) else { return };
     let state = app.state::<LocalRuntimeState>();
     let mut guard = state.lock();
@@ -140,8 +147,69 @@ pub fn handle_gsi(app: &AppHandle, payload: &Value) {
 
     let now = chrono::Utc::now();
     let ranked_mode = sync::cached_ranked_mode(conn);
+    // WK-116 observability - captured before/after the pure decision layer
+    // runs (detector.rs stays AppHandle-free, per its own architectural
+    // pin) so a match's creation/transition/finalization is visible in
+    // app.log without adding a single per-tick log line - this only ever
+    // logs on an actual state change, never on a no-op tick.
+    let before = store::find_active_match(conn, &session.local_id).ok().flatten();
     if let Err(error) = detector::handle_snapshot(conn, &session.local_id, ranked_mode, &snapshot, now) {
         crate::storage::append_rolling_log(app, &format!("Local runtime: handle_snapshot failed ({error})"));
+        return;
+    }
+    let after = store::find_active_match(conn, &session.local_id).ok().flatten();
+    log_match_transition(app, &session.local_id, before.as_ref(), after.as_ref());
+}
+
+/// WK-116 - logs only on an actual change in the session's active match, so
+/// a real stream produces a handful of lines (created/transition/finalized/
+/// interrupted), never one line per GSI tick. Correlated by
+/// session_local_id + match_local_id so a support investigation can follow
+/// one match end to end through app.log without needing raw payloads.
+fn log_match_transition<R: Runtime>(
+    app: &AppHandle<R>,
+    session_local_id: &str,
+    before: Option<&model::LocalMatch>,
+    after: Option<&model::LocalMatch>,
+) {
+    match (before, after) {
+        (None, Some(new)) => {
+            crate::storage::append_rolling_log(
+                app,
+                &format!(
+                    "Local match created: session={session_local_id} match={} hero={} match_id={:?} ranked_mode={:?}",
+                    new.local_id, new.hero_id, new.match_id, new.ranked_mode
+                ),
+            );
+        }
+        (Some(old), Some(new)) if old.local_id == new.local_id && old.state != new.state => {
+            crate::storage::append_rolling_log(
+                app,
+                &format!(
+                    "Local match transition: session={session_local_id} match={} {:?} -> {:?} result={:?}",
+                    new.local_id, old.state, new.state, new.result
+                ),
+            );
+        }
+        (Some(old), None) => {
+            crate::storage::append_rolling_log(
+                app,
+                &format!(
+                    "Local match no longer active: session={session_local_id} match={} last_state={:?}",
+                    old.local_id, old.state
+                ),
+            );
+        }
+        (Some(old), Some(new)) if old.local_id != new.local_id => {
+            crate::storage::append_rolling_log(
+                app,
+                &format!(
+                    "Local match superseded: session={session_local_id} old_match={} new_match={}",
+                    old.local_id, new.local_id
+                ),
+            );
+        }
+        _ => {}
     }
 }
 
@@ -150,6 +218,7 @@ mod tests {
     use super::*;
     use crate::local_runtime::gsi::GsiSnapshot;
     use chrono::Utc;
+    use rusqlite::params;
     use tempfile::TempDir;
 
     fn open_at(dir: &TempDir) -> Connection {
@@ -169,6 +238,116 @@ mod tests {
             hero_id: Some(hero_id),
             team_name: Some("radiant".to_string()),
         }
+    }
+
+    // WK-116 P0 regression coverage - drives the REAL production entry
+    // point (`handle_gsi`, exactly what `server::process_gsi_body` calls)
+    // with raw JSON payloads shaped like actual Dota GSI ticks, through a
+    // real (mocked) `AppHandle` - not `detector::handle_snapshot` called
+    // directly with a hand-built `GsiSnapshot`, which is what every other
+    // test in this file does and which cannot catch a broken call site
+    // between the GSI server and the decision layer (see this ticket's
+    // report: that's exactly how the OBS-watcher wiring bug went
+    // undetected through WK-111/112/113's own test suites). The LocalSession
+    // itself is created directly via `store::ensure_active_session` here
+    // (simulating "OBS already started the stream") - that trigger has its
+    // own dedicated coverage in lifecycle.rs; this test's job is the GSI-to-
+    // LocalMatch half of the chain.
+    #[test]
+    fn real_gsi_entrypoint_creates_tracks_and_finalizes_a_match_end_to_end() {
+        let app = tauri::test::mock_app();
+        app.manage(LocalRuntimeState::new());
+
+        let mut conn = Connection::open_in_memory().unwrap();
+        schema::migrate(&conn).unwrap();
+        let now = Utc::now();
+        let session = store::ensure_active_session(&mut conn, now).unwrap();
+        let session_local_id = session.local_id.clone();
+        *app.state::<LocalRuntimeState>().lock() = Some(conn);
+
+        let handle = app.handle();
+        let tick = |game_state: &str, win_team: Option<&str>| {
+            let mut payload = serde_json::json!({
+                "map": { "game_state": game_state, "matchid": "555" },
+                "player": { "activity": "playing", "team_name": "radiant" },
+                "hero": { "id": 14 },
+            });
+            if let Some(win_team) = win_team {
+                payload["map"]["win_team"] = serde_json::json!(win_team);
+            }
+            handle_gsi(handle, &payload);
+        };
+
+        tick("DOTA_GAMERULES_STATE_HERO_SELECTION", None);
+        tick("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", None);
+        tick("DOTA_GAMERULES_STATE_POST_GAME", Some("radiant")); // first observation
+        tick("DOTA_GAMERULES_STATE_POST_GAME", Some("radiant")); // confirming observation
+
+        let state = app.state::<LocalRuntimeState>();
+        let mut guard = state.lock();
+        let conn = guard.as_mut().unwrap();
+
+        assert!(
+            store::find_active_match(conn, &session_local_id).unwrap().is_none(),
+            "the match must be finalized (no longer active) after a confirmed post-game result"
+        );
+        let match_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM local_matches WHERE session_local_id = ?1", params![session_local_id], |row| row.get(0))
+            .unwrap();
+        assert_eq!(match_count, 1, "exactly one LocalMatch must exist for the whole sequence, not one per tick");
+        let (match_state, result): (String, String) = conn
+            .query_row("SELECT state, result FROM local_matches WHERE session_local_id = ?1", params![session_local_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(match_state, "finalized");
+        assert_eq!(result, "win");
+
+        let outbox_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sync_outbox WHERE event_type = 'match_finalized'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(outbox_count, 1, "exactly one match_finalized sync event must be enqueued");
+
+        // Recent-match query (what Главная actually reads, see
+        // local_runtime::summary) must return this match too.
+        let recent = store::list_recent_matches(conn, &session_local_id, 10).unwrap();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].match_id.as_deref(), Some("555"));
+    }
+
+    // WK-116 - same real entry point, proving a GSI tick is silently
+    // ignored (not queued, not errored, not logged as a match) when no
+    // LocalSession is open - the exact symptom the OBS-watcher bug produced
+    // in production. Pins the CURRENT, intentional contract (session
+    // creation is exclusively OBS-driven, see this function's own doc
+    // comment) so a future change can't reintroduce silent GSI-triggered
+    // session creation without this test forcing a conscious decision.
+    #[test]
+    fn real_gsi_entrypoint_ignores_ticks_when_no_local_session_is_open() {
+        let app = tauri::test::mock_app();
+        app.manage(LocalRuntimeState::new());
+
+        let conn = Connection::open_in_memory().unwrap();
+        schema::migrate(&conn).unwrap();
+        *app.state::<LocalRuntimeState>().lock() = Some(conn);
+
+        let handle = app.handle();
+        handle_gsi(
+            handle,
+            &serde_json::json!({
+                "map": { "game_state": "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", "matchid": "1" },
+                "player": { "activity": "playing", "team_name": "radiant" },
+                "hero": { "id": 14 },
+            }),
+        );
+
+        let state = app.state::<LocalRuntimeState>();
+        let mut guard = state.lock();
+        let conn = guard.as_mut().unwrap();
+        let session_count: i64 = conn.query_row("SELECT COUNT(*) FROM local_sessions", [], |row| row.get(0)).unwrap();
+        let match_count: i64 = conn.query_row("SELECT COUNT(*) FROM local_matches", [], |row| row.get(0)).unwrap();
+        assert_eq!(session_count, 0, "handle_gsi must never create a session itself");
+        assert_eq!(match_count, 0, "a tick with no open session must never create a match");
     }
 
     // WK-111 acceptance criterion #2: Companion closed mid-match, reopened -

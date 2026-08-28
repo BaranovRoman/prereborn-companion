@@ -99,7 +99,7 @@ export function DiagnosticsPanel({ status, refresh }: Props) {
         <button onClick={() => run(dotaCompanionApi.diagnosticsClear)} disabled={busy || active || !hasSession}>
           Очистить диагностические логи
         </button>
-        <button onClick={handleExport} disabled={busy || !hasSession}>
+        <button onClick={handleExport} disabled={busy}>
           Экспортировать диагностику (ZIP)
         </button>
       </div>

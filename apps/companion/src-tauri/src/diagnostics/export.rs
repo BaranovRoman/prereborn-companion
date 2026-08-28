@@ -207,6 +207,7 @@ pub fn export_zip(
     catalog_fields: &[&FieldInfo],
     manifest: &Manifest,
     generated_at: &str,
+    app_log: &[u8],
     output_path: &Path,
 ) -> Result<(), String> {
     let file = fs::File::create(output_path).map_err(|e| format!("could not create {}: {e}", output_path.display()))?;
@@ -284,6 +285,12 @@ pub fn export_zip(
 
     write_entry(&mut zip, "README.txt", README_TEMPLATE.as_bytes())?;
 
+    // WK-116 - the always-on bounded runtime log (session/match/scene/sync
+    // checkpoints - see storage::append_rolling_log's call sites), included
+    // unconditionally so this ZIP alone is enough to investigate a wiring
+    // problem even if diagnostics-mode capture was never explicitly started.
+    write_entry(&mut zip, "app.log", app_log)?;
+
     zip.finish().map_err(|e| format!("finalizing zip: {e}"))?;
     Ok(())
 }
@@ -332,7 +339,7 @@ mod tests {
         };
 
         let output = dir.path().join("out.zip");
-        export_zip(&session_dir, &fields, &manifest, "2026-07-25T11:00:00+07:00", &output).expect("export should succeed");
+        export_zip(&session_dir, &fields, &manifest, "2026-07-25T11:00:00+07:00", b"[log] line one\n", &output).expect("export should succeed");
 
         let file = fs::File::open(&output).unwrap();
         let mut archive = zip::ZipArchive::new(file).unwrap();
@@ -351,9 +358,14 @@ mod tests {
             "errors.json",
             "snapshots/0001-initial.json",
             "README.txt",
+            "app.log",
         ] {
             assert!(names.contains(&expected.to_string()), "missing {expected} in {names:?}");
         }
+
+        let mut app_log_content = String::new();
+        archive.by_name("app.log").unwrap().read_to_string(&mut app_log_content).unwrap();
+        assert_eq!(app_log_content, "[log] line one\n");
 
         let mut content = String::new();
         archive.by_name("manifest.json").unwrap().read_to_string(&mut content).unwrap();
@@ -410,7 +422,7 @@ mod tests {
             size_limit_reached: false,
         };
         let output = dir.path().join("with-tts.zip");
-        export_zip(&session_dir, &[], &manifest, "2026-08-19T10:05:00+03:00", &output).unwrap();
+        export_zip(&session_dir, &[], &manifest, "2026-08-19T10:05:00+03:00", b"", &output).unwrap();
 
         let file = fs::File::open(&output).unwrap();
         let mut archive = zip::ZipArchive::new(file).unwrap();
@@ -426,7 +438,7 @@ mod tests {
         fs::write(session_dir_no_tts.join("timeline.jsonl"), "").unwrap();
         fs::write(session_dir_no_tts.join("errors.jsonl"), "").unwrap();
         let output2 = dir.path().join("without-tts.zip");
-        export_zip(&session_dir_no_tts, &[], &manifest, "2026-08-19T10:05:00+03:00", &output2).unwrap();
+        export_zip(&session_dir_no_tts, &[], &manifest, "2026-08-19T10:05:00+03:00", b"", &output2).unwrap();
         let file2 = fs::File::open(&output2).unwrap();
         let mut archive2 = zip::ZipArchive::new(file2).unwrap();
         let names2: Vec<String> = (0..archive2.len()).map(|i| archive2.by_index(i).unwrap().name().to_string()).collect();
@@ -455,7 +467,7 @@ mod tests {
             size_limit_reached: false,
         };
         let output = dir.path().join("empty.zip");
-        export_zip(&session_dir, &[], &manifest, "2026-07-25T10:00:01+07:00", &output)
+        export_zip(&session_dir, &[], &manifest, "2026-07-25T10:00:01+07:00", b"", &output)
             .expect("export of an empty session should still succeed");
         assert!(output.exists());
     }
@@ -499,7 +511,7 @@ mod tests {
             size_limit_reached: false,
         };
         let output = dir.path().join("out2.zip");
-        export_zip(&session_dir, &fields, &manifest, "2026-07-25T11:00:00+07:00", &output).unwrap();
+        export_zip(&session_dir, &fields, &manifest, "2026-07-25T11:00:00+07:00", b"", &output).unwrap();
 
         let file = fs::File::open(&output).unwrap();
         let mut archive = zip::ZipArchive::new(file).unwrap();

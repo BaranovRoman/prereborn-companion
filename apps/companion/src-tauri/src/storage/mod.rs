@@ -4,13 +4,20 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use chrono::Local;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 use crate::obs::ObsConfig;
 
 const ROLLING_LOG_NAME: &str = "app.log";
 const ROLLING_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
 
-pub fn logs_root(app: &AppHandle) -> PathBuf {
+// WK-116 - generic over `R: Runtime` (rather than the bare `AppHandle`
+// alias, which defaults to the concrete `Wry` runtime) so this - and
+// `append_rolling_log`/`read_rolling_log` below, which route through it -
+// can be called from an integration test driving a `tauri::test::mock_app`
+// (a different, `MockRuntime`-backed `AppHandle`). Every existing call site
+// keeps compiling unchanged: passing a concrete `&AppHandle` (`Wry`) still
+// satisfies `&AppHandle<R>` via ordinary type inference with `R = Wry`.
+pub fn logs_root<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
     app.path()
         .app_data_dir()
         .expect("app_data_dir must resolve")
@@ -75,7 +82,7 @@ pub fn init(app: &AppHandle) -> std::io::Result<()> {
     Ok(())
 }
 
-fn rolling_log_path(app: &AppHandle) -> PathBuf {
+fn rolling_log_path<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
     logs_root(app).join(ROLLING_LOG_NAME)
 }
 
@@ -88,7 +95,18 @@ fn rotate_if_needed(path: &PathBuf) {
     }
 }
 
-pub fn append_rolling_log(app: &AppHandle, line: &str) {
+// WK-116 - the always-on rolling log (bounded at ROLLING_LOG_MAX_BYTES) is
+// the one artifact that exists regardless of whether the user ever thought
+// to turn on diagnostics-mode capture before something went wrong - see
+// diagnostics::export, which now bundles this into the exported ZIP
+// unconditionally so a single Diagnostics export is enough for the next
+// investigation, per the задача's explicit "не входит в diagnostics ZIP -
+// добавь" instruction.
+pub fn read_rolling_log<R: Runtime>(app: &AppHandle<R>) -> Vec<u8> {
+    fs::read(rolling_log_path(app)).unwrap_or_default()
+}
+
+pub fn append_rolling_log<R: Runtime>(app: &AppHandle<R>, line: &str) {
     let path = rolling_log_path(app);
     rotate_if_needed(&path);
     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");

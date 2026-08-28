@@ -55,4 +55,13 @@ winreg = "0.52"
 
 [dev-dependencies]
 tempfile = "3"
+# WK-116 - enables tauri::test::mock_app() so integration tests can drive
+# real AppHandle-shaped entry points (local_runtime::handle_gsi,
+# local_runtime::lifecycle::on_obs_streaming_known) end to end, the same way
+# the real GSI server/OBS watcher call them - previously only the pure
+# decision functions underneath them were unit-testable, which is exactly
+# how a broken call-site (see the WK-116 report) went undetected. This only
+# affects test builds - "test" is not enabled for the main [dependencies]
+# tauri entry, so the shipped binary is unaffected.
+tauri = { version = "2", features = ["test"] }
 

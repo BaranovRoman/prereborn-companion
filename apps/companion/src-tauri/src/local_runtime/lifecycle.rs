@@ -14,6 +14,8 @@
 // ended session on OBS scene automation) `obs::handle_session_state`, which
 // is itself local (no backend call - see obs.rs).
 
+use std::sync::Mutex;
+
 use chrono::{DateTime, Duration, Utc};
 use rusqlite::Connection;
 use serde::Serialize;
@@ -22,6 +24,11 @@ use tauri::{AppHandle, Manager};
 use super::model::LocalSession;
 use super::store;
 use super::LocalRuntimeState;
+
+/// WK-116 - dedupes the stale-session log line (see `apply`'s
+/// `FlagStaleForManualRecovery` arm) so it's written once per distinct
+/// session, not once per 2s sweep tick for as long as it stays unacknowledged.
+static LAST_STALE_LOGGED: Mutex<Option<String>> = Mutex::new(None);
 
 /// Grace period after OBS reports "not streaming" before a session is
 /// actually ended - protects against a brief OBS/RTMP hiccup or a quick
@@ -128,11 +135,33 @@ fn decide_with(
 /// "ended" while SQLite still says the session is open, or vice versa.
 fn apply(app: &AppHandle, conn: &mut Connection, open_session: Option<&SessionLifecycleView>, decision: LifecycleDecision, now: DateTime<Utc>) {
     match decision {
-        LifecycleDecision::NoOp | LifecycleDecision::FlagStaleForManualRecovery => {}
+        LifecycleDecision::NoOp => {}
+        // WK-116 observability - a stale open session is exactly the shape
+        // of thing that silently masks the "why aren't new matches showing
+        // up" question during a support investigation. `reconcile` runs
+        // every SWEEP_INTERVAL (2s) via the sweep thread, so this would
+        // otherwise repeat identically for as long as the session stays
+        // unacknowledged - logged once per distinct session instead (see
+        // `LAST_STALE_LOGGED`), not once per tick.
+        LifecycleDecision::FlagStaleForManualRecovery => {
+            if let Some(session) = open_session {
+                let mut last = LAST_STALE_LOGGED.lock().unwrap();
+                if last.as_deref() != Some(session.local_id.as_str()) {
+                    crate::storage::append_rolling_log(
+                        app,
+                        &format!("Local lifecycle: session={} flagged stale, needs manual recovery", session.local_id),
+                    );
+                    *last = Some(session.local_id.clone());
+                }
+            }
+        }
         LifecycleDecision::StartNewSession => {
             if let Err(error) = store::ensure_active_session(conn, now) {
                 log_error(app, "ensure_active_session", &error);
                 return;
+            }
+            if let Ok(Some(session)) = store::find_open_session(conn) {
+                crate::storage::append_rolling_log(app, &format!("Local session started: session={}", session.local_id));
             }
             crate::obs::handle_session_state(app, false);
         }
@@ -164,6 +193,7 @@ fn apply(app: &AppHandle, conn: &mut Connection, open_session: Option<&SessionLi
                 log_error(app, "finalize_session_end", &error);
                 return;
             }
+            crate::storage::append_rolling_log(app, &format!("Local session ended: session={}", session.local_id));
             crate::obs::handle_session_state(app, true);
         }
     }

@@ -538,21 +538,39 @@ fn fetch_stream_status(socket: &mut ObsSocket) -> Result<bool, String> {
 /// `obs_state` at all - only `local_runtime::lifecycle::on_obs_streaming_known`,
 /// which records the streaming truth and reconciles the local session
 /// lifecycle. Started once from `init`, runs for the app's lifetime.
+///
+/// WK-116 P0 FIX - this used to also gate on `obs_config.enabled` ("should
+/// Companion auto-switch OBS scenes"), which is an orthogonal, purely
+/// cosmetic preference. Since `enabled` defaults to `false` and many
+/// streamers legitimately run in manual scene mode, that gate meant this
+/// watcher - the ONLY source of OBS streaming truth for
+/// `local_runtime::lifecycle` - never even attempted to connect, so
+/// LocalSession was never created or ended, which meant `local_runtime::
+/// handle_gsi` early-returned on every GSI tick (no open session to attach
+/// to) and NO match/MMR tracking ever ran at all, regardless of scene
+/// automation. "Is OBS streaming" must always be observed - it drives the
+/// local session lifecycle unconditionally, per WK-112's own design intent
+/// (see this module's other doc comments). Whether Companion *acts* on GSI
+/// to switch scenes is still correctly gated by `enabled`, inside
+/// `schedule_switch`'s `require_enabled` check - untouched here.
 pub fn start_stream_state_watcher(app: AppHandle) {
     std::thread::spawn(move || {
         let mut attempt: u32 = 0;
+        // WK-116 - now that this watcher always runs (see the fix above),
+        // a user with no OBS at all would otherwise get the exact same
+        // "connection refused" line logged on every single retry, forever.
+        // Logged only when the error text actually changes (or on the very
+        // first attempt), not on every repeat of an already-known failure.
+        let mut last_logged_error: Option<String> = None;
         loop {
-            let enabled = app.state::<AppState>().0.lock().unwrap().obs_config.enabled;
-            if !enabled {
-                // Not configured/enabled at all - don't hammer localhost:4455
-                // forever; re-check occasionally in case the user enables it
-                // in Настройки while Companion is running.
-                std::thread::sleep(Duration::from_secs(2));
-                continue;
-            }
             let config = app.state::<AppState>().0.lock().unwrap().obs_config.clone();
             if let Err(error) = run_stream_state_watcher_once(&app, &config) {
-                storage::append_rolling_log(&app, &format!("OBS stream-state watcher: {error}"));
+                if last_logged_error.as_deref() != Some(error.as_str()) {
+                    storage::append_rolling_log(&app, &format!("OBS stream-state watcher: {error}"));
+                    last_logged_error = Some(error);
+                }
+            } else {
+                last_logged_error = None;
             }
             // Any exit from run_stream_state_watcher_once (connect failure,
             // auth failure, or the read loop's connection dropping) means
