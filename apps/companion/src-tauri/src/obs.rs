@@ -147,9 +147,27 @@ impl BroadcastScene {
 // right now". Extracted as a pure function (no AppState/IO) so this is
 // unit-testable without spinning up a thread or a real OBS connection - see
 // schedule_switch, its only caller, and the tests module below.
-fn resolve_desired_scene(requested: BroadcastScene, session_ended: bool, manual_summary_override: bool) -> BroadcastScene {
+//
+// `post_stream_unavailable` (new) - Post Stream is an optional binding (see
+// the doc comment on `InnerState::obs_post_stream_unavailable`). When OBS has
+// just told us the mapped Post Stream scene doesn't exist in that canvas,
+// this resolves to BetweenMatches instead - the same "idle/no active match"
+// scene GSI itself already falls back to for every other not-playing state
+// (see `from_gsi`) - rather than leaving the switch attempt failing forever
+// and OBS stuck on whatever scene was active before (gameplay/draft). This
+// is the one new fallback rule; no new scene/state is invented.
+fn resolve_desired_scene(
+    requested: BroadcastScene,
+    session_ended: bool,
+    manual_summary_override: bool,
+    post_stream_unavailable: bool,
+) -> BroadcastScene {
     if session_ended || manual_summary_override {
-        BroadcastScene::PostStream
+        if post_stream_unavailable {
+            BroadcastScene::BetweenMatches
+        } else {
+            BroadcastScene::PostStream
+        }
     } else {
         requested
     }
@@ -346,13 +364,37 @@ fn request(
         .and_then(Value::as_bool)
         .unwrap_or(false);
     if !ok {
+        // WK-115 audit - the request's own `requestType`/`code` used to be
+        // dropped here, leaving only the (sometimes absent) `comment` behind
+        // a generic "неизвестная ошибка" - impossible to tell "OBS refused
+        // the password" from "the scene doesn't exist" from the log alone.
+        // `code` is what `is_resource_not_found` below keys off (604 =
+        // obs-websocket's RESOURCE_NOT_FOUND) to detect a missing Post
+        // Stream scene specifically, rather than guessing from `comment`'s
+        // free-text wording.
+        let code = response
+            .pointer("/d/requestStatus/code")
+            .and_then(Value::as_i64);
         let comment = response
             .pointer("/d/requestStatus/comment")
             .and_then(Value::as_str)
-            .unwrap_or("неизвестная ошибка");
-        return Err(format!("OBS: {comment}"));
+            .unwrap_or("OBS не указал причину ошибки");
+        return Err(match code {
+            Some(code) => format!("OBS {request_type}: {comment} (код {code})"),
+            None => format!("OBS {request_type}: {comment}"),
+        });
     }
     Ok(response)
+}
+
+// obs-websocket v5 RequestStatus code 604 = RESOURCE_NOT_FOUND - returned by
+// e.g. SetCurrentProgramScene when the named scene doesn't exist in the
+// current canvas ("No source was found by the name of 'X' within the canvas
+// 'Main'"). Matched on the code embedded by `request` above, not on the
+// free-text comment, so this stays correct regardless of OBS's own message
+// wording/localization.
+fn is_resource_not_found(error: &str) -> bool {
+    error.contains("(код 604)")
 }
 
 pub fn test_connection(config: &ObsConfig) -> Result<Vec<String>, String> {
@@ -414,6 +456,12 @@ pub fn handle_session_state(app: &AppHandle, ended: bool) {
         // stream and keep OBS stuck on Post Stream.
         if !ended {
             inner.obs_manual_summary_override = false;
+            // WK-115 audit - same reasoning: a Post Stream binding that was
+            // unavailable on last stream's end must get a fresh attempt on
+            // the next one, not stay silently downgraded to the
+            // BetweenMatches fallback forever (e.g. after the streamer
+            // creates the missing scene in OBS between streams).
+            inner.obs_post_stream_unavailable = false;
         }
     }
     if ended {
@@ -421,16 +469,24 @@ pub fn handle_session_state(app: &AppHandle, ended: bool) {
     }
 }
 
-fn schedule_switch(app: &AppHandle, desired: BroadcastScene, require_enabled: bool) {
+fn schedule_switch(app: &AppHandle, requested: BroadcastScene, require_enabled: bool) {
     // WK-99 - resolved once, here, and shadowed for the rest of the
     // function (including the spawned thread below) - every caller
     // (handle_gsi, handle_remote_command, reapply_current_mapping,
     // handle_session_state) gets the ended-wins-over-everything precedence
-    // for free, see resolve_desired_scene.
+    // for free, see resolve_desired_scene. `requested` is kept around
+    // (WK-115 audit) purely for the log line below, so a support log can
+    // show "what GSI/the caller originally asked for" separately from "what
+    // this actually resolved/fell back to".
     let (desired, config) = {
         let state = app.state::<AppState>();
         let mut inner = state.0.lock().unwrap();
-        let desired = resolve_desired_scene(desired, inner.session_ended, inner.obs_manual_summary_override);
+        let desired = resolve_desired_scene(
+            requested,
+            inner.session_ended,
+            inner.obs_manual_summary_override,
+            inner.obs_post_stream_unavailable,
+        );
         if require_enabled && !inner.obs_config.enabled {
             return;
         }
@@ -483,6 +539,13 @@ fn schedule_switch(app: &AppHandle, desired: BroadcastScene, require_enabled: bo
                         inner.obs_retry_scene = Some(inner.obs_retry_scene.unwrap_or(desired));
                         inner.obs_retry_at = Some(Instant::now());
                     }
+                    // WK-115 audit - a Post Stream switch that succeeds
+                    // (e.g. the streamer created the scene and a later retry
+                    // went through) clears any earlier fallback-to-
+                    // BetweenMatches downgrade, restoring normal automation.
+                    if desired == BroadcastScene::PostStream {
+                        inner.obs_post_stream_unavailable = false;
+                    }
                 }
                 Err(error) => {
                     inner.obs_connected = false;
@@ -493,17 +556,42 @@ fn schedule_switch(app: &AppHandle, desired: BroadcastScene, require_enabled: bo
                     inner.obs_retry_attempt = inner.obs_retry_attempt.saturating_add(1);
                     inner.obs_retry_at =
                         Some(Instant::now() + retry_delay(inner.obs_retry_attempt));
+                    // WK-115 audit - the actual fix: Post Stream is optional
+                    // (see resolve_desired_scene's doc comment). If OBS just
+                    // told us the mapped Post Stream scene doesn't exist in
+                    // its canvas, don't leave the stream stuck on whatever
+                    // scene was active before (gameplay/draft) while this
+                    // keeps retrying a switch that can only ever fail the
+                    // same way - fall back to BetweenMatches (the existing
+                    // "no active match" scene) on the very next resolution.
+                    // Never creates an OBS scene; only changes what
+                    // Companion asks OBS to switch to.
+                    if desired == BroadcastScene::PostStream && is_resource_not_found(error) {
+                        inner.obs_post_stream_unavailable = true;
+                    }
                 }
             }
         }
+        // WK-115 audit - three explicit stages so a support log line answers
+        // "what was asked for", "what it actually resolved/fell back to",
+        // and "what OBS said" without cross-referencing other log lines;
+        // previously only the resolved scene and a possibly-generic error
+        // were logged.
+        let fallback_note = if requested != desired {
+            format!(" (fallback from {requested:?})")
+        } else {
+            String::new()
+        };
         storage::append_rolling_log(
             &app_for_switch,
             &match &result {
                 Ok(()) => format!(
-                    "OBS switched to '{}' ({desired:?}).",
+                    "OBS scene switch: requested={requested:?} resolved={desired:?}{fallback_note} -> switched to '{}'.",
                     desired.obs_scene_name(&config)
                 ),
-                Err(error) => format!("OBS scene switch failed: {error}"),
+                Err(error) => format!(
+                    "OBS scene switch: requested={requested:?} resolved={desired:?}{fallback_note} -> failed: {error}"
+                ),
             },
         );
         let _ = app_for_switch.emit("obs-status", app_for_switch.state::<AppState>().snapshot());
@@ -780,15 +868,15 @@ mod tests {
         #[test]
         fn active_session_requests_the_normal_gsi_derived_scene() {
             assert_eq!(
-                resolve_desired_scene(BroadcastScene::Gameplay, false, false),
+                resolve_desired_scene(BroadcastScene::Gameplay, false, false, false),
                 BroadcastScene::Gameplay
             );
             assert_eq!(
-                resolve_desired_scene(BroadcastScene::BetweenMatches, false, false),
+                resolve_desired_scene(BroadcastScene::BetweenMatches, false, false, false),
                 BroadcastScene::BetweenMatches
             );
             assert_eq!(
-                resolve_desired_scene(BroadcastScene::Draft, false, false),
+                resolve_desired_scene(BroadcastScene::Draft, false, false, false),
                 BroadcastScene::Draft
             );
         }
@@ -806,7 +894,7 @@ mod tests {
                 BroadcastScene::PostStream,
             ] {
                 assert_eq!(
-                    resolve_desired_scene(requested, true, false),
+                    resolve_desired_scene(requested, true, false, false),
                     BroadcastScene::PostStream
                 );
             }
@@ -819,7 +907,7 @@ mod tests {
             // GSI/remote-command/reapply requests must still resolve to it.
             for requested in [BroadcastScene::Gameplay, BroadcastScene::Draft, BroadcastScene::BetweenMatches] {
                 assert_eq!(
-                    resolve_desired_scene(requested, false, true),
+                    resolve_desired_scene(requested, false, true, false),
                     BroadcastScene::PostStream
                 );
             }
@@ -828,7 +916,7 @@ mod tests {
         #[test]
         fn clearing_the_manual_summary_override_lets_the_requested_scene_through_again() {
             assert_eq!(
-                resolve_desired_scene(BroadcastScene::Gameplay, false, false),
+                resolve_desired_scene(BroadcastScene::Gameplay, false, false, false),
                 BroadcastScene::Gameplay
             );
         }
@@ -846,7 +934,7 @@ mod tests {
             }));
             assert_eq!(post_game_desired, BroadcastScene::BetweenMatches);
             assert_eq!(
-                resolve_desired_scene(post_game_desired, false, false),
+                resolve_desired_scene(post_game_desired, false, false, false),
                 BroadcastScene::BetweenMatches
             );
         }
@@ -861,9 +949,61 @@ mod tests {
             let desired = BroadcastScene::from_gsi(&json!({}));
             assert_eq!(desired, BroadcastScene::BetweenMatches);
             assert_eq!(
-                resolve_desired_scene(desired, false, false),
+                resolve_desired_scene(desired, false, false, false),
                 BroadcastScene::BetweenMatches
             );
+        }
+
+        // WK-115 audit - "Post Stream должен быть optional": if OBS has
+        // already told us the mapped scene doesn't exist
+        // (post_stream_unavailable), an ended/pinned session must resolve to
+        // the existing BetweenMatches ("no active match") scene instead of
+        // repeatedly asking OBS for a scene that can only fail the same way -
+        // never left resolving to a stale gameplay/draft scene, and never a
+        // new invented scene.
+        #[test]
+        fn post_stream_unavailable_falls_back_to_between_matches_when_session_ended() {
+            for requested in [
+                BroadcastScene::Gameplay,
+                BroadcastScene::Draft,
+                BroadcastScene::BetweenMatches,
+                BroadcastScene::PostStream,
+            ] {
+                assert_eq!(
+                    resolve_desired_scene(requested, true, false, true),
+                    BroadcastScene::BetweenMatches
+                );
+            }
+        }
+
+        #[test]
+        fn post_stream_unavailable_falls_back_to_between_matches_under_manual_summary_override_too() {
+            assert_eq!(
+                resolve_desired_scene(BroadcastScene::Gameplay, false, true, true),
+                BroadcastScene::BetweenMatches
+            );
+        }
+
+        #[test]
+        fn post_stream_unavailable_has_no_effect_while_the_session_is_active() {
+            // The flag only ever matters once ended/override would otherwise
+            // request Post Stream - it must not itself force a scene change
+            // during normal GSI-driven automation.
+            assert_eq!(
+                resolve_desired_scene(BroadcastScene::Gameplay, false, false, true),
+                BroadcastScene::Gameplay
+            );
+        }
+
+        #[test]
+        fn resource_not_found_code_is_detected_from_the_formatted_obs_error() {
+            assert!(is_resource_not_found(
+                "OBS SetCurrentProgramScene: No source was found by the name of 'Dota — Post Stream' within the canvas 'Main' (код 604)"
+            ));
+            assert!(!is_resource_not_found("OBS WebSocket: connection reset"));
+            assert!(!is_resource_not_found(
+                "OBS SetCurrentProgramScene: неверный пароль (код 201)"
+            ));
         }
 
         #[test]
@@ -934,6 +1074,13 @@ mod tests {
             // WK-114 - "Итоги стрима" must never be on by default; only an
             // explicit show_stream_summary_scene call turns it on.
             assert!(!crate::state::InnerState::default().obs_manual_summary_override);
+        }
+
+        #[test]
+        fn post_stream_unavailable_defaults_to_false_so_a_configured_scene_is_tried_first() {
+            // WK-115 audit - the fallback must never be assumed up front; it
+            // only turns on after OBS actually reports the scene missing.
+            assert!(!crate::state::InnerState::default().obs_post_stream_unavailable);
         }
 
         // "OBS unavailable / Post Stream scene not configured must not block

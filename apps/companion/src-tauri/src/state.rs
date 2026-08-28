@@ -169,6 +169,21 @@ pub struct InnerState {
     // Defaults to `false` (Default derive) - automation is unaffected until
     // the user explicitly asks to see the summary scene.
     pub obs_manual_summary_override: bool,
+    // WK-115 audit - Post Stream is an optional OBS binding: the streamer
+    // may never have created that scene in OBS at all. Set by
+    // obs::schedule_switch when a switch to Post Stream fails specifically
+    // because OBS reports the mapped scene doesn't exist (obs-websocket
+    // RESOURCE_NOT_FOUND, see obs::is_resource_not_found) - from then on,
+    // obs::resolve_desired_scene falls back to BetweenMatches instead of
+    // repeatedly retrying a switch that can only fail the same way, so an
+    // ended/manually-pinned session never leaves OBS stuck on a stale
+    // gameplay/draft scene just because Post Stream isn't set up. Cleared
+    // by obs::handle_session_state on the next local session start and by
+    // commands::save_obs_config, so fixing the scene (or the mapping) gets
+    // a fresh attempt without requiring a Companion restart. Defaults to
+    // `false` (Default derive) - unaffected until a real "scene not found"
+    // failure is observed.
+    pub obs_post_stream_unavailable: bool,
 }
 
 pub struct AppState(pub Mutex<InnerState>);

@@ -267,6 +267,11 @@ pub fn save_obs_config(
         if !automation_was_enabled && inner.obs_config.enabled {
             inner.obs_active_scene_name = None;
         }
+        // WK-115 audit - a settings save is the user actively fixing their
+        // OBS setup (e.g. creating/renaming the Post Stream scene); give
+        // the mapped scene a fresh attempt instead of staying downgraded to
+        // the BetweenMatches fallback from an earlier failed switch.
+        inner.obs_post_stream_unavailable = false;
         match &verification {
             Ok(_) => {
                 inner.obs_connected = true;

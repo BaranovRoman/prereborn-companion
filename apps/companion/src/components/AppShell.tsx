@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { AppAtmosphere } from "./AppAtmosphere";
 import { ProblemBar } from "./ProblemBar";
 import { SessionPromptBanner } from "./SessionPromptBanner";
 import { SettingsModal } from "./SettingsModal";
@@ -112,6 +113,10 @@ export function AppShell() {
 
   return (
     <div className="app-shell">
+      {/* WK-115 audit - mounted once here, outside every tab's conditional
+          render below, so the atmosphere never remounts/flickers when
+          `section` changes - see AppAtmosphere.tsx. */}
+      <AppAtmosphere />
       <header className="app-header">
         <div className="app-header__left">
           <button className="app-header__gear" onClick={() => setSettingsOpen(true)} aria-label="Настройки">⚙</button>
