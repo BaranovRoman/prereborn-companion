@@ -112,15 +112,17 @@ h1, h2, p { margin-top: 0; }
 
    Assets/values are ported from apps/web's own reference implementation of
    this same look (queue-scene.module.scss / queue-tree-layers.tsx /
-   app-atmosphere) - same tree images (copied into public/atmosphere, since
-   Companion is a separate Vite app with nothing shared to import from), same
-   color language. The web version's animated WebGL2 fog canvas is
-   deliberately not ported - see AppAtmosphere.tsx's doc comment - this uses
-   only that same component's plain-CSS fog gradients, cheap
-   GPU-composited transform animations, nothing per-frame. Opacities are
-   trimmed down a bit further than the web reference (which is meant to fill
-   an entire OBS scene) since Companion's own UI text sits directly on top of
-   this on every tab and needs to stay comfortably readable.
+   app-atmosphere/red-fog-background.tsx) - same tree images (copied into
+   public/atmosphere, since Companion is a separate Vite app with nothing
+   shared to import from), same color language, same tree opacities/filters/
+   masks (byte-identical to web's - see AppAtmosphere.tsx's doc comment for
+   why WK-116 reversed the earlier CSS-only-fallback decision and restored
+   these to web's exact values instead of the WK-115 pass's toned-down
+   ones). WK-116 - the animated WebGL2 fog/ember canvas
+   (.app-atmosphere__canvas below, driven by ../atmosphere/RedFogBackground)
+   is back too, at web's own `quality="medium"` preset (not a Companion-
+   specific downgrade - that's literally what web's own AppAtmosphere uses
+   for this exact ambient-background role, see AppAtmosphere.tsx).
    ----------------------------------------------------------------------- */
 .app-atmosphere {
   position: fixed;
@@ -191,7 +193,7 @@ h1, h2, p { margin-top: 0; }
 .app-atmosphere__tree-far {
   z-index: 0;
   inset-block: -12% -7%;
-  opacity: .30;
+  opacity: .25;
   filter: blur(.9px) brightness(.24) contrast(1.04) saturate(.62) sepia(.24);
   animation: atmosphereTreeDriftFar var(--tree-far-duration) ease-in-out infinite;
 }
@@ -207,7 +209,7 @@ h1, h2, p { margin-top: 0; }
 .app-atmosphere__tree-distant {
   z-index: 1;
   inset: 9% 10% 5% 12%;
-  opacity: .08;
+  opacity: .06;
   filter: blur(5px) brightness(.30) saturate(.50) sepia(.26);
   transform: translate3d(-14%, 4%, 0) scale(.84);
   transform-origin: 42% 58%;
@@ -222,7 +224,7 @@ h1, h2, p { margin-top: 0; }
 .app-atmosphere__tree-middle {
   z-index: 4;
   inset-block: -10% -7%;
-  opacity: .65;
+  opacity: .75;
   filter: brightness(.24) contrast(1.12) saturate(.48) sepia(.18);
   animation: atmosphereTreeDriftMiddle var(--tree-middle-duration) cubic-bezier(.45, .02, .55, .98) infinite;
 }
@@ -238,7 +240,7 @@ h1, h2, p { margin-top: 0; }
 .app-atmosphere__tree-near {
   z-index: 6;
   inset-block: -14% -12%;
-  opacity: .52;
+  opacity: .61;
   filter: brightness(.20) contrast(1.18) saturate(.52) sepia(.22);
   animation: atmosphereTreeDriftNear var(--tree-near-duration) cubic-bezier(.42, .04, .58, .96) infinite;
 }
@@ -250,6 +252,27 @@ h1, h2, p { margin-top: 0; }
     linear-gradient(to right, rgba(0, 0, 0, .32) 0%, black 18%, black 88%, rgba(0, 0, 0, .78) 100%);
   mask-composite: intersect;
 }
+
+/* WK-116 - the animated fog/ember shader canvas (RedFogBackground). Sits at
+   z-index 2, deliberately BETWEEN the far/distant tree layers (0/1) and the
+   middle/near ones (4/6) - not simply above or below every tree - so the
+   fog actually depth-composites with the trees instead of leaving their
+   mask-feathered edges resting on a flatter background behind everything.
+   Starts at opacity 0 and only reveals itself once the shader has actually
+   compiled (`--visible` toggled from RedFogBackground.tsx), so a slow/failed
+   WebGL2 init never flashes an empty black rectangle over the CSS fallback
+   underneath. */
+.app-atmosphere__canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  opacity: 0;
+}
+.app-atmosphere__canvas--visible { opacity: .90; }
 
 .app-atmosphere__fog-middle,
 .app-atmosphere__fog-front {
@@ -580,7 +603,8 @@ h1, h2, p { margin-top: 0; }
 .match-row { display: flex; align-items: center; gap: 14px; padding: 12px 6px; border-bottom: 1px solid var(--border); font-size: .95rem; }
 .match-row:last-child { border-bottom: 0; }
 .match-row--current { background: rgba(123,53,50,.10); }
-.match-row__hero { color: var(--ui-text); font-weight: 700; letter-spacing: .01em; flex-shrink: 0; min-width: 96px; }
+.match-row__hero { display: flex; align-items: center; gap: 8px; color: var(--ui-text); font-weight: 700; letter-spacing: .01em; flex-shrink: 0; min-width: 96px; }
+.match-row__hero-icon { width: 30px; height: 17px; border-radius: var(--radius); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); object-fit: cover; flex-shrink: 0; }
 .match-row__result { flex: 1; color: var(--ui-text-soft); }
 .match-row__result--win { color: var(--success); }
 .match-row__result--loss { color: var(--danger); }
@@ -652,9 +676,20 @@ h1, h2, p { margin-top: 0; }
    internally now. Bumped somewhat larger too, per the "большой размер на
    desktop" requirement - still well short of `100vw`/`100vh`, so this stays
    a modal, not an accidental fullscreen window. */
+/* WK-116 - "хочу большой системный экран примерно 90vw/90vh": the WK-115
+   fixed-size fix (960x720 capped) was correct on stability but still read
+   as a medium dialog, not a big options screen. Still `min()`-based (same
+   stability guarantee - fixed `height`, not `max-height`, so it can't
+   resize per-tab the way it did before WK-115 - see that fix's comment
+   above `.settings-modal__content`) and still capped well short of
+   `100vw`/`100vh` (a real frame of atmosphere stays visible around it, per
+   the task's explicit "не fullscreen"), just bigger: ~90vw/90vh on a normal
+   desktop, with a max so it doesn't sprawl absurdly wide on an ultrawide
+   monitor, and shrinks gracefully at the 960x640 minimum supported window
+   (90vw/90vh there is 864x576 - comfortably inside it). */
 .settings-modal {
-  width: min(960px, 92vw);
-  height: min(720px, 86vh);
+  width: min(1600px, 90vw);
+  height: min(920px, 90vh);
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
@@ -868,6 +903,88 @@ h1, h2, p { margin-top: 0; }
 .heroes-grid-wrap { display: grid; gap: 12px; }
 .heroes-grid__search { border: 1px solid var(--border); border-radius: var(--radius); padding: .6em .75em; color: var(--ui-text); background: linear-gradient(180deg, var(--ui-void), var(--ui-well)); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
 .heroes-grid__empty { grid-column: 1 / -1; margin: 0; padding: 20px; text-align: center; color: var(--ui-text-soft); }
+
+/* WK-116 - Dota-style hero portrait grid, ported from apps/web's Favorite
+   Heroes picker (queue-widgets-panel.module.scss's `.heroGrid`/`.heroTile`
+   - see HeroesGrid.tsx's doc comment). `auto-fill` instead of web's fixed
+   4-column sub-grids, since Companion has no attribute grouping to split
+   the grid by (~124 heroes flat) - everything else (aspect-ratio, idle
+   dim/desaturate, hover scale+glow, configured state, badge chip, name
+   overlay) matches web's recipe closely. */
+.attribute-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
+.attribute-column { min-width: 0; }
+.attribute-column h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; color: var(--ui-text-soft); font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.attribute-column h3 img { width: 18px; height: 18px; object-fit: contain; filter: drop-shadow(0 1px 4px rgba(0, 0, 0, .65)); }
+@media (max-width: 1300px) {
+  .attribute-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 860px) {
+  .attribute-grid { grid-template-columns: 1fr; }
+}
+
+.hero-portrait-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 8px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ui-void); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
+.hero-portrait-tile {
+  position: relative;
+  aspect-ratio: 1.78;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--ui-void);
+  box-shadow: inset 0 0 0 1px var(--ui-edge-soft);
+  cursor: pointer;
+  opacity: .78;
+  filter: grayscale(.42) brightness(.9);
+  transition: transform 140ms ease, border-color 140ms ease, filter 140ms ease, opacity 140ms ease, box-shadow 140ms ease;
+}
+.hero-portrait-tile__image { width: 100%; height: 100%; display: block; object-fit: cover; }
+.hero-portrait-tile__name {
+  position: absolute;
+  inset: auto 4px 4px;
+  overflow: hidden;
+  color: #fff;
+  font-size: .72rem;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 3px #000;
+  white-space: nowrap;
+}
+.hero-portrait-tile__badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 3px;
+  place-items: center;
+  border: 1px solid #1b0909;
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--ui-red-hover), #672b29);
+  color: #eee9df;
+  font-size: .68rem;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .55);
+}
+.hero-portrait-tile:hover:not(:disabled) {
+  z-index: 1;
+  border-color: #8c4a45;
+  transform: scale(1.055);
+  opacity: .94;
+  filter: grayscale(.12) brightness(.96);
+  box-shadow: inset 0 0 0 1px var(--ui-red-hover), 0 4px 12px rgba(0, 0, 0, .62);
+}
+.hero-portrait-tile--configured {
+  border-color: #9c514b;
+  opacity: 1;
+  filter: none;
+  box-shadow: inset 0 0 0 1px #b6665f, 0 0 12px rgba(129, 55, 51, .46);
+}
+@media (max-width: 860px) {
+  .hero-portrait-grid { grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }
+}
 
 .sound-modal__backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 20px; background: rgba(5,6,7,.72); }
 .sound-modal { width: min(480px, 100%); max-height: 82vh; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-panel), var(--ui-well)); box-shadow: inset 0 0 0 1px var(--ui-edge), 0 20px 48px rgba(0,0,0,.5); }

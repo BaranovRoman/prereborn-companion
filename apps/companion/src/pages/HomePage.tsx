@@ -2,6 +2,7 @@ import { CompanionTokenForm } from "../components/CompanionTokenForm";
 import { LocalStreamLifecycleCard } from "../components/LocalStreamLifecycleCard";
 import type { LocalLifecycleState } from "../hooks/useLocalLifecycle";
 import * as api from "../services/dotaCompanionApi";
+import { getHeroById } from "../services/heroCatalog";
 import type { LocalMatchSummary, LocalSessionSummary, StatusSnapshot } from "../types/status";
 import type { BackendStatusDescription } from "../utils/backendStatus";
 
@@ -30,11 +31,22 @@ function matchDelta(match: LocalMatchSummary): string | null {
   return delta >= 0 ? `+${delta}` : `${delta}`;
 }
 
+// WK-116 - parity audit: match rows used to show a raw "Герой #{id}" -
+// Companion already has a hero-sounds catalog with real display names, but
+// keyed by the string `npc_dota_hero_<name>` id, not GSI's numeric
+// heroId. heroCatalog.ts bridges the two (see its own doc comment) so
+// this can resolve a real name/portrait using data that's now genuinely
+// local, no backend round trip. Falls back to the old "Герой #{id}" text
+// for the (very rare/pre-1.0-catalog-update) case a heroId isn't found.
 function MatchRow({ match, current }: { match: LocalMatchSummary; current?: boolean }) {
   const delta = matchDelta(match);
+  const hero = getHeroById(match.heroId);
   return (
     <li className={`match-row ${current ? "match-row--current" : ""}`}>
-      <span className="match-row__hero">Герой #{match.heroId}</span>
+      <span className="match-row__hero">
+        {hero && <img className="match-row__hero-icon" src={hero.iconUrl} alt="" loading="lazy" />}
+        {hero?.localizedName ?? `Герой #${match.heroId}`}
+      </span>
       <span className={`match-row__result match-row__result--${match.result ?? "pending"}`}>
         {current && match.state !== "finalized"
           ? match.state === "post_game_pending" ? "Подтверждаем результат…" : match.state === "interrupted" ? "Матч прерван" : "Матч идёт"

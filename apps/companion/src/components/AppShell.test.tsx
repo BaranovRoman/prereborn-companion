@@ -18,6 +18,27 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
 }));
 
+// WK-116 - jsdom (this file's environment, see the directive above) has no
+// `window.matchMedia` implementation. AppShell now always mounts
+// AppAtmosphere -> RedFogBackground (the ported red-fog/tree-atmosphere
+// shader), which reads `prefers-reduced-motion` via `matchMedia` on every
+// mount - without this stub every test in this file throws before it can
+// render anything. WebGL2 itself needs no equivalent stub:
+// `canvas.getContext("webgl2")` already returns `null` under jsdom (no
+// native GPU backend), and RedFogBackground's own existing fallback path
+// (see its `!gl` branch) already handles that gracefully - ported as-is
+// from web, where the same jsdom gap already holds today.
+window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+  matches: false,
+  media: query,
+  onchange: null,
+  addEventListener: vi.fn(),
+  removeEventListener: vi.fn(),
+  addListener: vi.fn(),
+  removeListener: vi.fn(),
+  dispatchEvent: vi.fn(),
+}));
+
 let statusFixture: Record<string, unknown> = buildStatusFixture();
 
 function buildStatusFixture(overrides: Record<string, unknown> = {}) {
