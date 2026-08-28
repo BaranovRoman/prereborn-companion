@@ -13,6 +13,7 @@ import { useGsiEvents } from "../hooks/useGsiEvents";
 import { useLocalLifecycle } from "../hooks/useLocalLifecycle";
 import { useLocalSessionSummary } from "../hooks/useLocalSessionSummary";
 import { useStatus } from "../hooks/useStatus";
+import { useSyncOutboxStatus } from "../hooks/useSyncOutboxStatus";
 import { useStreamSessionPrompt } from "../hooks/useStreamSessionPrompt";
 import { useUpdater } from "../hooks/useUpdater";
 import { DiagnosticsPage } from "../pages/DiagnosticsPage";
@@ -52,6 +53,7 @@ export function AppShell() {
   const sessionPrompt = useStreamSessionPrompt();
   const localLifecycle = useLocalLifecycle();
   const sessionSummary = useLocalSessionSummary();
+  const syncStatus = useSyncOutboxStatus();
   const [section, setSection] = useState<Section>("home");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -144,7 +146,7 @@ export function AppShell() {
         </div>
       </header>
 
-      <ProblemBar status={status} backendStatus={backendStatus} />
+      <ProblemBar status={status} backendStatus={backendStatus} syncStatus={syncStatus} />
 
       <main className="main">
         <UpdateBanner
@@ -197,6 +199,7 @@ export function AppShell() {
             diagnosticsStatus={diagnostics.status}
             diagnosticsRefresh={diagnostics.refresh}
             sessionPrompt={sessionPrompt}
+            syncStatus={syncStatus}
           />
         )}
       </main>

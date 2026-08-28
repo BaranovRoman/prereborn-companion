@@ -98,6 +98,13 @@ export interface LocalSessionSummary {
   recentMatches: LocalMatchSummary[];
 }
 
+export interface SyncOutboxStatus {
+  pendingCount: number;
+  failedCount: number;
+  oldestPendingAt: string | null;
+  lastError: string | null;
+}
+
 export interface ObsConfig {
   enabled: boolean;
   host: string;

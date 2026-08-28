@@ -7,7 +7,7 @@ import { StatusChecklist } from "../components/StatusChecklist";
 import { StreamSessionCard } from "../components/StreamSessionCard";
 import type { StreamSessionPromptState } from "../hooks/useStreamSessionPrompt";
 import * as api from "../services/dotaCompanionApi";
-import type { DiagnosticsStatusSnapshot, LastEvent, StatusSnapshot } from "../types/status";
+import type { DiagnosticsStatusSnapshot, LastEvent, StatusSnapshot, SyncOutboxStatus } from "../types/status";
 
 interface Props {
   status: StatusSnapshot | null;
@@ -18,6 +18,7 @@ interface Props {
   diagnosticsStatus: DiagnosticsStatusSnapshot | null;
   diagnosticsRefresh: () => Promise<DiagnosticsStatusSnapshot | void>;
   sessionPrompt: StreamSessionPromptState;
+  syncStatus: SyncOutboxStatus | null;
 }
 
 // Companion UI 2.0 / WK-114 - "Диагностика": technical/troubleshooting tools
@@ -30,7 +31,7 @@ interface Props {
 // recovery/debug tool, not a day-to-day control - Диагностика is exactly
 // that surface.
 export function DiagnosticsPage({
-  status, busy, run, history, latestEvent, diagnosticsStatus, diagnosticsRefresh, sessionPrompt,
+  status, busy, run, history, latestEvent, diagnosticsStatus, diagnosticsRefresh, sessionPrompt, syncStatus,
 }: Props) {
   return (
     <div className="diagnostics-view">
@@ -50,7 +51,7 @@ export function DiagnosticsPage({
       <div className="diagnostic-card"><ActionButtons busy={busy} canOpenDotaFolder={!!status?.dota_found} legacyCleanupInProgress={!!status?.legacy_cleanup_in_progress} onInstallGsi={() => void run(api.installGsi)} onPickFolder={() => void run(api.pickDotaFolder)} onOpenDotaFolder={() => void run(api.openDotaFolder)} onOpenLogs={() => void run(api.openLogsFolder)} onClearLog={() => void run(api.clearLog)} onRefresh={() => void run(api.getStatus)} /></div>
       <div className="diagnostic-card"><LastEventPanel event={latestEvent} requestCount={status?.request_count ?? 0} /></div>
       <EventHistoryList events={history} />
-      <BackendStatusPanel status={status} busy={busy} onResend={() => void run(api.resendCurrentState)} />
+      <BackendStatusPanel status={status} busy={busy} onResend={() => void run(api.resendCurrentState)} syncStatus={syncStatus} />
       <DiagnosticsPanel status={diagnosticsStatus} refresh={diagnosticsRefresh} />
       {status?.log_dir && <p className="app__log-dir">Логи: {status.log_dir}</p>}
     </div>

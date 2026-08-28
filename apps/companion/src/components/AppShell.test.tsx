@@ -143,6 +143,10 @@ vi.mock("../hooks/useLocalLifecycle", () => ({
 vi.mock("../hooks/useLocalSessionSummary", () => ({
   useLocalSessionSummary: () => null,
 }));
+let syncStatusFixture: Record<string, unknown> | null = null;
+vi.mock("../hooks/useSyncOutboxStatus", () => ({
+  useSyncOutboxStatus: () => syncStatusFixture,
+}));
 vi.mock("../chat/useTwitchChatSession", () => ({
   useTwitchChatSession: () => ({
     skipHotkeyStatus: { enabled: false, shortcut: "CommandOrControl+Alt+F10", registered: false, lastError: null },
@@ -169,6 +173,7 @@ beforeEach(() => {
   localStorage.setItem("companion-setup-complete", "true");
   statusFixture = buildStatusFixture();
   sessionPromptFixture = buildSessionPromptFixture();
+  syncStatusFixture = null;
 });
 
 afterEach(() => {
@@ -372,6 +377,41 @@ describe("ProblemBar (Главная)", () => {
   });
 });
 
+// WK-119 - sync_outbox (WK-113) visibility: the brief's healthy/pending/
+// offline/dead-letter states, surfaced via the same ProblemBar rather than
+// a separate always-visible sync card.
+describe("ProblemBar sync visibility (WK-119)", () => {
+  it("renders nothing extra when the outbox is empty, even with pending/failed both zero", () => {
+    syncStatusFixture = { pendingCount: 0, failedCount: 0, oldestPendingAt: null, lastError: null };
+    render(<AppShell />);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("appends the pending count to the existing backend-unavailable warning instead of adding a second item", () => {
+    statusFixture = buildStatusFixture({ backend_state: "unavailable", backend_last_error: "503" });
+    syncStatusFixture = { pendingCount: 3, failedCount: 0, oldestPendingAt: null, lastError: null };
+    render(<AppShell />);
+    const bar = screen.getByText(/PreReborn недоступен/).closest(".problem-bar");
+    expect(bar).toBeTruthy();
+    expect(within(bar as HTMLElement).getByText(/Ожидает отправки: 3/)).toBeTruthy();
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+  });
+
+  it("does not show a pending count while the backend is healthy, even if the fixture reports one (avoids flicker during normal fast drain)", () => {
+    syncStatusFixture = { pendingCount: 2, failedCount: 0, oldestPendingAt: null, lastError: null };
+    render(<AppShell />);
+    expect(screen.queryByText(/Ожидает отправки/)).toBeNull();
+  });
+
+  it("shows a dead-letter problem bar (tone error) whenever events failed permanently, independent of backend connectivity", () => {
+    syncStatusFixture = { pendingCount: 0, failedCount: 2, oldestPendingAt: null, lastError: "422 invalid" };
+    render(<AppShell />);
+    const bar = screen.getByText("Часть данных не синхронизирована").closest(".problem-bar");
+    expect(bar?.className).toContain("problem-bar--error");
+    expect(screen.getByText(/2 событий отклонены сервером/)).toBeTruthy();
+  });
+});
+
 // WK-115 - the raw GSI/OBS error strings ProblemBar deliberately no longer
 // shows on Главная must still be available somewhere for troubleshooting -
 // Диагностика is that place (parity with the backend's own error line).
@@ -388,5 +428,27 @@ describe("Диагностика technical error detail", () => {
     render(<AppShell />);
     clickNav("Диагностика");
     expect(screen.queryByText("Технические ошибки")).toBeNull();
+  });
+});
+
+// WK-119 - Диагностика's Backend section is the fuller counterpart to
+// ProblemBar's brief pending/dead-letter surface (the задача's "ProblemBar +
+// Diagnostics details" requirement for dead-lettered sync events).
+describe("Диагностика sync outbox detail (WK-119)", () => {
+  it("shows pending and failed counts plus the last error when the outbox has both", () => {
+    syncStatusFixture = { pendingCount: 4, failedCount: 1, oldestPendingAt: new Date().toISOString(), lastError: "422 invalid payload" };
+    render(<AppShell />);
+    clickNav("Диагностика");
+    expect(screen.getByText(/Ожидают отправки: 4/)).toBeTruthy();
+    expect(screen.getByText(/Не удалось синхронизировать: 1/)).toBeTruthy();
+    expect(screen.getByText(/422 invalid payload/)).toBeTruthy();
+  });
+
+  it("shows neither line when the outbox is empty", () => {
+    syncStatusFixture = { pendingCount: 0, failedCount: 0, oldestPendingAt: null, lastError: null };
+    render(<AppShell />);
+    clickNav("Диагностика");
+    expect(screen.queryByText(/Ожидают отправки/)).toBeNull();
+    expect(screen.queryByText(/Не удалось синхронизировать/)).toBeNull();
   });
 });

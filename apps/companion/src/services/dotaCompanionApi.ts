@@ -24,7 +24,7 @@ export interface TwitchChatStatus {
   messages: TwitchChatMessage[];
 }
 import { invoke } from "@tauri-apps/api/core";
-import type { DiagnosticsStatusSnapshot, LifecycleStatus, LocalSessionSummary, ObsConfig, StatusSnapshot } from "../types/status";
+import type { DiagnosticsStatusSnapshot, LifecycleStatus, LocalSessionSummary, ObsConfig, StatusSnapshot, SyncOutboxStatus } from "../types/status";
 import type { StreamSessionSummary } from "../session/session-prompt";
 
 export const getStatus = () => invoke<StatusSnapshot>("get_status");
@@ -55,6 +55,9 @@ export const staleRecoveryEnd = () => invoke<void>("local_lifecycle_stale_end");
 
 // WK-114 - read-only local session/match/MMR data for Главная.
 export const getLocalSessionSummary = () => invoke<LocalSessionSummary>("get_local_session_summary");
+
+// WK-119 - read-only sync_outbox visibility (pending/dead-lettered counts).
+export const getSyncOutboxStatus = () => invoke<SyncOutboxStatus>("get_sync_outbox_status");
 
 // WK-81 - local Silero TTS sidecar, the primary (and, since WK-80 removed
 // Piper, only local) synthesis engine - system speechSynthesis is the
