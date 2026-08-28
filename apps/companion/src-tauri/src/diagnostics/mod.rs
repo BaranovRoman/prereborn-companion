@@ -259,33 +259,68 @@ pub fn clear(app: &AppHandle) -> Result<DiagnosticsStatusSnapshot, String> {
 /// `output_path` is chosen by the caller (a save-file dialog in commands.rs)
 /// - kept out of this function so the export logic itself stays testable
 /// without a real Tauri dialog.
+///
+/// WK-116 - no longer requires an explicitly-started diagnostics session:
+/// most real investigations happen AFTER something already went wrong, when
+/// nobody thought to turn on raw-GSI capture in advance. Without an active/
+/// past session there is nothing to fill in the session-shaped parts of the
+/// export (timeline/snapshots/field-catalog all come back empty - the
+/// helpers in export.rs already treat a nonexistent session dir as "no
+/// data" rather than erroring), but `app.log` - the always-on, bounded
+/// runtime timeline covering session/match/scene/sync checkpoints - is
+/// still exported unconditionally, so this ZIP alone is always useful.
 pub fn export(app: &AppHandle, output_path: PathBuf) -> Result<String, String> {
     let state = app.state::<DiagnosticsState>();
     let inner = state.0.lock().unwrap();
-    let Some(session) = &inner.session else {
-        return Err("Нет диагностических данных для экспорта — сначала запустите диагностику.".to_string());
-    };
-
     let generated_at = Local::now().to_rfc3339();
-    let fields: Vec<&catalog::FieldInfo> = session.catalog.fields.values().collect();
-    let manifest = export::Manifest {
-        companion_version: COMPANION_VERSION.to_string(),
-        diagnostics_schema_version: export::SCHEMA_VERSION.to_string(),
-        session_id: session.session_id.clone(),
-        started_at: session.started_at.to_rfc3339(),
-        ended_at: session.finalized.then(|| generated_at.clone()),
-        gsi_request_count: session.request_count,
-        snapshot_count: session.snapshot_count,
-        error_count: session.error_count,
-        observed_game_states: session.observed_game_states.iter().cloned().collect(),
-        observed_match_ids: session.observed_match_ids.iter().cloned().collect(),
-        os: std::env::consts::OS.to_string(),
-        size_bytes_used: session.bytes_written,
-        size_limit_bytes: session::SIZE_LIMIT_BYTES,
-        size_limit_reached: session.size_limit_reached,
+
+    let (session_dir, fields, manifest) = match &inner.session {
+        Some(session) => {
+            let fields: Vec<&catalog::FieldInfo> = session.catalog.fields.values().collect();
+            let manifest = export::Manifest {
+                companion_version: COMPANION_VERSION.to_string(),
+                diagnostics_schema_version: export::SCHEMA_VERSION.to_string(),
+                session_id: session.session_id.clone(),
+                started_at: session.started_at.to_rfc3339(),
+                ended_at: session.finalized.then(|| generated_at.clone()),
+                gsi_request_count: session.request_count,
+                snapshot_count: session.snapshot_count,
+                error_count: session.error_count,
+                observed_game_states: session.observed_game_states.iter().cloned().collect(),
+                observed_match_ids: session.observed_match_ids.iter().cloned().collect(),
+                os: std::env::consts::OS.to_string(),
+                size_bytes_used: session.bytes_written,
+                size_limit_bytes: session::SIZE_LIMIT_BYTES,
+                size_limit_reached: session.size_limit_reached,
+            };
+            (session.dir.clone(), fields, manifest)
+        }
+        None => {
+            let manifest = export::Manifest {
+                companion_version: COMPANION_VERSION.to_string(),
+                diagnostics_schema_version: export::SCHEMA_VERSION.to_string(),
+                session_id: "none".to_string(),
+                started_at: generated_at.clone(),
+                ended_at: Some(generated_at.clone()),
+                gsi_request_count: 0,
+                snapshot_count: 0,
+                error_count: 0,
+                observed_game_states: Vec::new(),
+                observed_match_ids: Vec::new(),
+                os: std::env::consts::OS.to_string(),
+                size_bytes_used: 0,
+                size_limit_bytes: session::SIZE_LIMIT_BYTES,
+                size_limit_reached: false,
+            };
+            // Never created/written to - export.rs's helpers already treat a
+            // nonexistent directory as "no session data", exactly what's
+            // true here.
+            (storage::logs_root(app).join("no-diagnostics-session"), Vec::new(), manifest)
+        }
     };
 
-    export::export_zip(&session.dir, &fields, &manifest, &generated_at, &output_path)?;
+    let app_log = storage::read_rolling_log(app);
+    export::export_zip(&session_dir, &fields, &manifest, &generated_at, &app_log, &output_path)?;
     drop(inner);
 
     storage::append_rolling_log(

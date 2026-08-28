@@ -119,25 +119,35 @@ fn next_pending(conn: &Connection, now: DateTime<Utc>) -> rusqlite::Result<Optio
     .optional()
 }
 
-/// The session a given outbox row's entity belongs to, as its own
-/// `started_at` - for a `session` row this is the session itself; for a
-/// `match` row this is its PARENT session (match eligibility mirrors its
-/// session's eligibility, so a match is never synced without the session it
-/// would attach to on the backend already having been synced - see
-/// `is_eligible`). `None` if the entity can no longer be found locally
-/// (should not happen - rows are never deleted - but treated as
-/// "ineligible" rather than panicking if it ever does).
-fn entity_session_started_at(conn: &Connection, entity_type: &str, entity_local_id: &str) -> rusqlite::Result<Option<DateTime<Utc>>> {
+/// The timestamp a given outbox row's own entity is judged against for
+/// cutover eligibility - for a `session` row, the session's own
+/// `started_at` (a session that predates cutover is genuinely pre-existing
+/// shadow data - see this migration boundary's WK-113 doc comment); for a
+/// `match` row, the MATCH's OWN `started_at`, never its parent session's.
+///
+/// WK-116 P0 FIX - this used to look up the PARENT SESSION's `started_at`
+/// for match rows too. A session that began before cutover but stays open
+/// across the upgrade (e.g. a long-running stream, or - see the OBS-watcher
+/// fix above - one that never properly closed) would then permanently
+/// dead-letter EVERY future match played in it, even ones created long
+/// after cutover, since the session's own `started_at` never changes.
+/// Matches are real, independent entities with their own creation time -
+/// eligibility must be judged on that, not on whichever session happened to
+/// still be open when they were played. The backend's `applyMatchFinalized`
+/// already tolerates a match whose session was never synced (records it
+/// with `stream_session_id = NULL` rather than rejecting it - see
+/// apps/api's stream-sync-service.ts), so this is not just correct locally,
+/// it's exactly what the existing backend contract expects.
+/// `None` if the entity can no longer be found locally (should not happen -
+/// rows are never deleted - but treated as "ineligible" rather than
+/// panicking if it ever does).
+fn entity_started_at(conn: &Connection, entity_type: &str, entity_local_id: &str) -> rusqlite::Result<Option<DateTime<Utc>>> {
     let raw: Option<String> = match entity_type {
         "session" => conn
             .query_row("SELECT started_at FROM local_sessions WHERE local_id = ?1", params![entity_local_id], |row| row.get(0))
             .optional()?,
         "match" => conn
-            .query_row(
-                "SELECT s.started_at FROM local_matches m JOIN local_sessions s ON s.local_id = m.session_local_id WHERE m.local_id = ?1",
-                params![entity_local_id],
-                |row| row.get(0),
-            )
+            .query_row("SELECT started_at FROM local_matches WHERE local_id = ?1", params![entity_local_id], |row| row.get(0))
             .optional()?,
         _ => None,
     };
@@ -145,7 +155,7 @@ fn entity_session_started_at(conn: &Connection, entity_type: &str, entity_local_
 }
 
 fn is_eligible(conn: &Connection, row: &OutboxRow, cutover_at: DateTime<Utc>) -> rusqlite::Result<bool> {
-    match entity_session_started_at(conn, &row.entity_type, &row.entity_local_id)? {
+    match entity_started_at(conn, &row.entity_type, &row.entity_local_id)? {
         Some(started_at) => Ok(started_at >= cutover_at),
         None => Ok(false),
     }
@@ -263,6 +273,13 @@ fn drain_outbox(app: &AppHandle) {
         let Some(conn) = guard.as_mut() else { return };
         match outcome {
             SendOutcome::Delivered => {
+                // WK-116 observability - "backend acknowledged" checkpoint,
+                // correlated by entity so a match's whole journey (created ->
+                // finalized -> synced) is traceable in app.log.
+                crate::storage::append_rolling_log(
+                    app,
+                    &format!("Sync: {} for {}={} acknowledged by backend", row.event_type, row.entity_type, row.entity_local_id),
+                );
                 let _ = mark_delivered(conn, &row.id, Utc::now());
             }
             SendOutcome::Rejected(error) => {
@@ -270,6 +287,10 @@ fn drain_outbox(app: &AppHandle) {
                 let _ = mark_failed(conn, &row.id, &error, Utc::now());
             }
             SendOutcome::Retryable(error) => {
+                crate::storage::append_rolling_log(
+                    app,
+                    &format!("Sync: {} for {}={} retrying ({error})", row.event_type, row.entity_type, row.entity_local_id),
+                );
                 let _ = mark_retry(conn, &row.id, &error, row.attempts, Utc::now());
                 return; // stop draining - preserves order, retries this same row next tick
             }
@@ -528,9 +549,11 @@ mod tests {
         };
         assert!(!is_eligible(&conn, &row, cutover).unwrap());
 
-        // Finalize a match in that same (pre-cutover) session - its
-        // eligibility must follow the session's, not its own timestamp.
-        store::create_match(&conn, &session.local_id, Some("1"), 1, "radiant", RankedMode::Ranked, Utc::now()).unwrap();
+        // A match that itself started BEFORE cutover (e.g. one already
+        // in-progress at the moment of the upgrade) is correctly still
+        // shadow data on its own terms, independent of the session check
+        // above.
+        store::create_match(&conn, &session.local_id, Some("1"), 1, "radiant", RankedMode::Ranked, shadow_start).unwrap();
         let m = store::find_active_match(&conn, &session.local_id).unwrap().unwrap();
         store::finalize_match(
             &mut conn,
@@ -539,7 +562,7 @@ mod tests {
             RankedMode::Ranked,
             super::super::model::MatchResult::Win,
             "confirmed",
-            Utc::now(),
+            shadow_start,
         )
         .unwrap();
         let match_row = OutboxRow {
@@ -551,6 +574,65 @@ mod tests {
             attempts: 0,
         };
         assert!(!is_eligible(&conn, &match_row, cutover).unwrap());
+    }
+
+    // WK-116 P0 regression test - the exact scenario a production streamer
+    // hits: a session that started before cutover (e.g. it never properly
+    // closed - see the companion OBS-watcher fix) stays open across the
+    // upgrade and a real stream continues in it. A match played and
+    // finalized AFTER cutover, inside that old session, must still sync -
+    // it is genuinely new data, not pre-existing shadow data, even though
+    // its parent session predates the boundary. Before this fix, eligibility
+    // was (incorrectly) derived from the PARENT SESSION's started_at, which
+    // permanently dead-lettered every future match in a session like this.
+    #[test]
+    fn a_match_created_after_cutover_inside_a_pre_cutover_session_is_still_eligible() {
+        let mut conn = test_conn();
+        let shadow_start = Utc::now() - Duration::hours(2);
+        let session = store::ensure_active_session(&mut conn, shadow_start).unwrap();
+        conn.execute("UPDATE sync_meta SET value = ?1 WHERE key = 'cutover_at'", params![Utc::now().to_rfc3339()])
+            .or_else(|_| conn.execute("INSERT INTO sync_meta (key, value) VALUES ('cutover_at', ?1)", params![Utc::now().to_rfc3339()]))
+            .unwrap();
+        let cutover = cutover_at(&conn).unwrap();
+
+        // The session itself is still (correctly) pre-cutover shadow data.
+        let session_row = OutboxRow {
+            id: "s".into(),
+            entity_type: "session".into(),
+            entity_local_id: session.local_id.clone(),
+            event_type: "session_started".into(),
+            payload: "{}".into(),
+            attempts: 0,
+        };
+        assert!(!is_eligible(&conn, &session_row, cutover).unwrap());
+
+        // A brand new match played well after cutover, in that same
+        // never-closed session.
+        let after_cutover = cutover + Duration::minutes(5);
+        store::create_match(&conn, &session.local_id, Some("999"), 14, "radiant", RankedMode::Ranked, after_cutover).unwrap();
+        let m = store::find_active_match(&conn, &session.local_id).unwrap().unwrap();
+        store::finalize_match(
+            &mut conn,
+            &m.local_id,
+            &session.local_id,
+            RankedMode::Ranked,
+            super::super::model::MatchResult::Win,
+            "confirmed",
+            after_cutover,
+        )
+        .unwrap();
+        let match_row = OutboxRow {
+            id: "m".into(),
+            entity_type: "match".into(),
+            entity_local_id: m.local_id,
+            event_type: "match_finalized".into(),
+            payload: "{}".into(),
+            attempts: 0,
+        };
+        assert!(
+            is_eligible(&conn, &match_row, cutover).unwrap(),
+            "a match created after cutover must sync even if its parent session predates cutover"
+        );
     }
 
     #[test]
