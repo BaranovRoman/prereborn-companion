@@ -1,4 +1,5 @@
 mod backend;
+mod broadcast_state;
 mod commands;
 mod diagnostics;
 mod game_sounds;
@@ -6,6 +7,7 @@ mod gsi;
 mod hotkeys;
 mod local_runtime;
 mod obs;
+mod overlay_server;
 mod server;
 mod silero;
 mod state;
@@ -198,6 +200,7 @@ pub fn run() {
             obs::init(handle.clone());
             local_runtime::lifecycle::start_sweep(handle.clone());
             local_runtime::sync::start_sync_worker(handle.clone());
+            overlay_server::init(handle.clone());
 
             build_tray(&handle)?;
 

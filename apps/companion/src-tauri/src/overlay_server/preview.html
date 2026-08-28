@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<title>PreReborn — Local Overlay (dev preview)</title>
+<style>
+  /* WK-120 dev preview only - NOT the production overlay renderer.
+     The production-parity renderer (apps/web's OverlayCanvas/AnchoredWidget)
+     is deferred to a follow-up slice - see
+     docs/research/wk-120-local-overlay-runtime.md. This page exists only to
+     prove the local transport end to end (initial snapshot + live push)
+     with something a human can look at; it is intentionally not styled to
+     match production and must never be pointed to by a real OBS Browser
+     Source. */
+  html, body { margin: 0; padding: 0; width: 100vw; height: 100vh; background: transparent; overflow: hidden; }
+  #root {
+    width: 100vw; height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 12px;
+    font-family: system-ui, sans-serif; color: #fff;
+    background: #101014;
+  }
+  #scene { font-size: 64px; font-weight: 700; letter-spacing: 0.02em; }
+  #badge {
+    font-size: 14px; text-transform: uppercase; letter-spacing: 0.08em;
+    color: #ffb14e; border: 1px solid #ffb14e; border-radius: 999px;
+    padding: 4px 14px;
+  }
+  #meta { font-size: 12px; color: #8a8a94; }
+  .scene-betweenMatches { background: #1a2230; }
+  .scene-draft { background: #241a30; }
+  .scene-gameplay { background: #1a2b20; }
+  .scene-postStream { background: #301a1a; }
+</style>
+</head>
+<body>
+  <div id="root">
+    <div id="badge">PreReborn Local Overlay — dev preview</div>
+    <div id="scene">connecting…</div>
+    <div id="meta"></div>
+  </div>
+  <script>
+    (function () {
+      var root = document.getElementById("root");
+      var sceneEl = document.getElementById("scene");
+      var metaEl = document.getElementById("meta");
+      var labels = {
+        betweenMatches: "Между матчами",
+        draft: "Драфт",
+        gameplay: "Игра",
+        postStream: "Итоги стрима"
+      };
+
+      function applyState(state) {
+        sceneEl.textContent = labels[state.scene] || state.scene;
+        metaEl.textContent = "scene=" + state.scene + " updatedAt=" + state.updatedAt;
+        root.className = "scene-" + state.scene;
+      }
+
+      var source = new EventSource("/overlay/events");
+      source.onmessage = function (event) {
+        try {
+          applyState(JSON.parse(event.data));
+        } catch (err) {
+          metaEl.textContent = "parse error: " + err;
+        }
+      };
+      source.onerror = function () {
+        sceneEl.textContent = "reconnecting…";
+      };
+    })();
+  </script>
+</body>
+</html>

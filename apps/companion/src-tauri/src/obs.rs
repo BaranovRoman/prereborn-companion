@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Emitter, Manager};
 use tungstenite::{connect, stream::MaybeTlsStream, Message, WebSocket};
 
+use crate::broadcast_state;
 use crate::state::AppState;
 use crate::storage;
 
@@ -94,37 +95,20 @@ impl ObsConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum BroadcastScene {
-    BetweenMatches,
-    Draft,
-    Gameplay,
-    // WK-99 - never derived from GSI (see from_gsi below, unchanged) - only
-    // ever requested via handle_session_state, and only ever actually
-    // reached through resolve_desired_scene's override (see schedule_switch)
-    // once the stream session is `ended`. Kept in the same enum as the
-    // other three rather than a parallel type so it flows through the exact
-    // same mapping/validation/retry/manual-override machinery as them.
-    PostStream,
-}
+// WK-120 - `BroadcastScene` is now a plain alias for the canonical
+// `broadcast_state::BroadcastState` (see that module's doc comment for the
+// full rationale: this used to be its own enum+from_gsi defined here,
+// duplicating logic apps/web's TypeScript resolver also implements
+// independently - docs/research/wk-119-companion-primary-app-boundary-audit.md
+// §1.2). The alias (rather than a rename across this whole file) keeps every
+// existing call site, test, and the OBS-specific `obs_scene_name`/mapping
+// logic below unchanged - only the enum definition and `from_gsi` moved.
+pub type BroadcastScene = broadcast_state::BroadcastState;
 
+// Inherent impl via the alias - legal because `BroadcastState` (what the
+// alias resolves to) is defined in this same crate, not a foreign one; only
+// cross-crate inherent impls are restricted.
 impl BroadcastScene {
-    pub fn from_gsi(payload: &Value) -> Self {
-        let activity = payload.pointer("/player/activity").and_then(Value::as_str);
-        if activity != Some("playing") {
-            return Self::BetweenMatches;
-        }
-        match payload.pointer("/map/game_state").and_then(Value::as_str) {
-            Some("DOTA_GAMERULES_STATE_HERO_SELECTION")
-            | Some("DOTA_GAMERULES_STATE_STRATEGY_TIME")
-            | Some("DOTA_GAMERULES_STATE_TEAM_SHOWCASE") => Self::Draft,
-            Some("DOTA_GAMERULES_STATE_PRE_GAME")
-            | Some("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS") => Self::Gameplay,
-            _ => Self::BetweenMatches,
-        }
-    }
-
     pub fn obs_scene_name<'a>(&self, config: &'a ObsConfig) -> &'a str {
         match self {
             Self::BetweenMatches => &config.between_matches_scene,
@@ -156,20 +140,23 @@ impl BroadcastScene {
 // (see `from_gsi`) - rather than leaving the switch attempt failing forever
 // and OBS stuck on whatever scene was active before (gameplay/draft). This
 // is the one new fallback rule; no new scene/state is invented.
+// WK-120 - thin wrapper around the canonical `broadcast_state::resolve`
+// (session_ended/manual_summary_override precedence, shared with the Local
+// Overlay Runtime), plus this one OBS-specific downstream adaptation that
+// stays local to this file: if the mapped Post Stream OBS scene doesn't
+// exist in the user's canvas, fall back to the OBS scene switch itself
+// (never the canonical state a renderer would see) to BetweenMatches.
 fn resolve_desired_scene(
     requested: BroadcastScene,
     session_ended: bool,
     manual_summary_override: bool,
     post_stream_unavailable: bool,
 ) -> BroadcastScene {
-    if session_ended || manual_summary_override {
-        if post_stream_unavailable {
-            BroadcastScene::BetweenMatches
-        } else {
-            BroadcastScene::PostStream
-        }
+    let canonical = broadcast_state::resolve(requested, session_ended, manual_summary_override);
+    if canonical == BroadcastScene::PostStream && post_stream_unavailable {
+        BroadcastScene::BetweenMatches
     } else {
-        requested
+        canonical
     }
 }
 
