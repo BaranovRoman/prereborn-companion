@@ -1,5 +1,5 @@
-import { useEffect } from "react";
 import type { ReactNode } from "react";
+import { useModalBehavior } from "../../hooks/useModalBehavior";
 
 interface Props {
   title: string;
@@ -13,22 +13,21 @@ interface Props {
 
 // Small, dependency-free modal shell shared by ItemSoundModal/HeroAbilitiesModal -
 // no existing generic Modal component in this codebase to reuse (checked).
+// WK-115 - ESC-to-close/focus management factored out into useModalBehavior,
+// the same shared hook SettingsModal uses, so both modal shells in the app
+// behave identically instead of each keeping its own copy of this logic.
 export function SoundModal({ title, onClose, children, wide }: Props) {
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  const containerRef = useModalBehavior(true, onClose);
 
   return (
     <div className="sound-modal__backdrop" onClick={onClose}>
       <div
+        ref={containerRef as React.RefObject<HTMLDivElement>}
         className={`sound-modal${wide ? " sound-modal--wide" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="sound-modal__header">

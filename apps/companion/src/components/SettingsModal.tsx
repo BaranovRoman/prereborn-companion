@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AutostartSetting } from "./AutostartSetting";
 import { CompanionTokenForm } from "./CompanionTokenForm";
 import { HotkeySettings } from "./HotkeySettings";
 import { ObsScenePanel } from "./ObsScenePanel";
 import type { AutostartState } from "../hooks/useAutostart";
+import { useModalBehavior } from "../hooks/useModalBehavior";
 import * as api from "../services/dotaCompanionApi";
 import type { SkipHotkeyStatus } from "../services/dotaCompanionApi";
 import type { StatusSnapshot } from "../types/status";
@@ -47,21 +48,21 @@ export function SettingsModal({
   open, onClose, status, setStatus, busy, run, autostart, hotkeyStatus, hotkeyBusy, onUpdateHotkey,
 }: Props) {
   const [category, setCategory] = useState<Category>("connection");
-
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
+  const containerRef = useModalBehavior(open, onClose);
 
   if (!open) return null;
 
   return (
     <div className="settings-modal__backdrop" onClick={onClose}>
-      <div className="settings-modal" role="dialog" aria-modal="true" aria-label="Настройки" onClick={(event) => event.stopPropagation()}>
+      <div
+        ref={containerRef as React.RefObject<HTMLDivElement>}
+        className="settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Настройки"
+        tabIndex={-1}
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="settings-modal__header">
           <h2>Настройки</h2>
           <button className="settings-modal__close" onClick={onClose} aria-label="Закрыть настройки">✕</button>
@@ -75,10 +76,22 @@ export function SettingsModal({
             ))}
           </nav>
           <div className="settings-modal__content">
+            {/* WK-115 - CompanionTokenForm/ObsScenePanel both render nothing
+                at all while `status` hasn't loaded yet (see ObsScenePanel's
+                early `return null`) - in practice status resolves almost
+                instantly after launch, but an empty content pane with no
+                explanation is still a real loading-state gap the audit
+                should close, not leave as silent blank space. */}
             {category === "connection" && (
-              <CompanionTokenForm status={status} busy={busy} onSave={(token) => run(() => api.saveCompanionToken(token))} />
+              status
+                ? <CompanionTokenForm status={status} busy={busy} onSave={(token) => run(() => api.saveCompanionToken(token))} />
+                : <p className="matches-panel__empty">Загрузка…</p>
             )}
-            {category === "obs" && <ObsScenePanel status={status} onStatus={setStatus} />}
+            {category === "obs" && (
+              status
+                ? <ObsScenePanel status={status} onStatus={setStatus} />
+                : <p className="matches-panel__empty">Загрузка…</p>
+            )}
             {category === "hotkeys" && <HotkeySettings status={hotkeyStatus} busy={hotkeyBusy} onUpdate={onUpdateHotkey} />}
             {category === "autostart" && <AutostartSetting state={autostart.state} busy={autostart.busy} onChange={autostart.setAutostart} />}
           </div>

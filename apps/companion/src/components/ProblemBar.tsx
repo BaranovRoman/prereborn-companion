@@ -27,14 +27,19 @@ export function ProblemBar({ status, backendStatus }: Props) {
   if (!status) return null;
   const items: ProblemItem[] = [];
 
+  // WK-115 copy audit - never show the raw technical error string here
+  // (e.g. a raw OS socket error) - this bar is the most visible surface in
+  // the app, not a troubleshooting tool. The same raw error is still
+  // available on Диагностика for anyone who actually needs it (see
+  // StatusChecklist).
   if (status.gsi_state === "unavailable") {
-    items.push({ key: "gsi", tone: "error", label: "Нет сигнала Dota", detail: status.gsi_last_error ?? "Локальный сервис недоступен" });
+    items.push({ key: "gsi", tone: "error", label: "Нет сигнала Dota", detail: "Локальный сервис недоступен. Подробности — в Диагностике." });
   } else if (status.gsi_state === "recovering") {
     items.push({ key: "gsi", tone: "warning", label: "Нет сигнала Dota", detail: "Переподключение…" });
   }
 
   if (status.obs_state === "unavailable") {
-    items.push({ key: "obs", tone: "error", label: "OBS не подключён", detail: status.obs_last_error ?? "Проверьте OBS WebSocket" });
+    items.push({ key: "obs", tone: "error", label: "OBS не подключён", detail: "Проверьте, что OBS запущен и WebSocket включён." });
   } else if (status.obs_state === "recovering") {
     items.push({ key: "obs", tone: "warning", label: "OBS не подключён", detail: "Переподключение…" });
   }

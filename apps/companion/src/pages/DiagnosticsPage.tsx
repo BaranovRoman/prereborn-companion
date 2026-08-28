@@ -36,6 +36,13 @@ export function DiagnosticsPage({
     <div className="diagnostics-view">
       <div className="page-heading"><span className="section-heading__eyebrow">Для разработчика</span><h2>Диагностика</h2><p>Технические данные и восстановление для troubleshooting. Повседневное управление находится на главной, настройки — по значку шестерёнки.</p></div>
       <section><h2>Базовая настройка</h2><StatusChecklist status={status} /></section>
+      {(status?.gsi_last_error || status?.obs_last_error) && (
+        <div className="diagnostic-card">
+          <h2>Технические ошибки</h2>
+          {status?.gsi_last_error && <p className="backend-status__error">GSI: {status.gsi_last_error}</p>}
+          {status?.obs_last_error && <p className="backend-status__error">OBS: {status.obs_last_error}</p>}
+        </div>
+      )}
       <details className="session-fallback">
         <summary>Ручное управление сессией (резерв на backend)</summary>
         <StreamSessionCard sessionPrompt={sessionPrompt} />

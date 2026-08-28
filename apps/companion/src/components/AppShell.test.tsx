@@ -233,6 +233,20 @@ describe("AppShell Настройки modal (gear icon)", () => {
     expect(screen.queryByRole("dialog", { name: "Настройки" })).toBeNull();
   });
 
+  // WK-115 - consistency/interaction fix: closing a modal must never strand
+  // keyboard focus on a removed element (see hooks/useModalBehavior.ts).
+  it("returns keyboard focus to the gear button after closing", () => {
+    render(<AppShell />);
+    const gear = screen.getByRole("button", { name: "Настройки" });
+    // fireEvent.click doesn't move DOM focus the way a real click does -
+    // focus the trigger first, matching what actually happens for a real
+    // keyboard/mouse interaction.
+    gear.focus();
+    fireEvent.click(gear);
+    fireEvent.click(screen.getByRole("button", { name: "Закрыть настройки" }));
+    expect(document.activeElement).toBe(gear);
+  });
+
   it("Диагностика no longer duplicates the companion token form, OBS scene mapping, or hotkeys", () => {
     render(<AppShell />);
     clickNav("Диагностика");
@@ -313,11 +327,11 @@ describe("ProblemBar (Главная)", () => {
     expect(screen.getByText("Нет сигнала Dota")).toBeTruthy();
   });
 
-  it("shows an OBS problem bar when OBS is unavailable", () => {
-    statusFixture = buildStatusFixture({ obs_connected: false, obs_state: "unavailable", obs_last_error: "connection refused" });
+  it("shows an OBS problem bar when OBS is unavailable, without leaking the raw technical error", () => {
+    statusFixture = buildStatusFixture({ obs_connected: false, obs_state: "unavailable", obs_last_error: "connection refused (os error 61)" });
     render(<AppShell />);
     expect(screen.getByText("OBS не подключён")).toBeTruthy();
-    expect(screen.getByText("connection refused")).toBeTruthy();
+    expect(screen.queryByText(/os error/)).toBeNull();
   });
 
   it("shows the backend/sync problem bar as a non-blocking warning when the backend is unavailable", () => {
@@ -334,5 +348,24 @@ describe("ProblemBar (Главная)", () => {
     expect(screen.getByText("Нет сигнала Dota")).toBeTruthy();
     expect(screen.getByText("OBS не подключён")).toBeTruthy();
     expect(screen.getByText("PreReborn недоступен")).toBeTruthy();
+  });
+});
+
+// WK-115 - the raw GSI/OBS error strings ProblemBar deliberately no longer
+// shows on Главная must still be available somewhere for troubleshooting -
+// Диагностика is that place (parity with the backend's own error line).
+describe("Диагностика technical error detail", () => {
+  it("shows the raw GSI/OBS error text when present", () => {
+    statusFixture = buildStatusFixture({ gsi_last_error: "bind failed: address in use", obs_last_error: "connection refused (os error 61)" });
+    render(<AppShell />);
+    clickNav("Диагностика");
+    expect(screen.getByText(/bind failed: address in use/)).toBeTruthy();
+    expect(screen.getByText(/connection refused \(os error 61\)/)).toBeTruthy();
+  });
+
+  it("renders nothing when there are no errors to show", () => {
+    render(<AppShell />);
+    clickNav("Диагностика");
+    expect(screen.queryByText("Технические ошибки")).toBeNull();
   });
 });
