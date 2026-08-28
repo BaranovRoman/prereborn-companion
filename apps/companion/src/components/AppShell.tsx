@@ -120,8 +120,11 @@ export function AppShell() {
       <header className="app-header">
         <div className="app-header__left">
           <button className="app-header__gear" onClick={() => setSettingsOpen(true)} aria-label="Настройки">⚙</button>
-          <img className="app-header__logo" src="/logo-new.png" alt="" width="28" height="28" />
-          <strong className="app-header__brand">PreReborn</strong>
+          <img className="app-header__logo" src="/logo-new.png" alt="" width="40" height="40" />
+          <span className="app-header__brandmark">
+            <strong className="app-header__brand">PreReborn</strong>
+            <span className="app-header__brand-sub">Companion</span>
+          </span>
         </div>
         <nav className="app-header__nav" aria-label="Разделы приложения">
           {MAIN_NAV_ITEMS.map((item) => (
