@@ -40,7 +40,7 @@ export function DiagnosticsPanel({ status, refresh }: Props) {
 
   return (
     <section className="diagnostics-panel">
-      <h2>Диагностика GSI и TTS (v0.4.0)</h2>
+      <h2>Диагностика GSI и TTS</h2>
       <p className="diagnostics-panel__hint">
         Отдельный от обычной работы Companion сбор полного сырого GSI-payload'а и тайминга TTS-конвейера — только
         для анализа того, что реально присылает Dota и где накапливается задержка озвучки. Выключено по умолчанию,
