@@ -65,6 +65,53 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE local_sessions ADD COLUMN pending_end_at TEXT;
     ALTER TABLE local_sessions ADD COLUMN stale_ack INTEGER NOT NULL DEFAULT 0;
     "#,
+    // v2 -> v3 (WK-113) - durable transactional outbox for backend sync,
+    // plus a small key/value table for sync bookkeeping (the cutover marker,
+    // the corrections-pull cursor, the cached ranked/unranked toggle - see
+    // local_runtime::sync). `sync_outbox` rows are written in the SAME
+    // SQLite transaction as the local_sessions/local_matches mutation they
+    // describe (see store.rs's ensure_active_session/finalize_session_end/
+    // finalize_match) - this is what makes "entity changed" and "sync event
+    // recorded" atomic, per the ticket's requirement, without needing a
+    // second storage system. `delivered_at`/`failed_at` are mutually
+    // exclusive terminal markers (successfully applied vs. permanently
+    // rejected by the backend, e.g. a 4xx) - a row with both NULL is still
+    // pending/retrying. No FOREIGN KEY to local_sessions/local_matches:
+    // entity_local_id intentionally outlives the entity it describes (rows
+    // are retained for a bounded window after delivery for
+    // observability/debugging, see sync::PURGE_AFTER, then swept) - a hard
+    // FK would fight that retention model for no benefit.
+    r#"
+    CREATE TABLE sync_outbox (
+        id              TEXT PRIMARY KEY,
+        entity_type     TEXT NOT NULL,
+        entity_local_id TEXT NOT NULL,
+        event_type      TEXT NOT NULL,
+        payload         TEXT NOT NULL,
+        created_at      TEXT NOT NULL,
+        attempts        INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT NOT NULL,
+        last_error      TEXT,
+        delivered_at    TEXT,
+        failed_at       TEXT
+    );
+
+    CREATE INDEX idx_sync_outbox_pending
+        ON sync_outbox (delivered_at, failed_at, next_attempt_at);
+
+    CREATE TABLE sync_meta (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    );
+
+    -- Mirrors stream_matches.rating_delta_correction on the backend
+    -- (WK-105): the diff a server-originated correction applies ON TOP OF
+    -- detected_rating_delta, never overwriting it - see
+    -- local_runtime::sync's apply_one_correction, the only writer. DEFAULT 0
+    -- means "never corrected" for every existing row, exactly like the
+    -- backend's own DEFAULT 0 (migrate.ts) meant the same thing there.
+    ALTER TABLE local_matches ADD COLUMN rating_delta_correction INTEGER NOT NULL DEFAULT 0;
+    "#,
 ];
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {

@@ -536,6 +536,52 @@ export const createTables = async (): Promise<void> => {
       ALTER TABLE stream_sessions ADD COLUMN IF NOT EXISTS rating_adjustment INTEGER NOT NULL DEFAULT 0;
     `);
 
+        // WK-113 - local-first cutover. Companion's local SQLite runtime
+        // (WK-111/112) is now authoritative for session/match/MMR state;
+        // the backend receives it via semantic sync events instead of
+        // re-deriving it from raw GSI ticks (see
+        // controllers/stream/companion.ts's putCompanionGsiStateController,
+        // which no longer calls processGsiPayloadForMatch). `local_session_id`/
+        // `local_match_id` are the stable UUIDs Companion already generates
+        // (local_runtime::model in the Rust codebase) - the correlation key
+        // that makes "has this session/match already been synced" and "does
+        // this event apply to an existing row or a new one" answerable
+        // without re-deriving anything, and what makes retried sync events
+        // idempotent at the database level (not just the event-ledger below).
+        await client.query(`
+      ALTER TABLE stream_sessions ADD COLUMN IF NOT EXISTS local_session_id UUID;
+      ALTER TABLE stream_matches ADD COLUMN IF NOT EXISTS local_match_id UUID;
+    `);
+        await client.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_stream_sessions_local_id
+        ON stream_sessions(stream_user_id, local_session_id) WHERE local_session_id IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_stream_matches_local_id
+        ON stream_matches(stream_user_id, local_match_id) WHERE local_match_id IS NOT NULL;
+    `);
+
+        // WK-113 - sync event idempotency ledger. Companion generates a
+        // random UUID (event_id) once per sync event and retries the same
+        // event_id on failure/timeout - this table is the durable record of
+        // "this exact event was already applied", so a retry after a lost
+        // response (request succeeded, response never reached Companion)
+        // returns the SAME result instead of re-applying (double-counting a
+        // W/L, creating a duplicate session, etc). `result` stores whatever
+        // the handler needs to return on a replayed request (e.g. the
+        // resulting backend session/match id) - see
+        // services/stream-sync-service.ts's withIdempotency.
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS stream_sync_events (
+        event_id UUID PRIMARY KEY,
+        stream_user_id INTEGER NOT NULL REFERENCES stream_users(id) ON DELETE CASCADE,
+        event_type VARCHAR(40) NOT NULL,
+        result JSONB,
+        received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+        await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_stream_sync_events_user ON stream_sync_events(stream_user_id, received_at);
+    `);
+
         await client.query("COMMIT");
     } catch (error) {
         await client.query("ROLLBACK");

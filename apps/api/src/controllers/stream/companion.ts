@@ -1,10 +1,7 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import { upsertCompanionState } from "../../services/stream-companion-service.js";
-import {
-    getSessionMatchRatingDelta,
-    processGsiPayloadForMatch,
-} from "../../services/stream-match-service.js";
+import { getSessionMatchRatingDelta } from "../../services/stream-match-service.js";
 import {
     endActiveSession,
     getLatestSessionForUser,
@@ -77,26 +74,26 @@ export const putCompanionGsiStateController = async (
 
         const streamUserId = req.streamUserId as string;
 
+        // WK-113 - local-first cutover. This endpoint used to ALSO drive
+        // match/session detection (processGsiPayloadForMatch), independently
+        // of whatever Companion's own local state machine decided - two
+        // state machines fed by the same raw GSI stream, capable of
+        // disagreeing. Companion's local_runtime::detector is now the only
+        // match-detection state machine; its resolved outcomes reach the
+        // backend via POST /stream/companion/sync/events
+        // (controllers/stream/sync.ts), never by re-deriving them here.
+        // This endpoint's only remaining job is what it was always ALSO
+        // doing alongside detection: storing the raw payload for the public
+        // overlay's live GSI passthrough display and companion presence
+        // (upsertCompanionState -> touchCompanionPresence) - genuinely
+        // presence/live-view data, not a source of truth for match/session/
+        // MMR.
         await upsertCompanionState(
             streamUserId,
             parsed.data.payload,
             parsed.data.companionVersion ?? null
         );
         logger.debug("Companion GSI payload accepted", { streamUserId });
-
-        // Матч-детекция не должна валить приём GSI-состояния - основной
-        // контракт этого эндпоинта (companion ждёт {ok:true} каждую секунду)
-        // важнее детекции завершения матча, поэтому ошибка здесь только
-        // логируется, а не пробрасывается в общий catch/500 ниже.
-        processGsiPayloadForMatch(streamUserId, parsed.data.payload).catch(
-            (error) => {
-                logger.error("Stream match detection error", {
-                    requestId: req.requestId,
-                    message:
-                        error instanceof Error ? error.message : String(error),
-                });
-            }
-        );
 
         res.json({ ok: true });
     } catch (error) {

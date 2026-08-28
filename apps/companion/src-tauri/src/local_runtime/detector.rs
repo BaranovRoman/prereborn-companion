@@ -2,7 +2,7 @@ use chrono::{DateTime, Duration, Utc};
 use rusqlite::Connection;
 
 use super::gsi::{self, GsiSnapshot};
-use super::model::{LocalMatch, LocalMatchState, MatchResult};
+use super::model::{LocalMatch, LocalMatchState, MatchResult, RankedMode};
 use super::store;
 
 // Mirrors stream-match-service.ts's `RECONNECT_WINDOW_MS` - 5 minutes
@@ -116,6 +116,7 @@ fn apply_leave(conn: &mut Connection, active: &LocalMatch, now: DateTime<Utc>) -
             &active.session_local_id,
             active.ranked_mode,
             active.result.expect("FinalizeProbable only returned when a result exists"),
+            "probable",
             now,
         ),
         LeaveDecision::MarkNeedsReview => store::mark_needs_review(conn, &active.local_id),
@@ -136,6 +137,7 @@ fn apply_leave(conn: &mut Connection, active: &LocalMatch, now: DateTime<Utc>) -
 pub fn handle_snapshot(
     conn: &mut Connection,
     session_local_id: &str,
+    ranked_mode: RankedMode,
     snapshot: &GsiSnapshot,
     now: DateTime<Utc>,
 ) -> rusqlite::Result<()> {
@@ -174,7 +176,7 @@ pub fn handle_snapshot(
             // backend's identical guard).
             return Ok(());
         }
-        store::create_match(conn, session_local_id, snapshot.match_id.as_deref(), hero_id, &team_name, now)?;
+        store::create_match(conn, session_local_id, snapshot.match_id.as_deref(), hero_id, &team_name, ranked_mode, now)?;
         active = store::find_active_match(conn, session_local_id)?;
     }
 
@@ -196,6 +198,7 @@ pub fn handle_snapshot(
             &active.session_local_id,
             active.ranked_mode,
             active.result.expect("FinalizeConfirmed only returned when a result exists"),
+            "confirmed",
             now,
         ),
         PostGameDecision::MarkNeedsReview => store::mark_needs_review(conn, &active.local_id),
@@ -304,13 +307,13 @@ mod tests {
     fn full_lifecycle_hero_pick_through_confirmed_win_creates_exactly_one_finalized_match() {
         let mut conn = test_conn();
         let now = Utc::now();
-        let session = ensure_active_session(&conn, now).unwrap();
+        let session = ensure_active_session(&mut conn, now).unwrap();
 
-        handle_snapshot(&mut conn, &session.local_id, &tick("DOTA_GAMERULES_STATE_HERO_SELECTION", 14, "radiant", Some("555"), None), now).unwrap();
-        handle_snapshot(&mut conn, &session.local_id, &tick("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", 14, "radiant", Some("555"), None), now).unwrap();
-        handle_snapshot(&mut conn, &session.local_id, &tick("DOTA_GAMERULES_STATE_POST_GAME", 14, "radiant", Some("555"), Some("radiant")), now).unwrap();
+        handle_snapshot(&mut conn, &session.local_id, RankedMode::Unknown, &tick("DOTA_GAMERULES_STATE_HERO_SELECTION", 14, "radiant", Some("555"), None), now).unwrap();
+        handle_snapshot(&mut conn, &session.local_id, RankedMode::Unknown, &tick("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", 14, "radiant", Some("555"), None), now).unwrap();
+        handle_snapshot(&mut conn, &session.local_id, RankedMode::Unknown, &tick("DOTA_GAMERULES_STATE_POST_GAME", 14, "radiant", Some("555"), Some("radiant")), now).unwrap();
         // Second confirming tick.
-        handle_snapshot(&mut conn, &session.local_id, &tick("DOTA_GAMERULES_STATE_POST_GAME", 14, "radiant", Some("555"), Some("radiant")), now).unwrap();
+        handle_snapshot(&mut conn, &session.local_id, RankedMode::Unknown, &tick("DOTA_GAMERULES_STATE_POST_GAME", 14, "radiant", Some("555"), Some("radiant")), now).unwrap();
 
         assert!(find_active_match(&conn, &session.local_id).unwrap().is_none());
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM local_matches", [], |row| row.get(0)).unwrap();
@@ -326,10 +329,10 @@ mod tests {
     fn a_repeated_reconnect_snapshot_never_creates_a_duplicate_match() {
         let mut conn = test_conn();
         let now = Utc::now();
-        let session = ensure_active_session(&conn, now).unwrap();
+        let session = ensure_active_session(&mut conn, now).unwrap();
 
         for _ in 0..5 {
-            handle_snapshot(&mut conn, &session.local_id, &tick("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", 14, "radiant", Some("777"), None), now).unwrap();
+            handle_snapshot(&mut conn, &session.local_id, RankedMode::Unknown, &tick("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", 14, "radiant", Some("777"), None), now).unwrap();
         }
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM local_matches", [], |row| row.get(0)).unwrap();
         assert_eq!(count, 1, "repeated identical ticks for the same match_id must not create duplicates");
@@ -339,9 +342,9 @@ mod tests {
     fn disconnect_then_reconnect_within_the_window_resumes_the_same_match() {
         let mut conn = test_conn();
         let now = Utc::now();
-        let session = ensure_active_session(&conn, now).unwrap();
+        let session = ensure_active_session(&mut conn, now).unwrap();
 
-        handle_snapshot(&mut conn, &session.local_id, &tick("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", 14, "radiant", None, None), now).unwrap();
+        handle_snapshot(&mut conn, &session.local_id, RankedMode::Unknown, &tick("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", 14, "radiant", None, None), now).unwrap();
         // Player leaves to the Dota menu - GSI stops reporting an in-match state.
         let menu_tick = GsiSnapshot {
             game_state: "DOTA_GAMERULES_STATE_DISCONNECT".to_string(),
@@ -352,14 +355,14 @@ mod tests {
             hero_id: None,
             team_name: None,
         };
-        handle_snapshot(&mut conn, &session.local_id, &menu_tick, now).unwrap();
+        handle_snapshot(&mut conn, &session.local_id, RankedMode::Unknown, &menu_tick, now).unwrap();
         let (state,): (String,) =
             conn.query_row("SELECT state FROM local_matches", [], |row| Ok((row.get(0)?,))).unwrap();
         assert_eq!(state, "interrupted");
 
         // Reconnect a minute later, same team, no match_id on either side.
         let later = now + Duration::seconds(60);
-        handle_snapshot(&mut conn, &session.local_id, &tick("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", 14, "radiant", None, None), later).unwrap();
+        handle_snapshot(&mut conn, &session.local_id, RankedMode::Unknown, &tick("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", 14, "radiant", None, None), later).unwrap();
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM local_matches", [], |row| row.get(0)).unwrap();
         assert_eq!(count, 1, "a reconnect within the window must resume, not duplicate");
         let (state,): (String,) =
@@ -371,10 +374,10 @@ mod tests {
     fn a_new_match_starting_before_the_previous_one_resolved_sends_the_old_one_to_needs_review() {
         let mut conn = test_conn();
         let now = Utc::now();
-        let session = ensure_active_session(&conn, now).unwrap();
+        let session = ensure_active_session(&mut conn, now).unwrap();
 
-        handle_snapshot(&mut conn, &session.local_id, &tick("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", 14, "radiant", Some("1"), None), now).unwrap();
-        handle_snapshot(&mut conn, &session.local_id, &tick("DOTA_GAMERULES_STATE_HERO_SELECTION", 8, "radiant", Some("2"), None), now).unwrap();
+        handle_snapshot(&mut conn, &session.local_id, RankedMode::Unknown, &tick("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", 14, "radiant", Some("1"), None), now).unwrap();
+        handle_snapshot(&mut conn, &session.local_id, RankedMode::Unknown, &tick("DOTA_GAMERULES_STATE_HERO_SELECTION", 8, "radiant", Some("2"), None), now).unwrap();
 
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM local_matches", [], |row| row.get(0)).unwrap();
         assert_eq!(count, 2);
@@ -392,7 +395,7 @@ mod tests {
         // treat "no active match found" as something to react to.
         let mut conn = test_conn();
         let now = Utc::now();
-        let session = ensure_active_session(&conn, now).unwrap();
+        let session = ensure_active_session(&mut conn, now).unwrap();
         let menu_tick = GsiSnapshot {
             game_state: "DOTA_GAMERULES_STATE_DISCONNECT".to_string(),
             activity: Some("menu".to_string()),
@@ -402,7 +405,7 @@ mod tests {
             hero_id: None,
             team_name: None,
         };
-        handle_snapshot(&mut conn, &session.local_id, &menu_tick, now).unwrap();
+        handle_snapshot(&mut conn, &session.local_id, RankedMode::Unknown, &menu_tick, now).unwrap();
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM local_matches", [], |row| row.get(0)).unwrap();
         assert_eq!(count, 0);
     }
@@ -411,8 +414,8 @@ mod tests {
     fn ranked_mode_stays_unknown_by_default_so_no_delta_is_ever_fabricated() {
         let mut conn = test_conn();
         let now = Utc::now();
-        let session = ensure_active_session(&conn, now).unwrap();
-        handle_snapshot(&mut conn, &session.local_id, &tick("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", 14, "radiant", Some("9"), None), now).unwrap();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        handle_snapshot(&mut conn, &session.local_id, RankedMode::Unknown, &tick("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", 14, "radiant", Some("9"), None), now).unwrap();
         let active = find_active_match(&conn, &session.local_id).unwrap().unwrap();
         assert_eq!(active.ranked_mode, RankedMode::Unknown);
         assert_eq!(active.detected_rating_delta, None);

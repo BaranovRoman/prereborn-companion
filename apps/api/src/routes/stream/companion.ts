@@ -7,6 +7,11 @@ import {
     resetCompanionSessionController,
 } from "../../controllers/stream/companion.js";
 import { getCompanionObsCommandController } from "../../controllers/stream/obs-scene.js";
+import {
+    getCompanionAccountSettingsController,
+    getSyncCorrectionsController,
+    postSyncEventController,
+} from "../../controllers/stream/sync.js";
 import { authenticateCompanionToken } from "../../middleware/authenticate-companion-token.js";
 import { streamCompanionRateLimiter } from "../../middleware/rate-limit.js";
 
@@ -47,4 +52,24 @@ streamCompanionRouter.put(
     streamCompanionRateLimiter,
     authenticateCompanionToken,
     putCompanionGsiStateController
+);
+
+// WK-113 - local-first cutover: session/match/MMR now reach the backend
+// through these, not through gsi-state above (see
+// putCompanionGsiStateController's doc comment).
+streamCompanionRouter.post(
+    "/sync/events",
+    streamCompanionRateLimiter,
+    authenticateCompanionToken,
+    postSyncEventController
+);
+streamCompanionRouter.get(
+    "/sync/corrections",
+    authenticateCompanionToken,
+    getSyncCorrectionsController
+);
+streamCompanionRouter.get(
+    "/account-settings",
+    authenticateCompanionToken,
+    getCompanionAccountSettingsController
 );

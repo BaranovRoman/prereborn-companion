@@ -98,7 +98,13 @@ export function AppShell() {
   const latestEvent = history[0] ?? status?.last_event ?? null;
   const backendStatus = describeBackendStatus(status);
   const hasGsiSignal = status?.gsi_state === "connected";
-  const ready = !!(backendStatus.ready && status?.server_running && status.gsi_installed && hasGsiSignal && status.obs_connected);
+  // WK-113 - backend/PreReborn connectivity is a SYNC concern now (session/
+  // match/MMR run and finalize locally regardless of it - see
+  // local_runtime), not a precondition for actually being ready to stream.
+  // `backendStatus` is still shown (sidebar pill, setup checklist) so the
+  // streamer can see sync is catching up later, it just no longer gates
+  // "ready"/finishSetup - GSI + OBS are the only things that do.
+  const ready = !!(status?.server_running && status.gsi_installed && hasGsiSignal && status.obs_connected);
 
   const finishSetup = () => {
     localStorage.setItem("companion-setup-complete", "true");

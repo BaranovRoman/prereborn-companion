@@ -8,13 +8,15 @@ use crate::obs::{self, BroadcastScene};
 
 const SEND_LOOP_INTERVAL: Duration = Duration::from_millis(500);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
-const COMMAND_POLL_INTERVAL: Duration = Duration::from_secs(1);
-// WK-99 - Post Stream's trigger is session lifecycle, not GSI, so it needs
-// its own poll of the endpoint WK-83's "continue previous stream?" prompt
-// already uses (fetch_stream_session below) - a few seconds of latency to
-// notice `ended` is fine for a calm final scene, so this stays deliberately
-// slower than COMMAND_POLL_INTERVAL rather than adding load on every tick.
-const SESSION_POLL_INTERVAL: Duration = Duration::from_secs(3);
+// WK-113 - this remote "test scene" command (web dashboard -> Companion) is
+// a rare debug/QA convenience, not part of the local-first hot path (see
+// docs/research/wk-110-local-first-audit.md §3, class A: "cadence itself
+// should not remain a permanent 1s poll"). Widened from 1s to 15s rather
+// than building a push-based replacement (out of scope here, and explicitly
+// deferrable per the WK-113 ticket) - still responsive enough for a human
+// clicking a button and waiting a few seconds, at a fraction of the
+// previous request volume.
+const COMMAND_POLL_INTERVAL: Duration = Duration::from_secs(15);
 
 // WK-94 - same cap `retry_delay` uses for its backoff shape, reused as the
 // single source of truth for when `state::AppState::snapshot()` should stop
@@ -67,7 +69,6 @@ pub fn init(app: AppHandle) {
     let app_for_loop = app.clone();
     std::thread::spawn(move || {
         let mut last_command_poll = Instant::now() - COMMAND_POLL_INTERVAL;
-        let mut last_session_poll = Instant::now() - SESSION_POLL_INTERVAL;
         let mut send_failures: u32 = 0;
         let mut next_send_attempt_at = Instant::now();
         loop {
@@ -88,36 +89,18 @@ pub fn init(app: AppHandle) {
                 poll_obs_command(&app_for_loop);
                 last_command_poll = Instant::now();
             }
-            if last_session_poll.elapsed() >= SESSION_POLL_INTERVAL {
-                poll_session_state(&app_for_loop);
-                last_session_poll = Instant::now();
-            }
+            // WK-113 - no more automatic session-state poll here. PostStream
+            // is now driven by the local OBS-authoritative lifecycle
+            // (local_runtime::lifecycle, WK-112), not by this backend poll -
+            // see obs.rs's handle_session_state, now called from
+            // lifecycle::apply's FinalizeEnd/StartNewSession branches
+            // instead. fetch_stream_session/get_stream_session below remain
+            // available on-demand (WK-83's startup prompt, the manual
+            // "Ручное управление" fallback card's own refresh button) - see
+            // that card's explicit "legacy/manual, not required for the
+            // OBS-driven runtime" framing in HomePage.tsx.
         }
     });
-}
-
-/// WK-99 - Post Stream's trigger. Deliberately best-effort and silent on
-/// any failure (no companion token yet, backend unreachable, malformed
-/// response) - same fail-quiet-and-retry-next-tick shape as
-/// `poll_obs_command` right below. This must never be able to block or
-/// affect the web `ended` transition itself: that's a plain backend DB
-/// write the web cabinet makes directly, with no dependency on Companion
-/// being online, connected, or even running at all - this poll only ever
-/// *reads* that state, and only to drive OBS automation.
-fn poll_session_state(app: &AppHandle) {
-    let token = app
-        .state::<AppState>()
-        .0
-        .lock()
-        .unwrap()
-        .companion_token
-        .clone();
-    let Some(token) = token else { return };
-    let Ok(session) = fetch_stream_session(&token) else {
-        return;
-    };
-    let ended = session.get("state").and_then(serde_json::Value::as_str) == Some("ended");
-    obs::handle_session_state(app, ended);
 }
 
 fn poll_obs_command(app: &AppHandle) {
