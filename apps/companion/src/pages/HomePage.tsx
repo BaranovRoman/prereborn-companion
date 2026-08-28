@@ -107,66 +107,80 @@ export function HomePage({
         <button className="link-button" onClick={() => setSetupOpen(true)}>Проверить настройку</button>
       </div>
 
-      <section className="mmr-panel">
-        <div className="mmr-panel__stat">
-          <span className="section-heading__eyebrow">Текущий MMR</span>
-          <strong>{hasSession && sessionSummary?.ratingCurrent != null ? sessionSummary.ratingCurrent : "—"}</strong>
-          {sessionDelta != null && <span className={`mmr-panel__delta ${sessionDelta >= 0 ? "is-positive" : "is-negative"}`}>{sessionDelta >= 0 ? `+${sessionDelta}` : sessionDelta} за сессию</span>}
-        </div>
-        <div className="mmr-panel__stat">
-          <span className="section-heading__eyebrow">Победы / Поражения</span>
-          <strong>{hasSession ? `${sessionSummary?.wins ?? 0} – ${sessionSummary?.losses ?? 0}` : "—"}</strong>
-        </div>
-      </section>
+      {/* WK-115 visual-correction audit - `.home-grid`/`.home-grid__columns`
+          are pure layout wrappers (no new state, no changed data flow):
+          MMR/W-L becomes a full-width "hero" stat readout up top, then
+          Матчи сессии (primary - wider column) and Управление эфиром
+          (secondary - narrower column) sit side by side on wide windows
+          instead of stacking three same-width boxes down a narrow center
+          column - see the task's "используй desktop canvas" ask. Narrow
+          windows fall back to a single column (App.css media query),
+          identical to the previous stacked order. */}
+      <div className="home-grid">
+        <section className="mmr-panel mmr-panel--hero">
+          <div className="mmr-panel__stat">
+            <span className="section-heading__eyebrow">Текущий MMR</span>
+            <strong>{hasSession && sessionSummary?.ratingCurrent != null ? sessionSummary.ratingCurrent : "—"}</strong>
+            {sessionDelta != null && <span className={`mmr-panel__delta ${sessionDelta >= 0 ? "is-positive" : "is-negative"}`}>{sessionDelta >= 0 ? `+${sessionDelta}` : sessionDelta} за сессию</span>}
+          </div>
+          <div className="mmr-panel__divider" aria-hidden="true" />
+          <div className="mmr-panel__stat">
+            <span className="section-heading__eyebrow">Победы / Поражения</span>
+            <strong>{hasSession ? `${sessionSummary?.wins ?? 0} – ${sessionSummary?.losses ?? 0}` : "—"}</strong>
+          </div>
+        </section>
 
-      <section className="matches-panel">
-        <div className="section-heading"><div><span className="section-heading__eyebrow">Матчи сессии</span><h2>Текущий и недавние</h2></div></div>
-        {!hasSession && <p className="matches-panel__empty">Сессия ещё не началась.</p>}
-        {hasSession && !sessionSummary?.currentMatch && sessionSummary?.recentMatches.length === 0 && (
-          <p className="matches-panel__empty">Матчи появятся здесь, как только Dota начнёт передавать данные.</p>
-        )}
-        {hasSession && (sessionSummary?.currentMatch || (sessionSummary?.recentMatches.length ?? 0) > 0) && (
-          <ul className="match-list">
-            {sessionSummary?.currentMatch && <MatchRow match={sessionSummary.currentMatch} current />}
-            {sessionSummary?.recentMatches.map((match, index) => <MatchRow key={`${match.matchId ?? "m"}-${index}`} match={match} />)}
-          </ul>
-        )}
-      </section>
+        <div className="home-grid__columns">
+          <section className="matches-panel home-grid__col-main">
+            <div className="section-heading"><div><span className="section-heading__eyebrow">Матчи сессии</span><h2>Текущий и недавние</h2></div></div>
+            {!hasSession && <p className="matches-panel__empty">Сессия ещё не началась.</p>}
+            {hasSession && !sessionSummary?.currentMatch && sessionSummary?.recentMatches.length === 0 && (
+              <p className="matches-panel__empty">Матчи появятся здесь, как только Dota начнёт передавать данные.</p>
+            )}
+            {hasSession && (sessionSummary?.currentMatch || (sessionSummary?.recentMatches.length ?? 0) > 0) && (
+              <ul className="match-list">
+                {sessionSummary?.currentMatch && <MatchRow match={sessionSummary.currentMatch} current />}
+                {sessionSummary?.recentMatches.map((match, index) => <MatchRow key={`${match.matchId ?? "m"}-${index}`} match={match} />)}
+              </ul>
+            )}
+          </section>
 
-      <section className="control-panel">
-        <div className="section-heading">
-          <div><span className="section-heading__eyebrow">Управление эфиром</span><h2>Сцены OBS</h2></div>
-          <span className={`connection-pill ${status?.obs_connected ? "is-online" : ""}`}>{status?.obs_connected ? "На связи" : "Не подключён"}</span>
+          <section className="control-panel home-grid__col-side">
+            <div className="section-heading">
+              <div><span className="section-heading__eyebrow">Управление эфиром</span><h2>Сцены OBS</h2></div>
+              <span className={`connection-pill ${status?.obs_connected ? "is-online" : ""}`}>{status?.obs_connected ? "На связи" : "Не подключён"}</span>
+            </div>
+            <div className="mode-switch" role="group" aria-label="Режим переключения сцен">
+              <button className={status?.obs_config.enabled ? "is-active" : ""} onClick={() => setAutomaticMode(true)} disabled={busy || !status}>Автоматический</button>
+              <button className={!status?.obs_config.enabled ? "is-active" : ""} onClick={() => setAutomaticMode(false)} disabled={busy || !status}>Ручной</button>
+            </div>
+            <p className="mode-hint">{status?.obs_config.enabled ? "Companion меняет сцену по фазе матча." : "Вы управляете сценой кнопками ниже."}</p>
+            <div className="scene-summary"><span>Активная сцена</span><strong>{status?.obs_active_scene ? activeSceneLabels[status.obs_active_scene] : "Не определена"}</strong></div>
+            <div className="scene-actions">
+              {(Object.keys(sceneLabels) as Scene[]).map((scene) => (
+                <button key={scene} className={status?.obs_active_scene === scene ? "is-active" : ""} disabled={busy || !status?.obs_connected} onClick={() => void run(() => api.switchObsScene(scene))}>
+                  <span>{sceneLabels[scene]}</span>
+                  <small>{scene === "betweenMatches" ? "Лобби и паузы" : scene === "draft" ? "Выбор героев" : "Матч идёт"}</small>
+                </button>
+              ))}
+            </div>
+            <div className="poststream-actions">
+              {!summaryActive ? (
+                <button className="button" disabled={busy || !status?.obs_connected} onClick={() => void run(api.showStreamSummaryScene)}>
+                  Итоги стрима
+                </button>
+              ) : (
+                <>
+                  <button className="button button--primary" disabled={busy} onClick={() => void run(api.resumeLiveScene)}>
+                    Вернуться к трансляции
+                  </button>
+                  <small>OBS показывает Post Stream. Стрим и сессия продолжаются — это не завершение эфира.</small>
+                </>
+              )}
+            </div>
+          </section>
         </div>
-        <div className="mode-switch" role="group" aria-label="Режим переключения сцен">
-          <button className={status?.obs_config.enabled ? "is-active" : ""} onClick={() => setAutomaticMode(true)} disabled={busy || !status}>Автоматический</button>
-          <button className={!status?.obs_config.enabled ? "is-active" : ""} onClick={() => setAutomaticMode(false)} disabled={busy || !status}>Ручной</button>
-        </div>
-        <p className="mode-hint">{status?.obs_config.enabled ? "Companion меняет сцену по фазе матча." : "Вы управляете сценой кнопками ниже."}</p>
-        <div className="scene-summary"><span>Активная сцена</span><strong>{status?.obs_active_scene ? activeSceneLabels[status.obs_active_scene] : "Не определена"}</strong></div>
-        <div className="scene-actions">
-          {(Object.keys(sceneLabels) as Scene[]).map((scene) => (
-            <button key={scene} className={status?.obs_active_scene === scene ? "is-active" : ""} disabled={busy || !status?.obs_connected} onClick={() => void run(() => api.switchObsScene(scene))}>
-              <span>{sceneLabels[scene]}</span>
-              <small>{scene === "betweenMatches" ? "Лобби и паузы" : scene === "draft" ? "Выбор героев" : "Матч идёт"}</small>
-            </button>
-          ))}
-        </div>
-        <div className="poststream-actions">
-          {!summaryActive ? (
-            <button className="button" disabled={busy || !status?.obs_connected} onClick={() => void run(api.showStreamSummaryScene)}>
-              Итоги стрима
-            </button>
-          ) : (
-            <>
-              <button className="button button--primary" disabled={busy} onClick={() => void run(api.resumeLiveScene)}>
-                Вернуться к трансляции
-              </button>
-              <small>OBS показывает Post Stream. Стрим и сессия продолжаются — это не завершение эфира.</small>
-            </>
-          )}
-        </div>
-      </section>
+      </div>
     </>
   );
 }

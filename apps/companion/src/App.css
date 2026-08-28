@@ -56,40 +56,59 @@ h1, h2, p { margin-top: 0; }
   outline-offset: 2px;
 }
 
-/* ---------------------------------------------------------------------
-   WK-114 - Old Dota Companion shell: a heavy top header instead of the
-   Companion UI 2.0 sidebar (see the file's git history for that version).
-   Same bevelled-panel language as before (near-black borders, a single
-   inset highlight line, sharp corners, muted red/gold accent) - the change
-   is the shell's shape (header-first, like the old Dota client), not the
-   surface language. A subtle fixed atmospheric backdrop (radial vignette,
-   ::before on body) reads through every panel below via each panel's own
-   translucent fill, rather than sitting invisibly behind opaque cards.
-   --------------------------------------------------------------------- */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background:
-    radial-gradient(140% 60% at 50% -20%, rgba(123, 53, 50, .10), transparent 55%),
-    radial-gradient(120% 70% at 15% 110%, rgba(30, 40, 32, .35), transparent 60%),
-    radial-gradient(120% 70% at 85% 110%, rgba(30, 40, 32, .35), transparent 60%),
-    var(--ui-void);
-}
+/* -----------------------------------------------------------------------
+   WK-115 visual-correction audit - shared Prereborn/old-Dota atmosphere.
+
+   ROOT CAUSE of the previous pass's invisible atmosphere (confirmed by
+   actually running the app and inspecting computed styles/paint order via
+   Chrome DevTools Protocol - not just re-reading the CSS): `.app-atmosphere`
+   used `position:fixed; z-index:-1`, and `body` below has an OPAQUE
+   `background: var(--ui-void)`. Neither `body`, `#root`, nor `.app-shell`
+   established a stacking context, so both `body` itself and the atmosphere
+   resolved into the SAME root stacking context (established by `<html>`).
+   Per the standard painting order, a negative-z-index stacking context
+   (step 2) paints BEFORE an element's own in-flow, non-positioned box
+   background (step 3) - and `body`'s background is exactly that: an
+   in-flow box background, not "the root canvas" (that special propagation
+   only applies when `<html>` itself has no background, which is a
+   *different* mechanism and doesn't change the ordering here). So `body`'s
+   solid `--ui-void` fill was being painted ON TOP OF the negative-z-index
+   atmosphere on every frame - it never had a chance to show, at any
+   opacity. Verified empirically: forcing the layer's background to solid
+   red at z-index:-1 produced a screenshot with zero red anywhere; the same
+   element at z-index:9999 rendered the full tree/fog composition correctly
+   - proving the art direction/assets were always fine, only the negative
+   z-index placement was broken. The old `body::before` vignette (removed
+   here) had the exact same bug and was equally invisible the whole time.
+
+   FIX - per the task's explicit instruction, no negative z-index anywhere.
+   `.app-shell` now establishes its own local stacking context
+   (`isolation: isolate`), so this whole scheme is self-contained and can't
+   be re-broken by anything painted outside it. Every layer inside gets an
+   explicit, non-negative z-index instead of relying on document-order
+   default stacking, which is the part that silently broke before:
+     0  .app-atmosphere   (background/ambient - see AppAtmosphere.tsx)
+     1  .main             (page content/panels)
+     2  .app-header, .problem-bars   (chrome - always above content)
+     60 .settings-modal__backdrop   (already existed, now safely above all
+                                      of the above since it's local to this
+                                      same isolated context)
+   A plain positioned element only takes part in z-index ordering when its
+   `position` is non-static, so `.main`/`.app-header`/`.problem-bars` each
+   get `position: relative` purely so their z-index has any effect - this
+   does not change their layout (relative with no offsets is a no-op for
+   flow/sizing).
+   ----------------------------------------------------------------------- */
 
 /* -----------------------------------------------------------------------
-   WK-115 audit - shared Prereborn/old-Dota atmosphere. A single fixed,
-   negative-z-index layer (same `position:fixed; inset:0; z-index:-1;`
-   technique `body::before` above already uses) mounted once at the
-   app-shell root by AppAtmosphere.tsx - not inside any tab/page, so it's
-   never remounted when `section` changes in AppShell.tsx. Every panel
-   surface below (.control-panel, .settings-modal, etc.) already has its own
-   opaque/near-opaque background, so this only ever shows through in the
-   gaps around/behind them - exactly the "background -> ambient layers ->
-   content -> panels" layering the task asks for, achieved by z-index alone,
-   no per-tab wiring needed.
+   Shared Prereborn/old-Dota atmosphere. A single fixed, z-index:0 layer
+   mounted once at the app-shell root by AppAtmosphere.tsx - not inside any
+   tab/page, so it's never remounted when `section` changes in
+   AppShell.tsx. Every panel surface below (.control-panel, .settings-modal,
+   etc.) already has its own opaque/near-opaque background, so this only
+   ever shows through in the gaps around/behind them - exactly the
+   "background -> ambient layers -> content -> panels" layering the task
+   asks for, achieved by z-index alone, no per-tab wiring needed.
 
    Assets/values are ported from apps/web's own reference implementation of
    this same look (queue-scene.module.scss / queue-tree-layers.tsx /
@@ -106,7 +125,7 @@ body::before {
 .app-atmosphere {
   position: fixed;
   inset: 0;
-  z-index: -1;
+  z-index: 0;
   overflow: hidden;
   isolation: isolate;
   pointer-events: none;
@@ -117,9 +136,9 @@ body::before {
   inset: 0;
   z-index: 0;
   background:
-    radial-gradient(ellipse at 18% 31%, rgba(137, 11, 24, .32) 0%, rgba(86, 6, 16, .13) 27%, transparent 57%),
-    radial-gradient(ellipse at 83% 69%, rgba(112, 7, 18, .28) 0%, rgba(66, 3, 12, .11) 31%, transparent 60%),
-    radial-gradient(ellipse at 48% 45%, rgba(34, 2, 8, .10) 0%, rgba(5, 1, 3, .82) 58%, rgba(2, 1, 2, .96) 100%),
+    radial-gradient(ellipse at 18% 31%, rgba(137, 11, 24, .46) 0%, rgba(86, 6, 16, .19) 27%, transparent 57%),
+    radial-gradient(ellipse at 83% 69%, rgba(112, 7, 18, .40) 0%, rgba(66, 3, 12, .16) 31%, transparent 60%),
+    radial-gradient(ellipse at 48% 45%, rgba(34, 2, 8, .14) 0%, rgba(5, 1, 3, .82) 58%, rgba(2, 1, 2, .96) 100%),
     linear-gradient(180deg, #1a0509 0%, #090204 62%, #020102 100%);
 }
 
@@ -172,7 +191,7 @@ body::before {
 .app-atmosphere__tree-far {
   z-index: 0;
   inset-block: -12% -7%;
-  opacity: .20;
+  opacity: .30;
   filter: blur(.9px) brightness(.24) contrast(1.04) saturate(.62) sepia(.24);
   animation: atmosphereTreeDriftFar var(--tree-far-duration) ease-in-out infinite;
 }
@@ -188,7 +207,7 @@ body::before {
 .app-atmosphere__tree-distant {
   z-index: 1;
   inset: 9% 10% 5% 12%;
-  opacity: .05;
+  opacity: .08;
   filter: blur(5px) brightness(.30) saturate(.50) sepia(.26);
   transform: translate3d(-14%, 4%, 0) scale(.84);
   transform-origin: 42% 58%;
@@ -203,7 +222,7 @@ body::before {
 .app-atmosphere__tree-middle {
   z-index: 4;
   inset-block: -10% -7%;
-  opacity: .55;
+  opacity: .65;
   filter: brightness(.24) contrast(1.12) saturate(.48) sepia(.18);
   animation: atmosphereTreeDriftMiddle var(--tree-middle-duration) cubic-bezier(.45, .02, .55, .98) infinite;
 }
@@ -219,7 +238,7 @@ body::before {
 .app-atmosphere__tree-near {
   z-index: 6;
   inset-block: -14% -12%;
-  opacity: .42;
+  opacity: .52;
   filter: brightness(.20) contrast(1.18) saturate(.52) sepia(.22);
   animation: atmosphereTreeDriftNear var(--tree-near-duration) cubic-bezier(.42, .04, .58, .96) infinite;
 }
@@ -297,57 +316,102 @@ body::before {
   79% { transform: translate3d(var(--tree-near-return-x), var(--tree-near-return-y), 0) scale(1.118); }
 }
 
-.app-shell { display: flex; flex-direction: column; min-height: 100vh; }
+.app-shell { position: relative; isolation: isolate; display: flex; flex-direction: column; min-height: 100vh; }
 
+/* WK-115 visual-correction audit - the header was reading as a "browser
+   nav bar" (56px, thin, flat two-stop gradient, plain underline tabs).
+   Rebuilt as a heavy game-client title bar: taller, a metal-plate gradient
+   instead of a flat panel fill, red accent rivets on the outer edges (same
+   device apps/web's own `.topBar` already uses for this exact "old Dota
+   frame" read - see queue-scene.module.scss), and tabs that are integrated
+   segments of the frame rather than free-floating text links (see
+   `.app-header__nav button` below). `position:relative; z-index:2` is part
+   of the atmosphere fix above - a plain z-index has no effect without a
+   non-static position, and this must out-rank `.app-atmosphere`'s z-index:0
+   even though it never spatially overlaps it (defensive, not load-bearing,
+   but keeps this frame unambiguously "chrome" rather than page content). */
 .app-header {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 22px;
   flex-shrink: 0;
-  padding: 0 20px;
-  height: 56px;
-  border-bottom: 1px solid var(--border);
-  background: linear-gradient(180deg, var(--ui-panel), var(--ui-well));
-  box-shadow: inset 0 -1px 0 var(--ui-edge-soft), 0 3px 10px rgba(0,0,0,.35);
+  padding: 0 26px;
+  height: 84px;
+  border-bottom: 1px solid #050606;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .05), transparent 16px),
+    linear-gradient(90deg, #23282a 0%, #14181a 42%, #1c2122 100%);
+  box-shadow:
+    inset 0 0 0 1px var(--ui-edge-soft),
+    inset 0 -3px 0 rgba(0, 0, 0, .5),
+    0 8px 20px rgba(0, 0, 0, .5);
 }
-.app-header__left { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.app-header::before,
+.app-header::after {
+  content: "";
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  z-index: 1;
+  width: 2px;
+  border-block: 10px solid var(--ui-red);
+  opacity: .85;
+}
+.app-header::before { left: 12px; }
+.app-header::after { right: 12px; }
+
+.app-header__left { position: relative; z-index: 1; display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
 .app-header__gear {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 42px;
+  height: 42px;
   padding: 0;
-  border: 1px solid var(--border);
+  border: 1px solid #050606;
   border-radius: var(--radius);
-  background: linear-gradient(180deg, var(--ui-raised), var(--ui-well));
-  box-shadow: inset 0 0 0 1px var(--ui-edge-soft);
+  background: radial-gradient(circle at 50% 30%, #363b3c, #17191a 74%);
+  box-shadow: inset 0 0 0 1px var(--ui-edge-soft), inset 0 1px rgba(255, 255, 255, .10), 0 2px 6px rgba(0, 0, 0, .4);
   color: var(--ui-text-soft);
-  font-size: 1.05rem;
+  font-size: 1.2rem;
   line-height: 1;
 }
-.app-header__gear:hover { color: var(--ui-text); border-color: #190a0a; box-shadow: inset 0 0 0 1px var(--ui-red-hover); }
-.app-header__logo { object-fit: contain; flex-shrink: 0; }
-.app-header__brand { font-size: .98rem; color: var(--ui-text); font-weight: 600; letter-spacing: .01em; }
+.app-header__gear:hover { color: var(--ui-text); border-color: #190a0a; box-shadow: inset 0 0 0 1px var(--ui-red-hover), inset 0 1px rgba(255, 255, 255, .10); }
+.app-header__logo { object-fit: contain; flex-shrink: 0; filter: drop-shadow(0 1px 2px #000) drop-shadow(0 0 7px rgba(153, 43, 37, .3)); }
+.app-header__brandmark { display: flex; flex-direction: column; gap: 1px; line-height: 1; }
+.app-header__brand { font-size: 1.3rem; color: #ede6da; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; text-shadow: 0 1px 2px #000; }
+.app-header__brand-sub { color: var(--ui-text-muted); font-size: .68rem; font-weight: 600; letter-spacing: .28em; text-transform: uppercase; }
 
-/* Flat tab strip, not rounded pill buttons - a bottom-border underline reads
-   as the active tab, mirroring the old sidebar's left-bar treatment rotated
-   90°, matching a horizontal top-nav shape. */
-.app-header__nav { display: flex; align-items: stretch; gap: 4px; height: 100%; margin-left: 8px; }
+/* Tabs as physical segments of the frame, not underlined text links: idle
+   state reads as part of the metal plate, the active tab reads pressed-in
+   (inset shadow) with a warm glow, matching "recessed/raised state" from
+   the task rather than a thin coloured underline. */
+.app-header__nav { position: relative; z-index: 1; display: flex; align-items: stretch; gap: 2px; height: 100%; margin-left: 14px; }
 .app-header__nav button {
   position: relative;
-  padding: 0 16px;
+  padding: 0 28px;
   border: 0;
-  border-radius: 0;
-  border-bottom: 2px solid transparent;
+  border-inline: 1px solid transparent;
   background: transparent;
   color: var(--ui-text-soft);
-  font-size: .92rem;
-  font-weight: 600;
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
 }
-.app-header__nav button:hover:not(:disabled) { color: var(--ui-text); background: rgba(255,255,255,.02); }
-.app-header__nav button.is-active { color: #eee8df; border-bottom-color: var(--ui-red-hover); background: linear-gradient(180deg, rgba(123,53,50,.16), transparent 70%); }
+.app-header__nav button:hover:not(:disabled) { color: var(--ui-text); background: linear-gradient(180deg, rgba(255, 255, 255, .04), transparent 55%); }
+.app-header__nav button.is-active {
+  color: #f5efe6;
+  border-inline-color: rgba(0, 0, 0, .55);
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, .38), transparent 34%, transparent 68%, rgba(0, 0, 0, .28)),
+    linear-gradient(180deg, rgba(123, 53, 50, .30), rgba(123, 53, 50, .05) 60%, transparent);
+  box-shadow: inset 0 3px 5px rgba(0, 0, 0, .55), inset 0 -2px 0 var(--ui-red-hover);
+  text-shadow: 0 0 12px rgba(184, 91, 83, .4), 0 1px 2px #000;
+}
 
-.app-header__right { display: flex; align-items: center; gap: 14px; margin-left: auto; flex-shrink: 0; }
+.app-header__right { position: relative; z-index: 1; display: flex; align-items: center; gap: 14px; margin-left: auto; flex-shrink: 0; }
 /* Secondary placement (задача: "не должен конкурировать с основными
    разделами") - smaller, muted, no active-tab underline treatment even when
    selected, just a subtle color shift. */
@@ -355,11 +419,11 @@ body::before {
    the underline only appearing on hover/focus keeps it visually secondary
    (задача: "не конкурировать с основными разделами") while still reading
    as clickable once a user's attention actually lands on it. */
-.app-header__diagnostics { border: 0; background: transparent; padding: 6px 4px; color: var(--ui-text-muted); font-size: .8rem; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 2px; }
+.app-header__diagnostics { border: 0; background: transparent; padding: 6px 4px; color: var(--ui-text-muted); font-size: .82rem; letter-spacing: .04em; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 2px; }
 .app-header__diagnostics:hover, .app-header__diagnostics.is-active { color: var(--ui-text-soft); text-decoration-color: currentColor; }
 .app-header__version { color: var(--ui-text-muted); font-size: .72rem; }
 
-.main { flex: 1; min-width: 0; overflow-y: auto; padding: 24px clamp(20px, 3vw, 44px) 48px; }
+.main { position: relative; z-index: 1; flex: 1; min-width: 0; overflow-y: auto; padding: 24px clamp(20px, 3vw, 44px) 48px; }
 .main > * { max-width: 1480px; margin-left: auto; margin-right: auto; }
 
 .section-heading__eyebrow { color: var(--ui-gold); font-size: .72rem; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
@@ -368,7 +432,12 @@ body::before {
    highlight line, dark vertical gradient fill. Applied to every card-like
    block below via each selector's own rule (kept per-selector, not a
    single reusable class, to match how the rest of this file is already
-   organized around one rule per component). */
+   organized around one rule per component).
+
+   WK-115 visual-correction audit - the actual shared "panel primitive"
+   upgrade (bevel/edge-highlight) lives at the END of this file, not here,
+   so it comes after every one of these selectors' own definitions in the
+   cascade and reliably wins on `box-shadow` - see the comment there. */
 
 .link-button { border: 0; background: transparent; padding: 4px 2px; color: var(--ui-text-soft); font-size: .78rem; text-decoration: underline; text-underline-offset: 2px; flex-shrink: 0; }
 .link-button:hover { color: var(--ui-text); }
@@ -390,15 +459,29 @@ body::before {
 
 .scene-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
 
-/* WK-114 - problem bars: the ONLY connectivity chrome Companion ever shows,
-   and only while something is genuinely wrong (see components/ProblemBar.tsx
-   - a healthy snapshot renders none of this at all). Slim strips under the
-   header, not cards - several can stack without growing the layout. */
-.problem-bars { display: flex; flex-direction: column; flex-shrink: 0; }
-.problem-bar { display: flex; align-items: baseline; gap: 10px; padding: 7px 20px; border-bottom: 1px solid var(--border); font-size: .84rem; }
-.problem-bar--warning { background: rgba(201,161,90,.10); border-left: 3px solid var(--warning); }
-.problem-bar--error { background: rgba(123,53,50,.14); border-left: 3px solid var(--danger); }
-.problem-bar__label { color: var(--ui-text); font-weight: 700; text-transform: uppercase; font-size: .72rem; letter-spacing: .06em; flex-shrink: 0; }
+/* WK-114/WK-115 - problem bars: the ONLY connectivity chrome Companion ever
+   shows, and only while something is genuinely wrong (see
+   components/ProblemBar.tsx - a healthy snapshot renders none of this at
+   all). Slim strips directly under the header, not cards - several can
+   stack without growing the layout. WK-115 audit - previously a flat
+   rgba() wash that read as a browser "toast" notification sitting loose
+   below a thin web nav bar; now built from the same dark-well fill and
+   inset top highlight the header/panels use, so it reads as a status
+   ledge welded onto the header frame rather than an unrelated strip. */
+.problem-bars { position: relative; z-index: 2; display: flex; flex-direction: column; flex-shrink: 0; }
+.problem-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 26px;
+  border-bottom: 1px solid #050606;
+  background: linear-gradient(180deg, rgba(0, 0, 0, .3), transparent 60%), var(--ui-well);
+  box-shadow: inset 0 1px rgba(255, 255, 255, .05);
+  font-size: .85rem;
+}
+.problem-bar--warning { border-left: 4px solid var(--warning); background: linear-gradient(90deg, rgba(201, 161, 90, .16), transparent 55%), linear-gradient(180deg, rgba(0, 0, 0, .3), transparent 60%), var(--ui-well); }
+.problem-bar--error { border-left: 4px solid var(--danger); background: linear-gradient(90deg, rgba(123, 53, 50, .22), transparent 55%), linear-gradient(180deg, rgba(0, 0, 0, .3), transparent 60%), var(--ui-well); }
+.problem-bar__label { color: var(--ui-text); font-weight: 700; text-transform: uppercase; font-size: .72rem; letter-spacing: .08em; flex-shrink: 0; }
 .problem-bar--warning .problem-bar__label { color: var(--warning); }
 .problem-bar--error .problem-bar__label { color: var(--danger); }
 .problem-bar__detail { color: var(--ui-text-soft); }
@@ -459,26 +542,49 @@ body::before {
 .stream-status-line__info { display: grid; gap: 3px; color: var(--ui-text); }
 .stream-status-line__actions { display: flex; gap: 8px; flex-wrap: wrap; }
 
-/* WK-114 - MMR/W-L: the primary numbers on Главная now, a slim row of two
-   stats rather than a padded status card. */
-.mmr-panel { display: flex; gap: 32px; flex-wrap: wrap; margin-bottom: 16px; padding: 16px 20px; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-panel), var(--ui-well)); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
-.mmr-panel__stat { display: grid; gap: 4px; }
-.mmr-panel__stat strong { font-size: 1.65rem; color: var(--ui-text); font-weight: 600; line-height: 1; }
+/* WK-115 visual-correction audit - Главная used to be three same-width
+   boxes stacked straight down a narrow center column (mmr-panel,
+   matches-panel, control-panel each `margin-bottom:16px`, nothing else),
+   leaving most of a desktop window empty. `.home-grid`/`.home-grid__columns`
+   (wrappers added in HomePage.tsx, no logic change) turn this into: a
+   full-width MMR/W-L hero readout on top, then Матчи сессии (primary,
+   wider) and Управление эфиром/OBS (secondary, narrower - "не должны
+   визуально доминировать над игровыми данными") side by side once there's
+   room for it. Below `--home-two-col`, falls back to the exact same
+   single-column stack as before. */
+.home-grid { display: flex; flex-direction: column; gap: 18px; }
+.home-grid > .mmr-panel { margin-bottom: 0; }
+.home-grid__columns { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; align-items: start; }
+.home-grid__col-main, .home-grid__col-side { margin-bottom: 0; }
+@media (min-width: 1100px) {
+  .home-grid__columns { grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr); }
+}
+
+/* WK-114/WK-115 - MMR/W-L: the primary numbers on Главная, now a genuine
+   "hero" HUD readout (big tabular figures, a vertical divider between the
+   two stats, a warm radial wash) instead of a slim settings-form row. */
+.mmr-panel--hero { align-items: center; gap: 40px; padding: 22px 30px; background: radial-gradient(ellipse 60% 120% at 0% 0%, rgba(123, 53, 50, .22), transparent 62%), linear-gradient(180deg, var(--ui-panel), var(--ui-well)); }
+.mmr-panel { display: flex; gap: 32px; flex-wrap: wrap; margin-bottom: 16px; padding: 16px 20px; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-panel), var(--ui-well)); }
+.mmr-panel__divider { align-self: stretch; width: 1px; background: linear-gradient(180deg, transparent, var(--ui-edge-soft) 20%, var(--ui-edge-soft) 80%, transparent); }
+.mmr-panel__stat { display: grid; gap: 5px; }
+.mmr-panel__stat strong { font-variant-numeric: tabular-nums; font-size: 1.65rem; color: var(--ui-text); font-weight: 600; line-height: 1; }
+.mmr-panel--hero .mmr-panel__stat strong { font-size: 3.15rem; font-weight: 800; letter-spacing: -.01em; color: #f2ede4; text-shadow: 0 0 20px rgba(184, 91, 83, .3), 0 2px 3px rgba(0, 0, 0, .6); }
 .mmr-panel__delta { font-size: .82rem; font-weight: 600; }
+.mmr-panel--hero .mmr-panel__delta { font-size: .95rem; font-weight: 700; }
 .mmr-panel__delta.is-positive { color: var(--success); }
 .mmr-panel__delta.is-negative { color: var(--danger); }
 
-.matches-panel { margin-bottom: 16px; padding: 18px 20px; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-panel), var(--ui-well)); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
+.matches-panel { margin-bottom: 16px; padding: 18px 20px; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-panel), var(--ui-well)); }
 .matches-panel__empty { margin: 0; color: var(--ui-text-soft); font-size: .85rem; }
 .match-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
-.match-row { display: flex; align-items: center; gap: 12px; padding: 9px 4px; border-bottom: 1px solid var(--border); font-size: .88rem; }
+.match-row { display: flex; align-items: center; gap: 14px; padding: 12px 6px; border-bottom: 1px solid var(--border); font-size: .95rem; }
 .match-row:last-child { border-bottom: 0; }
 .match-row--current { background: rgba(123,53,50,.10); }
-.match-row__hero { color: var(--ui-text); flex-shrink: 0; min-width: 90px; }
+.match-row__hero { color: var(--ui-text); font-weight: 700; letter-spacing: .01em; flex-shrink: 0; min-width: 96px; }
 .match-row__result { flex: 1; color: var(--ui-text-soft); }
 .match-row__result--win { color: var(--success); }
 .match-row__result--loss { color: var(--danger); }
-.match-row__delta { font-variant-numeric: tabular-nums; color: var(--ui-gold); flex-shrink: 0; }
+.match-row__delta { font-variant-numeric: tabular-nums; font-size: 1.02rem; font-weight: 700; color: var(--ui-gold); flex-shrink: 0; }
 
 /* WK-114 - "Итоги стрима": a manual, reversible OBS scene action, kept
    inside the existing OBS control panel since it IS an OBS scene action,
@@ -486,22 +592,36 @@ body::before {
 .poststream-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
 .poststream-actions small { color: var(--ui-text-soft); }
 
-.control-panel { margin-bottom: 16px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-panel), var(--ui-well)); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
+.control-panel { margin-bottom: 16px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-panel), var(--ui-well)); }
 .section-heading, .scene-summary { display: flex; align-items: center; justify-content: space-between; }
 .section-heading { margin-bottom: 16px; }
-.section-heading h2 { margin: 2px 0 0; font-size: 1.2rem; color: var(--ui-text); font-weight: 600; }
-.connection-pill { padding: 5px 9px; border-radius: var(--radius); color: var(--danger); background: rgba(123,53,50,.16); font-size: .75rem; font-weight: 700; border: 1px solid var(--border); }
+.section-heading h2 { margin: 2px 0 0; font-size: 1.3rem; color: var(--ui-text); font-weight: 700; letter-spacing: .01em; }
+.connection-pill { padding: 5px 10px; border-radius: var(--radius); color: var(--danger); background: rgba(123,53,50,.16); font-size: .74rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; border: 1px solid var(--border); }
 .connection-pill.is-online { color: var(--success); background: rgba(152,201,101,.12); }
-.mode-switch { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ui-void); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
-.mode-switch button { border: 0; border-radius: var(--radius); background: transparent; color: var(--ui-text-soft); padding: 8px 14px; }
-.mode-switch button.is-active { color: #ddd8d0; background: linear-gradient(180deg, #593433, #291c1d); box-shadow: inset 0 0 0 1px rgba(154,75,70,.5); }
+/* WK-115 - "не использовать современные pill segmented controls": kept the
+   sharp-cornered inset-track switch, tightened toward a physical toggle
+   (uppercase, letter-spaced, a visible pressed-in shadow on the active
+   side) rather than a soft rounded segmented control. */
+.mode-switch { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ui-void); box-shadow: inset 0 0 0 1px var(--ui-edge-soft), inset 0 2px 4px rgba(0, 0, 0, .5); }
+.mode-switch button { border: 0; border-radius: var(--radius); background: transparent; color: var(--ui-text-soft); padding: 8px 16px; font-size: .82rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.mode-switch button.is-active { color: #ddd8d0; background: linear-gradient(180deg, #593433, #291c1d); box-shadow: inset 0 0 0 1px rgba(154,75,70,.5), inset 0 1px rgba(255,255,255,.08); }
 .mode-hint { display: inline; margin-left: 12px; color: var(--ui-text-soft); font-size: .82rem; }
-.scene-summary { align-items: baseline; margin: 18px 0 10px; padding-top: 16px; border-top: 1px solid var(--border); }
-.scene-summary span { color: var(--ui-text-soft); font-size: .82rem; }
-.scene-summary strong { font-size: 1.05rem; color: var(--ui-text); }
-.scene-actions button { display: grid; gap: 3px; text-align: left; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-raised), var(--ui-well)); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
-.scene-actions button:hover:not(:disabled) { border-color: #190a0a; box-shadow: inset 0 0 0 1px var(--ui-red-hover); }
-.scene-actions button.is-active { border-color: #190a0a; background: linear-gradient(180deg, #4a2c2a, #241716); box-shadow: inset 0 0 0 1px var(--ui-red-hover); }
+.scene-summary { align-items: center; margin: 18px 0 10px; padding: 10px 14px; border-top: 1px solid var(--border); background: var(--ui-void); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
+.scene-summary span { color: var(--ui-text-soft); font-size: .78rem; letter-spacing: .06em; text-transform: uppercase; }
+.scene-summary strong { font-size: 1.1rem; color: var(--ui-text); font-weight: 700; }
+
+/* WK-115 - scenes read as selectable game states now, not settings-form
+   checkboxes: a left accent bar (idle = neutral edge, hover = red, active
+   = gold) doubles as a selection indicator, plus a small "●" marker on the
+   active card - the same device the header's active tab uses (a visible,
+   specific "this one is selected" signal), scaled down for a denser grid. */
+.scene-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.scene-actions button { position: relative; display: grid; gap: 4px; text-align: left; padding: 13px 16px 13px 18px; border: 1px solid var(--border); border-left: 3px solid var(--ui-edge); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-raised), var(--ui-well)); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
+.scene-actions button span { color: var(--ui-text); font-size: .92rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+.scene-actions button:hover:not(:disabled) { border-left-color: var(--ui-red-hover); box-shadow: inset 0 0 0 1px var(--ui-red-hover); }
+.scene-actions button.is-active { border-left-color: var(--ui-gold); background: linear-gradient(180deg, #4a2c2a, #241716); box-shadow: inset 0 0 0 1px var(--ui-red-hover), inset 0 2px 5px rgba(0, 0, 0, .45); }
+.scene-actions button.is-active span { color: #f5efe6; text-shadow: 0 0 10px rgba(184, 91, 83, .4); }
+.scene-actions button.is-active::after { content: "●"; position: absolute; top: 10px; right: 11px; color: var(--ui-gold); font-size: .55rem; }
 .scene-actions small { color: var(--ui-text-muted); font-size: .73rem; }
 
 .page-heading { margin-bottom: 22px; }
@@ -815,4 +935,35 @@ body::before {
   .chat-messages { height: min(58vh, 480px); }
   .chat-settings { grid-template-columns: 1fr 1fr; }
   .chat-settings h3, .chat-settings p, .chat-settings .button { grid-column: 1 / -1; }
+}
+
+/* -----------------------------------------------------------------------
+   WK-115 visual-correction audit - the actual shared "Prereborn panel"
+   primitive (see the pointer left at the "engraved panel surface" comment
+   near the top of this file). Every panel-family selector below already
+   had its own border/background/padding recipe; this is the ONE thing
+   genuinely worth sharing across all of them, so it's a single grouped
+   rule here instead of copy-pasted per component. Deliberately placed at
+   the very end of the file so it comes after every one of these
+   selectors' own `box-shadow` declaration above and wins the cascade on
+   equal specificity, without `!important` and without touching each
+   selector's own background/padding/border.
+
+   What it adds that the old flat `inset 0 0 0 1px var(--ui-edge-soft)`
+   didn't: a brighter top edge (reads as lit from above), a dark inset
+   lower edge, and a soft outer drop shadow that separates the panel from
+   the atmosphere layer now visible behind it - real HUD-panel depth
+   instead of a flat "border: 1px solid gray" admin card. No rounded
+   corners, no glow, no glass blur, no giant shadow - restrained enough to
+   stay sharp geometry, per the task's explicit "не делать rounded
+   cards/glassmorphism/neon" list. */
+.session-bar, .stream-status-line--attention, .mmr-panel, .matches-panel,
+.control-panel, .update-banner, .session-prompt-banner, .setup-guide,
+.chat-page, .sounds-panel, .diagnostics-view > section, .diagnostic-card,
+.settings-modal, .chat-settings, .chat-messages, .chat-reauth-banner {
+  box-shadow:
+    inset 0 0 0 1px var(--ui-edge-soft),
+    inset 0 1px 0 rgba(255, 255, 255, .09),
+    inset 0 -1px 0 rgba(0, 0, 0, .55),
+    0 10px 24px rgba(0, 0, 0, .38);
 }
