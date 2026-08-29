@@ -202,9 +202,42 @@ clobbers either) is still exercised against the real function bodies, not a re-i
 
 ## 4. Remaining sections
 
-Heroes search/composition ✅ (below), Items catalog, Оформление editor/renderer parity, Chat, Home,
-Settings, performance, tests, visual QA — tracked in Weeek WK-122 (task id 123) and filled in here
-as each lands.
+Heroes search/composition ✅, Hero detail composition ✅, Items catalog ✅ (below), Sounds →
+Герои removed ✅ — Оформление editor/renderer parity, Chat, Home, Settings, performance, tests,
+visual QA remain — tracked in Weeek WK-122 (task id 123) and filled in here as each lands.
+
+## 6. Items catalog + Sounds → Герои removal (§12-14)
+
+The Rust catalog (`game_sounds/catalog.rs::item_catalog`) turned out to be a small, fixed list —
+**22 items** (17 supported, 5 unsupported), not the hundreds a generic Dota shop implies. This
+changed the practical approach: rather than a generic/scalable category-import pipeline, each
+item's real shop category was researched and hand-mapped once
+(`apps/companion/src/services/itemCategories.ts`).
+
+- Fetched OpenDota's public `constants/items` endpoint (cost + `qual`/rarity tier) to confirm price
+  tier for every item before assigning a category — that endpoint does **not** expose the actual
+  shop-tab label itself (only a rarity/border-color tag), so the specific category within a group
+  (e.g. Поддержка vs Магия) is a documented, per-entry judgement call from stable, long-unchanged
+  Dota 2 shop knowledge for these specific items, not a blind guess. Ambiguous cases (Blood Grenade
+  — a Techies innate, not purchasable at all; Hand of Midas/Blink Dagger/Yasha/Kaya — don't cleanly
+  fit Armor/Weapon/Magic/Support) are called out in code comments rather than forced into a
+  confident-looking wrong bucket.
+- `ItemsCatalog.tsx` replaces the flat `ItemsGrid.tsx` + per-click `ItemSoundModal.tsx`: a
+  master/detail layout, catalog grouped by category on the left, a **persistent** right-side
+  inspector (not a modal) that reuses the existing `SoundBindingRow` verbatim. Unsupported items
+  stay browsable (clickable, not `disabled`) — the inspector states plainly that automatic detection
+  isn't supported for that item, never hides it or fakes a working binding.
+- `ItemSoundModal.tsx`/`SoundModal.tsx` deleted (fully replaced, zero remaining references).
+- Sounds → "Герои" tab removed entirely (no redirect card) — hero-ability sound assignment now
+  lives exclusively on `HeroDetailPage.tsx`.
+- "Библиотека" (§15, uploaded-file reuse/preview/delete) intentionally not built this slice — the
+  tab list is already an array (`TABS` in `SoundsPage.tsx`) specifically so adding it later is a
+  one-line change, not a restructure, per the task's "navigation architecture подготовить
+  правильно, но не раздувать" instruction.
+
+**Process note**: the first attempt at this delegated it to a background subagent with a thorough
+brief; the subagent's session hit an account-level API rate limit before completing and the work
+was picked up and finished directly instead — no partial/broken state was left behind to clean up.
 
 ## 5. Heroes — keyboard search, favorites placement (§8, §9)
 
