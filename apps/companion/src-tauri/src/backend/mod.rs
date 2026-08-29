@@ -17,6 +17,10 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 // clicking a button and waiting a few seconds, at a fraction of the
 // previous request volume.
 const COMMAND_POLL_INTERVAL: Duration = Duration::from_secs(15);
+// WK-122 §19 - see the field doc on InnerState.overlay_layout. A once-a-
+// minute GET is cheap and catches a web-editor change reasonably fast
+// without polling aggressively for something that changes rarely.
+const OVERLAY_LAYOUT_POLL_INTERVAL: Duration = Duration::from_secs(60);
 
 // WK-94 - same cap `retry_delay` uses for its backoff shape, reused as the
 // single source of truth for when `state::AppState::snapshot()` should stop
@@ -74,6 +78,14 @@ pub fn init(app: AppHandle) {
     let app_for_loop = app.clone();
     std::thread::spawn(move || {
         let mut last_command_poll = Instant::now() - COMMAND_POLL_INTERVAL;
+        // WK-122 §19 - fires on the very first tick (same "already elapsed"
+        // trick as last_command_poll), then every OVERLAY_LAYOUT_POLL_INTERVAL
+        // - catches a layout change made via the web editor while Companion
+        // is running. A save made through Companion's OWN editor
+        // (save_overlay_layout) applies to the cache immediately, without
+        // waiting for this poll - this is only the "someone else edited it"
+        // path.
+        let mut last_overlay_layout_poll = Instant::now() - OVERLAY_LAYOUT_POLL_INTERVAL;
         let mut send_failures: u32 = 0;
         let mut next_send_attempt_at = Instant::now();
         loop {
@@ -93,6 +105,10 @@ pub fn init(app: AppHandle) {
             if last_command_poll.elapsed() >= COMMAND_POLL_INTERVAL {
                 poll_obs_command(&app_for_loop);
                 last_command_poll = Instant::now();
+            }
+            if last_overlay_layout_poll.elapsed() >= OVERLAY_LAYOUT_POLL_INTERVAL {
+                let _ = tauri::async_runtime::block_on(refresh_overlay_layout(&app_for_loop));
+                last_overlay_layout_poll = Instant::now();
             }
             // WK-113 - no more automatic session-state poll here. PostStream
             // is now driven by the local OBS-authoritative lifecycle
@@ -622,6 +638,96 @@ fn start_session_refresher(app: AppHandle) {
         }
         std::thread::sleep(SESSION_REFRESH_INTERVAL);
     });
+}
+
+/// WK-122 §19 - fetches the real saved OverlayLayout from the companion-
+/// scoped route (apps/api's `authenticateCompanionSession`-guarded
+/// `/companion/overlay-layout`, added alongside this), caching it in
+/// `AppState.overlay_layout` and bumping `overlay_layout_version` so
+/// `overlay_server.rs`'s SSE stream can tell the local renderer to re-fetch
+/// it. Passed through as an opaque `serde_json::Value` - see the field doc
+/// on `InnerState.overlay_layout` for why Rust never needs to interpret
+/// individual widget fields.
+pub async fn refresh_overlay_layout(app: &AppHandle) -> Result<serde_json::Value, String> {
+    let token = app
+        .state::<AppState>()
+        .0
+        .lock()
+        .unwrap()
+        .companion_token
+        .clone()
+        .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())?;
+    let layout = tauri::async_runtime::spawn_blocking(move || fetch_overlay_layout(&token))
+        .await
+        .map_err(|e| format!("Internal error: {e}"))??;
+    apply_overlay_layout(app, layout.clone());
+    Ok(layout)
+}
+
+fn fetch_overlay_layout(token: &str) -> Result<serde_json::Value, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .get(format!("{DEFAULT_BACKEND_URL}/stream/companion/overlay-layout"))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("Оформление недоступно: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json()
+        .map_err(|error| format!("Неверный ответ оформления: {error}"))
+}
+
+/// "Сохранить" in the Оформление editor (DesignPage.tsx) - PUTs the whole
+/// edited layout (apps/api's `normalizeOverlayLayout` validates/clamps
+/// every field server-side, same as the web editor's save already does) and
+/// caches the server's normalized response back, so the local preview
+/// reflects exactly what was actually persisted, not the client's
+/// pre-validation draft.
+pub async fn save_overlay_layout(app: &AppHandle, layout: serde_json::Value) -> Result<serde_json::Value, String> {
+    let token = app
+        .state::<AppState>()
+        .0
+        .lock()
+        .unwrap()
+        .companion_token
+        .clone()
+        .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())?;
+    let saved = tauri::async_runtime::spawn_blocking(move || put_overlay_layout(&token, layout))
+        .await
+        .map_err(|e| format!("Internal error: {e}"))??;
+    apply_overlay_layout(app, saved.clone());
+    Ok(saved)
+}
+
+fn put_overlay_layout(token: &str, layout: serde_json::Value) -> Result<serde_json::Value, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .put(format!("{DEFAULT_BACKEND_URL}/stream/companion/overlay-layout"))
+        .bearer_auth(token)
+        .json(&layout)
+        .send()
+        .map_err(|error| format!("Не удалось сохранить оформление: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json()
+        .map_err(|error| format!("Неверный ответ сохранения оформления: {error}"))
+}
+
+fn apply_overlay_layout(app: &AppHandle, layout: serde_json::Value) {
+    let state = app.state::<AppState>();
+    let mut inner = state.0.lock().unwrap();
+    if inner.overlay_layout.as_ref() != Some(&layout) {
+        inner.overlay_layout = Some(layout);
+        inner.overlay_layout_version = inner.overlay_layout_version.saturating_add(1);
+    }
 }
 
 /// Manual "resend current state" - ignores `dirty`, sends whatever the last

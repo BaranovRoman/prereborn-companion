@@ -92,6 +92,14 @@ pub struct OverlayStateSnapshot {
     /// `None` in BetweenMatches/PostStream, exactly like the equivalent
     /// `BroadcastState::from_gsi` reads no hero data for those states either.
     pub current_game: Option<CurrentGameSnapshot>,
+    /// WK-122 §19 - bumped every time `AppState.overlay_layout` actually
+    /// changes (a fresh fetch that differs from the cache, or a save from
+    /// the Оформление editor - see backend::apply_overlay_layout). The
+    /// renderer doesn't need the layout on every tick (positions rarely
+    /// change), so this is a cheap version number rather than embedding the
+    /// whole layout blob here - it fetches `/overlay/layout` once and
+    /// re-fetches only when this number moves.
+    pub layout_version: u64,
 }
 
 /// Reads AppState (canonical resolver fields) plus the local runtime's
@@ -106,7 +114,7 @@ pub struct OverlayStateSnapshot {
 /// than only testing a hand-built stand-in. Every real call site keeps
 /// compiling unchanged (`R = Wry` by inference).
 pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
-    let (gsi_derived_source, session_ended, obs_manual_summary_override, current_game) = {
+    let (gsi_derived_source, session_ended, obs_manual_summary_override, current_game, layout_version) = {
         let state = app.state::<AppState>();
         let inner = state.0.lock().unwrap();
         let current_game = inner
@@ -119,6 +127,7 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
             inner.session_ended,
             inner.obs_manual_summary_override,
             current_game,
+            inner.overlay_layout_version,
         )
     };
     let gsi_derived = gsi_derived_source.unwrap_or(BroadcastState::BetweenMatches);
@@ -131,6 +140,7 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
             BroadcastState::Draft | BroadcastState::Gameplay => current_game,
             BroadcastState::BetweenMatches | BroadcastState::PostStream => None,
         },
+        layout_version,
     }
 }
 
@@ -225,10 +235,18 @@ fn serve_sse<R: Runtime>(app: &AppHandle<R>, request: tiny_http::Request) {
     let mut stream = request.upgrade("sse", response);
 
     let mut last_sent_scene: Option<BroadcastState> = None;
+    // WK-122 §19 - a second, independent reason to push a frame: the scene
+    // can easily stay unchanged for a long time while the streamer is
+    // actively editing Оформление (see DesignPage.tsx's live preview) -
+    // gating on scene alone would leave the preview stale until the next
+    // real scene transition. `None` initially so the very first snapshot
+    // (whatever its version) always counts as a change.
+    let mut last_sent_layout_version: Option<u64> = None;
     loop {
         let snapshot = current(app);
-        if scene_changed(last_sent_scene, snapshot.scene) {
+        if scene_changed(last_sent_scene, snapshot.scene) || last_sent_layout_version != Some(snapshot.layout_version) {
             last_sent_scene = Some(snapshot.scene);
+            last_sent_layout_version = Some(snapshot.layout_version);
             let payload = serde_json::to_string(&snapshot).unwrap_or_default();
             if stream.write_all(format!("data: {payload}\n\n").as_bytes()).is_err() {
                 return; // client disconnected
@@ -261,6 +279,17 @@ fn handle_request<R: Runtime>(app: &AppHandle<R>, request: tiny_http::Request) {
             respond_json(request, &snapshot);
         }
         (tiny_http::Method::Get, "/overlay/events") => serve_sse(app, request),
+        // WK-122 §19 - serves whatever OverlayLayout backend::init's
+        // periodic poll (or a save from the Оформление editor) most
+        // recently cached. `null` (not an error) when nothing has been
+        // fetched yet this run - e.g. Companion never got a companion
+        // token/session, or the very first poll hasn't landed - the
+        // renderer's own fallback (fixed default positions, see
+        // OverlayApp.tsx) is what handles that case, not this endpoint.
+        (tiny_http::Method::Get, "/overlay/layout") => {
+            let layout = app.state::<AppState>().0.lock().unwrap().overlay_layout.clone();
+            respond_json(request, &layout);
+        }
         (tiny_http::Method::Get, "/overlay") | (tiny_http::Method::Get, "/overlay/") => respond_html(request, RENDERER_HTML),
         _ => respond_not_found(request),
     }
@@ -481,6 +510,60 @@ mod tests {
         assert!(second_frame.contains("\"scene\":\"draft\""), "unexpected transition frame: {second_frame}");
     }
 
+    // WK-122 §19 - the local renderer must keep updating live while the
+    // streamer edits Оформление and the scene itself never changes (e.g.
+    // sitting on Между матчами the whole time) - pins that the SSE push
+    // condition includes layout_version, not just scene.
+    #[test]
+    fn sse_stream_pushes_a_frame_when_only_the_layout_version_changes() {
+        let app = test_app();
+        let port = start_test_server(app.clone());
+
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        stream.write_all(b"GET /overlay/events HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut reader = std::io::BufReader::new(stream);
+
+        let first_frame = read_one_sse_frame(&mut reader);
+        assert!(first_frame.contains("\"layoutVersion\":0"), "unexpected initial frame: {first_frame}");
+
+        {
+            let state = app.state::<AppState>();
+            let mut inner = state.0.lock().unwrap();
+            inner.overlay_layout_version = 1;
+            // Scene deliberately left untouched (still betweenMatches).
+        }
+
+        let second_frame = read_one_sse_frame(&mut reader);
+        assert!(second_frame.contains("\"scene\":\"betweenMatches\""), "scene must not have changed: {second_frame}");
+        assert!(second_frame.contains("\"layoutVersion\":1"), "layout_version bump alone must still push a frame: {second_frame}");
+    }
+
+    // WK-122 §19 - `null`, not an error, when nothing has been fetched yet
+    // this run (e.g. Companion never got a companion token/session) - the
+    // renderer's own fixed-default fallback is what handles that, not this
+    // endpoint returning an error status.
+    #[test]
+    fn overlay_layout_endpoint_returns_null_when_nothing_cached_yet() {
+        let app = test_app();
+        let port = start_test_server(app);
+        assert_eq!(http_get(port, "/overlay/layout").trim(), "null");
+    }
+
+    #[test]
+    fn overlay_layout_endpoint_serves_the_cached_layout() {
+        let app = test_app();
+        {
+            let state = app.state::<AppState>();
+            let mut inner = state.0.lock().unwrap();
+            inner.overlay_layout = Some(serde_json::json!({ "version": 4, "hello": "world" }));
+        }
+        let port = start_test_server(app);
+        let body = http_get(port, "/overlay/layout");
+        let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(parsed["hello"], "world");
+    }
+
     // WK-120 regression test - direct pin for the bug the integration test
     // above originally caught: a fresh `updated_at` timestamp alone (every
     // `current()` call produces one) must never be treated as a real scene
@@ -565,6 +648,7 @@ mod tests {
                 updated_at: "2026-01-01T00:00:00Z".to_string(),
                 session: LocalSessionSummary::default(),
                 current_game: Some(CurrentGameSnapshot { hero_id: Some(14), kills: Some(3), deaths: Some(1), assists: Some(7) }),
+                layout_version: 1,
             };
             let json = serde_json::to_string(&snapshot).unwrap().to_lowercase();
             for forbidden in ["token", "secret", "password", "companion_token", "bearer"] {

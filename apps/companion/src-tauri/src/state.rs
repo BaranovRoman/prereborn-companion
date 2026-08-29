@@ -198,6 +198,19 @@ pub struct InnerState {
     // `false` (Default derive) - unaffected until a real "scene not found"
     // failure is observed.
     pub obs_post_stream_unavailable: bool,
+    // WK-122 §19 - OverlayLayout cache. Kept as an opaque `serde_json::Value`
+    // (same "pass through untyped" pattern `last_gsi_payload`/
+    // `get_stream_session`'s return type already use in this codebase) since
+    // Rust never needs to interpret individual widget fields - it only
+    // fetches/caches/serves the same JSON blob apps/api's
+    // `/account/me/overlay-layout` and `/companion/overlay-layout` already
+    // exchange with a real browser editor. `overlay_layout_version` is
+    // bumped on every successful fetch/save so overlay_server.rs's SSE
+    // stream (already pushing OverlayStateSnapshot on every scene change)
+    // can tell the local renderer "the layout changed, re-fetch it" without
+    // a second push channel.
+    pub overlay_layout: Option<serde_json::Value>,
+    pub overlay_layout_version: u64,
 }
 
 pub struct AppState(pub Mutex<InnerState>);
