@@ -251,6 +251,8 @@ pub fn run() {
             commands::get_stream_session,
             commands::reset_stream_session,
             commands::end_stream_session,
+            commands::get_favorite_heroes,
+            commands::save_favorite_heroes,
             commands::get_game_sound_catalog,
             commands::get_game_sound_settings,
             commands::update_game_sound_master,

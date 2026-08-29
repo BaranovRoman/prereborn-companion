@@ -1,8 +1,10 @@
 import { Router } from "express";
 import {
     endCompanionSessionController,
+    getCompanionFavoriteHeroesController,
     getCompanionSessionController,
     getCompanionTwitchChatController,
+    putCompanionFavoriteHeroesController,
     putCompanionGsiStateController,
     resetCompanionSessionController,
 } from "../../controllers/stream/companion.js";
@@ -72,4 +74,18 @@ streamCompanionRouter.get(
     "/account-settings",
     authenticateCompanionToken,
     getCompanionAccountSettingsController
+);
+
+// WK-121 - favorite heroes, backed by the same stream_queue_settings row
+// the web cabinet's Favorite Heroes picker already owns (see the
+// controller's doc comment for why this isn't a new store).
+streamCompanionRouter.get(
+    "/favorite-heroes",
+    authenticateCompanionToken,
+    getCompanionFavoriteHeroesController
+);
+streamCompanionRouter.put(
+    "/favorite-heroes",
+    authenticateCompanionToken,
+    putCompanionFavoriteHeroesController
 );

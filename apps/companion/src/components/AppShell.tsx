@@ -9,6 +9,7 @@ import { UpdateBanner } from "./UpdateBanner";
 import { useTwitchChatSession } from "../chat/useTwitchChatSession";
 import { useAutostart } from "../hooks/useAutostart";
 import { useDiagnostics } from "../hooks/useDiagnostics";
+import { useFavoriteHeroes } from "../hooks/useFavoriteHeroes";
 import { useGsiEvents } from "../hooks/useGsiEvents";
 import { useLocalLifecycle } from "../hooks/useLocalLifecycle";
 import { useLocalSessionSummary } from "../hooks/useLocalSessionSummary";
@@ -17,17 +18,23 @@ import { useSyncOutboxStatus } from "../hooks/useSyncOutboxStatus";
 import { useStreamSessionPrompt } from "../hooks/useStreamSessionPrompt";
 import { useUpdater } from "../hooks/useUpdater";
 import { DiagnosticsPage } from "../pages/DiagnosticsPage";
+import { DesignPage } from "../pages/DesignPage";
+import { HeroDetailPage } from "../pages/HeroDetailPage";
+import { HeroesPage } from "../pages/HeroesPage";
 import { HomePage } from "../pages/HomePage";
 import { SoundsPage } from "../pages/SoundsPage";
 import * as api from "../services/dotaCompanionApi";
+import { getHeroById } from "../services/heroCatalog";
 import { useGameSoundEngine } from "../sounds/useGameSoundEngine";
 import type { StatusSnapshot } from "../types/status";
 import { describeBackendStatus } from "../utils/backendStatus";
 
-type Section = "home" | "chat" | "sounds" | "diagnostics";
+type Section = "home" | "heroes" | "design" | "chat" | "sounds" | "diagnostics";
 
 const MAIN_NAV_ITEMS: { key: Section; label: string }[] = [
   { key: "home", label: "Главная" },
+  { key: "heroes", label: "Герои" },
+  { key: "design", label: "Оформление" },
   { key: "chat", label: "Чат" },
   { key: "sounds", label: "Звуки" },
 ];
@@ -54,7 +61,9 @@ export function AppShell() {
   const localLifecycle = useLocalLifecycle();
   const sessionSummary = useLocalSessionSummary();
   const syncStatus = useSyncOutboxStatus();
+  const favoriteHeroes = useFavoriteHeroes();
   const [section, setSection] = useState<Section>("home");
+  const [selectedHeroId, setSelectedHeroId] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -187,6 +196,35 @@ export function AppShell() {
             sessionSummary={sessionSummary}
           />
         )}
+        {section === "heroes" && (
+          selectedHeroId !== null ? (
+            <HeroDetailPage
+              heroId={selectedHeroId}
+              favorites={favoriteHeroes}
+              trackedHero={
+                gameSoundEngine.catalog?.heroes.find(
+                  (h) => h.id === `npc_dota_hero_${getHeroById(selectedHeroId)?.name}`
+                ) ?? null
+              }
+              settings={gameSoundEngine.settings}
+              onBack={() => setSelectedHeroId(null)}
+              onChooseFile={async (eventId, kind) => {
+                gameSoundEngine.stopPreview();
+                await gameSoundEngine.chooseAndBindFile(eventId, kind);
+              }}
+              onPreview={(assetId) => gameSoundEngine.preview(assetId, gameSoundEngine.settings?.masterVolume ?? 100)}
+              onRemove={gameSoundEngine.removeBinding}
+            />
+          ) : (
+            <HeroesPage
+              favorites={favoriteHeroes}
+              soundSettings={gameSoundEngine.settings}
+              trackedHeroes={gameSoundEngine.catalog?.heroes ?? []}
+              onSelectHero={setSelectedHeroId}
+            />
+          )
+        )}
+        {section === "design" && <DesignPage />}
         {section === "chat" && <TwitchChatPage session={chatSession} />}
         {section === "sounds" && <SoundsPage engine={gameSoundEngine} />}
         {section === "diagnostics" && (

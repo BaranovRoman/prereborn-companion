@@ -10,6 +10,11 @@ import {
     type StreamSession,
 } from "../../services/stream-session-service.js";
 import { getStreamUserGameMode } from "../../services/stream-user-service.js";
+import {
+    getQueueSettings,
+    InvalidQueueSettingsError,
+    saveQueueSettings,
+} from "../../services/stream-queue-settings-service.js";
 import { logger } from "../../utils/logger.js";
 import { getTwitchChatStatus } from "../../services/twitch-integration-service.js";
 import {
@@ -251,6 +256,67 @@ export const endCompanionSessionController = async (
         res.json(await buildCompanionSessionSummary(streamUserId, latest, "ended"));
     } catch (error) {
         logger.error("Companion session end error", {
+            requestId: req.requestId,
+            message: error instanceof Error ? error.message : String(error),
+        });
+        res.status(500).json({ error: "Внутренняя ошибка сервера" });
+    }
+};
+
+// WK-121 - Favorite heroes source of truth is `stream_queue_settings.
+// favoriteHeroIds` (apps/api/src/services/stream-queue-settings-service.ts),
+// already read/written by the web cabinet's Favorite Heroes picker via
+// GET/PUT /account/me/queue-settings (authenticateStreamUser, JWT-only).
+// Companion has no JWT session - only its own companion_token - and that
+// endpoint was unreachable from Companion, which is exactly why the
+// Heroes screen would otherwise have been tempted to invent a second,
+// local-only favorites store. It doesn't: this route resolves the SAME
+// `streamUserId` (authenticateCompanionToken sets the identical
+// req.streamUserId field authenticateStreamUser does - see that
+// middleware's own doc comment) and calls the SAME service functions -
+// one row, two credentials that can read/write it, zero new entities. The
+// wire shape here is deliberately narrower than the web endpoint's (only
+// `favoriteHeroIds`, never visibility/widgets/channelGoal) since Companion
+// has no use for - and shouldn't need to round-trip - the rest of that
+// web-only queue-settings blob.
+const favoriteHeroIdsSchema = z.object({
+    favoriteHeroIds: z.array(z.number().int().positive()).max(3),
+});
+
+export const getCompanionFavoriteHeroesController = async (
+    req: Request,
+    res: Response
+) => {
+    try {
+        const settings = await getQueueSettings(req.streamUserId as string);
+        res.json({ favoriteHeroIds: settings.favoriteHeroIds });
+    } catch (error) {
+        logger.error("Companion favorite heroes fetch error", {
+            requestId: req.requestId,
+            message: error instanceof Error ? error.message : String(error),
+        });
+        res.status(500).json({ error: "Внутренняя ошибка сервера" });
+    }
+};
+
+export const putCompanionFavoriteHeroesController = async (
+    req: Request,
+    res: Response
+) => {
+    try {
+        const parsed = favoriteHeroIdsSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: "Неверный формат избранных героев" });
+        }
+        const settings = await saveQueueSettings(req.streamUserId as string, {
+            favoriteHeroIds: parsed.data.favoriteHeroIds,
+        });
+        res.json({ favoriteHeroIds: settings.favoriteHeroIds });
+    } catch (error) {
+        if (error instanceof InvalidQueueSettingsError) {
+            return res.status(400).json({ error: error.message });
+        }
+        logger.error("Companion favorite heroes save error", {
             requestId: req.requestId,
             message: error instanceof Error ? error.message : String(error),
         });

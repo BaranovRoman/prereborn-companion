@@ -242,6 +242,16 @@ pub async fn end_stream_session(app: AppHandle) -> Result<serde_json::Value, Str
 }
 
 #[tauri::command]
+pub async fn get_favorite_heroes(app: AppHandle) -> Result<Vec<u32>, String> {
+    backend::get_favorite_heroes(&app).await
+}
+
+#[tauri::command]
+pub async fn save_favorite_heroes(app: AppHandle, hero_ids: Vec<u32>) -> Result<Vec<u32>, String> {
+    backend::save_favorite_heroes(&app, hero_ids).await
+}
+
+#[tauri::command]
 pub fn save_obs_config(
     app: AppHandle,
     state: State<AppState>,

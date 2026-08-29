@@ -45,6 +45,12 @@ export const resetStreamSession = () => invoke<StreamSessionSummary>("reset_stre
 // WK-100 - "Завершить стрим" action on the main screen.
 export const endStreamSession = () => invoke<StreamSessionSummary>("end_stream_session");
 
+// WK-121 - "Герои" favorites, same stream_queue_settings.favoriteHeroIds row
+// the web cabinet's Favorite Heroes picker owns (see backend/mod.rs's doc
+// comment) - not a local-only store.
+export const getFavoriteHeroes = () => invoke<number[]>("get_favorite_heroes");
+export const saveFavoriteHeroes = (heroIds: number[]) => invoke<number[]>("save_favorite_heroes", { heroIds });
+
 // WK-112 - OBS-driven local stream lifecycle (see local_runtime::lifecycle).
 // No "start"/"end" calls here on purpose - normal lifecycle is automatic,
 // driven by OBS Start/Stop Streaming; these two actions only ever apply to

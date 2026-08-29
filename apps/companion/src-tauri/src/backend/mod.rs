@@ -297,6 +297,86 @@ fn post_end_stream_session(token: &str) -> Result<serde_json::Value, String> {
         .map_err(|error| format!("Неверный ответ завершения стрима: {error}"))
 }
 
+/// WK-121 - "Герои" favorites. Reads/writes the SAME `stream_queue_settings.
+/// favoriteHeroIds` row the web cabinet's Favorite Heroes picker already
+/// owns, via the new companion-token-authenticated
+/// `/stream/companion/favorite-heroes` route (see that controller's doc
+/// comment in apps/api) - not a local-only favorites store. `async` +
+/// `spawn_blocking` for the same reason every other direct-user-action
+/// command in this file is: called from a click (the star toggle), must
+/// never block the IPC/UI thread.
+pub async fn get_favorite_heroes(app: &AppHandle) -> Result<Vec<u32>, String> {
+    let token = app
+        .state::<AppState>()
+        .0
+        .lock()
+        .unwrap()
+        .companion_token
+        .clone()
+        .ok_or_else(|| "Сначала добавьте companion token.".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || fetch_favorite_heroes(&token))
+        .await
+        .map_err(|e| format!("Internal error: {e}"))?
+}
+
+#[derive(serde::Deserialize)]
+struct FavoriteHeroesResponse {
+    #[serde(rename = "favoriteHeroIds")]
+    favorite_hero_ids: Vec<u32>,
+}
+
+fn fetch_favorite_heroes(token: &str) -> Result<Vec<u32>, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .get(format!("{DEFAULT_BACKEND_URL}/stream/companion/favorite-heroes"))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("Избранные герои недоступны: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json::<FavoriteHeroesResponse>()
+        .map(|body| body.favorite_hero_ids)
+        .map_err(|error| format!("Неверный ответ избранных героев: {error}"))
+}
+
+pub async fn save_favorite_heroes(app: &AppHandle, hero_ids: Vec<u32>) -> Result<Vec<u32>, String> {
+    let token = app
+        .state::<AppState>()
+        .0
+        .lock()
+        .unwrap()
+        .companion_token
+        .clone()
+        .ok_or_else(|| "Сначала добавьте companion token.".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || put_favorite_heroes(&token, hero_ids))
+        .await
+        .map_err(|e| format!("Internal error: {e}"))?
+}
+
+fn put_favorite_heroes(token: &str, hero_ids: Vec<u32>) -> Result<Vec<u32>, String> {
+    let body = serde_json::json!({ "favoriteHeroIds": hero_ids });
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .put(format!("{DEFAULT_BACKEND_URL}/stream/companion/favorite-heroes"))
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .map_err(|error| format!("Не удалось сохранить избранных героев: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json::<FavoriteHeroesResponse>()
+        .map(|body| body.favorite_hero_ids)
+        .map_err(|error| format!("Неверный ответ сохранения избранных героев: {error}"))
+}
+
 /// Manual "resend current state" - ignores `dirty`, sends whatever the last
 /// known GSI payload was (even if it was already sent successfully before).
 
