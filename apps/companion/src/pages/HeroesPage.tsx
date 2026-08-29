@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { SectionHeader, SearchInput } from "../components/ui";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { SectionHeader } from "../components/ui";
 import type { useFavoriteHeroes } from "../hooks/useFavoriteHeroes";
 import type { GameSoundSettings, TrackedHero } from "../services/dotaCompanionApi";
 import { DOTA_HEROES, type DotaHeroAttribute, type HeroCatalogEntry, searchHeroes } from "../services/heroCatalog";
@@ -27,16 +27,64 @@ function configuredCount(hero: HeroCatalogEntry, trackedHeroes: TrackedHero[], s
   ).length;
 }
 
-// WK-121 - "Герои", a full primary-nav section (§6 of the task), not a
-// modal and not the same code as Sounds → Heroes (that grid stays put,
-// see HeroesGrid.tsx - both now read from the one consolidated
-// heroCatalog.ts instead of two). Favorites render as a compact horizontal
-// strip above the grid, visually close to modern Dota's "BAN HEROES" strip
-// (small portrait cards, one row, not giant tiles) - and simply doesn't
-// render at all when there are no favorites, per the task's explicit "не
-// занимать большое пустое место" instruction.
+// Auto-clears an idle typed query, mirroring the same keyboard hero search
+// UX apps/web's queue favorite-heroes picker already shipped
+// (queue-widgets-panel.tsx) - transient by design, not a persistent filter
+// the user has to remember to clear.
+const QUERY_IDLE_CLEAR_MS = 3_000;
+
+// WK-121/WK-122 - "Герои", a full primary-nav section, not a modal and not
+// the same code as Sounds → Heroes (that grid stays put, see
+// HeroesGrid.tsx - both now read from the one consolidated heroCatalog.ts
+// instead of two). Favorites render as a compact strip in the header's
+// actions slot (top-right, alongside the title - modern Dota's "БАНЫ"
+// placement, not a giant full-width block) and simply don't render at all
+// when there are no favorites.
+//
+// WK-122 §8 - no permanent SearchInput: the user just starts typing while
+// this screen is open (window keydown, same RU/EN/alias-aware
+// `searchHeroes` Sounds → Heroes already used), a transient indicator shows
+// the typed query, Backspace edits it, Escape or 3s of inactivity clears it
+// - ported from the same UX apps/web's favorite-heroes picker already
+// shipped (queue-widgets-panel.tsx's heroQuery/heroSearchOverlay), adapted
+// to filter the grid (this screen's own established behavior) rather than
+// dim/highlight tiles in place.
 export function HeroesPage({ favorites, soundSettings, trackedHeroes, onSelectHero }: Props) {
   const [query, setQuery] = useState("");
+  const idleTimer = useRef<number | undefined>(undefined);
+
+  useEffect(() => {
+    window.clearTimeout(idleTimer.current);
+    if (!query) return;
+    idleTimer.current = window.setTimeout(() => setQuery(""), QUERY_IDLE_CLEAR_MS);
+    return () => window.clearTimeout(idleTimer.current);
+  }, [query]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key === "Escape") {
+        if (query) {
+          event.preventDefault();
+          setQuery("");
+        }
+        return;
+      }
+      if (event.key === "Backspace") {
+        if (!query) return;
+        event.preventDefault();
+        setQuery((value) => value.slice(0, -1));
+        return;
+      }
+      if (/^\p{L}$/u.test(event.key)) {
+        event.preventDefault();
+        setQuery((value) => `${value}${event.key}`.slice(0, 32));
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
 
   const filtered = useMemo(() => searchHeroes(query), [query]);
   const favoriteHeroes = useMemo(
@@ -55,37 +103,35 @@ export function HeroesPage({ favorites, soundSettings, trackedHeroes, onSelectHe
       <SectionHeader
         eyebrow="Главная → Герои"
         title="Герои"
-        description="Все герои Dota 2 — избранное, способности и звуки назначаются прямо здесь."
+        description="Все герои Dota 2 — начните печатать для поиска, способности и звуки назначаются прямо здесь."
+        actions={
+          favoriteHeroes.length > 0 ? (
+            <section className="hero-favorites-strip" aria-label="Избранные герои">
+              <h3 className="hero-favorites-strip__title">★ Избранные</h3>
+              <div className="hero-favorites-strip__row" role="list">
+                {favoriteHeroes.map((hero) => (
+                  <button
+                    key={hero.id}
+                    type="button"
+                    role="listitem"
+                    className="hero-favorites-strip__card"
+                    title={hero.localizedName}
+                    onClick={() => onSelectHero(hero.id)}
+                  >
+                    <img src={hero.iconUrl} alt="" loading="lazy" />
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : undefined
+        }
       />
 
-      {favoriteHeroes.length > 0 && (
-        <section className="hero-favorites-strip" aria-label="Избранные герои">
-          <h3 className="hero-favorites-strip__title">Избранное</h3>
-          <div className="hero-favorites-strip__row" role="list">
-            {favoriteHeroes.map((hero) => (
-              <button
-                key={hero.id}
-                type="button"
-                role="listitem"
-                className="hero-favorites-strip__card"
-                title={hero.localizedName}
-                onClick={() => onSelectHero(hero.id)}
-              >
-                <img src={hero.iconUrl} alt="" loading="lazy" />
-                <span>{hero.localizedName}</span>
-              </button>
-            ))}
-          </div>
-        </section>
+      {query && (
+        <div className="hero-search-indicator" aria-live="polite">
+          {query.toLocaleUpperCase()}
+        </div>
       )}
-
-      <SearchInput
-        placeholder="Поиск героя… (RU/EN)"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        onClear={() => setQuery("")}
-        aria-label="Поиск героя"
-      />
 
       {filtered.length === 0 ? (
         <p className="heroes-grid__empty">Герой не найден.</p>

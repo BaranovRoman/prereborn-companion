@@ -4,6 +4,8 @@ export { IconButton } from "./IconButton";
 export type { IconButtonProps } from "./IconButton";
 export { Checkbox } from "./Checkbox";
 export type { CheckboxProps } from "./Checkbox";
+export { Radio } from "./Radio";
+export type { RadioProps } from "./Radio";
 export { Select } from "./Select";
 export { Input } from "./Input";
 export { SearchInput } from "./SearchInput";

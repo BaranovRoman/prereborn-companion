@@ -54,10 +54,18 @@
 .ui-icon-button:hover:not(:disabled) { color: var(--ui-text); border-color: #190a0a; box-shadow: inset 0 0 0 1px var(--ui-red-hover), inset 0 1px rgba(255, 255, 255, .10); }
 .ui-icon-button--active { color: #f5efe6; box-shadow: inset 0 0 0 1px var(--ui-gold); }
 
-/* ---- Checkbox ---- */
-.ui-checkbox { display: inline-flex; align-items: center; gap: 9px; font-size: .88rem; color: var(--ui-text); cursor: pointer; }
-.ui-checkbox.is-disabled { color: var(--ui-text-soft); cursor: not-allowed; }
-.ui-checkbox__box {
+/* ---- Checkbox / Radio ----
+   WK-122 §5 - Checkbox and Radio must look IDENTICAL (same square, border,
+   background, hover, focus, checked treatment - a checkmark, not a native
+   filled circle, per the task's explicit instruction that visual sameness
+   matters more than the conventional dot-vs-tick distinction); only their
+   underlying <input type> and grouping semantics differ. One shared rule
+   block for both `.ui-checkbox__box` and `.ui-radio__box` is what keeps
+   that guarantee structural rather than something to remember to keep in
+   sync by hand. */
+.ui-checkbox, .ui-radio { display: inline-flex; align-items: center; gap: 9px; font-size: .88rem; color: var(--ui-text); cursor: pointer; }
+.ui-checkbox.is-disabled, .ui-radio.is-disabled { color: var(--ui-text-soft); cursor: not-allowed; }
+.ui-checkbox__box, .ui-radio__box {
   appearance: none;
   -webkit-appearance: none;
   flex-shrink: 0;
@@ -72,12 +80,13 @@
   place-items: center;
   cursor: inherit;
 }
-.ui-checkbox__box:checked {
+.ui-checkbox__box:hover:not(:disabled), .ui-radio__box:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--ui-red-hover); }
+.ui-checkbox__box:checked, .ui-radio__box:checked {
   background: linear-gradient(180deg, var(--ui-red-hover), #612a29);
   border-color: #260d0d;
   box-shadow: inset 0 0 0 1px rgba(225,156,147,.35);
 }
-.ui-checkbox__box:checked::after {
+.ui-checkbox__box:checked::after, .ui-radio__box:checked::after {
   content: "";
   width: 9px;
   height: 5px;
@@ -85,8 +94,8 @@
   border-bottom: 2px solid #f2ece5;
   transform: rotate(-45deg) translate(1px, -1px);
 }
-.ui-checkbox__box:focus-visible { outline: 2px solid var(--ui-red-hover); outline-offset: 2px; }
-.ui-checkbox__box:disabled { opacity: .5; cursor: not-allowed; }
+.ui-checkbox__box:focus-visible, .ui-radio__box:focus-visible { outline: 2px solid var(--ui-red-hover); outline-offset: 2px; }
+.ui-checkbox__box:disabled, .ui-radio__box:disabled { opacity: .5; cursor: not-allowed; }
 
 /* ---- Select ---- */
 .ui-select-wrap { position: relative; display: inline-grid; min-width: 0; }
