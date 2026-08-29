@@ -1,4 +1,4 @@
-import { Tabs } from "../components/ui";
+import { Checkbox, Tabs } from "../components/ui";
 import { ItemsCatalog } from "../components/sounds/ItemsCatalog";
 import type { useGameSoundEngine } from "../sounds/useGameSoundEngine";
 import type { GameSoundEventKind } from "../services/dotaCompanionApi";
@@ -56,14 +56,12 @@ export function SoundsPage({ engine }: Props) {
 
       <div className="sounds-panel">
         <div className="sounds-panel__master">
-          <label className="sounds-panel__toggle">
-            <input
-              type="checkbox"
-              checked={settings.enabled}
-              onChange={(event) => void setMaster(event.target.checked, settings.masterVolume)}
-            />
-            Звуковые реакции
-          </label>
+          <Checkbox
+            className="sounds-panel__toggle"
+            label="Звуковые реакции"
+            checked={settings.enabled}
+            onChange={(event) => void setMaster(event.target.checked, settings.masterVolume)}
+          />
           <div className="tts-volume sounds-panel__volume">
             <div className="tts-volume__row">
               <span>Громкость</span>
