@@ -927,9 +927,41 @@ h1, h2, p { margin-top: 0; }
 
 .heroes-grid__empty { grid-column: 1 / -1; margin: 0; padding: 20px; text-align: center; color: var(--ui-text-soft); }
 
-/* WK-121 - Sounds -> Героев tab redirect (see SoundsPage.tsx's doc comment). */
-.sounds-heroes-redirect { display: grid; gap: 12px; justify-items: start; padding: 24px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ui-void); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
-.sounds-heroes-redirect p { margin: 0; color: var(--ui-text-soft); max-width: 480px; }
+/* WK-122 §13/§14 - Items catalog master/detail: catalog (grouped by real
+   shop category, see itemCategories.ts) on the left/center, a PERSISTENT
+   right-side inspector (not a modal - see ItemsCatalog.tsx) that updates on
+   tile click. `.sound-tile.is-selected` layers on top of the existing
+   supported/configured/unsupported state classes (a tile can be both
+   configured AND selected at once). */
+.items-catalog { display: grid; grid-template-columns: 1fr 300px; gap: 20px; align-items: start; }
+.items-catalog__grid { display: grid; gap: 22px; min-width: 0; }
+.items-catalog__group-title { margin: 0 0 10px; color: var(--ui-gold); font-size: .78rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.items-catalog__category { margin-bottom: 14px; }
+.items-catalog__category:last-child { margin-bottom: 0; }
+.items-catalog__category-title { margin: 0 0 8px; color: var(--ui-text-soft); font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.sound-tile.is-selected { box-shadow: inset 0 0 0 1px var(--ui-red-hover), 0 0 0 1px var(--ui-red-hover); }
+.items-catalog__inspector {
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--ui-void);
+  box-shadow: inset 0 0 0 1px var(--ui-edge-soft);
+}
+.items-catalog__inspector-title { margin: 0; color: var(--ui-gold); font-size: .78rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.items-catalog__inspector-item { display: flex; align-items: center; gap: 12px; }
+.items-catalog__inspector-icon { border-radius: var(--radius); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); object-fit: cover; }
+.items-catalog__inspector-item strong { display: block; color: var(--ui-text); font-size: 1rem; margin-bottom: 4px; }
+.items-catalog__inspector-category { display: flex; }
+.items-catalog__unsupported { margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ui-well); color: var(--ui-text-soft); font-size: .82rem; }
+@media (max-width: 960px) {
+  .items-catalog { grid-template-columns: 1fr; }
+  .items-catalog__inspector { position: static; }
+}
 
 /* WK-116 - Dota-style hero portrait grid, ported from apps/web's Favorite
    Heroes picker (queue-widgets-panel.module.scss's `.heroGrid`/`.heroTile`
