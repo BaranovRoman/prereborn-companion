@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Scene } from "./Scene";
+import { AnchoredBox } from "./AnchoredBox";
+import { Scene, SCENE_HEIGHT, SCENE_WIDTH } from "./Scene";
 import { CurrentGameWidget } from "./widgets/CurrentGameWidget";
 import { SessionWidget } from "./widgets/SessionWidget";
-import type { OverlayStateSnapshot } from "./types";
+import type { OverlayLayout, OverlayStateSnapshot } from "./types";
 
 const SCENE_LABEL: Record<OverlayStateSnapshot["scene"], string> = {
   betweenMatches: "Между матчами",
@@ -11,25 +12,29 @@ const SCENE_LABEL: Record<OverlayStateSnapshot["scene"], string> = {
   postStream: "Итоги стрима",
 };
 
-// WK-121 - the real production local-overlay renderer, replacing WK-120's
-// explicitly-labeled dev-preview page. Served at GET /overlay by the same
-// Rust server (overlay_server.rs) that owns /overlay/state and
+// WK-121/WK-122 §19 - the real production local-overlay renderer, replacing
+// WK-120's explicitly-labeled dev-preview page. Served at GET /overlay by
+// the same Rust server (overlay_server.rs) that owns /overlay/state and
 // /overlay/events - this is the ONE renderer both a real OBS Browser
-// Source AND the "Оформление" foundation preview (DesignPage.tsx, same
+// Source AND the "Оформление" editor's live preview (DesignPage.tsx, same
 // iframe src) point at, per this slice's explicit "not a second preview
 // implementation" requirement.
 //
-// Scope note (see docs/research/wk-121-companion-product-consolidation.md):
-// this renders real local data (session record/MMR delta, current hero+KDA)
-// using the same Dota-like visual language as the rest of Companion, for
-// all 4 BroadcastStates - it is NOT a pixel-identical port of apps/web's
-// OverlayCanvas/AnchoredWidget widget set (that depends on the user's saved
-// OverlayLayout positions and a cross-app extraction out of Next.js, both
-// explicitly deferred, see that doc's "Remaining" section). Fixed, sensible
-// widget positions are used instead of per-user xVw/yVh/scale/anchor.
+// WK-122 §19 closes WK-121's own documented gap: Draft/Gameplay's
+// Session/CurrentGame widgets now position themselves from the user's REAL
+// saved OverlayLayout (`GET /overlay/layout`, re-fetched only when
+// `layoutVersion` moves - see AnchoredBox.tsx for the position math, ported
+// from apps/web's AnchoredWidget) instead of a fixed `.ov-anchor--X` class.
+// Falls back to those original fixed positions when no layout has been
+// fetched yet (a brand new install, or Companion not yet connected to an
+// account) - never a blank/broken widget just because the layout request
+// hasn't resolved. Между матчами/Итоги don't have a saved widget layout at
+// all in the real data model (OverlayLayout only defines draft/gameplay
+// scenes) - their big centered SessionWidget treatment is unchanged.
 export function OverlayApp() {
   const [snapshot, setSnapshot] = useState<OverlayStateSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
+  const [layout, setLayout] = useState<OverlayLayout | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -52,23 +57,52 @@ export function OverlayApp() {
     return () => { cancelled = true; source.close(); };
   }, []);
 
+  // Re-fetches only when the server-reported version actually moves (never
+  // on every snapshot/tick) - see OverlayStateSnapshot.layoutVersion's doc
+  // comment in types.ts for why this is a separate, coarser-grained fetch
+  // rather than embedding the whole layout in every SSE frame.
+  useEffect(() => {
+    if (snapshot === null) return;
+    let cancelled = false;
+    fetch("/overlay/layout")
+      .then((response) => response.json())
+      .then((data: OverlayLayout | null) => { if (!cancelled) setLayout(data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot?.layoutVersion]);
+
   if (!snapshot) return <Scene><div className="ov-loading" /></Scene>;
 
   const { scene, session, currentGame } = snapshot;
+  const sceneWidgets = scene === "draft" || scene === "gameplay" ? layout?.scenes[scene].widgets : undefined;
 
   return (
     <Scene>
       <div className={`ov-background ov-background--${scene}`} />
 
       {(scene === "draft" || scene === "gameplay") && (
-        <>
-          <div className="ov-anchor ov-anchor--bottom-center">
-            <CurrentGameWidget game={currentGame} />
-          </div>
-          <div className="ov-anchor ov-anchor--top-left">
-            <SessionWidget session={session} />
-          </div>
-        </>
+        sceneWidgets ? (
+          <>
+            <AnchoredBox layout={sceneWidgets.currentGame} sceneWidth={SCENE_WIDTH} sceneHeight={SCENE_HEIGHT}>
+              <CurrentGameWidget game={currentGame} />
+            </AnchoredBox>
+            <AnchoredBox layout={sceneWidgets.session} sceneWidth={SCENE_WIDTH} sceneHeight={SCENE_HEIGHT}>
+              <SessionWidget session={session} />
+            </AnchoredBox>
+          </>
+        ) : (
+          // No saved layout fetched yet - same fixed fallback positions
+          // WK-121 originally shipped, not a blank scene.
+          <>
+            <div className="ov-anchor ov-anchor--bottom-center">
+              <CurrentGameWidget game={currentGame} />
+            </div>
+            <div className="ov-anchor ov-anchor--top-left">
+              <SessionWidget session={session} />
+            </div>
+          </>
+        )
       )}
 
       {scene === "betweenMatches" && (
