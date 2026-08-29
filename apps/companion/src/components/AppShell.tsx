@@ -134,13 +134,14 @@ export function AppShell() {
           `section` changes - see AppAtmosphere.tsx. */}
       <AppAtmosphere />
       <header className="app-header">
-        <div className="app-header__left">
+        <div className="app-header__side app-header__side--left">
           <button className="app-header__gear" onClick={() => openSettings()} aria-label="Настройки">⚙</button>
-          <img className="app-header__logo" src="/logo-new.png" alt="" width="40" height="40" />
-          <span className="app-header__brandmark">
-            <strong className="app-header__brand">PreReborn</strong>
-            <span className="app-header__brand-sub">Companion</span>
-          </span>
+          <div className="app-header__crest" aria-hidden="true">
+            <span className="app-header__crest-rim" />
+            <span className="app-header__crest-bevel" />
+            <span className="app-header__crest-face" />
+            <img className="app-header__crest-emblem" src="/logo-new.png" alt="" width="52" height="52" />
+          </div>
         </div>
         <nav className="app-header__nav" aria-label="Разделы приложения">
           {MAIN_NAV_ITEMS.map((item) => (
@@ -149,7 +150,7 @@ export function AppShell() {
             </button>
           ))}
         </nav>
-        <div className="app-header__right">
+        <div className="app-header__side app-header__side--right">
           <button
             className={`app-header__diagnostics ${section === "diagnostics" ? "is-active" : ""}`}
             onClick={() => setSection("diagnostics")}
@@ -159,6 +160,7 @@ export function AppShell() {
           {status?.companion_version && <span className="app-header__version">v{status.companion_version}</span>}
         </div>
       </header>
+      <div className="app-header__ledge" aria-hidden="true" />
 
       <ProblemBar status={status} backendStatus={backendStatus} syncStatus={syncStatus} />
 

@@ -341,24 +341,27 @@ h1, h2, p { margin-top: 0; }
 
 .app-shell { position: relative; isolation: isolate; display: flex; flex-direction: column; min-height: 100vh; }
 
-/* WK-115 visual-correction audit - the header was reading as a "browser
-   nav bar" (56px, thin, flat two-stop gradient, plain underline tabs).
-   Rebuilt as a heavy game-client title bar: taller, a metal-plate gradient
-   instead of a flat panel fill, red accent rivets on the outer edges (same
-   device apps/web's own `.topBar` already uses for this exact "old Dota
-   frame" read - see queue-scene.module.scss), and tabs that are integrated
-   segments of the frame rather than free-floating text links (see
-   `.app-header__nav button` below). `position:relative; z-index:2` is part
-   of the atmosphere fix above - a plain z-index has no effect without a
-   non-static position, and this must out-rank `.app-atmosphere`'s z-index:0
-   even though it never spatially overlaps it (defensive, not load-bearing,
-   but keeps this frame unambiguously "chrome" rather than page content). */
+/* Visual-quality rework - the header must read as an independent physical
+   HUD plate laid over the app, not a rectangular website navbar: a 3-column
+   grid (fixed-width left/right side columns, 1fr center) so the nav is
+   geometrically centered in the WINDOW regardless of what the left/right
+   content actually measures, a raised emblem crest that overhangs the
+   bottom edge of the bar (real layered-metal shape via clip-path + a
+   filter drop-shadow, not a flat trapezoid div), fixed-width equal nav
+   buttons with a layered bevel, and a separate `.app-header__ledge` strip
+   right below the bar so it visibly floats above the page instead of
+   reading as the first content row. `position:relative; z-index:2` is
+   part of the atmosphere fix above - a plain z-index has no effect
+   without a non-static position, and this must out-rank
+   `.app-atmosphere`'s z-index:0 even though it never spatially overlaps it
+   (defensive, not load-bearing, but keeps this frame unambiguously
+   "chrome" rather than page content). */
 .app-header {
   position: relative;
   z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 22px;
+  display: grid;
+  grid-template-columns: 268px 1fr 268px;
+  align-items: stretch;
   flex-shrink: 0;
   padding: 0 26px;
   height: 84px;
@@ -369,29 +372,43 @@ h1, h2, p { margin-top: 0; }
   box-shadow:
     inset 0 0 0 1px var(--ui-edge-soft),
     inset 0 -3px 0 rgba(0, 0, 0, .5),
-    0 8px 20px rgba(0, 0, 0, .5);
+    0 20px 36px rgba(0, 0, 0, .7);
 }
+/* No decorative LEDs/dots on the frame - depth here comes only from the
+   metal-plate gradient/inset edge above and the seam lines below, per
+   задача's explicit "no glow-decoration substitute" instruction. */
 .app-header::before,
 .app-header::after {
   content: "";
   position: absolute;
-  top: 12px;
-  bottom: 12px;
+  top: 10px;
+  bottom: 10px;
   z-index: 1;
-  width: 2px;
-  border-block: 10px solid var(--ui-red);
-  opacity: .85;
+  width: 1px;
+  background: linear-gradient(180deg, transparent, rgba(0, 0, 0, .65) 18%, rgba(0, 0, 0, .65) 82%, transparent);
+  box-shadow: 1px 0 0 rgba(255, 255, 255, .05);
 }
-.app-header::before { left: 12px; }
-.app-header::after { right: 12px; }
+.app-header::before { left: 14px; }
+.app-header::after { right: 14px; }
 
-.app-header__left { position: relative; z-index: 1; display: flex; align-items: center; gap: 14px; flex-shrink: 0; }
+/* Fixed-width, equal-width side columns are what make the center nav
+   column genuinely centered in the window - not just centered in
+   whatever space is left over after variable-width logo/diagnostics
+   content, which is what "placed after the logo" used to mean in
+   practice. */
+.app-header__side { position: relative; z-index: 1; display: flex; align-items: center; height: 100%; }
+.app-header__side--left { justify-content: flex-start; overflow: visible; }
+.app-header__side--right { justify-content: flex-end; gap: 14px; }
+
 .app-header__gear {
+  position: relative;
+  z-index: 2;
   display: grid;
   place-items: center;
   width: 42px;
   height: 42px;
   padding: 0;
+  flex-shrink: 0;
   border: 1px solid #050606;
   border-radius: var(--radius);
   background: radial-gradient(circle at 50% 30%, #363b3c, #17191a 74%);
@@ -401,50 +418,163 @@ h1, h2, p { margin-top: 0; }
   line-height: 1;
 }
 .app-header__gear:hover { color: var(--ui-text); border-color: #190a0a; box-shadow: inset 0 0 0 1px var(--ui-red-hover), inset 0 1px rgba(255, 255, 255, .10); }
-.app-header__logo { object-fit: contain; flex-shrink: 0; filter: drop-shadow(0 1px 2px #000) drop-shadow(0 0 7px rgba(153, 43, 37, .3)); }
-.app-header__brandmark { display: flex; flex-direction: column; gap: 1px; line-height: 1; }
-.app-header__brand { font-size: 1.3rem; color: #ede6da; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; text-shadow: 0 1px 2px #000; }
-.app-header__brand-sub { color: var(--ui-text-muted); font-size: .68rem; font-weight: 600; letter-spacing: .28em; text-transform: uppercase; }
+
+/* The raised emblem crest - a massive metal HUD plate, not an elongated
+   arrow/shield and not a T-shaped bracket either: a single continuous
+   taper from a moderately wide top down to a short blunt foot, with no
+   flat horizontal shelf partway down (a shelf is exactly what read as a
+   hammer/T crossbar in an earlier pass - every side is two line segments
+   with a single gentle kink, never two points sharing a y-coordinate
+   except the very top and bottom edges). Taller than the bar itself so it
+   overhangs the content below, like the raised Dota logo plate in the
+   reference. Built from three stacked clip-path layers (a dark outer rim,
+   a lighter bevel ring, and an inset face) instead of a single flat
+   trapezoid, so it reads as a genuinely bevelled metal plate: `filter:
+   drop-shadow` (not box-shadow, which clip-path would just cut away)
+   gives it real depth against the bar and the page below it. */
+.app-header__crest { position: absolute; left: 50px; top: -10px; z-index: 3; width: 138px; height: 128px; pointer-events: none; }
+.app-header__crest-rim,
+.app-header__crest-bevel,
+.app-header__crest-face {
+  position: absolute;
+  clip-path: polygon(20% 0%, 80% 0%, 87% 9%, 68% 63%, 56% 100%, 44% 100%, 32% 63%, 13% 9%);
+}
+.app-header__crest-rim {
+  inset: 0;
+  background: linear-gradient(180deg, #3f4547 0%, #202526 40%, #101315 75%, #07080a 100%);
+  filter: drop-shadow(0 10px 16px rgba(0, 0, 0, .65)) drop-shadow(0 3px 0 rgba(0, 0, 0, .85));
+}
+.app-header__crest-bevel {
+  top: 4px;
+  left: 5px;
+  right: 5px;
+  bottom: 5px;
+  background: linear-gradient(180deg, #62686a 0%, #383e40 45%, #1e2223 100%);
+}
+.app-header__crest-face {
+  top: 8px;
+  left: 9px;
+  right: 9px;
+  bottom: 9px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, .15), transparent 45%),
+    radial-gradient(ellipse at 50% 100%, rgba(153, 43, 37, .45), transparent 58%),
+    linear-gradient(180deg, #3a3f41 0%, #202425 55%, #121516 100%);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, .55), inset 0 -5px 8px rgba(0, 0, 0, .45);
+}
+.app-header__crest-emblem {
+  position: absolute;
+  top: 22px;
+  left: 50%;
+  z-index: 1;
+  transform: translateX(-50%);
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 3px #000) drop-shadow(0 0 8px rgba(153, 43, 37, .4));
+}
 
 /* Tabs as physical segments of the frame, not underlined text links: idle
-   state reads as part of the metal plate, the active tab reads pressed-in
-   (inset shadow) with a warm glow, matching "recessed/raised state" from
-   the task rather than a thin coloured underline. */
-.app-header__nav { position: relative; z-index: 1; display: flex; align-items: stretch; gap: 2px; height: 100%; margin-left: 14px; }
+   state reads as a hard machined metal face, the active tab reads
+   pressed-in with a small, contained red light at its center (illuminated
+   from within, not a soft cushion), matching "recessed/raised state" from
+   the task rather than a thin coloured underline. Every button is the
+   same fixed width, per задача. Darker metal, crisp 1px bevel lines
+   instead of soft blurred ones, and restrained type (600 weight, wider
+   tracking) read harder/more gothic than a friendly SaaS tab. */
+.app-header__nav { position: relative; z-index: 1; justify-self: center; display: flex; align-items: stretch; height: 100%; }
 .app-header__nav button {
   position: relative;
-  padding: 0 28px;
+  width: 172px;
+  padding: 0;
   border: 0;
-  border-inline: 1px solid transparent;
-  background: transparent;
+  background: linear-gradient(180deg, #23282a 0%, #16191a 48%, #0a0c0d 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .08),
+    inset 0 -1px 0 rgba(0, 0, 0, .8),
+    inset 0 -9px 13px rgba(0, 0, 0, .6),
+    inset 0 0 0 1px rgba(0, 0, 0, .45);
   color: var(--ui-text-soft);
-  font-size: 1.02rem;
-  font-weight: 700;
-  letter-spacing: .07em;
+  font-size: .96rem;
+  font-weight: 600;
+  letter-spacing: .1em;
   text-transform: uppercase;
 }
-.app-header__nav button:hover:not(:disabled) { color: var(--ui-text); background: linear-gradient(180deg, rgba(255, 255, 255, .04), transparent 55%); }
+/* Hard divider between tabs, matched against the Dota 2 main-menu
+   reference: a crisp dark groove line for most of the tab height,
+   interrupted by a small diamond rivet at mid-height - not a soft
+   gradient line. */
+.app-header__nav button::after {
+  content: "";
+  position: absolute;
+  top: 11px;
+  bottom: 11px;
+  right: 0;
+  width: 2px;
+  background: linear-gradient(180deg, transparent, #000 15%, #000 85%, transparent);
+  box-shadow: 1px 0 0 rgba(255, 255, 255, .07);
+}
+.app-header__nav button::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -3px;
+  z-index: 1;
+  width: 5px;
+  height: 5px;
+  transform: translateY(-50%) rotate(45deg);
+  background: linear-gradient(135deg, #565c5e, #17191a);
+  border: 1px solid #000;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2);
+}
+.app-header__nav button:last-child::after, .app-header__nav button:last-child::before { display: none; }
+.app-header__nav button:hover:not(:disabled) {
+  color: var(--ui-text);
+  background: linear-gradient(180deg, #292e30 0%, #1a1e1f 48%, #0d0f10 100%);
+}
+/* Micro-pass - the base gradient itself used to carry a reddish-brown
+   tint top to bottom, which read as "the whole button filled with red"
+   even though it was dark. Base is now the same neutral near-black metal
+   as idle/hover; the only red is the radial light (moved lower/center,
+   smaller, lower alpha) and the thin bottom edge line, so illumination
+   reads as coming FROM the recessed metal rather than the metal itself
+   being red. */
 .app-header__nav button.is-active {
-  color: #f5efe6;
-  border-inline-color: rgba(0, 0, 0, .55);
+  color: #f6e4de;
   background:
-    linear-gradient(180deg, rgba(0, 0, 0, .38), transparent 34%, transparent 68%, rgba(0, 0, 0, .28)),
-    linear-gradient(180deg, rgba(123, 53, 50, .30), rgba(123, 53, 50, .05) 60%, transparent);
-  box-shadow: inset 0 3px 5px rgba(0, 0, 0, .55), inset 0 -2px 0 var(--ui-red-hover);
-  text-shadow: 0 0 12px rgba(184, 91, 83, .4), 0 1px 2px #000;
+    radial-gradient(ellipse 58px 28px at 50% 68%, rgba(196, 90, 80, .28), transparent 70%),
+    linear-gradient(180deg, rgba(0, 0, 0, .55), transparent 22%, transparent 55%, rgba(0, 0, 0, .5)),
+    linear-gradient(180deg, #1d1c1d 0%, #131214 48%, #0a0909 100%);
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, .75),
+    inset 0 -1px 0 rgba(0, 0, 0, .6),
+    inset 0 0 8px 1px rgba(196, 90, 80, .22),
+    inset 0 -2px 0 var(--ui-red-hover),
+    inset 0 0 0 1px rgba(0, 0, 0, .5);
+  text-shadow: 0 0 8px rgba(214, 100, 90, .45), 0 1px 2px #000;
 }
 
-.app-header__right { position: relative; z-index: 1; display: flex; align-items: center; gap: 14px; margin-left: auto; flex-shrink: 0; }
 /* Secondary placement (задача: "не должен конкурировать с основными
    разделами") - smaller, muted, no active-tab underline treatment even when
-   selected, just a subtle color shift. */
-/* WK-115 - a bare muted-text button reads as non-interactive at a glance;
-   the underline only appearing on hover/focus keeps it visually secondary
-   (задача: "не конкурировать с основными разделами") while still reading
-   as clickable once a user's attention actually lands on it. */
+   selected, just a subtle color shift. The underline only appearing on
+   hover/focus keeps it visually secondary while still reading as
+   clickable once a user's attention actually lands on it. */
 .app-header__diagnostics { border: 0; background: transparent; padding: 6px 4px; color: var(--ui-text-muted); font-size: .82rem; letter-spacing: .04em; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 2px; }
 .app-header__diagnostics:hover, .app-header__diagnostics.is-active { color: var(--ui-text-soft); text-decoration-color: currentColor; }
 .app-header__version { color: var(--ui-text-muted); font-size: .72rem; }
+
+/* A physically separate strip right below the bar (not part of the bar's
+   own border/shadow) - reads as the header's metal underside, giving the
+   whole HUD element a hard lower edge so it visibly floats above
+   ProblemBar/main rather than being their first row. */
+.app-header__ledge {
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  height: 6px;
+  background: linear-gradient(180deg, #0d0f10, #030404);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05), 0 8px 18px rgba(0, 0, 0, .6);
+}
 
 /* WK-121 - removed the previous `.main > * { max-width: 1480px }` cap: on a
    1440p/ultrawide window every page was reading as a narrow column with a
@@ -736,8 +866,8 @@ h1, h2, p { margin-top: 0; }
 .check-item { display: flex; align-items: baseline; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--border); }
 .check-item__box { display: inline-flex; align-items: center; justify-content: center; width: 1.2em; height: 1.2em; border: 1px solid var(--ui-edge); border-radius: var(--radius); font-size: .8em; }
 .check-item--ok .check-item__box { color: #09140f; background: var(--success); border-color: var(--success); }
-.check-item__detail, .last-event dt, .last-event__empty, .event-history__time, .backend-status__line, .account-form__hint, .account-form__status, .diagnostics-panel__hint, .diagnostics-panel__stats dt, .diagnostics-panel__export-path, .obs-panel__hint, .obs-panel__status, .obs-panel__message, .autostart-setting__hint, .hotkey-settings__status, .hotkey-settings__hint { color: var(--ui-text-soft); }
-.check-item__detail, .event-history, .backend-status__line, .backend-status__error, .account-form__hint, .account-form__status, .diagnostics-panel__hint, .diagnostics-panel__stats, .diagnostics-panel__export-path, .obs-panel__hint, .obs-panel__status, .obs-panel__message, .obs-panel__error, .autostart-setting__hint, .hotkey-settings__status, .hotkey-settings__hint { font-size: .82rem; }
+.check-item__detail, .last-event dt, .last-event__empty, .event-history__time, .backend-status__line, .account-form__hint, .account-form__status, .diagnostics-panel__hint, .diagnostics-panel__stats dt, .diagnostics-panel__export-path, .obs-panel__hint, .obs-panel__status, .obs-panel__message, .autostart-setting__hint, .hotkey-settings__hint { color: var(--ui-text-soft); }
+.check-item__detail, .event-history, .backend-status__line, .backend-status__error, .account-form__hint, .account-form__status, .diagnostics-panel__hint, .diagnostics-panel__stats, .diagnostics-panel__export-path, .obs-panel__hint, .obs-panel__status, .obs-panel__message, .obs-panel__error, .autostart-setting__hint, .hotkey-settings__hint { font-size: .82rem; }
 .last-event dl, .diagnostics-panel__stats { display: grid; grid-template-columns: max-content 1fr; gap: 5px 12px; }
 .last-event dd, .diagnostics-panel__stats dd { margin: 0; word-break: break-word; }
 .event-history li { display: flex; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border); }
@@ -799,13 +929,64 @@ h1, h2, p { margin-top: 0; }
 .setup-guide__footer { padding-top: 14px; border-top: 1px solid var(--border); }
 
 .autostart-setting__toggle { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: .95rem; }
-.hotkey-settings__status { margin: 4px 0 10px; }
+
+/* Hotkey editor - visual-quality pass, matched against the Dota 2
+   Keybindings reference: a compact recessed key-binding field per row
+   (not a plain button/text pairing), with a small reset icon beside it.
+   Recording state pulses with the same cold cyan the Checkbox/Radio
+   checked state uses, so "listening for input" reads consistently across
+   controls. */
+.hotkey-keybind-group { display: inline-flex; align-items: center; gap: 6px; }
+.hotkey-keybind {
+  min-width: 168px;
+  padding: 8px 16px;
+  border: 1px solid #050708;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #0c0f10, #171b1c);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, .75), inset 0 0 0 1px var(--ui-edge-soft);
+  color: var(--ui-text);
+  font-size: .82rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  text-align: center;
+  cursor: pointer;
+}
+.hotkey-keybind:hover:not(:disabled) { box-shadow: inset 0 2px 3px rgba(0, 0, 0, .75), inset 0 0 0 1px var(--ui-cyan); }
+.hotkey-keybind:focus-visible { outline: 2px solid var(--ui-cyan); outline-offset: 2px; }
+.hotkey-keybind.is-recording {
+  color: #eaf6fa;
+  box-shadow: inset 0 0 0 1px var(--ui-cyan), 0 0 8px 1px rgba(112, 185, 199, .5);
+  animation: hotkey-keybind-pulse 1.1s ease-in-out infinite;
+}
+.hotkey-keybind:disabled { opacity: .5; cursor: not-allowed; box-shadow: inset 0 2px 3px rgba(0, 0, 0, .75), inset 0 0 0 1px var(--ui-edge-soft); }
+@keyframes hotkey-keybind-pulse {
+  0%, 100% { box-shadow: inset 0 0 0 1px var(--ui-cyan), 0 0 6px 0 rgba(112, 185, 199, .35); }
+  50% { box-shadow: inset 0 0 0 1px var(--ui-cyan), 0 0 14px 2px rgba(112, 185, 199, .65); }
+}
+.hotkey-keybind__reset {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid #050606;
+  border-radius: var(--radius);
+  background: radial-gradient(circle at 50% 30%, #363b3c, #17191a 74%);
+  box-shadow: inset 0 0 0 1px var(--ui-edge-soft), inset 0 1px rgba(255, 255, 255, .10);
+  color: var(--ui-text-soft);
+  font-size: 1rem;
+  line-height: 1;
+}
+.hotkey-keybind__reset:hover:not(:disabled) { color: var(--ui-text); border-color: #190a0a; box-shadow: inset 0 0 0 1px var(--ui-red-hover), inset 0 1px rgba(255, 255, 255, .10); }
+.hotkey-keybind__reset:disabled { opacity: .5; cursor: not-allowed; }
 
 @media (max-width: 860px) {
-  .app-header { height: auto; flex-wrap: wrap; padding: 10px 12px; gap: 10px; }
-  .app-header__nav { margin-left: 0; height: auto; }
-  .app-header__nav button { padding: 8px 12px; }
-  .app-header__right { margin-left: 0; }
+  .app-header { grid-template-columns: 1fr; grid-auto-rows: auto; height: auto; padding: 10px 12px; gap: 10px; }
+  .app-header__crest { display: none; }
+  .app-header__nav { justify-self: stretch; height: auto; flex-wrap: wrap; }
+  .app-header__nav button { width: auto; padding: 8px 12px; }
+  .app-header__side--right { justify-content: flex-start; }
   .main { padding: 16px; }
   .setup-guide__heading, .setup-guide__footer { align-items: stretch; flex-direction: column; }
   .setup-steps > li { grid-template-columns: 28px 1fr; }
@@ -860,34 +1041,6 @@ h1, h2, p { margin-top: 0; }
 .tts-volume { display: grid; gap: 5px; }
 .tts-volume__row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .tts-volume__value { color: var(--ui-text-soft); font-variant-numeric: tabular-nums; }
-.tts-volume input[type="range"] {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 4px;
-  border-radius: var(--radius);
-  background: var(--ui-void);
-  box-shadow: inset 0 0 0 1px var(--border);
-}
-.tts-volume input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 14px;
-  height: 14px;
-  border-radius: var(--radius);
-  background: var(--ui-gold);
-  cursor: pointer;
-}
-.tts-volume input[type="range"]::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border: none;
-  border-radius: var(--radius);
-  background: var(--ui-gold);
-  cursor: pointer;
-}
-.tts-volume input[type="range"]:disabled::-webkit-slider-thumb { background: var(--ui-text-muted); cursor: not-allowed; }
-.tts-volume input[type="range"]:disabled::-moz-range-thumb { background: var(--ui-text-muted); cursor: not-allowed; }
 .tts-piper-status, .tts-license-note { margin: -4px 0 0; font-size: .76rem; color: var(--ui-text-soft); }
 .tts-license-note a { color: inherit; }
 .tts-buttons { display: flex; gap: 8px; flex-wrap: wrap; }

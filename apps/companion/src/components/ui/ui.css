@@ -56,46 +56,66 @@
 
 /* ---- Checkbox / Radio ----
    WK-122 §5 - Checkbox and Radio must look IDENTICAL (same square, border,
-   background, hover, focus, checked treatment - a checkmark, not a native
-   filled circle, per the task's explicit instruction that visual sameness
-   matters more than the conventional dot-vs-tick distinction); only their
-   underlying <input type> and grouping semantics differ. One shared rule
-   block for both `.ui-checkbox__box` and `.ui-radio__box` is what keeps
-   that guarantee structural rather than something to remember to keep in
-   sync by hand. */
+   background, hover, focus, checked treatment); only their underlying
+   <input type> and grouping semantics differ. One shared rule block for
+   both `.ui-checkbox__box` and `.ui-radio__box` is what keeps that
+   guarantee structural rather than something to remember to keep in sync
+   by hand.
+   Visual-quality pass - matched literally against a Dota 2 Settings
+   checkbox screenshot (not "Dota-style from memory"): outer dark metal
+   frame (always visible, never overwritten by state) -> a recessed dark
+   inset gap -> a smaller bright cyan-white inner square when checked. The
+   inner square is a fixed-size `::after` a few px smaller than the frame
+   on every side, not the frame's own background - checking the control
+   must never turn the WHOLE box white, only light up the inner square, so
+   the frame + gap stay visible and the glow reads as coming from that
+   inner square rather than the control itself. NO checkmark, dot, or any
+   other glyph anywhere. Disabled-checked keeps the exact same frame/gap/
+   inner-square geometry, just desaturated/dimmed with no glow. Red stays
+   the accent for buttons/tabs/nav; this one control deliberately breaks
+   from it because the reference does. */
 .ui-checkbox, .ui-radio { display: inline-flex; align-items: center; gap: 9px; font-size: .88rem; color: var(--ui-text); cursor: pointer; }
 .ui-checkbox.is-disabled, .ui-radio.is-disabled { color: var(--ui-text-soft); cursor: not-allowed; }
 .ui-checkbox__box, .ui-radio__box {
   appearance: none;
   -webkit-appearance: none;
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
+  width: 19px;
+  height: 19px;
   margin: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: linear-gradient(180deg, var(--ui-void), var(--ui-well));
-  box-shadow: inset 0 0 0 1px var(--ui-edge-soft);
+  border: 1px solid #05070a;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #10141a, #191f26);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, .7), inset 0 0 0 1px rgba(123, 140, 168, .22);
   display: grid;
   place-items: center;
   cursor: inherit;
 }
-.ui-checkbox__box:hover:not(:disabled), .ui-radio__box:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--ui-red-hover); }
-.ui-checkbox__box:checked, .ui-radio__box:checked {
-  background: linear-gradient(180deg, var(--ui-red-hover), #612a29);
-  border-color: #260d0d;
-  box-shadow: inset 0 0 0 1px rgba(225,156,147,.35);
+.ui-checkbox__box:hover:not(:disabled), .ui-radio__box:hover:not(:disabled) {
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, .7), inset 0 0 0 1px #5b7fd1;
+}
+.ui-checkbox__box::after, .ui-radio__box::after {
+  content: "";
+  width: 11px;
+  height: 11px;
+  border-radius: 1px;
+  background: transparent;
 }
 .ui-checkbox__box:checked::after, .ui-radio__box:checked::after {
-  content: "";
-  width: 9px;
-  height: 5px;
-  border-left: 2px solid #f2ece5;
-  border-bottom: 2px solid #f2ece5;
-  transform: rotate(-45deg) translate(1px, -1px);
+  background: linear-gradient(180deg, #eef4fb, #cbdcf0 55%, #a9c3e6);
+  box-shadow: 0 0 5px 1px rgba(79, 111, 196, .65), inset 0 1px 1px rgba(255, 255, 255, .85);
 }
-.ui-checkbox__box:focus-visible, .ui-radio__box:focus-visible { outline: 2px solid var(--ui-red-hover); outline-offset: 2px; }
-.ui-checkbox__box:disabled, .ui-radio__box:disabled { opacity: .5; cursor: not-allowed; }
+.ui-checkbox__box:focus-visible, .ui-radio__box:focus-visible { outline: 2px solid #5b7fd1; outline-offset: 2px; }
+.ui-checkbox__box:disabled, .ui-radio__box:disabled {
+  cursor: not-allowed;
+  border-color: #06080a;
+  background: linear-gradient(180deg, #0c0e11, #121519);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .6), inset 0 0 0 1px rgba(123, 140, 168, .08);
+}
+.ui-checkbox__box:disabled:checked::after, .ui-radio__box:disabled:checked::after {
+  background: linear-gradient(180deg, #cdd6e2, #aebac9 55%, #96a4b8);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .4);
+}
 
 /* ---- Select ---- */
 .ui-select-wrap { position: relative; display: inline-grid; min-width: 0; }
@@ -150,27 +170,34 @@
 .ui-search__clear { position: absolute; right: 8px; border: 0; background: transparent; color: var(--ui-text-muted); padding: 2px 4px; line-height: 1; font-size: .9rem; }
 .ui-search__clear:hover { color: var(--ui-text); }
 
-/* ---- Tabs ---- */
-.ui-tabs { display: flex; align-items: stretch; gap: 2px; border-bottom: 1px solid var(--border); }
+/* ---- Tabs (workspace level) ----
+   Matched literally against a Dota 2 "ГЕРОИ / РУКОВОДСТВА / ТРЕНДЫ"-style
+   in-page tab row: items separated by a literal "/" glyph, not gaps or an
+   underline - a plain centered text list, muted gold when idle, brighter
+   when active. Deliberately the OTHER navigation language from the global
+   header (`.app-header__nav` in App.css, a heavy segmented metal-plate
+   bar): two different navigation levels on purpose (задача §3-4). */
+.ui-tabs { display: flex; align-items: center; justify-content: center; gap: 0; }
 .ui-tabs__tab {
   position: relative;
-  padding: 9px 18px;
+  padding: 6px 14px;
   border: 0;
-  border-inline: 1px solid transparent;
   background: transparent;
-  color: var(--ui-text-soft);
-  font-size: .86rem;
+  color: rgba(162, 151, 110, .62);
+  font-size: .82rem;
   font-weight: 700;
-  letter-spacing: .04em;
+  letter-spacing: .1em;
   text-transform: uppercase;
 }
-.ui-tabs__tab:hover:not(:disabled) { color: var(--ui-text); background: linear-gradient(180deg, rgba(255, 255, 255, .04), transparent 55%); }
-.ui-tabs__tab.is-active {
-  color: #f5efe6;
-  border-inline-color: rgba(0, 0, 0, .55);
-  background: linear-gradient(180deg, rgba(123, 53, 50, .30), rgba(123, 53, 50, .05) 60%, transparent);
-  box-shadow: inset 0 -2px 0 var(--ui-red-hover);
+.ui-tabs__tab:not(:first-child)::before {
+  content: "/";
+  position: absolute;
+  left: -2px;
+  color: rgba(162, 151, 110, .3);
+  font-weight: 400;
 }
+.ui-tabs__tab:hover:not(:disabled) { color: var(--ui-gold); }
+.ui-tabs__tab.is-active { color: #f5efe6; text-shadow: 0 0 10px rgba(245, 239, 230, .35); }
 
 /* ---- SectionHeader ---- */
 .ui-section-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 16px; flex-wrap: wrap; }
@@ -204,12 +231,52 @@
 .ui-badge--gold { color: var(--ui-gold); background: rgba(162,151,110,.14); }
 .ui-badge__dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 
-/* ---- Slider ---- */
-.ui-slider { width: 100%; height: 4px; appearance: none; -webkit-appearance: none; border-radius: var(--radius); background: var(--ui-void); box-shadow: inset 0 0 0 1px var(--border); }
-.ui-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: var(--radius); background: var(--ui-gold); cursor: pointer; }
-.ui-slider::-moz-range-thumb { width: 14px; height: 14px; border: none; border-radius: var(--radius); background: var(--ui-gold); cursor: pointer; }
-.ui-slider:disabled::-webkit-slider-thumb { background: var(--ui-text-muted); cursor: not-allowed; }
-.ui-slider:disabled::-moz-range-thumb { background: var(--ui-text-muted); cursor: not-allowed; }
+/* ---- Slider ----
+   Matched against the Dota 2 audio-settings slider reference: a thin flat
+   recessed track (no rounded/material pill) with a subtle filled-vs-empty
+   split up to the handle, and a small rectangular metallic handle (taller
+   than the track, glossy top-lit gradient) rather than a round thumb.
+   `--ui-slider-fill` is written inline by Slider.tsx from the input's own
+   value/min/max so the filled portion tracks the real value without a JS
+   re-render of the CSS. */
+.ui-slider {
+  width: 100%;
+  height: 6px;
+  margin: 8px 0;
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 1px;
+  background: linear-gradient(90deg, var(--ui-edge) var(--ui-slider-fill, 0%), var(--ui-void) var(--ui-slider-fill, 0%));
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, .75), inset 0 0 0 1px var(--border);
+  cursor: pointer;
+}
+.ui-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 20px;
+  margin-top: 0;
+  border: 1px solid #45433d;
+  border-radius: 1px;
+  background: linear-gradient(180deg, #eeece5, #a5a297 45%, #7c796e);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .6), inset 0 1px 0 rgba(255, 255, 255, .6);
+  cursor: pointer;
+}
+.ui-slider::-moz-range-thumb {
+  width: 10px;
+  height: 20px;
+  border: 1px solid #45433d;
+  border-radius: 1px;
+  background: linear-gradient(180deg, #eeece5, #a5a297 45%, #7c796e);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .6), inset 0 1px 0 rgba(255, 255, 255, .6);
+  cursor: pointer;
+}
+.ui-slider::-moz-range-track { height: 6px; border-radius: 1px; background: var(--ui-void); box-shadow: inset 0 2px 3px rgba(0, 0, 0, .75), inset 0 0 0 1px var(--border); }
+.ui-slider::-moz-range-progress { height: 6px; border-radius: 1px; background: var(--ui-edge); }
+.ui-slider:disabled { cursor: not-allowed; }
+.ui-slider:disabled::-webkit-slider-thumb { background: var(--ui-text-muted); border-color: #050606; box-shadow: none; cursor: not-allowed; }
+.ui-slider:disabled::-moz-range-thumb { background: var(--ui-text-muted); border-color: #050606; box-shadow: none; cursor: not-allowed; }
+.ui-slider:disabled::-moz-range-progress { background: var(--ui-text-muted); }
 
 /* ---- Tooltip ---- */
 .ui-tooltip { position: relative; display: inline-flex; }
