@@ -70,6 +70,17 @@ pub struct StatusSnapshot {
     // learned it at least once (e.g. OBS unreachable since Companion
     // started) - never guessed.
     pub obs_streaming: Option<bool>,
+    // WK-122 P0 diagnostics - RFC3339 timestamp of the last time the
+    // stream-state watcher actually confirmed OBS's streaming truth (an
+    // initial `GetStreamStatus`, a live `StreamStateChanged` event, or the
+    // WK-122 heartbeat re-probe - see obs.rs's `run_stream_state_watcher_once`).
+    // A missing match is only ever a symptom of no LocalSession being open;
+    // this field is the one piece of evidence that answers "was the watcher
+    // actually alive during the match, or silently stuck" without needing to
+    // reproduce the bug - if this timestamp is stale by more than a couple of
+    // heartbeat intervals while OBS was supposed to be streaming, the watcher
+    // connection was the problem.
+    pub obs_streaming_confirmed_at: Option<String>,
     // WK-114 - "Итоги стрима": true while the user has manually pinned OBS to
     // the Post Stream scene without ending the local session (see obs.rs's
     // `manual_summary_override`). Purely a display concern here - the pin
@@ -158,6 +169,9 @@ pub struct InnerState {
     pub game_sounds_previous_gsi: Option<serde_json::Value>,
     // WK-112 - see the field doc on StatusSnapshot::obs_streaming above.
     pub obs_streaming: Option<bool>,
+    // WK-122 P0 diagnostics - see the field doc on
+    // StatusSnapshot::obs_streaming_confirmed_at above.
+    pub obs_streaming_confirmed_at: Option<String>,
     // WK-114 - "Итоги стрима" manual scene pin (see obs.rs's
     // `resolve_desired_scene`): while true, every automatic scene resolution
     // (GSI ticks, remote commands, config reapply) resolves to Post Stream
@@ -184,6 +198,19 @@ pub struct InnerState {
     // `false` (Default derive) - unaffected until a real "scene not found"
     // failure is observed.
     pub obs_post_stream_unavailable: bool,
+    // WK-122 §19 - OverlayLayout cache. Kept as an opaque `serde_json::Value`
+    // (same "pass through untyped" pattern `last_gsi_payload`/
+    // `get_stream_session`'s return type already use in this codebase) since
+    // Rust never needs to interpret individual widget fields - it only
+    // fetches/caches/serves the same JSON blob apps/api's
+    // `/account/me/overlay-layout` and `/companion/overlay-layout` already
+    // exchange with a real browser editor. `overlay_layout_version` is
+    // bumped on every successful fetch/save so overlay_server.rs's SSE
+    // stream (already pushing OverlayStateSnapshot on every scene change)
+    // can tell the local renderer "the layout changed, re-fetch it" without
+    // a second push channel.
+    pub overlay_layout: Option<serde_json::Value>,
+    pub overlay_layout_version: u64,
 }
 
 pub struct AppState(pub Mutex<InnerState>);
@@ -258,6 +285,7 @@ impl AppState {
             obs_active_scene: inner.obs_active_scene,
             obs_last_error: inner.obs_last_error.clone(),
             obs_streaming: inner.obs_streaming,
+            obs_streaming_confirmed_at: inner.obs_streaming_confirmed_at.clone(),
             obs_manual_summary_active: inner.obs_manual_summary_override,
             companion_version: COMPANION_VERSION.to_string(),
         }

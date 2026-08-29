@@ -256,6 +256,40 @@ fn read_json(socket: &mut ObsSocket) -> Result<Value, String> {
     }
 }
 
+// WK-122 P0 fix - like `read_json`, but distinguishes "no message arrived
+// within this socket's read timeout" (`Ok(None)`) from a genuine fatal
+// disconnect (`Err`). Used only by the stream-state watcher's persistent
+// event loop (see `run_stream_state_watcher_once`), where a read timeout is
+// the intended mechanism for periodically re-confirming OBS's streaming
+// truth rather than an error condition - every other caller (`request`,
+// `open`'s hello/identify) keeps using plain `read_json` unchanged, where a
+// timeout is and remains a real error.
+fn read_event_or_timeout(socket: &mut ObsSocket) -> Result<Option<Value>, String> {
+    loop {
+        match socket.read() {
+            Ok(Message::Text(text)) => {
+                return serde_json::from_str(&text)
+                    .map(Some)
+                    .map_err(|e| format!("Некорректный ответ OBS: {e}"));
+            }
+            Ok(Message::Ping(data)) => socket
+                .send(Message::Pong(data))
+                .map_err(|e| format!("OBS WebSocket: {e}"))?,
+            Ok(Message::Close(_)) => return Err("OBS закрыл соединение".into()),
+            Ok(_) => {}
+            Err(tungstenite::Error::Io(ref io_error))
+                if matches!(
+                    io_error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                return Ok(None);
+            }
+            Err(error) => return Err(format!("OBS WebSocket: {error}")),
+        }
+    }
+}
+
 fn authentication(password: &str, salt: &str, challenge: &str) -> String {
     let secret = BASE64.encode(Sha256::digest(format!("{password}{salt}").as_bytes()));
     BASE64.encode(Sha256::digest(format!("{secret}{challenge}").as_bytes()))
@@ -372,6 +406,107 @@ fn request(
         });
     }
     Ok(response)
+}
+
+// WK-122 P0 fix - like `request`, but tolerant of an Event message (op 5)
+// arriving interleaved with the response, because it reads from a
+// connection that is actually subscribed to events (see
+// `run_stream_state_watcher_once`) - `request`'s single blind `read_json`
+// call is only safe on the short-lived, effectively-unsubscribed
+// connections `switch_scene`/`test_connection` use. A `StreamStateChanged`
+// seen while waiting is applied immediately (never silently dropped in
+// favor of the request/response exchange) rather than misread as the
+// request's own response.
+// WK-122 P0 fix - who/why an observation of OBS's streaming truth happened,
+// threaded through `watch_stream_state_once` below purely so the AppHandle
+// glue (`run_stream_state_watcher_once`) can log a heartbeat-driven
+// correction distinctly from a normal live event, without the pure protocol
+// layer needing to know anything about logging or AppState.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StreamingObservationSource {
+    /// The one-time fetch right after (re)connecting.
+    Initial,
+    /// A live `StreamStateChanged` event.
+    Event,
+    /// WK-122 P0 fix - the periodic self-probe fired after a read-timeout
+    /// silence (see `watch_stream_state_once`'s `None` arm).
+    Heartbeat,
+}
+
+// WK-122 P0 fix - like `request`, but tolerant of an Event message (op 5)
+// arriving interleaved with the response, because it reads from a
+// connection that is actually subscribed to events (see
+// `watch_stream_state_once`) - `request`'s single blind `read_json` call is
+// only safe on the short-lived, effectively-unsubscribed connections
+// `switch_scene`/`test_connection` use. A `StreamStateChanged` seen while
+// waiting is reported immediately through the callback (never silently
+// dropped in favor of the request/response exchange) rather than misread as
+// the request's own response.
+fn request_on_event_socket<F: FnMut(bool, StreamingObservationSource)>(
+    socket: &mut ObsSocket,
+    request_type: &str,
+    request_data: Value,
+    on_streaming_known: &mut F,
+) -> Result<Value, String> {
+    let request_id = format!(
+        "companion-{}",
+        chrono::Local::now()
+            .timestamp_nanos_opt()
+            .unwrap_or_default()
+    );
+    socket
+        .send(Message::Text(
+            json!({
+                "op": 6,
+                "d": {
+                    "requestType": request_type,
+                    "requestId": request_id,
+                    "requestData": request_data
+                }
+            })
+            .to_string()
+            .into(),
+        ))
+        .map_err(|e| format!("OBS WebSocket: {e}"))?;
+
+    loop {
+        let message = read_json(socket)?;
+        match message.get("op").and_then(Value::as_i64) {
+            Some(7) => {
+                let ok = message
+                    .pointer("/d/requestStatus/result")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                if !ok {
+                    let code = message
+                        .pointer("/d/requestStatus/code")
+                        .and_then(Value::as_i64);
+                    let comment = message
+                        .pointer("/d/requestStatus/comment")
+                        .and_then(Value::as_str)
+                        .unwrap_or("OBS не указал причину ошибки");
+                    return Err(match code {
+                        Some(code) => format!("OBS {request_type}: {comment} (код {code})"),
+                        None => format!("OBS {request_type}: {comment}"),
+                    });
+                }
+                return Ok(message);
+            }
+            Some(5) => {
+                if message.pointer("/d/eventType").and_then(Value::as_str) == Some("StreamStateChanged") {
+                    if let Some(active) = message
+                        .pointer("/d/eventData/outputActive")
+                        .and_then(Value::as_bool)
+                    {
+                        on_streaming_known(active, StreamingObservationSource::Event);
+                    }
+                }
+                // Some other Outputs-category event - keep waiting for the
+                // actual request response.
+            }
+            _ => {} // stray Hello/other op - not our concern here
+        }
+    }
 }
 
 // obs-websocket v5 RequestStatus code 604 = RESOURCE_NOT_FOUND - returned by
@@ -728,13 +863,32 @@ fn schedule_switch(app: &AppHandle, requested: BroadcastScene, require_enabled: 
 // that actually consumes events.
 const EVENT_SUBSCRIPTION_OUTPUTS: u32 = 1 << 6;
 
-fn fetch_stream_status(socket: &mut ObsSocket) -> Result<bool, String> {
-    let response = request(socket, "GetStreamStatus", json!({}))?;
+fn fetch_stream_status<F: FnMut(bool, StreamingObservationSource)>(
+    socket: &mut ObsSocket,
+    on_streaming_known: &mut F,
+) -> Result<bool, String> {
+    let response = request_on_event_socket(socket, "GetStreamStatus", json!({}), on_streaming_known)?;
     response
         .pointer("/d/responseData/outputActive")
         .and_then(Value::as_bool)
         .ok_or_else(|| "OBS: GetStreamStatus response missing outputActive".to_string())
 }
+
+// WK-122 P0 fix - upper bound on how long the watcher's persistent
+// connection can go without hearing from OBS before it actively re-confirms
+// streaming truth itself (see `run_stream_state_watcher_once`). This is the
+// root-cause fix for the "match played, OBS scene automation worked, match
+// never appeared in history" report: this socket used to have no read
+// timeout at all, so a half-open TCP connection (machine sleep/wake, a
+// network path change, OBS being killed/crashing without a clean close) left
+// the blocking read call stuck forever - no error, no reconnect, no further
+// `on_obs_streaming_known` call, ever, for the rest of the process's life.
+// Scene automation (obs::schedule_switch) kept working throughout because it
+// opens a brand new short-lived connection for every switch, completely
+// unaffected by this connection's state - exactly matching the reported
+// symptom. Bounds the worst-case staleness window to one interval instead of
+// leaving it unbounded.
+const WATCHER_READ_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// WK-112 - persistent connection dedicated to observing OBS's own
 /// streaming state (Start Streaming / Stop Streaming), independent of the
@@ -773,7 +927,7 @@ pub fn start_stream_state_watcher(app: AppHandle) {
         let mut last_logged_error: Option<String> = None;
         loop {
             let config = app.state::<AppState>().0.lock().unwrap().obs_config.clone();
-            if let Err(error) = run_stream_state_watcher_once(&app, &config) {
+            if let Err(error) = run_stream_state_watcher_once(&app, &config, WATCHER_READ_TIMEOUT) {
                 if last_logged_error.as_deref() != Some(error.as_str()) {
                     storage::append_rolling_log(&app, &format!("OBS stream-state watcher: {error}"));
                     last_logged_error = Some(error);
@@ -797,36 +951,101 @@ pub fn start_stream_state_watcher(app: AppHandle) {
 }
 
 /// One connection attempt's lifetime: connect, identify (subscribing to
-/// Outputs events), fetch the current streaming truth once, then block
-/// reading events until the connection breaks. Only returns (always with an
-/// `Err`) once the connection is gone - no read timeout is set on this
-/// socket (`open(.., None, ..)`), so the blocking `read_json` call below
-/// waits indefinitely for either a real message or the OS reporting the
-/// connection closed, rather than erroring out on an idle timer the way the
-/// short-lived request/response connections intentionally do.
-fn run_stream_state_watcher_once(app: &AppHandle, config: &ObsConfig) -> Result<(), String> {
-    let mut socket = open(config, None, Some(EVENT_SUBSCRIPTION_OUTPUTS))?;
-    let streaming = fetch_stream_status(&mut socket)?;
+/// Outputs events), fetch the current streaming truth once, then read events
+/// (with a heartbeat re-probe on every `read_timeout` silence, see the `None`
+/// arm below) until the connection is confirmed broken. Only returns (always
+/// with an `Err`) once that happens. Pure/AppHandle-free by construction (the
+/// observed truth is reported through `on_streaming_known`, not written
+/// anywhere directly) - see `run_stream_state_watcher_once` for the thin
+/// AppHandle-driven wrapper, and this file's test module for how this lets
+/// the actual protocol/reconnect behavior be driven against a real fake
+/// OBS-websocket TCP server without a mocked Tauri app.
+///
+/// WK-122 P0 fix - this socket used to have no read timeout at all
+/// (`open(.., None, ..)`), so the blocking read call could wait forever on a
+/// half-open TCP connection that will never produce another byte in either
+/// direction (machine sleep/wake, a network path change, OBS being
+/// killed/crashing without a clean close) - no error, no reconnect, no
+/// further streaming-truth observation, ever, for the rest of the process's
+/// life, while OBS scene automation (`schedule_switch`) kept working
+/// throughout because it opens a brand new short-lived connection for every
+/// switch, completely unaffected by this connection's state - exactly the
+/// reported "match played, scenes changed, match never appeared in history"
+/// symptom. `read_timeout` is a parameter (production always passes
+/// `WATCHER_READ_TIMEOUT`, see `run_stream_state_watcher_once`) so the test
+/// module below can exercise both the heartbeat-recovers and the
+/// truly-dead-connection-surfaces-as-an-error paths in well under a second
+/// instead of the real 20s.
+fn watch_stream_state_once<F: FnMut(bool, StreamingObservationSource)>(
+    config: &ObsConfig,
+    read_timeout: Duration,
+    mut on_streaming_known: F,
+) -> Result<(), String> {
+    let mut socket = open(config, Some(read_timeout), Some(EVENT_SUBSCRIPTION_OUTPUTS))?;
     // WK-112 rule #5: every (re)connect always re-fetches GetStreamStatus
     // and reconciles from OBS's real, current answer - never from an
     // assumption that whatever we knew before the disconnect still holds.
-    crate::local_runtime::lifecycle::on_obs_streaming_known(app, streaming);
+    let streaming = fetch_stream_status(&mut socket, &mut on_streaming_known)?;
+    on_streaming_known(streaming, StreamingObservationSource::Initial);
 
     loop {
-        let message = read_json(&mut socket)?;
-        if message.get("op").and_then(Value::as_i64) != Some(5) {
-            continue; // not an Event message (e.g. a stray Hello/other op) - ignore
-        }
-        if message.pointer("/d/eventType").and_then(Value::as_str) != Some("StreamStateChanged") {
-            continue; // some other Outputs-category event (e.g. RecordStateChanged) - not our concern
-        }
-        if let Some(active) = message
-            .pointer("/d/eventData/outputActive")
-            .and_then(Value::as_bool)
-        {
-            crate::local_runtime::lifecycle::on_obs_streaming_known(app, active);
+        match read_event_or_timeout(&mut socket)? {
+            Some(message) => {
+                if message.get("op").and_then(Value::as_i64) != Some(5) {
+                    continue; // not an Event message (e.g. a stray Hello/other op) - ignore
+                }
+                if message.pointer("/d/eventType").and_then(Value::as_str) != Some("StreamStateChanged") {
+                    continue; // some other Outputs-category event (e.g. RecordStateChanged) - not our concern
+                }
+                if let Some(active) = message
+                    .pointer("/d/eventData/outputActive")
+                    .and_then(Value::as_bool)
+                {
+                    on_streaming_known(active, StreamingObservationSource::Event);
+                }
+            }
+            None => {
+                // WK-122 P0 fix - no event arrived for a full
+                // `read_timeout` window. Rather than keep blocking
+                // indefinitely, actively re-probe on the SAME connection: a
+                // successful GetStreamStatus both re-confirms the current
+                // truth (self-healing a missed StreamStateChanged too) and
+                // proves the connection is genuinely still alive; a failure
+                // here propagates as a real `Err`, which the caller's
+                // backoff loop reconnects from. This is what bounds the
+                // worst-case staleness window instead of leaving it
+                // unbounded.
+                let streaming = fetch_stream_status(&mut socket, &mut on_streaming_known)?;
+                on_streaming_known(streaming, StreamingObservationSource::Heartbeat);
+            }
         }
     }
+}
+
+/// Thin AppHandle-driven wrapper around `watch_stream_state_once`: records
+/// every observation into `local_runtime::lifecycle` (the one thing that
+/// actually reads OBS's streaming truth to drive LocalSession lifecycle),
+/// and additionally logs a bounded diagnostic line - only when a heartbeat
+/// re-probe finds the truth has actually drifted from what was last known,
+/// never on an ordinary "still the same" tick - so a support investigation
+/// can tell "a StreamStateChanged event was likely missed and silently
+/// self-healed" apart from a perfectly healthy connection, without a full
+/// multi-hour stream spamming app.log every `read_timeout` seconds.
+fn run_stream_state_watcher_once(app: &AppHandle, config: &ObsConfig, read_timeout: Duration) -> Result<(), String> {
+    watch_stream_state_once(config, read_timeout, |streaming, source| {
+        if source == StreamingObservationSource::Heartbeat {
+            let previous = app.state::<crate::state::AppState>().0.lock().unwrap().obs_streaming;
+            if previous.is_some() && previous != Some(streaming) {
+                storage::append_rolling_log(
+                    app,
+                    &format!(
+                        "OBS stream-state watcher: heartbeat corrected a drifted streaming truth ({previous:?} -> {streaming}); a StreamStateChanged event was likely missed."
+                    ),
+                );
+            }
+        }
+        crate::local_runtime::lifecycle::on_obs_streaming_known(app, streaming);
+    })
 }
 
 #[cfg(test)]
@@ -1306,5 +1525,170 @@ mod tests {
         // would need a new dev-dependency just for one field assignment;
         // the pure resolve_desired_scene tests above already cover the
         // actual decision logic this whole feature adds.
+    }
+
+    // WK-122 P0 regression coverage - drives `watch_stream_state_once`
+    // against a real fake OBS-websocket server over an actual loopback TCP
+    // socket (not a hand-built `GsiSnapshot`/mocked AppHandle), the same
+    // "exercise the real entry point" principle local_runtime::mod.rs's own
+    // WK-116 P0 tests document: a wiring/timeout bug in the socket-handling
+    // layer itself is exactly the kind of thing a pure-function unit test of
+    // `resolve_desired_scene`/`classify_candidates` above cannot catch.
+    //
+    // The fake server speaks just enough of the obs-websocket v5 wire
+    // protocol (Hello/Identify/Identified, then GetStreamStatus
+    // request/response) for `open`/`fetch_stream_status` to work against it
+    // unmodified - no auth challenge (the real client skips authentication
+    // entirely when `hello.d.authentication` is absent, see `open`), and the
+    // response's own `requestId` is never checked by the real client either.
+    mod stream_state_watcher_p0_regression {
+        use super::*;
+        use std::net::{TcpListener, TcpStream};
+        use std::sync::{Arc, Mutex};
+
+        fn fake_hello_and_identify(ws: &mut WebSocket<TcpStream>) {
+            ws.send(Message::Text(json!({ "op": 0, "d": { "rpcVersion": 1 } }).to_string().into()))
+                .unwrap();
+            loop {
+                if let Message::Text(text) = ws.read().unwrap() {
+                    let value: Value = serde_json::from_str(&text).unwrap();
+                    assert_eq!(value.get("op").and_then(Value::as_i64), Some(1), "expected an Identify (op 1)");
+                    break;
+                }
+            }
+            ws.send(Message::Text(json!({ "op": 2, "d": { "negotiatedRpcVersion": 1 } }).to_string().into()))
+                .unwrap();
+        }
+
+        /// Waits for the next `GetStreamStatus` request (op 6) and answers
+        /// it - the `requestId` echoed back is a fixed placeholder since the
+        /// real client (`request_on_event_socket`) never validates it.
+        fn respond_to_next_get_stream_status(ws: &mut WebSocket<TcpStream>, output_active: bool) {
+            loop {
+                if let Message::Text(text) = ws.read().unwrap() {
+                    let value: Value = serde_json::from_str(&text).unwrap();
+                    if value.get("op").and_then(Value::as_i64) == Some(6) {
+                        break;
+                    }
+                }
+            }
+            ws.send(Message::Text(
+                json!({
+                    "op": 7,
+                    "d": {
+                        "requestType": "GetStreamStatus",
+                        "requestId": "fake-server",
+                        "requestStatus": { "result": true, "code": 100 },
+                        "responseData": { "outputActive": output_active }
+                    }
+                })
+                .to_string()
+                .into(),
+            ))
+            .unwrap();
+        }
+
+        fn fake_obs_config(port: u16) -> ObsConfig {
+            ObsConfig {
+                enabled: true,
+                host: "127.0.0.1".into(),
+                port,
+                password: String::new(),
+                ..Default::default()
+            }
+        }
+
+        fn wait_until(timeout: Duration, mut condition: impl FnMut() -> bool) {
+            let start = Instant::now();
+            while !condition() {
+                assert!(start.elapsed() < timeout, "condition not met within {timeout:?}");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        // The actual root-cause regression: before the fix, a connection
+        // that stops producing bytes in either direction after a successful
+        // handshake (a half-open TCP connection - machine sleep/wake, OBS
+        // killed without a clean close, a network path change) left
+        // `read_json` blocked in `socket.read()` forever, since no read
+        // timeout was ever set on this socket. No error, no reconnect, no
+        // further streaming-truth observation - for the rest of the
+        // process's life - while OBS scene automation (a totally separate,
+        // always-fresh short-lived connection per switch) kept working the
+        // whole time. This is the "match played, scenes changed correctly,
+        // match never appeared in history" report end to end.
+        #[test]
+        fn a_connection_that_stops_responding_entirely_surfaces_as_an_error_within_one_read_timeout_not_never() {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+
+            std::thread::spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                let mut ws = tungstenite::accept(stream).unwrap();
+                fake_hello_and_identify(&mut ws);
+                respond_to_next_get_stream_status(&mut ws, true);
+                // True zombie from here: never read, never write, never
+                // close. Before the fix this would hang the caller forever;
+                // after the fix it must surface as an `Err` within roughly
+                // one read timeout.
+                std::thread::sleep(Duration::from_secs(5));
+            });
+
+            let config = fake_obs_config(port);
+            let start = Instant::now();
+            let result = watch_stream_state_once(&config, Duration::from_millis(150), |_, _| {});
+
+            assert!(result.is_err(), "a connection that never responds again must surface as an error, not hang forever");
+            assert!(
+                start.elapsed() < Duration::from_secs(2),
+                "must detect the dead connection within a bounded time (~read_timeout), not hang - took {:?}",
+                start.elapsed()
+            );
+        }
+
+        // The self-healing half of the fix: even when a `StreamStateChanged`
+        // event is never sent at all (simulating one getting lost, or OBS
+        // flipping state during exactly the connection's blind spot), the
+        // periodic heartbeat re-probe must still pick up the correct current
+        // truth on its own, without needing that event.
+        #[test]
+        fn heartbeat_reprobe_self_heals_a_missed_stream_state_change_with_no_event_ever_sent() {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+
+            std::thread::spawn(move || {
+                let (stream, _) = listener.accept().unwrap();
+                let mut ws = tungstenite::accept(stream).unwrap();
+                fake_hello_and_identify(&mut ws);
+                respond_to_next_get_stream_status(&mut ws, true); // the Initial fetch
+                // Deliberately never sends a StreamStateChanged event - the
+                // heartbeat re-probe below is what must surface this.
+                respond_to_next_get_stream_status(&mut ws, false); // answers the heartbeat's own GetStreamStatus
+                std::thread::sleep(Duration::from_secs(2)); // keep the socket open past the test's assertions
+            });
+
+            let config = fake_obs_config(port);
+            let observations: Arc<Mutex<Vec<(bool, StreamingObservationSource)>>> = Arc::new(Mutex::new(Vec::new()));
+            let observations_for_watcher = observations.clone();
+            std::thread::spawn(move || {
+                let _ = watch_stream_state_once(&config, Duration::from_millis(100), |streaming, source| {
+                    observations_for_watcher.lock().unwrap().push((streaming, source));
+                });
+            });
+
+            wait_until(Duration::from_secs(2), || {
+                observations.lock().unwrap().contains(&(true, StreamingObservationSource::Initial))
+            });
+            wait_until(Duration::from_secs(2), || {
+                observations.lock().unwrap().contains(&(false, StreamingObservationSource::Heartbeat))
+            });
+            // And, just as important, never via a (never-sent) Event -
+            // proving the heartbeat path, not a lucky Event delivery, is
+            // what actually caught this.
+            assert!(
+                !observations.lock().unwrap().contains(&(false, StreamingObservationSource::Event)),
+                "no StreamStateChanged event was ever sent by the fake server; the correction must come from the heartbeat"
+            );
+        }
     }
 }

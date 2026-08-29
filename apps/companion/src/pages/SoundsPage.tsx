@@ -1,16 +1,17 @@
-import { useState } from "react";
-import { Button } from "../components/ui";
-import { ItemSoundModal } from "../components/sounds/ItemSoundModal";
-import { ItemsGrid } from "../components/sounds/ItemsGrid";
+import { Checkbox, Tabs } from "../components/ui";
+import { ItemsCatalog } from "../components/sounds/ItemsCatalog";
 import type { useGameSoundEngine } from "../sounds/useGameSoundEngine";
-import type { GameSoundEventKind, TrackedItem } from "../services/dotaCompanionApi";
+import type { GameSoundEventKind } from "../services/dotaCompanionApi";
 
 interface Props {
   engine: ReturnType<typeof useGameSoundEngine>;
-  onGoToHeroes: () => void;
 }
 
-type Tab = "items" | "heroes";
+const TABS = [{ key: "items" as const, label: "Предметы" }];
+// §15 - "Библиотека" (uploaded files, reuse/delete) is deferred scope, not
+// built this slice - see the research doc. Keeping the tab list as an
+// array (rather than a single hardcoded heading) is what makes adding it
+// later a one-line change instead of a restructure.
 
 // "Звуки" - Companion UI 2.0's Dota-inventory-inspired section (задача
 // п.1-3), reachable from the WK-114 header's main nav. Not a copy of
@@ -20,20 +21,14 @@ type Tab = "items" | "heroes";
 // dark bevelled-panel language (.sounds-panel/.sound-tile tokens in
 // App.css), not a new design system.
 //
-// WK-121 §9 - ownership after the Heroes move: hero-ability sound
-// assignment now lives primarily on the hero's own page (Героя →
+// WK-122 §12 - the "Герои" tab (a redirect into the real Heroes section,
+// per WK-121) is gone entirely, not just hidden - hero-ability sound
+// assignment lives exclusively on the hero's own page now (Герои → герой →
 // способность → звук, see HeroDetailPage.tsx), reusing this exact same
-// game-sound engine/commands. This screen no longer hosts a second,
-// independent hero-ability UX (HeroesGrid/HeroAbilitiesModal, both
-// removed) - the "Герои" tab is a redirect into that one real
-// implementation, per the task's explicit "не поддерживать две
-// независимые UX реализации". "Звуки" itself keeps ownership of
-// non-hero events: items, and (per the section's reframed scope) the
-// sound library/preview/delete machinery ItemSoundModal already provides.
-export function SoundsPage({ engine, onGoToHeroes }: Props) {
-  const [tab, setTab] = useState<Tab>("items");
-  const [selectedItem, setSelectedItem] = useState<TrackedItem | null>(null);
-
+// game-sound engine/commands. "Звуки" keeps ownership of non-hero events
+// only: the items catalog (see ItemsCatalog.tsx for §13/§14's master/detail
+// rebuild) and, later, the sound library (§15).
+export function SoundsPage({ engine }: Props) {
   const { catalog, settings, error, setMaster, removeBinding, chooseAndBindFile, preview, stopPreview } = engine;
 
   const onChooseFile = async (eventId: string, kind: GameSoundEventKind) => {
@@ -61,14 +56,12 @@ export function SoundsPage({ engine, onGoToHeroes }: Props) {
 
       <div className="sounds-panel">
         <div className="sounds-panel__master">
-          <label className="sounds-panel__toggle">
-            <input
-              type="checkbox"
-              checked={settings.enabled}
-              onChange={(event) => void setMaster(event.target.checked, settings.masterVolume)}
-            />
-            Звуковые реакции
-          </label>
+          <Checkbox
+            className="sounds-panel__toggle"
+            label="Звуковые реакции"
+            checked={settings.enabled}
+            onChange={(event) => void setMaster(event.target.checked, settings.masterVolume)}
+          />
           <div className="tts-volume sounds-panel__volume">
             <div className="tts-volume__row">
               <span>Громкость</span>
@@ -86,38 +79,16 @@ export function SoundsPage({ engine, onGoToHeroes }: Props) {
         </div>
         {error && <p className="app__error">Ошибка: {error}</p>}
 
-        <div className="mode-switch sounds-panel__tabs">
-          <button className={tab === "items" ? "is-active" : ""} onClick={() => setTab("items")}>
-            Предметы
-          </button>
-          <button className={tab === "heroes" ? "is-active" : ""} onClick={() => setTab("heroes")}>
-            Герои
-          </button>
-        </div>
+        <Tabs items={TABS} active="items" onChange={() => {}} aria-label="Разделы звуков" />
 
-        {tab === "items" && (
-          <ItemsGrid items={catalog.items} settings={settings} onSelect={(item) => setSelectedItem(item)} />
-        )}
-        {tab === "heroes" && (
-          <div className="sounds-heroes-redirect">
-            <p>
-              Назначение звуков способностям теперь на странице героя: Герои → выбрать героя → способность → звук.
-            </p>
-            <Button variant="primary" onClick={onGoToHeroes}>Перейти в «Герои»</Button>
-          </div>
-        )}
-      </div>
-
-      {selectedItem && (
-        <ItemSoundModal
-          item={selectedItem}
+        <ItemsCatalog
+          items={catalog.items}
           settings={settings}
-          onClose={() => { stopPreview(); setSelectedItem(null); }}
           onChooseFile={onChooseFile}
           onPreview={(assetId) => preview(assetId, settings.masterVolume)}
           onRemove={removeBinding}
         />
-      )}
+      </div>
     </div>
   );
 }

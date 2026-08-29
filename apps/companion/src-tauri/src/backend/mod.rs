@@ -17,6 +17,10 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 // clicking a button and waiting a few seconds, at a fraction of the
 // previous request volume.
 const COMMAND_POLL_INTERVAL: Duration = Duration::from_secs(15);
+// WK-122 §19 - see the field doc on InnerState.overlay_layout. A once-a-
+// minute GET is cheap and catches a web-editor change reasonably fast
+// without polling aggressively for something that changes rarely.
+const OVERLAY_LAYOUT_POLL_INTERVAL: Duration = Duration::from_secs(60);
 
 // WK-94 - same cap `retry_delay` uses for its backoff shape, reused as the
 // single source of truth for when `state::AppState::snapshot()` should stop
@@ -65,10 +69,23 @@ pub fn init(app: AppHandle) {
         let mut inner = state.0.lock().unwrap();
         inner.obs_config = storage::load_obs_config(&app);
     }
+    // WK-122 §7 - if a session (email/password login) was ever established,
+    // this immediately refreshes it into a fresh `companion_token`,
+    // overriding the legacy token loaded just above for accounts that have
+    // migrated to the new flow - see `account_status`'s "session wins" order.
+    start_session_refresher(app.clone());
 
     let app_for_loop = app.clone();
     std::thread::spawn(move || {
         let mut last_command_poll = Instant::now() - COMMAND_POLL_INTERVAL;
+        // WK-122 §19 - fires on the very first tick (same "already elapsed"
+        // trick as last_command_poll), then every OVERLAY_LAYOUT_POLL_INTERVAL
+        // - catches a layout change made via the web editor while Companion
+        // is running. A save made through Companion's OWN editor
+        // (save_overlay_layout) applies to the cache immediately, without
+        // waiting for this poll - this is only the "someone else edited it"
+        // path.
+        let mut last_overlay_layout_poll = Instant::now() - OVERLAY_LAYOUT_POLL_INTERVAL;
         let mut send_failures: u32 = 0;
         let mut next_send_attempt_at = Instant::now();
         loop {
@@ -88,6 +105,10 @@ pub fn init(app: AppHandle) {
             if last_command_poll.elapsed() >= COMMAND_POLL_INTERVAL {
                 poll_obs_command(&app_for_loop);
                 last_command_poll = Instant::now();
+            }
+            if last_overlay_layout_poll.elapsed() >= OVERLAY_LAYOUT_POLL_INTERVAL {
+                let _ = tauri::async_runtime::block_on(refresh_overlay_layout(&app_for_loop));
+                last_overlay_layout_poll = Instant::now();
             }
             // WK-113 - no more automatic session-state poll here. PostStream
             // is now driven by the local OBS-authoritative lifecycle
@@ -375,6 +396,338 @@ fn put_favorite_heroes(token: &str, hero_ids: Vec<u32>) -> Result<Vec<u32>, Stri
         .json::<FavoriteHeroesResponse>()
         .map(|body| body.favorite_hero_ids)
         .map_err(|error| format!("Неверный ответ сохранения избранных героев: {error}"))
+}
+
+// WK-122 §7 - Companion account session (email/password login), replacing
+// the copy/paste opaque Companion Token as the normal user-facing flow.
+// Reuses the SAME backend session system the web cabinet already has
+// (/stream/auth/login, /refresh, /logout - stream-user-service.ts) rather
+// than inventing new auth surface: Companion just becomes a second client
+// of that existing session, exactly like a web SPA storing a refresh token
+// would. `AppState.companion_token` (read by every function above,
+// unchanged) holds whichever bearer value is currently valid - a legacy
+// static secret, or this session's short-lived access token - callers never
+// need to know which. See `authenticateCompanionSession` (apps/api) for the
+// matching backend half.
+// Comfortably inside the backend's 1h access-token TTL even accounting for
+// one missed/failed tick (a network blip) - the 30-day refresh token itself
+// stays valid throughout, so a missed tick just means outgoing requests
+// 401 and retry until the next successful refresh, never data loss (see
+// local_runtime's own durable sync_outbox, unaffected by this either way).
+const SESSION_REFRESH_INTERVAL: Duration = Duration::from_secs(30 * 60);
+
+#[derive(serde::Serialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountMethod {
+    /// No credential at all - the very first run, or after a full logout
+    /// with no legacy token ever configured either.
+    None,
+    /// The new email/password session - the only method that carries an
+    /// email to display and can be cleanly logged out of.
+    Session,
+    /// A pre-WK-122 install's opaque static token, generated once on the
+    /// website and pasted in - kept working verbatim, never migrated
+    /// automatically. No email is known for this method.
+    LegacyToken,
+}
+
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountStatus {
+    pub connected: bool,
+    pub method: AccountMethod,
+    pub email: Option<String>,
+}
+
+/// Read-only status for Settings/Diagnostics (see commands.rs) - never
+/// exposes the token/refresh-token itself, only enough to render "Не
+/// настроено" / "romaromych — Подключено" / a legacy-install's plain
+/// "Подключено" per the task's explicit "не показывать secret" rule.
+pub fn account_status(app: &AppHandle) -> AccountStatus {
+    if let Some(session) = storage::load_session(app) {
+        return AccountStatus { connected: true, method: AccountMethod::Session, email: Some(session.email) };
+    }
+    let has_legacy_token = app.state::<AppState>().0.lock().unwrap().companion_token.is_some();
+    if has_legacy_token {
+        AccountStatus { connected: true, method: AccountMethod::LegacyToken, email: None }
+    } else {
+        AccountStatus { connected: false, method: AccountMethod::None, email: None }
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct LoginUser {
+    email: String,
+}
+
+#[derive(serde::Deserialize)]
+struct LoginResponse {
+    user: LoginUser,
+    #[serde(rename = "accessToken")]
+    access_token: String,
+    #[serde(rename = "refreshToken")]
+    refresh_token: String,
+}
+
+/// "Войти" in Settings → Аккаунт. `async` + `spawn_blocking` like every
+/// other direct-user-action command in this file - a login click must never
+/// freeze the window while the backend is being reached.
+pub async fn login(app: &AppHandle, email: String, password: String) -> Result<AccountStatus, String> {
+    let response = tauri::async_runtime::spawn_blocking(move || post_login(&email, &password))
+        .await
+        .map_err(|e| format!("Internal error: {e}"))??;
+
+    storage::save_session(
+        app,
+        &storage::CompanionSession { email: response.user.email, refresh_token: response.refresh_token },
+    )
+    .map_err(|e| e.to_string())?;
+    {
+        let state = app.state::<AppState>();
+        let mut inner = state.0.lock().unwrap();
+        inner.companion_token = Some(response.access_token);
+        // WK-94 - same reasoning as save_companion_token: a fresh login
+        // invalidates whatever backend_state a previous failed
+        // token/session earned.
+        inner.backend_last_error = None;
+        inner.backend_attempted = false;
+        inner.backend_consecutive_failures = 0;
+    }
+    storage::append_rolling_log(app, "Companion account: logged in.");
+    // WK-122 - deliberately does NOT spawn a second refresher thread here:
+    // `init` already started one persistent loop for the app's whole
+    // lifetime (see `start_session_refresher`'s doc comment) that will pick
+    // this session up on its own next tick, well within the access token's
+    // 1h TTL. Two independent refresher loops would race the refresh
+    // token's rotation - the second one to run in a given window would see
+    // the first's already-rotated value as `Revoked` and wrongly clear a
+    // perfectly good session.
+    Ok(account_status(app))
+}
+
+fn post_login(email: &str, password: &str) -> Result<LoginResponse, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .post(format!("{DEFAULT_BACKEND_URL}/stream/auth/login"))
+        .json(&serde_json::json!({ "email": email, "password": password }))
+        .send()
+        .map_err(|error| format!("Не удалось связаться с PreReborn: {error}"))?;
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Err("Неверный email или пароль.".to_string());
+    }
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response.json().map_err(|error| format!("Неверный ответ входа: {error}"))
+}
+
+/// "Выйти" in Settings → Аккаунт.
+pub async fn logout(app: &AppHandle) -> Result<AccountStatus, String> {
+    if let Some(session) = storage::load_session(app) {
+        // Best-effort revoke - a failed/offline logout must never trap the
+        // user in a "connected" state locally; the refresh token simply
+        // expires server-side on its own 30-day TTL if this never reaches it.
+        let _ = tauri::async_runtime::spawn_blocking(move || post_logout(&session.refresh_token)).await;
+    }
+    storage::clear_session(app).map_err(|e| e.to_string())?;
+    {
+        let state = app.state::<AppState>();
+        let mut inner = state.0.lock().unwrap();
+        inner.companion_token = None;
+    }
+    storage::append_rolling_log(app, "Companion account: logged out.");
+    Ok(account_status(app))
+}
+
+fn post_logout(refresh_token: &str) -> Result<(), String> {
+    reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .post(format!("{DEFAULT_BACKEND_URL}/stream/auth/logout"))
+        .json(&serde_json::json!({ "refreshToken": refresh_token }))
+        .send()
+        .map_err(|error| format!("Не удалось разорвать сессию на сервере: {error}"))?;
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+struct RefreshResponse {
+    #[serde(rename = "accessToken")]
+    access_token: String,
+    #[serde(rename = "refreshToken")]
+    refresh_token: String,
+}
+
+enum RefreshError {
+    /// The refresh token itself is gone/expired/already rotated elsewhere -
+    /// retrying with the same value can only ever fail the same way, so the
+    /// session must be cleared rather than kept around as false "connected"
+    /// state.
+    Revoked,
+    /// Anything else (network blip, backend down) - the stored session
+    /// stays as-is, the next periodic tick tries again.
+    Transient(String),
+}
+
+fn post_refresh(refresh_token: &str) -> Result<RefreshResponse, RefreshError> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| RefreshError::Transient(format!("HTTP client error: {error}")))?
+        .post(format!("{DEFAULT_BACKEND_URL}/stream/auth/refresh"))
+        .json(&serde_json::json!({ "refreshToken": refresh_token }))
+        .send()
+        .map_err(|error| RefreshError::Transient(format!("Не удалось обновить сессию: {error}")))?;
+    if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        return Err(RefreshError::Revoked);
+    }
+    if !response.status().is_success() {
+        return Err(RefreshError::Transient(format!("Backend ответил {}", response.status())));
+    }
+    response
+        .json()
+        .map_err(|error| RefreshError::Transient(format!("Неверный ответ обновления сессии: {error}")))
+}
+
+/// Refreshes the in-memory access token (`AppState.companion_token`) from
+/// the stored refresh token, rotating and persisting the new refresh token
+/// on success (the server deletes the old one on rotation - reusing it
+/// again would itself count as `Revoked`, so the freshly-rotated value must
+/// be the one saved). Called once immediately by `start_session_refresher`
+/// and every `SESSION_REFRESH_INTERVAL` thereafter - comfortably inside the
+/// backend's 1h access-token TTL, so `companion_token` should never actually
+/// be observed expired by any of this file's other callers.
+fn refresh_session_access_token(app: &AppHandle) -> Result<(), String> {
+    let Some(session) = storage::load_session(app) else { return Ok(()) };
+    match post_refresh(&session.refresh_token) {
+        Ok(refreshed) => {
+            storage::save_session(
+                app,
+                &storage::CompanionSession { email: session.email, refresh_token: refreshed.refresh_token },
+            )
+            .map_err(|e| e.to_string())?;
+            let state = app.state::<AppState>();
+            let mut inner = state.0.lock().unwrap();
+            inner.companion_token = Some(refreshed.access_token);
+            Ok(())
+        }
+        Err(RefreshError::Revoked) => {
+            let _ = storage::clear_session(app);
+            let state = app.state::<AppState>();
+            let mut inner = state.0.lock().unwrap();
+            inner.companion_token = None;
+            Err("Сессия недействительна — нужно войти заново.".to_string())
+        }
+        Err(RefreshError::Transient(message)) => Err(message),
+    }
+}
+
+/// Started exactly once, from `init`, for the app's entire lifetime -
+/// always runs (a cheap no-op tick whenever no session is stored, same
+/// "always run" shape as `obs::start_stream_state_watcher`), immediately
+/// refreshing on the very first tick and every `SESSION_REFRESH_INTERVAL`
+/// after. `login` deliberately does NOT start a second one of these - see
+/// its own comment for why that would race the refresh token's rotation.
+fn start_session_refresher(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        if let Err(error) = refresh_session_access_token(&app) {
+            storage::append_rolling_log(&app, &format!("Companion account: session refresh failed ({error})"));
+        }
+        std::thread::sleep(SESSION_REFRESH_INTERVAL);
+    });
+}
+
+/// WK-122 §19 - fetches the real saved OverlayLayout from the companion-
+/// scoped route (apps/api's `authenticateCompanionSession`-guarded
+/// `/companion/overlay-layout`, added alongside this), caching it in
+/// `AppState.overlay_layout` and bumping `overlay_layout_version` so
+/// `overlay_server.rs`'s SSE stream can tell the local renderer to re-fetch
+/// it. Passed through as an opaque `serde_json::Value` - see the field doc
+/// on `InnerState.overlay_layout` for why Rust never needs to interpret
+/// individual widget fields.
+pub async fn refresh_overlay_layout(app: &AppHandle) -> Result<serde_json::Value, String> {
+    let token = app
+        .state::<AppState>()
+        .0
+        .lock()
+        .unwrap()
+        .companion_token
+        .clone()
+        .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())?;
+    let layout = tauri::async_runtime::spawn_blocking(move || fetch_overlay_layout(&token))
+        .await
+        .map_err(|e| format!("Internal error: {e}"))??;
+    apply_overlay_layout(app, layout.clone());
+    Ok(layout)
+}
+
+fn fetch_overlay_layout(token: &str) -> Result<serde_json::Value, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .get(format!("{DEFAULT_BACKEND_URL}/stream/companion/overlay-layout"))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("Оформление недоступно: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json()
+        .map_err(|error| format!("Неверный ответ оформления: {error}"))
+}
+
+/// "Сохранить" in the Оформление editor (DesignPage.tsx) - PUTs the whole
+/// edited layout (apps/api's `normalizeOverlayLayout` validates/clamps
+/// every field server-side, same as the web editor's save already does) and
+/// caches the server's normalized response back, so the local preview
+/// reflects exactly what was actually persisted, not the client's
+/// pre-validation draft.
+pub async fn save_overlay_layout(app: &AppHandle, layout: serde_json::Value) -> Result<serde_json::Value, String> {
+    let token = app
+        .state::<AppState>()
+        .0
+        .lock()
+        .unwrap()
+        .companion_token
+        .clone()
+        .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())?;
+    let saved = tauri::async_runtime::spawn_blocking(move || put_overlay_layout(&token, layout))
+        .await
+        .map_err(|e| format!("Internal error: {e}"))??;
+    apply_overlay_layout(app, saved.clone());
+    Ok(saved)
+}
+
+fn put_overlay_layout(token: &str, layout: serde_json::Value) -> Result<serde_json::Value, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .put(format!("{DEFAULT_BACKEND_URL}/stream/companion/overlay-layout"))
+        .bearer_auth(token)
+        .json(&layout)
+        .send()
+        .map_err(|error| format!("Не удалось сохранить оформление: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json()
+        .map_err(|error| format!("Неверный ответ сохранения оформления: {error}"))
+}
+
+fn apply_overlay_layout(app: &AppHandle, layout: serde_json::Value) {
+    let state = app.state::<AppState>();
+    let mut inner = state.0.lock().unwrap();
+    if inner.overlay_layout.as_ref() != Some(&layout) {
+        inner.overlay_layout = Some(layout);
+        inner.overlay_layout_version = inner.overlay_layout_version.saturating_add(1);
+    }
 }
 
 /// Manual "resend current state" - ignores `dirty`, sends whatever the last

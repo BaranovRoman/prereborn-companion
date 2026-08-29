@@ -67,6 +67,68 @@ export interface LifecycleStatus {
   session_started_at: string | null;
   pending_end_at: string | null;
   obs_streaming: boolean | null;
+  // WK-122 P0 diagnostics - last time the OBS stream-state watcher actually
+  // confirmed streaming truth (event, initial fetch, or heartbeat re-probe).
+  obs_streaming_confirmed_at: string | null;
+}
+
+// WK-122 §7 - Companion account (email/password login), replacing the
+// copy/paste Companion Token. Mirrors backend::AccountStatus/AccountMethod
+// field-for-field - never carries the token/refresh-token/password.
+export type AccountMethod = "none" | "session" | "legacy_token";
+
+export interface AccountStatus {
+  connected: boolean;
+  method: AccountMethod;
+  email: string | null;
+}
+
+// WK-122 §17-19 - mirrors apps/api's stream-overlay-layout-service.ts
+// (OVERLAY_ANCHORS/OverlayWidgetLayout) for the subset Companion's editor
+// actually edits: the session/currentGame widgets in the draft/gameplay
+// scenes (the only two widgets the local renderer visualizes - see
+// overlay-renderer/OverlayApp.tsx). `OverlayLayoutDoc` intentionally keeps
+// every other real field (cameraZone, minimapCover, recentMatches/
+// companionStatus widgets, draftProtection, aspectRatio, version) as
+// untyped passthrough via the index signatures - the editor must round-trip
+// them byte-for-byte on save, never reconstruct the document from just the
+// fields it understands (apps/api's normalizeOverlayLayout falls back to
+// DEFAULTS for anything missing from a PUT body, not to what was already
+// saved - a naive "only send what I edited" save would silently wipe
+// everything else).
+export type OverlayAnchor =
+  | "top-left" | "top-center" | "top-right"
+  | "center-left" | "center" | "center-right"
+  | "bottom-left" | "bottom-center" | "bottom-right";
+
+export interface OverlayWidgetLayout {
+  xVw: number;
+  yVh: number;
+  scale: number;
+  visible: boolean;
+  anchor: OverlayAnchor;
+  [key: string]: unknown;
+}
+
+export interface OverlaySceneWidgets {
+  session: OverlayWidgetLayout;
+  currentGame: OverlayWidgetLayout;
+  [key: string]: unknown;
+}
+
+export interface OverlaySceneLayoutDoc {
+  widgets: OverlaySceneWidgets;
+  [key: string]: unknown;
+}
+
+export interface OverlayLayoutDoc {
+  version: number;
+  scenes: {
+    draft: OverlaySceneLayoutDoc;
+    gameplay: OverlaySceneLayoutDoc;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
 }
 
 // WK-114 - local-first Home page data (session MMR/W-L/current+recent

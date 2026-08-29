@@ -24,7 +24,7 @@ export interface TwitchChatStatus {
   messages: TwitchChatMessage[];
 }
 import { invoke } from "@tauri-apps/api/core";
-import type { DiagnosticsStatusSnapshot, LifecycleStatus, LocalSessionSummary, ObsConfig, StatusSnapshot, SyncOutboxStatus } from "../types/status";
+import type { AccountStatus, DiagnosticsStatusSnapshot, LifecycleStatus, LocalSessionSummary, ObsConfig, OverlayLayoutDoc, StatusSnapshot, SyncOutboxStatus } from "../types/status";
 import type { StreamSessionSummary } from "../session/session-prompt";
 
 export const getStatus = () => invoke<StatusSnapshot>("get_status");
@@ -36,6 +36,26 @@ export const openDotaFolder = () => invoke<void>("open_dota_folder");
 export const clearLog = () => invoke<StatusSnapshot>("clear_log");
 export const saveCompanionToken = (token: string) =>
   invoke<StatusSnapshot>("save_companion_token", { token });
+
+// WK-122 §7 - Companion account (email/password login), replacing the
+// copy/paste Companion Token as the normal user-facing flow.
+export const getAccountStatus = () => invoke<AccountStatus>("get_account_status");
+export const accountLogin = (email: string, password: string) =>
+  invoke<AccountStatus>("account_login", { email, password });
+export const accountLogout = () => invoke<AccountStatus>("account_logout");
+
+// WK-122 §17-19 - Оформление editor. `layout` is deliberately typed loosely
+// (see types/status.ts's OverlayLayoutDoc) - Companion only interprets the
+// session/currentGame widget fields it actually renders an editor for, and
+// must round-trip everything else (cameraZone, minimapCover,
+// recentMatches/companionStatus widgets, draftProtection, aspectRatio)
+// byte-for-byte, never reconstructing the object from scratch, or a save
+// here would silently reset every other field to its default (see
+// apps/api's normalizeOverlayLayout - fields missing from the PUT body fall
+// back to defaults, not to what was already saved).
+export const getOverlayLayout = () => invoke<OverlayLayoutDoc>("get_overlay_layout");
+export const saveOverlayLayout = (layout: OverlayLayoutDoc) =>
+  invoke<OverlayLayoutDoc>("save_overlay_layout", { layout });
 export const getTwitchChat = () => invoke<TwitchChatStatus>("get_twitch_chat");
 export const openTwitchSettings = () => invoke<void>("open_twitch_settings");
 

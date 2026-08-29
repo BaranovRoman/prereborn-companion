@@ -1,7 +1,7 @@
 import type { ChatSettings } from "../../chat/chat-model";
 import type { TwitchChatSession } from "../../chat/useTwitchChatSession";
 import type { SileroVoice } from "../../services/dotaCompanionApi";
-import { Checkbox, Select, Slider } from "../ui";
+import { Checkbox, Radio, Select, Slider } from "../ui";
 
 const SILERO_VOICES: { value: SileroVoice; label: string }[] = [
   { value: "xenia", label: "Xenia" },
@@ -37,14 +37,20 @@ export function ChatTtsSettings({ session }: { session: TwitchChatSession }) {
         onChange={(event) => update("ttsEnabled", event.target.checked)}
       />
       <div className={`tts-engine-choice ${!settings.ttsEnabled ? "is-disabled" : ""}`}>
-        <label>
-          <input type="radio" name="ttsEngine" disabled={!settings.ttsEnabled} checked={settings.ttsEngine === "silero"} onChange={() => update("ttsEngine", "silero")} />
-          {" "}Silero (локальный, офлайн, рекомендуется)
-        </label>
-        <label>
-          <input type="radio" name="ttsEngine" disabled={!settings.ttsEnabled} checked={settings.ttsEngine === "system"} onChange={() => update("ttsEngine", "system")} />
-          {" "}Системный голос
-        </label>
+        <Radio
+          name="ttsEngine"
+          disabled={!settings.ttsEnabled}
+          checked={settings.ttsEngine === "silero"}
+          onChange={() => update("ttsEngine", "silero")}
+          label="Silero (локальный, офлайн, рекомендуется)"
+        />
+        <Radio
+          name="ttsEngine"
+          disabled={!settings.ttsEnabled}
+          checked={settings.ttsEngine === "system"}
+          onChange={() => update("ttsEngine", "system")}
+          label="Системный голос"
+        />
       </div>
       <label className={`tts-volume ${!settings.ttsEnabled ? "is-disabled" : ""}`}>
         <span className="tts-volume__row"><span>Громкость речи</span><span className="tts-volume__value">{settings.speechVolume}%</span></span>

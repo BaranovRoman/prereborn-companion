@@ -231,7 +231,7 @@ export function AppShell() {
         )}
         {section === "design" && <DesignPage />}
         {section === "chat" && <TwitchChatPage session={chatSession} onOpenChatSettings={() => openSettings("chat")} />}
-        {section === "sounds" && <SoundsPage engine={gameSoundEngine} onGoToHeroes={() => setSection("heroes")} />}
+        {section === "sounds" && <SoundsPage engine={gameSoundEngine} />}
         {section === "diagnostics" && (
           <DiagnosticsPage
             status={status}

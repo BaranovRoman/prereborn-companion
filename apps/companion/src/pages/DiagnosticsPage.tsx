@@ -1,5 +1,6 @@
 import { ActionButtons } from "../components/ActionButtons";
 import { BackendStatusPanel } from "../components/BackendStatusPanel";
+import { DeviceCredentialPanel } from "../components/DeviceCredentialPanel";
 import { DiagnosticsPanel } from "../components/DiagnosticsPanel";
 import { EventHistoryList } from "../components/EventHistoryList";
 import { LastEventPanel } from "../components/LastEventPanel";
@@ -53,6 +54,7 @@ export function DiagnosticsPage({
       <EventHistoryList events={history} />
       <BackendStatusPanel status={status} busy={busy} onResend={() => void run(api.resendCurrentState)} syncStatus={syncStatus} />
       <DiagnosticsPanel status={diagnosticsStatus} refresh={diagnosticsRefresh} />
+      <DeviceCredentialPanel />
       {status?.log_dir && <p className="app__log-dir">Логи: {status.log_dir}</p>}
     </div>
   );

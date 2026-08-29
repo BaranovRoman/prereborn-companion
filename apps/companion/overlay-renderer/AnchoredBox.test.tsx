@@ -1,0 +1,90 @@
+// @vitest-environment jsdom
+import { cleanup, render } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import { AnchoredBox } from "./AnchoredBox";
+import type { OverlayWidgetLayout } from "./types";
+
+afterEach(() => cleanup());
+
+// jsdom doesn't implement ResizeObserver at all - AnchoredBox's real (and
+// entirely reasonable) use of it to re-measure on resize would otherwise
+// throw before this component ever gets to render anything in a test.
+class StubResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(globalThis as any).ResizeObserver ??= StubResizeObserver;
+
+const BASE: OverlayWidgetLayout = { xVw: 10, yVh: 20, scale: 1, visible: true, anchor: "top-left" };
+
+// jsdom has no real layout engine (offsetWidth/offsetHeight are always 0
+// without this), so the anchor-fraction offset (which is proportional to
+// the widget's own measured size) would be indistinguishable from zero for
+// every anchor otherwise - stubbing a concrete size is what lets the
+// bottom-right test below actually exercise that math, not just the
+// anchor-point placement any anchor would pass with a zero-size box.
+// Restores the original descriptors afterward so this stub never leaks
+// into any other test in this file (or beyond it).
+function withStubbedMeasuredSize(width: number, height: number, run: () => void) {
+  const originalWidth = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+  const originalHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+  Object.defineProperty(HTMLElement.prototype, "offsetWidth", { configurable: true, value: width });
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, value: height });
+  try {
+    run();
+  } finally {
+    if (originalWidth) Object.defineProperty(HTMLElement.prototype, "offsetWidth", originalWidth);
+    if (originalHeight) Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalHeight);
+  }
+}
+
+describe("AnchoredBox", () => {
+  it("renders nothing at all when the widget is not visible - not just visually hidden", () => {
+    const { container } = render(
+      <AnchoredBox layout={{ ...BASE, visible: false }} sceneWidth={1920} sceneHeight={1080}>
+        <span>content</span>
+      </AnchoredBox>
+    );
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("top-left anchor places the box's own top-left corner exactly at (xVw, yVh)", () => {
+    const { container } = render(
+      <AnchoredBox layout={{ ...BASE, xVw: 10, yVh: 20 }} sceneWidth={1920} sceneHeight={1080}>
+        <span>content</span>
+      </AnchoredBox>
+    );
+    const wrapper = container.firstChild as HTMLElement;
+    expect(wrapper.style.left).toBe(`${(10 / 100) * 1920}px`);
+    expect(wrapper.style.top).toBe(`${(20 / 100) * 1080}px`);
+  });
+
+  it("bottom-right anchor offsets the wrapper by the full measured (scaled) size", () => {
+    withStubbedMeasuredSize(200, 100, () => {
+      const { container } = render(
+        <AnchoredBox layout={{ xVw: 50, yVh: 50, scale: 2, visible: true, anchor: "bottom-right" }} sceneWidth={1920} sceneHeight={1080}>
+          <span>content</span>
+        </AnchoredBox>
+      );
+      const wrapper = container.firstChild as HTMLElement;
+      const anchorX = (50 / 100) * 1920;
+      const anchorY = (50 / 100) * 1080;
+      // scaledWidth/Height = measured size * layout.scale (200*2, 100*2) -
+      // the full box must sit to the top-left of the anchor point.
+      expect(wrapper.style.left).toBe(`${anchorX - 200 * 2}px`);
+      expect(wrapper.style.top).toBe(`${anchorY - 100 * 2}px`);
+    });
+  });
+
+  it("applies the configured scale as a CSS transform on the inner content", () => {
+    const { container } = render(
+      <AnchoredBox layout={{ ...BASE, scale: 1.5 }} sceneWidth={1920} sceneHeight={1080}>
+        <span>content</span>
+      </AnchoredBox>
+    );
+    const inner = (container.firstChild as HTMLElement).firstChild as HTMLElement;
+    expect(inner.style.transform).toBe("scale(1.5)");
+  });
+});

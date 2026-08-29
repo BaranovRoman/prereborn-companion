@@ -37,6 +37,14 @@ const SETTINGS: GameSoundSettings = {
 
 afterEach(() => cleanup());
 
+// WK-122 §8 - there is no permanent search input anymore; typing anywhere
+// while the screen is open is what drives the query (a window keydown
+// listener, see HeroesPage.tsx). Simulates real typing one character at a
+// time, exactly like the keyboard would produce it.
+function typeIntoHeroSearch(text: string) {
+  for (const key of text) fireEvent.keyDown(window, { key });
+}
+
 describe("HeroesPage", () => {
   it("renders the full hero grid grouped by attribute, no favorites strip when empty", () => {
     render(
@@ -47,20 +55,41 @@ describe("HeroesPage", () => {
     expect(screen.queryByLabelText("Избранные герои")).toBeNull();
   });
 
-  it("searching filters the grid (RU alias support)", () => {
+  it("has no permanent search input", () => {
     render(
       <HeroesPage favorites={buildFavorites()} soundSettings={null} trackedHeroes={[]} onSelectHero={vi.fn()} />
     );
-    fireEvent.change(screen.getByPlaceholderText(/Поиск героя/), { target: { value: "пудж" } });
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("typing anywhere filters the grid (RU alias support) and shows a transient indicator", () => {
+    render(
+      <HeroesPage favorites={buildFavorites()} soundSettings={null} trackedHeroes={[]} onSelectHero={vi.fn()} />
+    );
+    typeIntoHeroSearch("пудж");
     expect(screen.getByTitle("Pudge")).toBeTruthy();
     expect(screen.queryByTitle("Anti-Mage")).toBeNull();
+    expect(screen.getByText("ПУДЖ")).toBeTruthy();
+  });
+
+  it("Backspace edits the query and Escape clears it immediately", () => {
+    render(
+      <HeroesPage favorites={buildFavorites()} soundSettings={null} trackedHeroes={[]} onSelectHero={vi.fn()} />
+    );
+    typeIntoHeroSearch("pudgex");
+    expect(screen.queryByTitle("Pudge")).toBeNull(); // "pudgex" matches nothing
+    fireEvent.keyDown(window, { key: "Backspace" });
+    expect(screen.getByTitle("Pudge")).toBeTruthy(); // back to "pudge"
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByText("PUDGE")).toBeNull();
+    expect(screen.getByTitle("Anti-Mage")).toBeTruthy(); // full grid is back
   });
 
   it("shows 'not found' for a query matching nothing", () => {
     render(
       <HeroesPage favorites={buildFavorites()} soundSettings={null} trackedHeroes={[]} onSelectHero={vi.fn()} />
     );
-    fireEvent.change(screen.getByPlaceholderText(/Поиск героя/), { target: { value: "zzznotahero" } });
+    typeIntoHeroSearch("zzznotahero");
     expect(screen.getByText("Герой не найден.")).toBeTruthy();
   });
 

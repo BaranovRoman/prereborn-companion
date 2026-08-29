@@ -207,6 +207,44 @@ pub fn save_companion_token(
     Ok(state.snapshot())
 }
 
+// WK-122 §7 - Companion account (email/password), replacing the copy/paste
+// Companion Token as the normal user-facing flow - see backend::login's doc
+// comment. `get_account_status` is intentionally the only way the frontend
+// ever learns about the credential: no command here (or anywhere else)
+// returns the raw token/refresh-token/password.
+#[tauri::command]
+pub fn get_account_status(app: AppHandle) -> backend::AccountStatus {
+    backend::account_status(&app)
+}
+
+#[tauri::command]
+pub async fn account_login(app: AppHandle, email: String, password: String) -> Result<backend::AccountStatus, String> {
+    backend::login(&app, email, password).await
+}
+
+#[tauri::command]
+pub async fn account_logout(app: AppHandle) -> Result<backend::AccountStatus, String> {
+    backend::logout(&app).await
+}
+
+// WK-122 §17-19 - Оформление editor (DesignPage.tsx). `get_overlay_layout`
+// prefers the in-memory cache (already kept fresh by backend::init's
+// periodic poll) and only reaches the network if nothing has been fetched
+// yet this run, so opening the editor is instant in the common case.
+#[tauri::command]
+pub async fn get_overlay_layout(app: AppHandle, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let cached = state.0.lock().unwrap().overlay_layout.clone();
+    match cached {
+        Some(layout) => Ok(layout),
+        None => backend::refresh_overlay_layout(&app).await,
+    }
+}
+
+#[tauri::command]
+pub async fn save_overlay_layout(app: AppHandle, layout: serde_json::Value) -> Result<serde_json::Value, String> {
+    backend::save_overlay_layout(&app, layout).await
+}
+
 
 // WK-78 - both `async` so the blocking, network-bound backend call inside
 // runs via `spawn_blocking` on Tauri's blocking pool instead of the main
