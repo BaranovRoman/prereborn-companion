@@ -152,10 +152,73 @@ constant is now a parameter, with the real 20s value only used by the actual
 
 ## 2. Design rule (in progress)
 
-_To be filled in as this section of the slice lands._
+Global header (`AppShell.tsx`/`App.css`'s `.app-header*` rules) already received a metal-plate/
+red-rivet treatment in WK-115 — kept as the baseline, not rebuilt from scratch. Inner workspace tabs
+(Оформление's Между матчами/Драфт/Игра/Итоги) already read as centered, uppercase, underline-active
+modern-Dota tabs. Remaining control-primitive work: Radio (below) closed the last native-browser
+control gap found; Select/Input/Button/Slider were already de-natived in WK-121's `ui/` primitives
+and re-verified via screenshot during this slice.
 
-## 3. Remaining sections
+## 3. Companion Token → real desktop auth (§7)
 
-Auth/Companion Token, Heroes, Items catalog, Оформление editor/renderer parity, Chat, Home,
+**Decision: email/password login, reusing the web cabinet's existing session system verbatim — no
+new auth scheme, no new backend auth surface.**
+
+The backend already has everything needed for a proper session: `/stream/auth/login` (email +
+password → 1h JWT access token + 30-day rotating refresh token, `stream-user-service.ts`),
+`/refresh`, `/logout`. Companion becomes a second client of that exact system, the same way a web
+SPA would store a refresh token — not a parallel or novel mechanism.
+
+- **Backend** (`authenticate-companion-token.ts`): a new `authenticateCompanionSession` middleware
+  tries JWT verification first, falls through unchanged to the existing hash-lookup for anything
+  that isn't a valid JWT (the legacy token's shape never parses as one). `routes/stream/companion.ts`
+  now uses this instead of the old middleware directly — zero controller changes, and every
+  existing token-authenticated install keeps working verbatim, permanently, with no forced
+  migration.
+- **Rust** (`backend/mod.rs`, `storage/mod.rs`): `login`/`logout`/`account_status`. A single
+  persistent background thread (`start_session_refresher`, ~30min cadence, comfortably inside the
+  1h access-token TTL) keeps `AppState.companion_token` populated from the stored refresh token —
+  every one of the ~10 existing outgoing-request call sites in this file keeps reading that same
+  field completely unchanged, oblivious to whether it holds a legacy static secret or a rotating
+  session access token. The session (email + refresh token) is stored alongside the legacy token in
+  the same `companion-config.json`, without either one disturbing the other.
+- **Frontend**: `AccountForm.tsx` replaces `CompanionTokenForm.tsx` everywhere (Settings → Аккаунт,
+  and compact/embedded in Home's first-run checklist) — email/password fields when disconnected, a
+  connected view (email + "Выйти") when logged in via session, a plain "Подключено" + upgrade
+  prompt for a still-working legacy-token install. The raw token/refresh-token/password is never
+  fetched, stored in component state longer than the request, or rendered anywhere.
+- **Diagnostics**: `DeviceCredentialPanel.tsx` shows only `active`/`missing`, reusing
+  `get_account_status` — never the secret.
+
+**Testing pitfall found and fixed**: an early version tried to test the new session-storage
+functions via `tauri::test::mock_app()`, following the pattern `local_runtime`'s tests use.
+Unlike that DB-based pattern, `mock_app()`'s `app_data_dir()` resolves to a **real, unsandboxed
+path on the host filesystem** — every test ended up racing every other parallel test on the same
+real file, with failures that looked like logic bugs but were actually cross-test file
+contention. Fixed by splitting storage functions into a path-parameterized `_at(path)` core (no
+`AppHandle` involved at all) that tests drive directly against a `tempfile` directory — fully
+hermetic, and the actual regression coverage that matters (the session/legacy-token merge never
+clobbers either) is still exercised against the real function bodies, not a re-implemented fixture.
+
+## 4. Remaining sections
+
+Heroes search/composition ✅ (below), Items catalog, Оформление editor/renderer parity, Chat, Home,
 Settings, performance, tests, visual QA — tracked in Weeek WK-122 (task id 123) and filled in here
 as each lands.
+
+## 5. Heroes — keyboard search, favorites placement (§8, §9)
+
+- Removed the permanent `SearchInput`. A window `keydown` listener (mounted only while the Heroes
+  screen is on screen) drives the same RU/EN/alias-aware `searchHeroes` Sounds → Heroes already
+  used — ported UX from `apps/web`'s favorite-heroes keyboard picker
+  (`queue-widgets-panel.tsx`'s `heroQuery`/3s-idle-clear/Backspace pattern), with Escape added for
+  immediate clear (not present in the web original, added here since the task's own acceptance
+  criteria call for it).
+- A transient indicator (a red banner echoing the typed query, uppercased) appears only while
+  `query` is non-empty — no permanent chrome.
+- Favorites moved into `SectionHeader`'s existing `actions` slot (top-right, alongside the title),
+  rendered as small (40×40px) icon-only portraits — no separate labeled full-width strip.
+- Radio primitive (`ui/Radio.tsx`) added, visually identical to Checkbox (shared CSS rule block in
+  `ui.css`) per the task's explicit instruction that the look must match even though a checkmark on
+  a radio is not the conventional treatment. Replaces the last native `<input type="radio">` in the
+  app (`ChatTtsSettings`'s TTS engine choice).
