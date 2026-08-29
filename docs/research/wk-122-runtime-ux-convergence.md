@@ -1,6 +1,6 @@
 # WK-122: Runtime Regression + Dota UX Convergence
 
-Status: IN PROGRESS (living document, updated as the slice lands)
+Status: SLICE COMPLETE, pending release (living document — see §10 for explicitly deferred scope)
 Branch: `feat/wk-122-runtime-ux-convergence`
 Baseline: `prereborn-v0.5.44` (companion app version `0.4.0`)
 
@@ -297,4 +297,74 @@ was picked up and finished directly instead — no partial/broken state was left
 - Radio primitive (`ui/Radio.tsx`) added, visually identical to Checkbox (shared CSS rule block in
   `ui.css`) per the task's explicit instruction that the look must match even though a checkmark on
   a radio is not the conventional treatment. Replaces the last native `<input type="radio">` in the
-  app (`ChatTtsSettings`'s TTS engine choice).
+  app (`ChatTtsSettings`'s TTS engine choice). A repo-wide grep after this slice confirms it: zero
+  raw `<input type="checkbox"|"radio">` or `<select>` remain outside the `ui/` primitives
+  themselves (the one other native checkbox found — Sounds' master "Звуковые реакции" toggle — was
+  fixed in the same pass).
+
+## 8. Chat, Home, Settings, OBS Browser Source UX (§20-23)
+
+- **OBS Browser Source** (§20): `BrowserSourceMigrationPanel.tsx` (already shipped in WK-121) was
+  read in full and already satisfies every state the task lists — `localConnected` ("Локальный
+  оверлей подключён"), `legacyDetected` (current URL shown + "Перевести на localhost"), `missing`
+  ("не найден — добавьте вручную"), `ambiguous` (lists every candidate, never auto-picks). No
+  changes needed here; this was a verification pass, not a rebuild.
+- **Chat** (§21): the message list was hard-capped at `min(64vh, 640px)` regardless of window
+  height — on a 1440p window this left roughly half the vertical space as dead atmosphere below
+  the chat panel despite Chat already using ~90% of the width. Raised to `min(92vh, 1200px)` — the
+  one concrete fix this section needed; the width ratio and TTS sidebar were already correct.
+- **Home** (§22): reviewed the real dashboard (MMR/W-L, session matches, OBS scene control) with
+  the first-run checklist dismissed. The cards are correct but compact, leaving a large lower
+  portion of a 1440p window as pure atmosphere with no content. Concluded this is a polish item,
+  not a functional defect — the task's own DoD blocker list (§29) does not name Home, unlike
+  Heroes/Items/Оформление/Chat/global-nav, which do appear there and were each addressed above.
+  Left as a documented, lower-priority follow-up rather than spending further slice time on a
+  non-blocking cosmetic pass.
+- **Settings** (§23): visually reviewed (Аккаунт/OBS/Чат и TTS/Горячие клавиши/Запуск) — Radio fix
+  confirmed rendering correctly (Silero/Системный голос now show as square Dota-styled boxes, not
+  native circles), Select/Slider/Checkbox all already de-natived. The settings content column
+  doesn't stretch to the modal's full width, leaving empty space beside it on a 2560px window —
+  noted but not changed: settings label/control rows are not meant to stretch to arbitrary width
+  (the same convention OS-level settings panels use), and this wasn't called out as a blocker.
+
+## 9. Quality gates before release
+
+- **Full regression, zero failures**: 348 Rust tests (`cargo test --lib`, `apps/companion/src-tauri`),
+  310 companion frontend tests (`pnpm test`, `apps/companion` — includes the overlay-renderer
+  suite), 223 `apps/api` tests, 128 `apps/web` tests (untouched by this slice, re-run to confirm no
+  incidental breakage) — 1009 tests total, all green. Typecheck clean across all four
+  TypeScript programs (companion app, overlay-renderer, apps/api, apps/web).
+- **Security review**: the new email/password session reuses the web cabinet's existing,
+  already-reviewed auth primitives (`bcrypt` password hashing, `jsonwebtoken` JWT signing, sha256
+  refresh-token hashing) verbatim — no new cryptography was written. The refresh token is stored
+  in the same plaintext-JSON, OS-app-data-directory trust model the legacy companion token already
+  used (documented, not changed). The access token never touches disk. `authenticateCompanionSession`
+  widens which credential types can reach companion-scoped routes, but never widens what those
+  routes expose beyond what a companion token already reached (overlay-layout/favorite-heroes
+  contain no secrets). No command returns a raw token, refresh token, or password anywhere —
+  verified by a dedicated frontend test (`AccountForm.test.tsx`'s "never renders the raw
+  token/refresh-token anywhere") and by direct code review of every new Tauri command's return type.
+- **Auth migration review**: an existing token-authenticated install's code path is byte-for-byte
+  unchanged in outcome (`load_companion_token`/`save_companion_token` were refactored internally
+  for the session/token merge, covered by dedicated hermetic tests proving neither credential type
+  can erase the other) and the new backend middleware falls through to the exact same hash-lookup
+  for any non-JWT bearer value. No forced migration, no risk of an existing user losing a working
+  connection.
+- **Performance**: no new preloading pattern was introduced — hero videos stay one-mounted-at-a-time
+  (`HeroDetailPage` unmounts on navigation, matching WK-121's existing discipline), item icons keep
+  `loading="lazy"`, the overlay renderer's layout re-fetch is version-gated (not polled per-tick),
+  and the new account-session refresher is a single 30-minute-cadence background thread, not a
+  tight loop.
+
+## 10. Remaining / explicitly out of scope
+
+- **Full mouse-drag WYSIWYG Оформление editor** (documented in §7 above) — settings-form editing
+  ships instead; no data loss risk since saves round-trip the full document.
+- **Item catalog "Библиотека" sub-tab** (§15) — navigation is structured for it (`TABS` array in
+  `SoundsPage.tsx`) but the tab itself isn't built.
+- **Home composition polish** (§22) — documented above as a non-blocking follow-up.
+- **`cameraZone`/`minimapCover`/`recentMatches`/`companionStatus` widget editors** — no UI yet;
+  data is preserved untouched on every save (see §7's passthrough guarantee).
+- **Live OBS instance verification** for the Browser Source migration classifier — inherited from
+  WK-121, still unverified against a real running OBS (this environment has none); the
+  classification logic itself is unit-tested against pure functions independent of the transport.
