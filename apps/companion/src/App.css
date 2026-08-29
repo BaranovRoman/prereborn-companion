@@ -360,7 +360,7 @@ h1, h2, p { margin-top: 0; }
   position: relative;
   z-index: 2;
   display: grid;
-  grid-template-columns: 268px 1fr 268px;
+  grid-template-columns: 208px 1fr 208px;
   align-items: stretch;
   flex-shrink: 0;
   padding: 0 26px;
@@ -395,105 +395,132 @@ h1, h2, p { margin-top: 0; }
    column genuinely centered in the window - not just centered in
    whatever space is left over after variable-width logo/diagnostics
    content, which is what "placed after the logo" used to mean in
-   practice. */
+   practice. Narrowed from an earlier pass's 268px (which read as a large
+   empty metal dead-zone before the nav even started) down to just enough
+   to hold gear+crest / Диагностика comfortably.
+   Deliberately NO background/vignette/seam of their own (an earlier pass
+   tried framing each side as its own compartment and it read as three
+   separate rectangular header panels instead of one continuous beam) -
+   these are purely layout columns; the single shared `.app-header`
+   background is what's visible underneath gear/crest/nav/diagnostics. */
 .app-header__side { position: relative; z-index: 1; display: flex; align-items: center; height: 100%; }
 .app-header__side--left { justify-content: flex-start; overflow: visible; }
 .app-header__side--right { justify-content: flex-end; gap: 14px; }
 
+/* Settings hit-area, redrawn to sit IN the left HUD panel rather than
+   read as a separate generic square button floating in front of it: a
+   recessed well (same machined-metal language as the panel/nav, not a
+   raised highlighted card) with a thin engraved SVG gear (no emoji/
+   Unicode, no Material-style filled cog). Idle is muted silver; hover
+   brightens the icon and the well's rim with a little cool metal
+   highlight - deliberately not the red accent the rest of the header
+   uses, same way Checkbox/Radio breaks from red - and never a glow. */
 .app-header__gear {
   position: relative;
   z-index: 2;
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   flex-shrink: 0;
-  border: 1px solid #050606;
+  border: 1px solid #050607;
   border-radius: var(--radius);
-  background: radial-gradient(circle at 50% 30%, #363b3c, #17191a 74%);
-  box-shadow: inset 0 0 0 1px var(--ui-edge-soft), inset 0 1px rgba(255, 255, 255, .10), 0 2px 6px rgba(0, 0, 0, .4);
+  background: linear-gradient(180deg, #1b1f20 0%, #121516 55%, #0a0c0d 100%);
+  box-shadow: inset 0 2px 3px rgba(0, 0, 0, .6), inset 0 0 0 1px rgba(123, 140, 168, .14);
   color: var(--ui-text-soft);
-  font-size: 1.2rem;
-  line-height: 1;
 }
-.app-header__gear:hover { color: var(--ui-text); border-color: #190a0a; box-shadow: inset 0 0 0 1px var(--ui-red-hover), inset 0 1px rgba(255, 255, 255, .10); }
+.app-header__gear:hover { color: #e7e5de; box-shadow: inset 0 2px 3px rgba(0, 0, 0, .6), inset 0 0 0 1px rgba(180, 190, 200, .4); }
+.app-header__gear-icon { display: block; }
 
-/* The raised emblem crest - a massive metal HUD plate, not an elongated
-   arrow/shield and not a T-shaped bracket either: a single continuous
-   taper from a moderately wide top down to a short blunt foot, with no
-   flat horizontal shelf partway down (a shelf is exactly what read as a
-   hammer/T crossbar in an earlier pass - every side is two line segments
-   with a single gentle kink, never two points sharing a y-coordinate
-   except the very top and bottom edges). Taller than the bar itself so it
-   overhangs the content below, like the raised Dota logo plate in the
-   reference. Built from three stacked clip-path layers (a dark outer rim,
-   a lighter bevel ring, and an inset face) instead of a single flat
-   trapezoid, so it reads as a genuinely bevelled metal plate: `filter:
-   drop-shadow` (not box-shadow, which clip-path would just cut away)
-   gives it real depth against the bar and the page below it. */
-.app-header__crest { position: absolute; left: 50px; top: -10px; z-index: 3; width: 138px; height: 128px; pointer-events: none; }
+/* The raised emblem crest - a plain inverted trapezoid, nothing else.
+   Exactly 4 corners, two straight diagonal sides, a wide top and a
+   visibly narrower bottom - no shoulders, no steps, no notches, no
+   shield/skull curve anywhere. Widened significantly from an earlier pass
+   (108px box) that read as a narrow medal/badge hanging off the bar - the
+   logo area needs to feel roughly square before the sides taper in, with
+   real negative space around the emblem, not the emblem nearly touching
+   the diagonal edges. `top: 0` keeps it embedded in the header itself
+   (flush with the bar's own top edge, not floating above it), and it
+   protrudes below the bar as its own distinct plate. Built from three
+   stacked layers (dark outer rim, lighter bevel, inset face) that all
+   share this exact same trapezoid clip-path, just inset by a few px each
+   - a bevelled metal plate, never a flat single-tone badge. `filter:
+   drop-shadow` (not box-shadow, which clip-path would just cut away) is
+   what lets it cast its own small shadow onto the page content below,
+   separate from the header bar's own shadow. */
+.app-header__crest { position: absolute; left: 48px; top: 0; z-index: 3; width: 140px; height: 98px; pointer-events: none; }
 .app-header__crest-rim,
 .app-header__crest-bevel,
 .app-header__crest-face {
   position: absolute;
-  clip-path: polygon(20% 0%, 80% 0%, 87% 9%, 68% 63%, 56% 100%, 44% 100%, 32% 63%, 13% 9%);
+  clip-path: polygon(9% 0%, 91% 0%, 76% 100%, 24% 100%);
 }
 .app-header__crest-rim {
   inset: 0;
-  background: linear-gradient(180deg, #3f4547 0%, #202526 40%, #101315 75%, #07080a 100%);
-  filter: drop-shadow(0 10px 16px rgba(0, 0, 0, .65)) drop-shadow(0 3px 0 rgba(0, 0, 0, .85));
+  background: linear-gradient(180deg, #3f4547 0%, #202526 38%, #101315 72%, #07080a 100%);
+  filter: drop-shadow(0 8px 12px rgba(0, 0, 0, .6)) drop-shadow(0 3px 0 rgba(0, 0, 0, .85));
 }
 .app-header__crest-bevel {
   top: 4px;
-  left: 5px;
-  right: 5px;
-  bottom: 5px;
-  background: linear-gradient(180deg, #62686a 0%, #383e40 45%, #1e2223 100%);
+  left: 6px;
+  right: 6px;
+  bottom: 4px;
+  background: linear-gradient(180deg, #62686a 0%, #383e40 42%, #1e2223 100%);
 }
 .app-header__crest-face {
   top: 8px;
-  left: 9px;
-  right: 9px;
-  bottom: 9px;
+  left: 11px;
+  right: 11px;
+  bottom: 7px;
   background:
     linear-gradient(135deg, rgba(255, 255, 255, .15), transparent 45%),
-    radial-gradient(ellipse at 50% 100%, rgba(153, 43, 37, .45), transparent 58%),
-    linear-gradient(180deg, #3a3f41 0%, #202425 55%, #121516 100%);
+    radial-gradient(ellipse at 50% 100%, rgba(153, 43, 37, .5), transparent 55%),
+    linear-gradient(180deg, #3a3f41 0%, #202425 52%, #121516 100%);
   box-shadow: inset 0 2px 3px rgba(0, 0, 0, .55), inset 0 -5px 8px rgba(0, 0, 0, .45);
 }
 .app-header__crest-emblem {
   position: absolute;
-  top: 22px;
+  top: 18px;
   left: 50%;
   z-index: 1;
   transform: translateX(-50%);
-  width: 56px;
-  height: 56px;
+  width: 58px;
+  height: 58px;
   object-fit: contain;
   filter: drop-shadow(0 2px 3px #000) drop-shadow(0 0 8px rgba(153, 43, 37, .4));
 }
 
 /* Tabs as physical segments of the frame, not underlined text links: idle
-   state reads as a hard machined metal face, the active tab reads
-   pressed-in with a small, contained red light at its center (illuminated
-   from within, not a soft cushion), matching "recessed/raised state" from
-   the task rather than a thin coloured underline. Every button is the
-   same fixed width, per задача. Darker metal, crisp 1px bevel lines
-   instead of soft blurred ones, and restrained type (600 weight, wider
-   tracking) read harder/more gothic than a friendly SaaS tab. */
+   state reads as an almost-black machined metal plate with a readable
+   bevel (not a soft rectangular web tab), the active tab reads as dark
+   wine-metal with a small light near its center/top and a pronounced red
+   edge at the bottom - illumination concentrated locally, not a big
+   diffuse cushion. Every button is the same fixed width, per задача - no
+   per-label sizing, ever. A faint vertical plate-edge highlight down each
+   button (the `90deg` layer below) plus crisp 1px bevel lines read as
+   individual machined plates rather than one continuous strip. */
 .app-header__nav { position: relative; z-index: 1; justify-self: center; display: flex; align-items: stretch; height: 100%; }
+/* Material-integration micro-pass - the idle base used to bottom out at
+   near-black (#08090a), and every button shared that same floor, so the
+   5-button group read as one solid black rectangle inset into the
+   lighter header bar around it. Idle now stays within the header's own
+   tonal range (top close to the bar's own #23282a, floor lifted to
+   #12161a) - still visibly recessed/bevelled (individual plates), just
+   not a separate near-black mass. */
 .app-header__nav button {
   position: relative;
   width: 172px;
   padding: 0;
   border: 0;
-  background: linear-gradient(180deg, #23282a 0%, #16191a 48%, #0a0c0d 100%);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, .03) 0%, transparent 10%, transparent 90%, rgba(255, 255, 255, .03) 100%),
+    linear-gradient(180deg, #262b2d 0%, #1a1e20 50%, #12161a 100%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, .08),
-    inset 0 -1px 0 rgba(0, 0, 0, .8),
-    inset 0 -9px 13px rgba(0, 0, 0, .6),
-    inset 0 0 0 1px rgba(0, 0, 0, .45);
+    inset 0 1px 0 rgba(255, 255, 255, .1),
+    inset 0 -1px 0 rgba(0, 0, 0, .6),
+    inset 0 -7px 11px rgba(0, 0, 0, .38),
+    inset 0 0 0 1px rgba(0, 0, 0, .32);
   color: var(--ui-text-soft);
   font-size: .96rem;
   font-weight: 600;
@@ -502,56 +529,60 @@ h1, h2, p { margin-top: 0; }
 }
 /* Hard divider between tabs, matched against the Dota 2 main-menu
    reference: a crisp dark groove line for most of the tab height,
-   interrupted by a small diamond rivet at mid-height - not a soft
-   gradient line. */
+   interrupted by a small flush metal notch at mid-height (flattened and
+   toned closer to the groove's own metal so it reads as part of the seam
+   construction, not a decorative dot sitting on top of a plain
+   rectangle). */
 .app-header__nav button::after {
   content: "";
   position: absolute;
-  top: 11px;
-  bottom: 11px;
+  top: 9px;
+  bottom: 9px;
   right: 0;
   width: 2px;
-  background: linear-gradient(180deg, transparent, #000 15%, #000 85%, transparent);
-  box-shadow: 1px 0 0 rgba(255, 255, 255, .07);
+  background: linear-gradient(180deg, transparent, #000 12%, #000 88%, transparent);
+  box-shadow: 1px 0 0 rgba(255, 255, 255, .06);
 }
 .app-header__nav button::before {
   content: "";
   position: absolute;
   top: 50%;
-  right: -3px;
+  right: -2.5px;
   z-index: 1;
-  width: 5px;
-  height: 5px;
+  width: 4px;
+  height: 4px;
   transform: translateY(-50%) rotate(45deg);
-  background: linear-gradient(135deg, #565c5e, #17191a);
+  background: linear-gradient(135deg, #454b4d, #121415);
   border: 1px solid #000;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12);
 }
 .app-header__nav button:last-child::after, .app-header__nav button:last-child::before { display: none; }
 .app-header__nav button:hover:not(:disabled) {
   color: var(--ui-text);
-  background: linear-gradient(180deg, #292e30 0%, #1a1e1f 48%, #0d0f10 100%);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, .04) 0%, transparent 10%, transparent 90%, rgba(255, 255, 255, .04) 100%),
+    linear-gradient(180deg, #2c3234 0%, #1e2224 50%, #161a1d 100%);
 }
-/* Micro-pass - the base gradient itself used to carry a reddish-brown
-   tint top to bottom, which read as "the whole button filled with red"
-   even though it was dark. Base is now the same neutral near-black metal
-   as idle/hover; the only red is the radial light (moved lower/center,
-   smaller, lower alpha) and the thin bottom edge line, so illumination
-   reads as coming FROM the recessed metal rather than the metal itself
-   being red. */
+/* Micro-pass round 2 - a fully neutral base read as "not red enough" /
+   generic dark; brought back a genuinely dark wine-red metal tone as the
+   BASE (not a bright reddish-brown wash), kept the light small and
+   shifted up toward center/top (50% 40%, not pooling at the bottom), and
+   strengthened the bottom edge into a distinct red kromka. Illumination
+   reads as coming from a recessed lamp near the top of a wine-metal
+   plate, not "the tab filled with red". */
 .app-header__nav button.is-active {
   color: #f6e4de;
   background:
-    radial-gradient(ellipse 58px 28px at 50% 68%, rgba(196, 90, 80, .28), transparent 70%),
-    linear-gradient(180deg, rgba(0, 0, 0, .55), transparent 22%, transparent 55%, rgba(0, 0, 0, .5)),
-    linear-gradient(180deg, #1d1c1d 0%, #131214 48%, #0a0909 100%);
+    radial-gradient(ellipse 50px 24px at 50% 40%, rgba(200, 96, 84, .24), transparent 68%),
+    linear-gradient(180deg, rgba(0, 0, 0, .5), transparent 20%, transparent 55%, rgba(0, 0, 0, .48)),
+    linear-gradient(180deg, #201514 0%, #170f0f 45%, #0e0908 100%);
   box-shadow:
     inset 0 2px 4px rgba(0, 0, 0, .75),
     inset 0 -1px 0 rgba(0, 0, 0, .6),
-    inset 0 0 8px 1px rgba(196, 90, 80, .22),
-    inset 0 -2px 0 var(--ui-red-hover),
+    inset 0 0 7px 1px rgba(196, 90, 80, .2),
+    inset 0 -3px 0 var(--ui-red-hover),
     inset 0 0 0 1px rgba(0, 0, 0, .5);
-  text-shadow: 0 0 8px rgba(214, 100, 90, .45), 0 1px 2px #000;
+  text-shadow: 0 0 7px rgba(214, 100, 90, .4), 0 1px 2px #000;
 }
 
 /* Secondary placement (задача: "не должен конкурировать с основными

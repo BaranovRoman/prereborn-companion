@@ -135,7 +135,19 @@ export function AppShell() {
       <AppAtmosphere />
       <header className="app-header">
         <div className="app-header__side app-header__side--left">
-          <button className="app-header__gear" onClick={() => openSettings()} aria-label="Настройки">⚙</button>
+          <button className="app-header__gear" onClick={() => openSettings()} aria-label="Настройки">
+            <svg className="app-header__gear-icon" viewBox="0 0 24 24" width="23" height="23" aria-hidden="true">
+              <circle cx="12" cy="12" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+              <circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" strokeWidth="1.8" />
+              <path
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                d="M18.2 12h2.4M3.4 12h2.4M12 5.8V3.4M12 20.6v-2.4M16.38 7.62l1.7-1.7M5.92 18.08l1.7-1.7M16.38 16.38l1.7 1.7M5.92 5.92l1.7 1.7"
+              />
+            </svg>
+          </button>
           <div className="app-header__crest" aria-hidden="true">
             <span className="app-header__crest-rim" />
             <span className="app-header__crest-bevel" />
