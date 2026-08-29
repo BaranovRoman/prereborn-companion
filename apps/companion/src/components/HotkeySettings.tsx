@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { DEFAULT_SKIP_SHORTCUT, shortcutFromKeyboardEvent } from "../chat/hotkey-format";
 import type { SkipHotkeyStatus } from "../services/dotaCompanionApi";
+import { Button, Checkbox } from "./ui";
 
 interface Props {
   status: SkipHotkeyStatus | null;
@@ -46,30 +47,23 @@ export function HotkeySettings({ status, busy, onUpdate }: Props) {
   return (
     <section className="hotkey-settings">
       <h2>Пропустить озвучку</h2>
-      <label>
-        <input
-          type="checkbox"
-          checked={status?.enabled ?? false}
-          disabled={busy}
-          onChange={(event) => toggleEnabled(event.target.checked)}
-        /> Включить горячую клавишу
-      </label>
+      <Checkbox
+        checked={status?.enabled ?? false}
+        disabled={busy}
+        onChange={(event) => toggleEnabled(event.target.checked)}
+        label="Включить горячую клавишу"
+      />
       <p className="hotkey-settings__status">
         Текущая комбинация: <strong>{status?.shortcut ?? DEFAULT_SKIP_SHORTCUT}</strong>
         {status?.enabled && !status?.registered && " (не удалось зарегистрировать)"}
       </p>
       <div className="tts-buttons">
-        <button
-          type="button"
-          className="button"
-          onClick={() => { setError(null); setRecording(true); }}
-          disabled={busy || recording}
-        >
+        <Button onClick={() => { setError(null); setRecording(true); }} disabled={busy || recording}>
           {recording ? "Нажмите новую комбинацию… (Esc — отмена)" : "Изменить"}
-        </button>
-        <button type="button" className="button" onClick={resetToDefault} disabled={busy || recording}>
+        </Button>
+        <Button onClick={resetToDefault} disabled={busy || recording}>
           Сбросить по умолчанию
-        </button>
+        </Button>
       </div>
       {(error || status?.lastError) && (
         <p className="app__error">Не удалось применить горячую клавишу: {error ?? status?.lastError}</p>

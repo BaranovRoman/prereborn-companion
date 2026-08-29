@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { StatusSnapshot } from "../types/status";
+import { Button, Input } from "./ui";
 
 interface Props {
   status: StatusSnapshot | null;
@@ -32,15 +33,15 @@ export function CompanionTokenForm({ status, busy, onSave }: Props) {
           : "Токен ещё не вставлен."}
       </p>
       <div className="companion-token__row">
-        <input
+        <Input
           type="password"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="Вставьте companion token"
         />
-        <button onClick={handleSave} disabled={busy || !value.trim()}>
+        <Button variant="primary" onClick={handleSave} disabled={busy || !value.trim()}>
           Сохранить
-        </button>
+        </Button>
       </div>
     </section>
   );

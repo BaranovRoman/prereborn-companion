@@ -1,4 +1,5 @@
 import type { AutostartState } from "../hooks/useAutostart";
+import { Checkbox } from "./ui";
 
 interface Props {
   state: AutostartState;
@@ -16,15 +17,13 @@ export function AutostartSetting({ state, busy, onChange }: Props) {
   return (
     <section className="autostart-setting">
       <h2>Автозапуск с Windows</h2>
-      <label className="autostart-setting__toggle">
-        <input
-          type="checkbox"
-          checked={checked}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.checked)}
-        />
-        Запускать Companion вместе с Windows
-      </label>
+      <Checkbox
+        className="autostart-setting__toggle"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+        label="Запускать Companion вместе с Windows"
+      />
       <p className="autostart-setting__hint">
         Companion откроется свёрнутым в трей при следующем входе в Windows.
       </p>
