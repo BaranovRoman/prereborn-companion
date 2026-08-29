@@ -12,6 +12,22 @@ const SCENE_LABEL: Record<OverlayStateSnapshot["scene"], string> = {
   postStream: "Итоги стрима",
 };
 
+const VALID_SCENES = Object.keys(SCENE_LABEL) as OverlayStateSnapshot["scene"][];
+
+// WK-122 §18 - Оформление's editor (DesignPage.tsx) needs to preview
+// whichever scene tab the user is currently editing, not only whatever the
+// real GSI/OBS state happens to be right now (a streamer isn't necessarily
+// mid-draft while adjusting Draft's widget positions). `?previewScene=` is
+// read ONLY here, client-side - a real OBS Browser Source URL
+// (127.0.0.1:3666/overlay, no query string) is completely unaffected; this
+// never changes what `overlay_server.rs` resolves or serves. Session/
+// current-game DATA stays real either way - only which scene's layout/
+// background is shown is overridden.
+function readPreviewScene(): OverlayStateSnapshot["scene"] | null {
+  const value = new URLSearchParams(window.location.search).get("previewScene");
+  return VALID_SCENES.includes(value as OverlayStateSnapshot["scene"]) ? (value as OverlayStateSnapshot["scene"]) : null;
+}
+
 // WK-121/WK-122 §19 - the real production local-overlay renderer, replacing
 // WK-120's explicitly-labeled dev-preview page. Served at GET /overlay by
 // the same Rust server (overlay_server.rs) that owns /overlay/state and
@@ -74,7 +90,8 @@ export function OverlayApp() {
 
   if (!snapshot) return <Scene><div className="ov-loading" /></Scene>;
 
-  const { scene, session, currentGame } = snapshot;
+  const { session, currentGame } = snapshot;
+  const scene = readPreviewScene() ?? snapshot.scene;
   const sceneWidgets = scene === "draft" || scene === "gameplay" ? layout?.scenes[scene].widgets : undefined;
 
   return (
