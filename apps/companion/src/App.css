@@ -1045,11 +1045,20 @@ h1, h2, p { margin-top: 0; }
    portrait poster/fallback), header row, inline ability bar + inline
    detail panel below the selected card (reuses .hero-ability-bar/-card/
    -detail from the Sounds → Heroes flow verbatim). */
-.hero-detail { display: grid; gap: 18px; max-width: 1400px; }
+/* WK-121 visual QA pass - the video is inherently 16:9-bound (a real
+   broadcast-preview aspect, not an arbitrary cap), so it was never going to
+   fill an ultrawide screen edge to edge - but the ability bar below it has
+   no such constraint and was inheriting the same narrow column, leaving a
+   large empty gap on wide/ultrawide windows (found via 2560x1440 visual QA
+   screenshot). `.hero-detail` itself is now fluid; only the visual keeps
+   its own aspect-bound size (via max-height, same as before) so the
+   ability grid genuinely reflows to use the freed width. */
+.hero-detail { display: grid; gap: 18px; }
 .hero-detail__back { align-self: start; }
 .hero-detail__visual {
   position: relative;
   width: 100%;
+  max-width: 1660px;
   aspect-ratio: 16 / 9;
   max-height: 56vh;
   overflow: hidden;
