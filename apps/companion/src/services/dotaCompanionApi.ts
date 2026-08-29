@@ -114,6 +114,19 @@ export const testObsConnection = () =>
 export const switchObsScene = (scene: "betweenMatches" | "draft" | "gameplay") =>
   invoke<StatusSnapshot>("switch_obs_scene", { scene });
 
+// WK-121 - OBS Browser Source migration (legacy prereborn.ru overlay URL ->
+// local 127.0.0.1:3666/overlay). See obs.rs's BrowserSourceDetection doc
+// comment for what each state means.
+export type BrowserSourceDetection =
+  | { state: "localConnected"; inputName: string }
+  | { state: "legacyDetected"; inputName: string; currentUrl: string }
+  | { state: "missing" }
+  | { state: "ambiguous"; candidates: string[] };
+export const detectObsBrowserSource = () =>
+  invoke<BrowserSourceDetection>("detect_obs_browser_source");
+export const migrateObsBrowserSource = (inputName: string) =>
+  invoke<void>("migrate_obs_browser_source", { inputName });
+
 // WK-114 - "Итоги стрима": manual, reversible OBS scene action, independent
 // of the local session/OBS-stream lifecycle (see obs.rs's doc comments on
 // show_stream_summary_scene/resume_live_scene). Does not start/end anything.

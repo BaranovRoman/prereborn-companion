@@ -234,6 +234,8 @@ pub fn run() {
             commands::save_obs_config,
             commands::test_obs_connection,
             commands::switch_obs_scene,
+            commands::detect_obs_browser_source,
+            commands::migrate_obs_browser_source,
             commands::show_stream_summary_scene,
             commands::resume_live_scene,
             commands::diagnostics_get_status,

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ObsConfig, StatusSnapshot } from "../types/status";
 import * as api from "../services/dotaCompanionApi";
 import { missingMappedScenes, sceneMappings, sceneOptions } from "./obsSceneMapping";
+import { BrowserSourceMigrationPanel } from "./BrowserSourceMigrationPanel";
 import { Button, Checkbox, Input, Select } from "./ui";
 
 interface Props {
@@ -160,6 +161,7 @@ export function ObsScenePanel({ status, onStatus }: Props) {
           {message ?? status.obs_last_error}
         </p>
       )}
+      <BrowserSourceMigrationPanel />
     </section>
   );
 }
