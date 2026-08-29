@@ -43,6 +43,11 @@
   --success: var(--ui-green);
   --warning: #c9a15a;
   --danger: #c36d66;
+  /* WK-124 - connection status bar only (ProblemBar.tsx), deliberately
+     separate from --warning/--danger above, which other unrelated surfaces
+     (badges, form validation, diagnostics) keep using unchanged. */
+  --status-critical: #9c2f22;
+  --status-info: #5c7686;
 }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
@@ -651,32 +656,70 @@ h1, h2, p { margin-top: 0; }
 
 .scene-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
 
-/* WK-114/WK-115 - problem bars: the ONLY connectivity chrome Companion ever
-   shows, and only while something is genuinely wrong (see
-   components/ProblemBar.tsx - a healthy snapshot renders none of this at
-   all). Slim strips directly under the header, not cards - several can
-   stack without growing the layout. WK-115 audit - previously a flat
-   rgba() wash that read as a browser "toast" notification sitting loose
-   below a thin web nav bar; now built from the same dark-well fill and
-   inset top highlight the header/panels use, so it reads as a status
-   ledge welded onto the header frame rather than an unrelated strip. */
+/* WK-124 - problem bars: the ONLY connectivity chrome Companion ever shows,
+   and only while something is genuinely wrong (see components/
+   ProblemBar.tsx - a healthy snapshot renders none of this at all).
+   Reordered in AppShell.tsx to render BEFORE `.app-header` (source order
+   is what determines position in this flex-column shell, not z-index -
+   see the WK-115 atmosphere stacking-context note above) so the strip
+   reads as the topmost layer of game chrome, old-Dota GC-status style,
+   with the header/nav sitting under it - not a banner squeezed between
+   the header and page content. Still fully inside the app window, never
+   touching the native OS title bar.
+
+   WK-124 visual pass: previously a thick tone-colored left border + a
+   diagonal tinted wash - reads as a modern web "alert card", exactly what
+   this pass moves away from. Now a genuinely thin strip (compact
+   single-line padding, no border-left) built from the same dark-metal
+   gradient/inset-bevel language as `.app-header` itself (so it reads as
+   the header's own material, not a different component bolted on), with
+   state carried by a single 1px glowing hairline at the strip's bottom
+   edge plus a subtly tinted label - never a bright tone fill, never
+   yellow (mustard read as a generic modern warning color, not Dota HUD).
+   Three tones, not two: `recovering` (restrained dark red/crimson,
+   reuses the app's own `--ui-red`) for a still-retrying GSI/OBS
+   connection, `critical` (a deeper, more saturated red) for a confirmed-
+   down connection or permanently lost sync data, `info` (desaturated
+   steel/blue) for backend/sync issues - which never touch the live
+   stream and stay categorically softer than a GSI/OBS problem, per
+   utils/backendStatus.ts's WK-113 design. These are dedicated tokens,
+   deliberately NOT the shared --warning/--danger tokens used elsewhere
+   (badges, form validation, diagnostics) - this pass only reshapes the
+   connection status bar, not those unrelated surfaces. */
 .problem-bars { position: relative; z-index: 2; display: flex; flex-direction: column; flex-shrink: 0; }
 .problem-bar {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 9px 26px;
-  border-bottom: 1px solid #050606;
-  background: linear-gradient(180deg, rgba(0, 0, 0, .3), transparent 60%), var(--ui-well);
-  box-shadow: inset 0 1px rgba(255, 255, 255, .05);
-  font-size: .85rem;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding: 5px 26px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .04), transparent 10px),
+    linear-gradient(180deg, #101314 0%, #08090a 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04), inset 0 -1px 0 rgba(0, 0, 0, .7);
+  font-size: .74rem;
 }
-.problem-bar--warning { border-left: 4px solid var(--warning); background: linear-gradient(90deg, rgba(201, 161, 90, .16), transparent 55%), linear-gradient(180deg, rgba(0, 0, 0, .3), transparent 60%), var(--ui-well); }
-.problem-bar--error { border-left: 4px solid var(--danger); background: linear-gradient(90deg, rgba(123, 53, 50, .22), transparent 55%), linear-gradient(180deg, rgba(0, 0, 0, .3), transparent 60%), var(--ui-well); }
-.problem-bar__label { color: var(--ui-text); font-weight: 700; text-transform: uppercase; font-size: .72rem; letter-spacing: .08em; flex-shrink: 0; }
-.problem-bar--warning .problem-bar__label { color: var(--warning); }
-.problem-bar--error .problem-bar__label { color: var(--danger); }
-.problem-bar__detail { color: var(--ui-text-soft); }
+.problem-bar + .problem-bar { box-shadow: inset 0 1px 0 rgba(0, 0, 0, .6), inset 0 -1px 0 rgba(0, 0, 0, .7); }
+.problem-bar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+}
+.problem-bar__label { font-weight: 700; text-transform: uppercase; font-size: .68rem; letter-spacing: .08em; flex-shrink: 0; }
+.problem-bar__detail { color: var(--ui-text-muted); }
+
+.problem-bar--recovering::after { background: var(--ui-red); box-shadow: 0 0 5px rgba(123, 53, 50, .6); }
+.problem-bar--recovering .problem-bar__label { color: #b3746e; }
+
+.problem-bar--critical::after { background: var(--status-critical); box-shadow: 0 0 6px rgba(156, 47, 34, .65); }
+.problem-bar--critical .problem-bar__label { color: #d9887a; }
+
+.problem-bar--info::after { background: var(--status-info); box-shadow: 0 0 5px rgba(92, 118, 134, .55); }
+.problem-bar--info .problem-bar__label { color: #8fa8b6; }
 
 /* Companion UI 2.0 follow-up - "Стрим-сессия" bar, modelled on apps/web's
    .broadcastBar (index.module.scss): a slim full-width strip, not another
@@ -1323,35 +1366,40 @@ h1, h2, p { margin-top: 0; }
 .hero-detail__favorite.is-active { color: var(--ui-gold); box-shadow: inset 0 0 0 1px var(--ui-gold); }
 .hero-detail__favorite:hover { color: #f2ece5; box-shadow: inset 0 0 0 1px var(--ui-red-hover); }
 
-/* WK-123 - three-part workspace (left abilities / hero visual / right
-   abilities) replacing the old full-width video "scene" + abilities-below
-   layout: the visual column is capped so it never grows into a huge card,
-   and the two flanking 1fr tracks stay equal width regardless of how many
-   abilities either side holds, so the hero stays compositionally centered
-   even for heroes with an odd ability count. Collapses to a single stacked
-   column (visual, then the left half, then the right half - still just one
-   ordered ability list split in two, see HeroDetailPage.tsx) once the
-   window is too narrow for three tracks to breathe. */
+/* WK-125 - production visual review of WK-123's three-column layout ([left
+   abilities] [hero] [right abilities], each track stretched across the full
+   workspace width) found the two ability columns reading as independent
+   content pinned to the window's edges with the hero stranded alone in a
+   wide gap between them, especially on ordinary 4-ability heroes (2 rows
+   per side). Rebuilt as ONE compact composition: `justify-content: center`
+   centers the [visual, ability list] PAIR as a single group - not each side
+   independently - so the group's total width (visual + however wide the
+   list needs to be) determines how the pair sits in the workspace, and the
+   hero visual reads as slightly left of the true center simply because the
+   list only ever extends to its right (no separate offset math needed).
+   `align-items: flex-start` keeps both pinned to the same top edge
+   regardless of which one is taller. Collapses to a stacked column (visual
+   above the list, both full-width) once the window is too narrow for the
+   pair to breathe side by side. */
 .hero-detail__workspace {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(280px, 54vh) minmax(220px, 1fr);
-  grid-template-areas: "left visual right";
-  gap: 12px 28px;
-  align-items: start;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 28px;
 }
-@media (max-width: 1200px) {
-  .hero-detail__workspace { grid-template-columns: 1fr; grid-template-areas: "visual" "left" "right"; }
-  .hero-detail__visual { justify-self: center; }
+@media (max-width: 900px) {
+  .hero-detail__workspace { flex-direction: column; align-items: center; }
+  .hero-detail__ability-list, .hero-ability-list { width: 100%; max-width: 480px; }
 }
 
 /* Square source video (production hero-idle-loop capture is always 1:1) -
-   sized off height (`54vh` above, capped `640px` here) rather than column
-   width, so it always fits entirely within the available vertical space
-   instead of stretching to fill whatever width the flanking columns leave
-   it. The radial mask feathers the edges into the page background instead
-   of a rectangular border/box, so it reads as hero art sitting in the
-   workspace rather than a video-player card - see this slice's §3/§5. */
-.hero-detail__visual { grid-area: visual; position: relative; width: 100%; max-width: 640px; aspect-ratio: 1; }
+   height-capped so it always fits entirely within the available vertical
+   space instead of dictating the workspace's width. The radial mask
+   feathers the edges into the page background instead of a rectangular
+   border/box, so it reads as hero art sitting in the workspace rather than
+   a video-player card - see this slice's §1/§5. */
+.hero-detail__visual { position: relative; flex: 0 0 auto; width: min(46vh, 420px); aspect-ratio: 1; }
 .hero-detail__visual::before {
   content: "";
   position: absolute;
@@ -1368,9 +1416,16 @@ h1, h2, p { margin-top: 0; }
   filter: drop-shadow(0 18px 36px rgba(0, 0, 0, .5));
 }
 
-.hero-ability-column { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.hero-ability-column--left { grid-area: left; }
-.hero-ability-column--right { grid-area: right; }
+/* WK-125 - a hero's abilities are ONE ordered list again (no more
+   artificial left/right split of a single hero's kit). Single column by
+   default (`430px` cap keeps a small kit compact rather than stretching
+   full-width) - `--dense` (see HeroDetailPage.tsx's DENSE_ABILITY_LIST_
+   THRESHOLD, a plain count check, not a per-hero rule) switches to a
+   2-column grid once the list would otherwise run much taller than the
+   hero visual next to it (Invoker's 14 abilities), widening the cap so two
+   ~260px columns fit. */
+.hero-ability-list { display: flex; flex-direction: column; gap: 8px; min-width: 0; width: 100%; max-width: 430px; }
+.hero-ability-list--dense { display: grid; grid-template-columns: repeat(2, minmax(240px, 1fr)); gap: 8px 16px; max-width: 620px; align-content: start; }
 .hero-ability-item { display: flex; flex-direction: column; gap: 8px; }
 .hero-ability-item .sound-binding-row { margin-left: 2px; margin-right: 2px; }
 

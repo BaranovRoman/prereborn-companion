@@ -64,6 +64,16 @@ export function AppShell() {
   const favoriteHeroes = useFavoriteHeroes();
   const [section, setSection] = useState<Section>("home");
   const [selectedHeroId, setSelectedHeroId] = useState<number | null>(null);
+  // WK-124 - clicking "Герои" while already inside Hero Detail must not be a
+  // no-op just because `section` is already "heroes": it's global navigation
+  // to the Heroes ROOT, so it always clears the drill-down id too. Active
+  // state still keys off `section === item.key` alone (unchanged) - staying
+  // highlighted while inside Hero Detail is correct, only the navigation
+  // itself was wrong.
+  const handleNavClick = (key: Section) => {
+    setSection(key);
+    if (key === "heroes") setSelectedHeroId(null);
+  };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsCategory, setSettingsCategory] = useState<SettingsCategory | undefined>(undefined);
   const openSettings = (category?: SettingsCategory) => {
@@ -133,6 +143,12 @@ export function AppShell() {
           render below, so the atmosphere never remounts/flickers when
           `section` changes - see AppAtmosphere.tsx. */}
       <AppAtmosphere />
+      {/* WK-124 - connection status strip renders ABOVE the header now (source
+          order drives position in this flex-column shell): the topmost layer
+          of game chrome, old-Dota GC-status style, with nav sitting under it -
+          not a banner squeezed between the header and page content. Still a
+          healthy Companion renders nothing here at all (see ProblemBar.tsx). */}
+      <ProblemBar status={status} backendStatus={backendStatus} syncStatus={syncStatus} />
       <header className="app-header">
         <div className="app-header__side app-header__side--left">
           <button className="app-header__gear" onClick={() => openSettings()} aria-label="Настройки">
@@ -157,7 +173,7 @@ export function AppShell() {
         </div>
         <nav className="app-header__nav" aria-label="Разделы приложения">
           {MAIN_NAV_ITEMS.map((item) => (
-            <button key={item.key} className={section === item.key ? "is-active" : ""} onClick={() => setSection(item.key)}>
+            <button key={item.key} className={section === item.key ? "is-active" : ""} onClick={() => handleNavClick(item.key)}>
               {item.label}
             </button>
           ))}
@@ -173,8 +189,6 @@ export function AppShell() {
         </div>
       </header>
       <div className="app-header__ledge" aria-hidden="true" />
-
-      <ProblemBar status={status} backendStatus={backendStatus} syncStatus={syncStatus} />
 
       <main className="main">
         <UpdateBanner

@@ -56,6 +56,20 @@ const CAPTURE_CONFIRMED_OVERRIDES = {
   techies_land_mines: { status: "supported", signal: "charges" },
 };
 
+// WK-124 - an alias id (e.g. `techies_reactive_tazer_stop`, dname "Detonate
+// Tazer") names the SAME cast/detection event as its base override entry -
+// it's already represented via `toggleActiveAlias` on that entry, not a
+// second independent ability. Before WK-124's Hidden-exclusion fix, every
+// alias target happened to also be tagged Hidden, so the old blind
+// "Hidden -> exclude" rule kept it out of the catalog as a side effect;
+// now that Hidden alone no longer excludes anything, alias targets need
+// their own explicit exclusion so they don't appear as a duplicate entry.
+const TOGGLE_ALIAS_TARGET_IDS = new Set(
+  Object.values(CAPTURE_CONFIRMED_OVERRIDES)
+    .map((override) => override.toggleActiveAlias)
+    .filter((id) => id != null)
+);
+
 // WK-108 - Invoker's invoke-spells are real, well-documented internal
 // ability names, but this repo has never captured real GSI for Invoker:
 // it's unknown whether an invoked spell (e.g. `invoker_cold_snap`) even
@@ -99,31 +113,49 @@ function classifyGeneric(ability) {
 // currently has nothing invoked/stolen into it (Invoker/Rubick) - not a
 // real ability at all, just a "this slot is empty right now" marker that
 // happens to carry a dname and a (Passive) behavior, so it survives the
-// dname/Hidden checks below on its own.
+// dname check below on its own.
 const PLACEHOLDER_DNAMES = new Set(["Invoked Spell", "Stolen Spell"]);
+
+// WK-124 research finding: "Hidden" in dotaconstants' `behavior` means "no
+// *fixed* HUD slot" - it does NOT mean "not a real player-facing ability".
+// This was already known for Invoker's ten invoke-spells (see
+// INVOKER_DYNAMIC_ABILITY_IDS below), which is why they were special-cased
+// - but the same tag also covers ~150 other real abilities across the
+// roster: most heroes' own "innate" ability (Sniper's Headshot/Keen Scope
+// happen to be the two exceptions that DON'T carry Hidden, which is why
+// they were already visible while e.g. Axe's "One Man Army" wasn't),
+// dynamically-slotted ultimate sub-abilities (Largo's three songs - Bullbelly
+// Blitz/Hotfeet Hustle/Island Elixir, real, costed, player-chosen abilities
+// cast during Amphibian Rhapsody), and self-cancel/utility actions
+// (Phoenix's "Stop Icarus Dive", Naga's "Song of the Siren End", etc.). A
+// blind "Hidden -> exclude" rule silently dropped all of these - Largo
+// production audit (WK-124) traced its missing-abilities report to exactly
+// this rule, generalizing what had only been patched for Invoker so far.
+// The previous version of this comment cited Largo's own song abilities as
+// the reason to keep the blind exclusion - that assumption was never
+// checked against the real data and was wrong; this file's own generated
+// output is the proof (see the regenerated snapshot's Largo entry).
+//
+// Removing the Hidden check does surface a couple of genuine dotaconstants
+// data artifacts that have a `dname` but aren't real ability names (an
+// attrib-table header string, a templated placeholder) - caught below by
+// `looksLikeMalformedDisplayName` instead, which is a narrower, more
+// accurate signal for "not a real ability" than "Hidden" ever was.
+function looksLikeMalformedDisplayName(dname) {
+  return dname.includes(":") || dname.includes("?") || dname.trim() !== dname;
+}
 
 /**
  * True for internal bookkeeping "abilities" that are never a real
- * player-facing cast (hidden sub-effects, disabled/placeholder slots) -
+ * player-facing cast (disabled/placeholder slots, malformed metadata) -
  * excluded from the catalog entirely rather than shown as unsupported.
- *
- * WK-108 research finding: dotaconstants marks all ten of Invoker's actual
- * invoke-spells (Cold Snap, Ghost Walk, Ice Wall, EMP, Tornado, Alacrity,
- * Sun Strike, Forge Spirit, Chaos Meteor, Deafening Blast) with a "Hidden"
- * behavior tag too - because they have no *fixed* HUD slot, not because
- * they're an internal sub-effect the way Largo's Hidden song abilities are.
- * A blind "Hidden -> exclude" rule would silently drop all ten real,
- * player-castable invoke-spells from the catalog. INVOKER_DYNAMIC_ABILITY_IDS
- * is the explicit, hand-verified allowlist that overrides the generic
- * Hidden exclusion for exactly these ten ids - everything else tagged
- * Hidden is still excluded as before.
  */
 function isExcluded(id, ability) {
   if (!ability) return true;
   if (!ability.dname) return true;
   if (PLACEHOLDER_DNAMES.has(ability.dname)) return true;
-  if (INVOKER_DYNAMIC_ABILITY_IDS.has(id)) return false;
-  if (behaviorList(ability.behavior).includes("Hidden")) return true;
+  if (looksLikeMalformedDisplayName(ability.dname)) return true;
+  if (TOGGLE_ALIAS_TARGET_IDS.has(id)) return true;
   if (id.startsWith("generic_")) return true;
   if (/_(empty|hidden)\d*$/.test(id)) return true;
   return false;
