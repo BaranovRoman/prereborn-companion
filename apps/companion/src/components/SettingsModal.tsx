@@ -1,19 +1,26 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AutostartSetting } from "./AutostartSetting";
 import { CompanionTokenForm } from "./CompanionTokenForm";
 import { HotkeySettings } from "./HotkeySettings";
 import { ObsScenePanel } from "./ObsScenePanel";
+import { ChatTtsSettings } from "./settings/ChatTtsSettings";
+import type { TwitchChatSession } from "../chat/useTwitchChatSession";
 import type { AutostartState } from "../hooks/useAutostart";
 import { useModalBehavior } from "../hooks/useModalBehavior";
 import * as api from "../services/dotaCompanionApi";
 import type { SkipHotkeyStatus } from "../services/dotaCompanionApi";
 import type { StatusSnapshot } from "../types/status";
 
-type Category = "connection" | "obs" | "hotkeys" | "autostart";
+// WK-121 §4 - Settings ownership audit result: connection/OBS/hotkeys/
+// autostart stay (app-behavior configuration), "Чат и TTS" is new (moved
+// out of the Chat screen's sidebar - see ChatTtsSettings.tsx's doc
+// comment). Chat itself keeps only runtime concerns.
+export type Category = "connection" | "obs" | "chat" | "hotkeys" | "autostart";
 
 const CATEGORIES: { key: Category; label: string }[] = [
   { key: "connection", label: "Подключение" },
   { key: "obs", label: "OBS" },
+  { key: "chat", label: "Чат и TTS" },
   { key: "hotkeys", label: "Горячие клавиши" },
   { key: "autostart", label: "Запуск" },
 ];
@@ -35,6 +42,10 @@ interface Props {
   hotkeyStatus: SkipHotkeyStatus | null;
   hotkeyBusy: boolean;
   onUpdateHotkey: (enabled: boolean, shortcut: string) => Promise<void>;
+  chatSession: TwitchChatSession;
+  /** Opens directly onto a specific category (e.g. Chat's "Открыть настройки
+   *  чата и TTS" link) - re-applied every time the modal opens. */
+  initialCategory?: Category;
 }
 
 // WK-114 - "Настройки" moves out of main navigation into a large system-style
@@ -46,9 +57,15 @@ interface Props {
 // component's removal in the same change.
 export function SettingsModal({
   open, onClose, status, setStatus, busy, run, autostart, hotkeyStatus, hotkeyBusy, onUpdateHotkey,
+  chatSession, initialCategory,
 }: Props) {
   const [category, setCategory] = useState<Category>("connection");
   const containerRef = useModalBehavior(open, onClose);
+
+  useEffect(() => {
+    if (open && initialCategory) setCategory(initialCategory);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialCategory]);
 
   if (!open) return null;
 
@@ -92,6 +109,7 @@ export function SettingsModal({
                 ? <ObsScenePanel status={status} onStatus={setStatus} />
                 : <p className="matches-panel__empty">Загрузка…</p>
             )}
+            {category === "chat" && <ChatTtsSettings session={chatSession} />}
             {category === "hotkeys" && <HotkeySettings status={hotkeyStatus} busy={hotkeyBusy} onUpdate={onUpdateHotkey} />}
             {category === "autostart" && <AutostartSetting state={autostart.state} busy={autostart.busy} onChange={autostart.setAutostart} />}
           </div>

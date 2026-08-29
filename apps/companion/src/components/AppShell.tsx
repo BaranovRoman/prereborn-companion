@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { AppAtmosphere } from "./AppAtmosphere";
 import { ProblemBar } from "./ProblemBar";
 import { SessionPromptBanner } from "./SessionPromptBanner";
-import { SettingsModal } from "./SettingsModal";
+import { SettingsModal, type Category as SettingsCategory } from "./SettingsModal";
 import { TwitchChatPage } from "./TwitchChatPage";
 import { UpdateBanner } from "./UpdateBanner";
 import { useTwitchChatSession } from "../chat/useTwitchChatSession";
@@ -65,6 +65,11 @@ export function AppShell() {
   const [section, setSection] = useState<Section>("home");
   const [selectedHeroId, setSelectedHeroId] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsCategory, setSettingsCategory] = useState<SettingsCategory | undefined>(undefined);
+  const openSettings = (category?: SettingsCategory) => {
+    setSettingsCategory(category);
+    setSettingsOpen(true);
+  };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [setupOpen, setSetupOpen] = useState(() => localStorage.getItem("companion-setup-complete") !== "true");
@@ -130,7 +135,7 @@ export function AppShell() {
       <AppAtmosphere />
       <header className="app-header">
         <div className="app-header__left">
-          <button className="app-header__gear" onClick={() => setSettingsOpen(true)} aria-label="Настройки">⚙</button>
+          <button className="app-header__gear" onClick={() => openSettings()} aria-label="Настройки">⚙</button>
           <img className="app-header__logo" src="/logo-new.png" alt="" width="40" height="40" />
           <span className="app-header__brandmark">
             <strong className="app-header__brand">PreReborn</strong>
@@ -225,7 +230,7 @@ export function AppShell() {
           )
         )}
         {section === "design" && <DesignPage />}
-        {section === "chat" && <TwitchChatPage session={chatSession} />}
+        {section === "chat" && <TwitchChatPage session={chatSession} onOpenChatSettings={() => openSettings("chat")} />}
         {section === "sounds" && <SoundsPage engine={gameSoundEngine} />}
         {section === "diagnostics" && (
           <DiagnosticsPage
@@ -253,6 +258,8 @@ export function AppShell() {
         hotkeyStatus={chatSession.skipHotkeyStatus}
         hotkeyBusy={chatSession.skipHotkeyBusy}
         onUpdateHotkey={chatSession.updateSkipHotkey}
+        chatSession={chatSession}
+        initialCategory={settingsCategory}
       />
     </div>
   );

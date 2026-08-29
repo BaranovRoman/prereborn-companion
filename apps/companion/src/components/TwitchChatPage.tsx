@@ -1,28 +1,21 @@
 import { useEffect, useRef, useState } from "react";
-import type { ChatSettings } from "../chat/chat-model";
 import type { TwitchChatSession } from "../chat/useTwitchChatSession";
-import { openTwitchSettings, type SileroVoice, type TwitchChatMessage } from "../services/dotaCompanionApi";
-
-// WK-81 - the 5 Silero v5_5_ru voices this integration supports. Labels
-// are just the voice names (no Russian-quality/gender descriptions were
-// human-verified - see the feature report), kept in a fixed, sensible
-// order rather than alphabetical.
-const SILERO_VOICES: { value: SileroVoice; label: string }[] = [
-  { value: "xenia", label: "Xenia" },
-  { value: "baya", label: "Baya" },
-  { value: "kseniya", label: "Kseniya" },
-  { value: "aidar", label: "Aidar" },
-  { value: "eugene", label: "Eugene" },
-];
+import { openTwitchSettings, type TwitchChatMessage } from "../services/dotaCompanionApi";
 
 // WK-78 - polling, dedup, the TTS queue/playback and unread counting used to
 // live here and stopped the moment this page unmounted (e.g. switching to
 // another tab). All of that now lives in useTwitchChatSession, owned once at
 // the app root (HomePage) - this component is just a UI consumer of it.
-export function TwitchChatPage({ session }: { session: TwitchChatSession }) {
+//
+// WK-121 §4 - Settings ownership audit: every PERMANENT TTS/chat preference
+// (enable, engine, voice, volume, speak-author, max length, pronunciation,
+// notification sound) moved to Settings → "Чат и TTS" (ChatTtsSettings.tsx,
+// same session instance, not a second copy of the state). This screen keeps
+// only runtime concerns: the message stream, Twitch connection state, and
+// the skip/stop TTS actions - a working runtime screen, not a settings form.
+export function TwitchChatPage({ session, onOpenChatSettings }: { session: TwitchChatSession; onOpenChatSettings: () => void }) {
   const {
-    status, error, unread, settings, sileroStatus, sileroBusy, previewBusy, previewError,
-    previewSileroVoice, updateSetting, stopTts, isSpeaking, setViewerAtBottom, markRead,
+    status, error, unread, settings, stopTts, isSpeaking, setViewerAtBottom, markRead,
     skipTts, lastSkipAt,
   } = session;
   const listRef = useRef<HTMLDivElement>(null);
@@ -63,8 +56,6 @@ export function TwitchChatPage({ session }: { session: TwitchChatSession }) {
     setViewerAtBottom(true);
     markRead();
   };
-  const update = <K extends keyof ChatSettings>(key: K, value: ChatSettings[K]) => updateSetting(key, value);
-
   const [reconnectPending, setReconnectPending] = useState(false);
   const [reconnectError, setReconnectError] = useState<string | null>(null);
   const reconnectTwitch = async () => {
@@ -113,76 +104,19 @@ export function TwitchChatPage({ session }: { session: TwitchChatSession }) {
         </div>
         {unread > 0 && <button className="chat-latest" onClick={toLatest}>{unread} новых · К последним ↓</button>}
       </div>
-      <aside className="chat-settings">
-        <h3>Уведомления</h3>
-        <label><input type="checkbox" checked={settings.soundEnabled} onChange={(event) => update("soundEnabled", event.target.checked)} /> Звук нового сообщения</label>
-        <label><input type="checkbox" checked={settings.ttsEnabled} onChange={(event) => update("ttsEnabled", event.target.checked)} /> Озвучивать сообщения</label>
-        <div className={`tts-engine-choice ${!settings.ttsEnabled ? "is-disabled" : ""}`}>
-          <label><input type="radio" name="ttsEngine" disabled={!settings.ttsEnabled} checked={settings.ttsEngine === "silero"} onChange={() => update("ttsEngine", "silero")} /> Silero (локальный, офлайн, рекомендуется)</label>
-          <label><input type="radio" name="ttsEngine" disabled={!settings.ttsEnabled} checked={settings.ttsEngine === "system"} onChange={() => update("ttsEngine", "system")} /> Системный голос</label>
-        </div>
-        <label className={`tts-volume ${!settings.ttsEnabled ? "is-disabled" : ""}`}>
-          <span className="tts-volume__row"><span>Громкость речи</span><span className="tts-volume__value">{settings.speechVolume}%</span></span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            step={1}
-            disabled={!settings.ttsEnabled}
-            value={settings.speechVolume}
-            onChange={(event) => update("speechVolume", Number(event.target.value))}
-            aria-label="Громкость речи"
-          />
-        </label>
-        {settings.ttsEnabled && settings.ttsEngine === "silero" && <>
-          <label>Голос
-            <select
-              value={settings.sileroVoice}
-              onChange={(event) => update("sileroVoice", event.target.value as SileroVoice)}
-            >
-              {SILERO_VOICES.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
-            </select>
-          </label>
-          <button
-            type="button"
-            className="button"
-            onClick={() => previewSileroVoice(settings.sileroVoice)}
-            disabled={previewBusy || !sileroStatus?.resourcesReady}
-          >
-            {previewBusy ? "Синтез…" : "Прослушать"}
-          </button>
-          {previewError && <p className="app__error">Не удалось синтезировать пример: {previewError}</p>}
-          <p className="tts-piper-status">
-            {sileroBusy || sileroStatus?.state === "starting" ? "Silero: загрузка/запуск…"
-              : sileroStatus?.state === "ready" ? "Silero: готов"
-              : sileroStatus?.state === "crashed" || sileroStatus?.state === "unavailable"
-                ? `Silero недоступен, читаем системным голосом: ${sileroStatus.lastError ?? "неизвестная ошибка"}`
-                : "Silero: ожидание первого сообщения"}
-          </p>
-          <p className="tts-license-note">
-            Silero <code>v5_5_ru</code> (<a href="https://github.com/snakers4/silero-models/blob/master/LICENSE" target="_blank" rel="noreferrer">CC BY-NC-SA 4.0, некоммерческая лицензия</a>) — используется только пока Companion остаётся некоммерческим продуктом. Запускается отдельным процессом (Python + PyTorch), не встроен в приложение. При недоступности автоматически переключаемся на системный голос.
-          </p>
-        </>}
-        <label className={!settings.ttsEnabled ? "is-disabled" : ""}><input type="checkbox" disabled={!settings.ttsEnabled} checked={settings.speakAuthor} onChange={(event) => update("speakAuthor", event.target.checked)} /> Произносить имя автора</label>
-        <label className={!settings.ttsEnabled ? "is-disabled" : ""}>Максимальная длина
-          <select disabled={!settings.ttsEnabled} value={settings.maxLength} onChange={(event) => update("maxLength", Number(event.target.value))}>
-            <option value={80}>80 символов</option><option value={180}>180 символов</option><option value={300}>300 символов</option>
-          </select>
-        </label>
-        <label className={!settings.ttsEnabled || !settings.speakAuthor ? "is-disabled" : ""}>Произношение никнеймов (по одному на строку: ник=как произносить)
-          <textarea
-            disabled={!settings.ttsEnabled || !settings.speakAuthor}
-            value={settings.usernamePronunciations}
-            onChange={(event) => update("usernamePronunciations", event.target.value)}
-            placeholder={"romaromych=Ромаромыч"}
-            rows={3}
-          />
-        </label>
-        <p>TTS выключен по умолчанию. Ссылки, системные события и явный спам не читаются.</p>
+      {/* WK-121 - runtime-only sidebar: TTS queue/status + skip/stop actions.
+          Every permanent preference moved to Settings → "Чат и TTS" - see
+          this component's top doc comment. */}
+      <aside className="chat-settings chat-settings--runtime">
+        <h3>TTS</h3>
+        <p className="chat-runtime-panel__status">
+          {!settings.ttsEnabled ? "Озвучка выключена" : isSpeaking() ? "Озвучивает…" : "Ожидание сообщений"}
+        </p>
         <div className="tts-buttons">
           <button className="button" onClick={skipTts} disabled={!isSpeaking()}>Пропустить текущую озвучку</button>
           <button className="button" onClick={stopTts} disabled={!settings.ttsEnabled && !isSpeaking()}>Остановить и выключить TTS</button>
         </div>
+        <button type="button" className="link-button" onClick={onOpenChatSettings}>Настройки чата и TTS →</button>
       </aside>
     </div>
   </section>;
