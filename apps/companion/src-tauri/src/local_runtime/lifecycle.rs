@@ -232,11 +232,14 @@ pub fn reconcile(app: &AppHandle, streaming: bool, now: DateTime<Utc>) {
 /// something to read even between watcher callbacks) and immediately
 /// reconciles against it.
 pub fn on_obs_streaming_known(app: &AppHandle, streaming: bool) {
+    let now = Utc::now();
     {
         let state = app.state::<crate::state::AppState>();
-        state.0.lock().unwrap().obs_streaming = Some(streaming);
+        let mut inner = state.0.lock().unwrap();
+        inner.obs_streaming = Some(streaming);
+        inner.obs_streaming_confirmed_at = Some(now.to_rfc3339());
     }
-    reconcile(app, streaming, Utc::now());
+    reconcile(app, streaming, now);
 }
 
 /// Starts the periodic sweep - the only thing that can finalize a
@@ -279,6 +282,8 @@ pub struct LifecycleStatus {
     pub session_started_at: Option<String>,
     pub pending_end_at: Option<String>,
     pub obs_streaming: Option<bool>,
+    // WK-122 P0 diagnostics - see state.rs's field doc.
+    pub obs_streaming_confirmed_at: Option<String>,
 }
 
 /// Read-only status for the frontend (see commands.rs). Deliberately
@@ -288,7 +293,11 @@ pub struct LifecycleStatus {
 /// since a suspiciously old open session is worth surfacing regardless of
 /// whatever OBS is doing right now.
 pub fn status(app: &AppHandle) -> LifecycleStatus {
-    let obs_streaming = app.state::<crate::state::AppState>().0.lock().unwrap().obs_streaming;
+    let (obs_streaming, obs_streaming_confirmed_at) = {
+        let app_state = app.state::<crate::state::AppState>();
+        let inner = app_state.0.lock().unwrap();
+        (inner.obs_streaming, inner.obs_streaming_confirmed_at.clone())
+    };
     let state = app.state::<LocalRuntimeState>();
     let mut guard = state.lock();
     let Some(conn) = guard.as_mut() else {
@@ -297,6 +306,7 @@ pub fn status(app: &AppHandle) -> LifecycleStatus {
             session_started_at: None,
             pending_end_at: None,
             obs_streaming,
+            obs_streaming_confirmed_at,
         };
     };
     let open = store::find_open_session(conn).ok().flatten();
@@ -306,6 +316,7 @@ pub fn status(app: &AppHandle) -> LifecycleStatus {
             session_started_at: None,
             pending_end_at: None,
             obs_streaming,
+            obs_streaming_confirmed_at,
         };
     };
     let view = SessionLifecycleView::from_session(&session);
@@ -320,6 +331,7 @@ pub fn status(app: &AppHandle) -> LifecycleStatus {
         session_started_at: Some(session.started_at.clone()),
         pending_end_at: session.pending_end_at.clone(),
         obs_streaming,
+        obs_streaming_confirmed_at,
     }
 }
 

@@ -70,6 +70,17 @@ pub struct StatusSnapshot {
     // learned it at least once (e.g. OBS unreachable since Companion
     // started) - never guessed.
     pub obs_streaming: Option<bool>,
+    // WK-122 P0 diagnostics - RFC3339 timestamp of the last time the
+    // stream-state watcher actually confirmed OBS's streaming truth (an
+    // initial `GetStreamStatus`, a live `StreamStateChanged` event, or the
+    // WK-122 heartbeat re-probe - see obs.rs's `run_stream_state_watcher_once`).
+    // A missing match is only ever a symptom of no LocalSession being open;
+    // this field is the one piece of evidence that answers "was the watcher
+    // actually alive during the match, or silently stuck" without needing to
+    // reproduce the bug - if this timestamp is stale by more than a couple of
+    // heartbeat intervals while OBS was supposed to be streaming, the watcher
+    // connection was the problem.
+    pub obs_streaming_confirmed_at: Option<String>,
     // WK-114 - "Итоги стрима": true while the user has manually pinned OBS to
     // the Post Stream scene without ending the local session (see obs.rs's
     // `manual_summary_override`). Purely a display concern here - the pin
@@ -158,6 +169,9 @@ pub struct InnerState {
     pub game_sounds_previous_gsi: Option<serde_json::Value>,
     // WK-112 - see the field doc on StatusSnapshot::obs_streaming above.
     pub obs_streaming: Option<bool>,
+    // WK-122 P0 diagnostics - see the field doc on
+    // StatusSnapshot::obs_streaming_confirmed_at above.
+    pub obs_streaming_confirmed_at: Option<String>,
     // WK-114 - "Итоги стрима" manual scene pin (see obs.rs's
     // `resolve_desired_scene`): while true, every automatic scene resolution
     // (GSI ticks, remote commands, config reapply) resolves to Post Stream
@@ -258,6 +272,7 @@ impl AppState {
             obs_active_scene: inner.obs_active_scene,
             obs_last_error: inner.obs_last_error.clone(),
             obs_streaming: inner.obs_streaming,
+            obs_streaming_confirmed_at: inner.obs_streaming_confirmed_at.clone(),
             obs_manual_summary_active: inner.obs_manual_summary_override,
             companion_version: COMPANION_VERSION.to_string(),
         }
