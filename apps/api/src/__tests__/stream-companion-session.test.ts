@@ -53,6 +53,21 @@ describe("GET/POST /api/stream/companion/session", () => {
         expect((await request(app).post("/api/stream/companion/session/reset")).status).toBe(401);
     });
 
+    // WK-122 §7 - Companion Token UX: a companion install that instead logged
+    // in (email/password -> access/refresh session, same as the web
+    // cabinet) authenticates on this exact companion-scoped route with its
+    // session JWT, not just the legacy static companion token - see
+    // authenticateCompanionSession's doc comment. Proves the union auth
+    // actually works end to end through the real route, not just the
+    // middleware in isolation.
+    it("also accepts a stream-user session JWT on this companion-scoped route", async () => {
+        const res = await request(app)
+            .get("/api/stream/companion/session")
+            .set("Authorization", `Bearer ${jwtToken}`);
+        expect(res.status).toBe(200);
+        expect(typeof res.body.id).toBe("string");
+    });
+
     it("returns a fresh session summary with zero stats and no rating delta yet", async () => {
         const res = await request(app)
             .get("/api/stream/companion/session")
