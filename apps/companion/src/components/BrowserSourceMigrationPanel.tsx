@@ -4,6 +4,13 @@ import { detectObsBrowserSource, migrateObsBrowserSource, type BrowserSourceDete
 
 type Phase = { kind: "idle" } | { kind: "checking" } | { kind: "result"; result: BrowserSourceDetection } | { kind: "error"; message: string };
 
+// WK-126 - mirrors obs.rs's LOCAL_OVERLAY_URL constant verbatim. "missing"/
+// "ambiguous" used to tell the user to add or pick a Browser Source
+// manually without ever showing them the URL to actually use - the one gap
+// this panel had for a fresh setup (detectObsBrowserSource can only find/
+// migrate an EXISTING input, never create one from scratch).
+const LOCAL_OVERLAY_URL = "http://127.0.0.1:3666/overlay";
+
 // WK-121 §13 - OBS Browser Source migration. Manual, explicit action (never
 // automatic): the user clicks "Проверить", sees exactly one of the four
 // states the task asks for, and - only when a single unambiguous legacy
@@ -68,11 +75,19 @@ export function BrowserSourceMigrationPanel() {
             );
           })()}
           {phase.result.state === "missing" && (
-            <Badge tone="danger" dot>PreReborn Browser Source не найден — добавьте его в OBS вручную</Badge>
+            <div>
+              <Badge tone="danger" dot>PreReborn Browser Source не найден — добавьте его в OBS вручную</Badge>
+              <p className="obs-panel__hint">
+                URL для нового Browser Source: <code>{LOCAL_OVERLAY_URL}</code>
+              </p>
+            </div>
           )}
           {phase.result.state === "ambiguous" && (
             <div>
               <Badge tone="warning" dot>Найдено несколько похожих источников — выберите вручную</Badge>
+              <p className="obs-panel__hint">
+                URL для локального оверлея: <code>{LOCAL_OVERLAY_URL}</code>
+              </p>
               <ul>
                 {phase.result.candidates.map((name) => <li key={name}>{name}</li>)}
               </ul>
