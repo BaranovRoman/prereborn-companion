@@ -45,6 +45,12 @@ export const resetStreamSession = () => invoke<StreamSessionSummary>("reset_stre
 // WK-100 - "Завершить стрим" action on the main screen.
 export const endStreamSession = () => invoke<StreamSessionSummary>("end_stream_session");
 
+// WK-121 - "Герои" favorites, same stream_queue_settings.favoriteHeroIds row
+// the web cabinet's Favorite Heroes picker owns (see backend/mod.rs's doc
+// comment) - not a local-only store.
+export const getFavoriteHeroes = () => invoke<number[]>("get_favorite_heroes");
+export const saveFavoriteHeroes = (heroIds: number[]) => invoke<number[]>("save_favorite_heroes", { heroIds });
+
 // WK-112 - OBS-driven local stream lifecycle (see local_runtime::lifecycle).
 // No "start"/"end" calls here on purpose - normal lifecycle is automatic,
 // driven by OBS Start/Stop Streaming; these two actions only ever apply to
@@ -107,6 +113,19 @@ export const testObsConnection = () =>
   invoke<string[]>("test_obs_connection");
 export const switchObsScene = (scene: "betweenMatches" | "draft" | "gameplay") =>
   invoke<StatusSnapshot>("switch_obs_scene", { scene });
+
+// WK-121 - OBS Browser Source migration (legacy prereborn.ru overlay URL ->
+// local 127.0.0.1:3666/overlay). See obs.rs's BrowserSourceDetection doc
+// comment for what each state means.
+export type BrowserSourceDetection =
+  | { state: "localConnected"; inputName: string }
+  | { state: "legacyDetected"; inputName: string; currentUrl: string }
+  | { state: "missing" }
+  | { state: "ambiguous"; candidates: string[] };
+export const detectObsBrowserSource = () =>
+  invoke<BrowserSourceDetection>("detect_obs_browser_source");
+export const migrateObsBrowserSource = (inputName: string) =>
+  invoke<void>("migrate_obs_browser_source", { inputName });
 
 // WK-114 - "Итоги стрима": manual, reversible OBS scene action, independent
 // of the local session/OBS-stream lifecycle (see obs.rs's doc comments on

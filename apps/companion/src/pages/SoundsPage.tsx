@@ -1,13 +1,13 @@
 import { useState } from "react";
-import { HeroAbilitiesModal } from "../components/sounds/HeroAbilitiesModal";
-import { HeroesGrid } from "../components/sounds/HeroesGrid";
+import { Button } from "../components/ui";
 import { ItemSoundModal } from "../components/sounds/ItemSoundModal";
 import { ItemsGrid } from "../components/sounds/ItemsGrid";
 import type { useGameSoundEngine } from "../sounds/useGameSoundEngine";
-import type { GameSoundEventKind, TrackedHero, TrackedItem } from "../services/dotaCompanionApi";
+import type { GameSoundEventKind, TrackedItem } from "../services/dotaCompanionApi";
 
 interface Props {
   engine: ReturnType<typeof useGameSoundEngine>;
+  onGoToHeroes: () => void;
 }
 
 type Tab = "items" | "heroes";
@@ -15,14 +15,24 @@ type Tab = "items" | "heroes";
 // "Звуки" - Companion UI 2.0's Dota-inventory-inspired section (задача
 // п.1-3), reachable from the WK-114 header's main nav. Not a copy of
 // Valve's shop UI pixel-for-pixel and no new copyrighted assets bundled -
-// item/hero/ability icons are hotlinked from Valve's own public Dota 2 CDN
-// (see catalog.rs), the grid/panel chrome itself reuses this app's existing
+// item icons are hotlinked from Valve's own public Dota 2 CDN (see
+// catalog.rs), the grid/panel chrome itself reuses this app's existing
 // dark bevelled-panel language (.sounds-panel/.sound-tile tokens in
 // App.css), not a new design system.
-export function SoundsPage({ engine }: Props) {
+//
+// WK-121 §9 - ownership after the Heroes move: hero-ability sound
+// assignment now lives primarily on the hero's own page (Героя →
+// способность → звук, see HeroDetailPage.tsx), reusing this exact same
+// game-sound engine/commands. This screen no longer hosts a second,
+// independent hero-ability UX (HeroesGrid/HeroAbilitiesModal, both
+// removed) - the "Герои" tab is a redirect into that one real
+// implementation, per the task's explicit "не поддерживать две
+// независимые UX реализации". "Звуки" itself keeps ownership of
+// non-hero events: items, and (per the section's reframed scope) the
+// sound library/preview/delete machinery ItemSoundModal already provides.
+export function SoundsPage({ engine, onGoToHeroes }: Props) {
   const [tab, setTab] = useState<Tab>("items");
   const [selectedItem, setSelectedItem] = useState<TrackedItem | null>(null);
-  const [selectedHero, setSelectedHero] = useState<TrackedHero | null>(null);
 
   const { catalog, settings, error, setMaster, removeBinding, chooseAndBindFile, preview, stopPreview } = engine;
 
@@ -89,7 +99,12 @@ export function SoundsPage({ engine }: Props) {
           <ItemsGrid items={catalog.items} settings={settings} onSelect={(item) => setSelectedItem(item)} />
         )}
         {tab === "heroes" && (
-          <HeroesGrid heroes={catalog.heroes} settings={settings} onSelect={(hero) => setSelectedHero(hero)} />
+          <div className="sounds-heroes-redirect">
+            <p>
+              Назначение звуков способностям теперь на странице героя: Герои → выбрать героя → способность → звук.
+            </p>
+            <Button variant="primary" onClick={onGoToHeroes}>Перейти в «Герои»</Button>
+          </div>
         )}
       </div>
 
@@ -98,16 +113,6 @@ export function SoundsPage({ engine }: Props) {
           item={selectedItem}
           settings={settings}
           onClose={() => { stopPreview(); setSelectedItem(null); }}
-          onChooseFile={onChooseFile}
-          onPreview={(assetId) => preview(assetId, settings.masterVolume)}
-          onRemove={removeBinding}
-        />
-      )}
-      {selectedHero && (
-        <HeroAbilitiesModal
-          hero={selectedHero}
-          settings={settings}
-          onClose={() => { stopPreview(); setSelectedHero(null); }}
           onChooseFile={onChooseFile}
           onPreview={(assetId) => preview(assetId, settings.masterVolume)}
           onRemove={removeBinding}

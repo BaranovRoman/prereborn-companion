@@ -3,12 +3,13 @@ import { listen } from "@tauri-apps/api/event";
 import { AppAtmosphere } from "./AppAtmosphere";
 import { ProblemBar } from "./ProblemBar";
 import { SessionPromptBanner } from "./SessionPromptBanner";
-import { SettingsModal } from "./SettingsModal";
+import { SettingsModal, type Category as SettingsCategory } from "./SettingsModal";
 import { TwitchChatPage } from "./TwitchChatPage";
 import { UpdateBanner } from "./UpdateBanner";
 import { useTwitchChatSession } from "../chat/useTwitchChatSession";
 import { useAutostart } from "../hooks/useAutostart";
 import { useDiagnostics } from "../hooks/useDiagnostics";
+import { useFavoriteHeroes } from "../hooks/useFavoriteHeroes";
 import { useGsiEvents } from "../hooks/useGsiEvents";
 import { useLocalLifecycle } from "../hooks/useLocalLifecycle";
 import { useLocalSessionSummary } from "../hooks/useLocalSessionSummary";
@@ -17,17 +18,23 @@ import { useSyncOutboxStatus } from "../hooks/useSyncOutboxStatus";
 import { useStreamSessionPrompt } from "../hooks/useStreamSessionPrompt";
 import { useUpdater } from "../hooks/useUpdater";
 import { DiagnosticsPage } from "../pages/DiagnosticsPage";
+import { DesignPage } from "../pages/DesignPage";
+import { HeroDetailPage } from "../pages/HeroDetailPage";
+import { HeroesPage } from "../pages/HeroesPage";
 import { HomePage } from "../pages/HomePage";
 import { SoundsPage } from "../pages/SoundsPage";
 import * as api from "../services/dotaCompanionApi";
+import { getHeroById } from "../services/heroCatalog";
 import { useGameSoundEngine } from "../sounds/useGameSoundEngine";
 import type { StatusSnapshot } from "../types/status";
 import { describeBackendStatus } from "../utils/backendStatus";
 
-type Section = "home" | "chat" | "sounds" | "diagnostics";
+type Section = "home" | "heroes" | "design" | "chat" | "sounds" | "diagnostics";
 
 const MAIN_NAV_ITEMS: { key: Section; label: string }[] = [
   { key: "home", label: "Главная" },
+  { key: "heroes", label: "Герои" },
+  { key: "design", label: "Оформление" },
   { key: "chat", label: "Чат" },
   { key: "sounds", label: "Звуки" },
 ];
@@ -54,8 +61,15 @@ export function AppShell() {
   const localLifecycle = useLocalLifecycle();
   const sessionSummary = useLocalSessionSummary();
   const syncStatus = useSyncOutboxStatus();
+  const favoriteHeroes = useFavoriteHeroes();
   const [section, setSection] = useState<Section>("home");
+  const [selectedHeroId, setSelectedHeroId] = useState<number | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsCategory, setSettingsCategory] = useState<SettingsCategory | undefined>(undefined);
+  const openSettings = (category?: SettingsCategory) => {
+    setSettingsCategory(category);
+    setSettingsOpen(true);
+  };
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [setupOpen, setSetupOpen] = useState(() => localStorage.getItem("companion-setup-complete") !== "true");
@@ -121,7 +135,7 @@ export function AppShell() {
       <AppAtmosphere />
       <header className="app-header">
         <div className="app-header__left">
-          <button className="app-header__gear" onClick={() => setSettingsOpen(true)} aria-label="Настройки">⚙</button>
+          <button className="app-header__gear" onClick={() => openSettings()} aria-label="Настройки">⚙</button>
           <img className="app-header__logo" src="/logo-new.png" alt="" width="40" height="40" />
           <span className="app-header__brandmark">
             <strong className="app-header__brand">PreReborn</strong>
@@ -187,8 +201,37 @@ export function AppShell() {
             sessionSummary={sessionSummary}
           />
         )}
-        {section === "chat" && <TwitchChatPage session={chatSession} />}
-        {section === "sounds" && <SoundsPage engine={gameSoundEngine} />}
+        {section === "heroes" && (
+          selectedHeroId !== null ? (
+            <HeroDetailPage
+              heroId={selectedHeroId}
+              favorites={favoriteHeroes}
+              trackedHero={
+                gameSoundEngine.catalog?.heroes.find(
+                  (h) => h.id === `npc_dota_hero_${getHeroById(selectedHeroId)?.name}`
+                ) ?? null
+              }
+              settings={gameSoundEngine.settings}
+              onBack={() => setSelectedHeroId(null)}
+              onChooseFile={async (eventId, kind) => {
+                gameSoundEngine.stopPreview();
+                await gameSoundEngine.chooseAndBindFile(eventId, kind);
+              }}
+              onPreview={(assetId) => gameSoundEngine.preview(assetId, gameSoundEngine.settings?.masterVolume ?? 100)}
+              onRemove={gameSoundEngine.removeBinding}
+            />
+          ) : (
+            <HeroesPage
+              favorites={favoriteHeroes}
+              soundSettings={gameSoundEngine.settings}
+              trackedHeroes={gameSoundEngine.catalog?.heroes ?? []}
+              onSelectHero={setSelectedHeroId}
+            />
+          )
+        )}
+        {section === "design" && <DesignPage />}
+        {section === "chat" && <TwitchChatPage session={chatSession} onOpenChatSettings={() => openSettings("chat")} />}
+        {section === "sounds" && <SoundsPage engine={gameSoundEngine} onGoToHeroes={() => setSection("heroes")} />}
         {section === "diagnostics" && (
           <DiagnosticsPage
             status={status}
@@ -215,6 +258,8 @@ export function AppShell() {
         hotkeyStatus={chatSession.skipHotkeyStatus}
         hotkeyBusy={chatSession.skipHotkeyBusy}
         onUpdateHotkey={chatSession.updateSkipHotkey}
+        chatSession={chatSession}
+        initialCategory={settingsCategory}
       />
     </div>
   );

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SoundsPage } from "./SoundsPage";
 import type {
   GameSoundCatalog, GameSoundSettings, TrackedHero, TrackedItem,
@@ -68,11 +68,13 @@ function buildEngine(overrides: Partial<ReturnType<typeof useGameSoundEngine>> =
   };
 }
 
+const noop = () => {};
+
 afterEach(() => cleanup());
 
 describe("SoundsPage - Предметы", () => {
   it("shows three visually distinct item states", () => {
-    render(<SoundsPage engine={buildEngine()} />);
+    render(<SoundsPage engine={buildEngine()} onGoToHeroes={noop} />);
     const unsupported = screen.getByTitle(/Yasha:/);
     expect(unsupported.className).toContain("sound-tile--unsupported");
     expect((unsupported as HTMLButtonElement).disabled).toBe(true);
@@ -86,7 +88,7 @@ describe("SoundsPage - Предметы", () => {
   });
 
   it("clicking a supported item opens its sound modal", () => {
-    render(<SoundsPage engine={buildEngine()} />);
+    render(<SoundsPage engine={buildEngine()} onGoToHeroes={noop} />);
     fireEvent.click(screen.getByTitle("Blink Dagger"));
     const modal = screen.getByRole("dialog");
     expect(within(modal).getByText("Blink Dagger")).toBeTruthy();
@@ -94,14 +96,14 @@ describe("SoundsPage - Предметы", () => {
   });
 
   it("clicking an unsupported item does not open a modal", () => {
-    render(<SoundsPage engine={buildEngine()} />);
+    render(<SoundsPage engine={buildEngine()} onGoToHeroes={noop} />);
     fireEvent.click(screen.getByTitle(/Yasha/));
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("the configured item's modal shows the bound file and lets you remove it", async () => {
     const engine = buildEngine();
-    render(<SoundsPage engine={engine} />);
+    render(<SoundsPage engine={engine} onGoToHeroes={noop} />);
     fireEvent.click(screen.getByTitle("Tango"));
     const modal = screen.getByRole("dialog");
     expect(within(modal).getByText("chomp.wav")).toBeTruthy();
@@ -112,7 +114,7 @@ describe("SoundsPage - Предметы", () => {
 
   it("choosing a file imports and binds it to the event in one atomic step", async () => {
     const engine = buildEngine();
-    render(<SoundsPage engine={engine} />);
+    render(<SoundsPage engine={engine} onGoToHeroes={noop} />);
     fireEvent.click(screen.getByTitle("Blink Dagger"));
     const modal = screen.getByRole("dialog");
 
@@ -124,58 +126,50 @@ describe("SoundsPage - Предметы", () => {
   });
 
   it("preview is disabled until a sound is bound", () => {
-    render(<SoundsPage engine={buildEngine()} />);
+    render(<SoundsPage engine={buildEngine()} onGoToHeroes={noop} />);
     fireEvent.click(screen.getByTitle("Blink Dagger"));
     const modal = screen.getByRole("dialog");
     expect((within(modal).getByRole("button", { name: "Прослушать" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });
 
-describe("SoundsPage - Герои", () => {
-  it("switches to the Героев tab, searches, and opens the ability modal", () => {
-    render(<SoundsPage engine={buildEngine()} />);
+// WK-121 - hero-ability sound assignment moved to the hero's own page
+// (HeroDetailPage.tsx); this tab is now a redirect, not a second
+// independent UX for the same job.
+describe("SoundsPage - Герои (redirect)", () => {
+  it("switching to the Героев tab shows a redirect into the Heroes section, not a second hero-ability UI", () => {
+    render(<SoundsPage engine={buildEngine()} onGoToHeroes={noop} />);
     fireEvent.click(screen.getByRole("button", { name: "Герои" }));
-    expect(screen.getByTitle("Pudge")).toBeTruthy();
-
-    fireEvent.change(screen.getByPlaceholderText("Поиск героя…"), { target: { value: "nothing-matches" } });
+    expect(screen.getByText(/Назначение звуков способностям теперь на странице героя/)).toBeTruthy();
     expect(screen.queryByTitle("Pudge")).toBeNull();
-    expect(screen.getByText("Герой не найден.")).toBeTruthy();
+  });
 
-    fireEvent.change(screen.getByPlaceholderText("Поиск героя…"), { target: { value: "pud" } });
-    fireEvent.click(screen.getByTitle("Pudge"));
-
-    const modal = screen.getByRole("dialog");
-    expect(within(modal).getByText("Meat Hook")).toBeTruthy();
-    expect(within(modal).getByText("Rot")).toBeTruthy();
-    // Rot is unsupported: greyed out, disabled, no binding controls reachable.
-    const rotCard = within(modal).getByTitle(/Rot:/) as HTMLButtonElement;
-    expect(rotCard.className).toContain("hero-ability-card--unsupported");
-    expect(rotCard.disabled).toBe(true);
-
-    // Meat Hook is supported: clicking its card opens the binding controls.
-    expect(within(modal).queryByRole("button", { name: "Выбрать файл" })).toBeNull();
-    fireEvent.click(within(modal).getByTitle("Meat Hook"));
-    expect(within(modal).getByRole("button", { name: "Выбрать файл" })).toBeTruthy();
+  it("clicking the redirect button calls onGoToHeroes", () => {
+    const onGoToHeroes = vi.fn();
+    render(<SoundsPage engine={buildEngine()} onGoToHeroes={onGoToHeroes} />);
+    fireEvent.click(screen.getByRole("button", { name: "Герои" }));
+    fireEvent.click(screen.getByRole("button", { name: "Перейти в «Герои»" }));
+    expect(onGoToHeroes).toHaveBeenCalled();
   });
 });
 
 describe("SoundsPage - master controls", () => {
   it("reflects the enabled toggle and current volume, independent of TTS settings", () => {
-    render(<SoundsPage engine={buildEngine({ settings: buildSettings({ enabled: false, masterVolume: 30 }) })} />);
+    render(<SoundsPage engine={buildEngine({ settings: buildSettings({ enabled: false, masterVolume: 30 }) })} onGoToHeroes={noop} />);
     expect((screen.getByLabelText("Звуковые реакции") as HTMLInputElement).checked).toBe(false);
     expect(screen.getByText("30%")).toBeTruthy();
   });
 
   it("toggling the master switch calls setMaster with the toggled value and current volume", () => {
     const engine = buildEngine({ settings: buildSettings({ enabled: false, masterVolume: 50 }) });
-    render(<SoundsPage engine={engine} />);
+    render(<SoundsPage engine={engine} onGoToHeroes={noop} />);
     fireEvent.click(screen.getByLabelText("Звуковые реакции"));
     expect(engine.setMaster).toHaveBeenCalledWith(true, 50);
   });
 
   it("changing the volume slider calls setMaster with the current enabled flag and new volume", () => {
     const engine = buildEngine({ settings: buildSettings({ enabled: true, masterVolume: 50 }) });
-    render(<SoundsPage engine={engine} />);
+    render(<SoundsPage engine={engine} onGoToHeroes={noop} />);
     fireEvent.change(screen.getByRole("slider"), { target: { value: "20" } });
     expect(engine.setMaster).toHaveBeenCalledWith(true, 20);
   });

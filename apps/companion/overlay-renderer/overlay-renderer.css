@@ -1,0 +1,105 @@
+/* WK-121 - local overlay renderer styles. Same token VALUES as
+   apps/companion/src/App.css's --ui-* palette (itself the same tokens as
+   apps/web's stream dashboard) - duplicated here rather than imported
+   because this is a separate Vite build target with no bundler link to
+   src/App.css (see vite.overlay-renderer.config.ts), not a divergent
+   palette. Background is transparent by design: OBS composites this over
+   whatever is beneath the Browser Source. */
+:root {
+  --ov-void: #090c0d;
+  --ov-panel: #181c1d;
+  --ov-well: #101415;
+  --ov-edge: #3a4041;
+  --ov-edge-soft: rgba(123, 133, 134, .34);
+  --ov-text: #c8c4bd;
+  --ov-text-soft: #92958f;
+  --ov-gold: #a2976e;
+  --ov-red: #7b3532;
+  --ov-red-hover: #98504a;
+  --ov-green: #98c965;
+  --ov-danger: #c36d66;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  font-family: Inter, "Segoe UI", sans-serif;
+  background: transparent;
+  overflow: hidden;
+}
+
+.overlay-viewport { position: absolute; inset: 0; overflow: hidden; }
+.overlay-scene { position: absolute; top: 0; left: 0; transform-origin: top left; overflow: hidden; }
+
+.ov-loading { position: absolute; inset: 0; }
+
+.ov-background { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.ov-background--betweenMatches,
+.ov-background--postStream {
+  background: radial-gradient(ellipse at 50% 40%, rgba(123, 53, 50, .18) 0%, transparent 60%);
+}
+.ov-background--draft,
+.ov-background--gameplay { background: transparent; }
+
+.ov-anchor { position: absolute; z-index: 1; }
+.ov-anchor--top-left { top: 48px; left: 48px; }
+.ov-anchor--top-right { top: 48px; right: 48px; }
+.ov-anchor--bottom-center { bottom: 64px; left: 50%; transform: translateX(-50%); }
+.ov-anchor--center { top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; }
+
+.ov-scene-title {
+  margin-bottom: 18px;
+  color: #f2ede4;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  text-shadow: 0 0 24px rgba(184, 91, 83, .4), 0 2px 4px rgba(0, 0, 0, .7);
+}
+
+.ov-session {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 10px 18px;
+  border: 1px solid var(--ov-edge);
+  border-radius: 1px;
+  background: linear-gradient(180deg, var(--ov-panel), var(--ov-well));
+  box-shadow: inset 0 0 0 1px var(--ov-edge-soft), 0 8px 20px rgba(0, 0, 0, .5);
+}
+.ov-session--big { padding: 20px 34px; gap: 20px; }
+.ov-session__record { font-variant-numeric: tabular-nums; font-weight: 800; font-size: 24px; color: var(--ov-text); }
+.ov-session--big .ov-session__record { font-size: 44px; }
+.ov-session__wins { color: var(--ov-green); }
+.ov-session__losses { color: var(--ov-danger); }
+.ov-session__sep { color: var(--ov-text-soft); margin: 0 4px; }
+.ov-session__delta { font-weight: 700; font-size: 16px; }
+.ov-session--big .ov-session__delta { font-size: 22px; }
+.ov-session__delta.is-positive { color: var(--ov-green); }
+.ov-session__delta.is-negative { color: var(--ov-danger); }
+
+.ov-current-game {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 22px;
+  border: 1px solid var(--ov-edge);
+  border-radius: 1px;
+  background: linear-gradient(180deg, var(--ov-panel), var(--ov-well));
+  box-shadow: inset 0 0 0 1px var(--ov-edge-soft), 0 8px 24px rgba(0, 0, 0, .55);
+}
+.ov-current-game__portrait { width: 64px; height: 36px; object-fit: cover; border-radius: 1px; box-shadow: inset 0 0 0 1px var(--ov-edge-soft); }
+.ov-current-game__info { display: flex; flex-direction: column; gap: 4px; }
+.ov-current-game__hero { color: #f2ede4; font-weight: 700; font-size: 20px; letter-spacing: .02em; }
+.ov-current-game__kda { color: var(--ov-gold); font-variant-numeric: tabular-nums; font-weight: 700; font-size: 18px; }
+
+.ov-reconnecting {
+  padding: 6px 12px;
+  border-radius: 1px;
+  background: rgba(123, 53, 50, .35);
+  color: #f2ece5;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}

@@ -397,6 +397,140 @@ pub fn test_connection(config: &ObsConfig) -> Result<Vec<String>, String> {
         .collect())
 }
 
+// WK-121 - OBS Browser Source migration (§13 of the task). Read path first:
+// `GetInputList` filtered to `kind == "browser_source"`, then
+// `GetInputSettings` per candidate to read its configured `url` - never
+// guesses from anything but the input's own settings. Classification is
+// purely string-based on the URL's shape:
+//   - already `http://127.0.0.1:3666/...` -> LocalConnected (nothing to do)
+//   - contains "/overlay/" but isn't localhost -> a legacy PreReborn overlay
+//     Browser Source (works for any environment's domain/scheme, not a
+//     hardcoded "prereborn.ru" string - matches how the URL is actually
+//     shaped, `siteUrl('/overlay/<publicToken>')`, see apps/web's settings
+//     page)
+//   - anything else -> not a PreReborn source at all (a user's unrelated
+//     browser source - alerts, a chat box, etc. - must never be a migration
+//     candidate)
+// Exactly one legacy candidate -> `LegacyDetected` (migration offered).
+// Zero candidates of any kind -> `Missing`. More than one legacy candidate
+// -> `Ambiguous` (never guess which one is "the" PreReborn source - the
+// ticket's own "если ambiguous - не угадывать" instruction).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(tag = "state", rename_all = "camelCase")]
+pub enum BrowserSourceDetection {
+    LocalConnected { input_name: String },
+    LegacyDetected { input_name: String, current_url: String },
+    Missing,
+    Ambiguous { candidates: Vec<String> },
+}
+
+const LOCAL_OVERLAY_URL: &str = "http://127.0.0.1:3666/overlay";
+
+fn classify_browser_source_url(url: &str) -> Option<bool /* is_local */> {
+    if url.starts_with("http://127.0.0.1:3666") {
+        Some(true)
+    } else if url.contains("/overlay/") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+/// Pure classification over the resolved `(inputName, url)` pairs of every
+/// `browser_source` input in the current OBS canvas - split out from
+/// `detect_browser_source` below purely so this decision (the actual
+/// product risk: which state a given set of browser sources maps to) is
+/// unit-testable without a live OBS connection, following the same "test
+/// the pure logic directly, wire the OBS-websocket glue thinly" split this
+/// file already uses for `is_resource_not_found`/retry_delay.
+fn classify_candidates(candidates: Vec<(String, String)>) -> BrowserSourceDetection {
+    let mut local: Option<String> = None;
+    let mut legacy: Vec<(String, String)> = Vec::new();
+    for (name, url) in candidates {
+        match classify_browser_source_url(&url) {
+            Some(true) => {
+                if local.is_none() {
+                    local = Some(name);
+                }
+            }
+            Some(false) => legacy.push((name, url)),
+            None => {}
+        }
+    }
+
+    if let Some(input_name) = local {
+        return BrowserSourceDetection::LocalConnected { input_name };
+    }
+    match legacy.len() {
+        0 => BrowserSourceDetection::Missing,
+        1 => {
+            let (input_name, current_url) = legacy.into_iter().next().unwrap();
+            BrowserSourceDetection::LegacyDetected { input_name, current_url }
+        }
+        _ => BrowserSourceDetection::Ambiguous {
+            candidates: legacy.into_iter().map(|(name, _)| name).collect(),
+        },
+    }
+}
+
+pub fn detect_browser_source(config: &ObsConfig) -> Result<BrowserSourceDetection, String> {
+    let mut socket = open(config, Some(Duration::from_secs(4)), None)?;
+    let list = request(
+        &mut socket,
+        "GetInputList",
+        json!({ "inputKind": "browser_source" }),
+    )?;
+    let names: Vec<String> = list
+        .pointer("/d/responseData/inputs")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|input| input.get("inputName").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect();
+
+    let mut candidates: Vec<(String, String)> = Vec::new();
+    for name in names {
+        let settings = request(
+            &mut socket,
+            "GetInputSettings",
+            json!({ "inputName": name }),
+        )?;
+        if let Some(url) = settings
+            .pointer("/d/responseData/inputSettings/url")
+            .and_then(Value::as_str)
+        {
+            candidates.push((name, url.to_string()));
+        }
+    }
+
+    Ok(classify_candidates(candidates))
+}
+
+// Write path: `SetInputSettings` with `overlay: true` (obs-websocket v5 -
+// merges the given fields into the input's existing settings rather than
+// replacing the whole settings object), touching ONLY the `url` field of
+// ONLY the one named input this function is explicitly told to change.
+// `SetInputSettings` operates on an input's OWN settings - it structurally
+// cannot reach scene-item transform (position/crop/size) or any other
+// source (webcam/game capture/alerts), since those aren't part of an
+// input's settings object at all. Never called with an ambiguous/guessed
+// input name - the caller must have gotten `input_name` from a
+// `LegacyDetected` result.
+pub fn migrate_browser_source(config: &ObsConfig, input_name: &str) -> Result<(), String> {
+    let mut socket = open(config, Some(Duration::from_secs(4)), None)?;
+    request(
+        &mut socket,
+        "SetInputSettings",
+        json!({
+            "inputName": input_name,
+            "inputSettings": { "url": LOCAL_OVERLAY_URL },
+            "overlay": true
+        }),
+    )?;
+    Ok(())
+}
+
 pub fn switch_scene(config: &ObsConfig, scene: BroadcastScene) -> Result<(), String> {
     let scene_name = scene.obs_scene_name(config);
     if scene_name.trim().is_empty() {
@@ -783,6 +917,93 @@ mod tests {
         assert_eq!(config.host, "obs.local");
         assert_eq!(config.port, 4456);
         assert_eq!(config.password, "secret");
+    }
+
+    // WK-121 - OBS Browser Source migration classification (§13). Pure
+    // logic, no OBS websocket connection needed - see classify_candidates's
+    // doc comment for why this split exists.
+    mod browser_source_migration {
+        use super::*;
+
+        #[test]
+        fn classifies_a_localhost_url_as_local() {
+            assert_eq!(classify_browser_source_url("http://127.0.0.1:3666/overlay"), Some(true));
+        }
+
+        #[test]
+        fn classifies_any_domain_overlay_path_as_legacy_not_hardcoded_to_prereborn_ru() {
+            assert_eq!(classify_browser_source_url("https://prereborn.ru/overlay/abc123"), Some(false));
+            assert_eq!(classify_browser_source_url("http://staging.example.com/overlay/xyz"), Some(false));
+        }
+
+        #[test]
+        fn does_not_classify_an_unrelated_browser_source_as_ours() {
+            assert_eq!(classify_browser_source_url("https://streamlabs.com/alerts/abc"), None);
+            assert_eq!(classify_browser_source_url("https://twitch.tv/somechannel"), None);
+        }
+
+        #[test]
+        fn no_browser_sources_at_all_is_missing() {
+            assert_eq!(classify_candidates(vec![]), BrowserSourceDetection::Missing);
+        }
+
+        #[test]
+        fn a_localhost_source_wins_even_alongside_an_unrelated_one() {
+            let result = classify_candidates(vec![
+                ("Webcam Alert".to_string(), "https://streamlabs.com/alerts/abc".to_string()),
+                ("PreReborn".to_string(), "http://127.0.0.1:3666/overlay".to_string()),
+            ]);
+            assert_eq!(result, BrowserSourceDetection::LocalConnected { input_name: "PreReborn".to_string() });
+        }
+
+        #[test]
+        fn exactly_one_legacy_candidate_is_offered_for_migration() {
+            let result = classify_candidates(vec![
+                ("PreReborn Overlay".to_string(), "https://prereborn.ru/overlay/abc123".to_string()),
+            ]);
+            assert_eq!(
+                result,
+                BrowserSourceDetection::LegacyDetected {
+                    input_name: "PreReborn Overlay".to_string(),
+                    current_url: "https://prereborn.ru/overlay/abc123".to_string(),
+                }
+            );
+        }
+
+        // WK-121 - "если ambiguous - не угадывать": two candidates that both
+        // look like a PreReborn overlay must never be auto-resolved to one.
+        #[test]
+        fn two_legacy_candidates_are_ambiguous_never_auto_picked() {
+            let result = classify_candidates(vec![
+                ("Overlay A".to_string(), "https://prereborn.ru/overlay/abc".to_string()),
+                ("Overlay B".to_string(), "https://prereborn.ru/overlay/def".to_string()),
+            ]);
+            assert_eq!(
+                result,
+                BrowserSourceDetection::Ambiguous { candidates: vec!["Overlay A".to_string(), "Overlay B".to_string()] }
+            );
+        }
+
+        #[test]
+        fn unrelated_browser_sources_alone_are_still_missing_not_ambiguous() {
+            let result = classify_candidates(vec![
+                ("Alerts".to_string(), "https://streamlabs.com/alerts/abc".to_string()),
+                ("Chat".to_string(), "https://twitch.tv/popout/somechannel/chat".to_string()),
+            ]);
+            assert_eq!(result, BrowserSourceDetection::Missing);
+        }
+
+        // WK-121 - migration must only ever write to the ONE input name it
+        // was explicitly given, never guess/scan - this is a compile-time
+        // shape pin (SetInputSettings' inputName always comes from the
+        // caller's own `input_name: &str` parameter), not a runtime test,
+        // since the runtime request itself needs a live OBS connection.
+        #[test]
+        fn migrate_signature_takes_an_explicit_input_name_never_a_detection_result() {
+            fn _type_check(config: &ObsConfig, input_name: &str) -> Result<(), String> {
+                migrate_browser_source(config, input_name)
+            }
+        }
     }
 
     #[test]

@@ -7,13 +7,13 @@
 // into one DTO. Never touches sync/outbox/lifecycle decision-making.
 
 use serde::Serialize;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Runtime};
 
 use super::model::{LocalMatch, LocalMatchState, MatchResult, RankedMode};
 use super::store;
 use super::LocalRuntimeState;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalMatchSummary {
     pub match_id: Option<String>,
@@ -49,7 +49,7 @@ const ACTIVE_STATES: &[LocalMatchState] = &[
     LocalMatchState::Interrupted,
 ];
 
-#[derive(Debug, Clone, Serialize, Default)]
+#[derive(Debug, Clone, Serialize, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalSessionSummary {
     pub has_session: bool,
@@ -73,7 +73,14 @@ const RECENT_MATCHES_DISPLAY: usize = 10;
 /// runtime failed to open (see `local_runtime::init`'s doc comment: a
 /// storage failure must leave the rest of Companion working, just with
 /// nothing to show here) or if no session is currently open.
-pub fn get(app: &AppHandle) -> LocalSessionSummary {
+///
+/// Generic over `R: Runtime` (same pattern as `overlay_server::current`) so
+/// WK-121's overlay renderer payload - which reuses this exact function
+/// rather than a second session-summary computation - can be exercised end
+/// to end by `tauri::test::mock_app()` integration tests. Every existing
+/// call site (`commands::get_local_session_summary`, `AppHandle` un-
+/// parameterized = `AppHandle<Wry>`) keeps compiling unchanged.
+pub fn get<R: Runtime>(app: &AppHandle<R>) -> LocalSessionSummary {
     let state = app.state::<LocalRuntimeState>();
     let mut guard = state.lock();
     let Some(conn) = guard.as_mut() else {

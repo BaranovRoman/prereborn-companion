@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import type { ObsConfig, StatusSnapshot } from "../types/status";
 import * as api from "../services/dotaCompanionApi";
 import { missingMappedScenes, sceneMappings, sceneOptions } from "./obsSceneMapping";
+import { BrowserSourceMigrationPanel } from "./BrowserSourceMigrationPanel";
+import { Button, Checkbox, Input, Select } from "./ui";
 
 interface Props {
   status: StatusSnapshot | null;
@@ -93,22 +95,20 @@ export function ObsScenePanel({ status, onStatus }: Props) {
         Companion переключает Program Scene по фазе Dota. Пароль хранится только
         на этом компьютере.
       </p>
-      <label className="obs-panel__toggle">
-        <input
-          type="checkbox"
-          checked={config.enabled}
-          onChange={(event) => patch({ enabled: event.target.checked })}
-        />
-        Автоматически переключать сцены
-      </label>
+      <Checkbox
+        className="obs-panel__toggle"
+        checked={config.enabled}
+        onChange={(event) => patch({ enabled: event.target.checked })}
+        label="Автоматически переключать сцены"
+      />
       <div className="obs-panel__connection">
         <label>
           <span>Адрес</span>
-          <input value={config.host} onChange={(event) => patch({ host: event.target.value })} />
+          <Input value={config.host} onChange={(event) => patch({ host: event.target.value })} />
         </label>
         <label>
           <span>Порт</span>
-          <input
+          <Input
             type="number"
             min={1}
             max={65535}
@@ -118,7 +118,7 @@ export function ObsScenePanel({ status, onStatus }: Props) {
         </label>
         <label>
           <span>Пароль</span>
-          <input
+          <Input
             type="password"
             value={config.password}
             placeholder="Не изменять"
@@ -132,22 +132,22 @@ export function ObsScenePanel({ status, onStatus }: Props) {
           return (
             <label key={key} className={missing ? "is-invalid" : undefined}>
               <span>{label}</span>
-              <select value={config[key]} onChange={(event) => patch({ [key]: event.target.value })}>
+              <Select value={config[key]} onChange={(event) => patch({ [key]: event.target.value })}>
                 {!config[key] && <option value="">Выберите сцену</option>}
                 {sceneOptions(config[key], scenes).map((scene) => (
                   <option key={scene} value={scene}>
                     {missing && scene === config[key] ? scene + " — не найдена" : scene}
                   </option>
                 ))}
-              </select>
+              </Select>
               {missing && <small>Scene удалена или переименована в OBS.</small>}
             </label>
           );
         })}
       </div>
       <div className="action-buttons">
-        <button disabled={busy || hasEmptyMapping || missingScenes.length > 0} onClick={save}>Сохранить</button>
-        <button disabled={busy} onClick={refreshScenes}>Обновить список сцен</button>
+        <Button variant="primary" disabled={busy || hasEmptyMapping || missingScenes.length > 0} onClick={save}>Сохранить</Button>
+        <Button disabled={busy} onClick={refreshScenes}>Обновить список сцен</Button>
       </div>
       <p className="obs-panel__status">
         {status.obs_connected ? "● OBS подключён" : "○ OBS не подключён"}
@@ -161,6 +161,7 @@ export function ObsScenePanel({ status, onStatus }: Props) {
           {message ?? status.obs_last_error}
         </p>
       )}
+      <BrowserSourceMigrationPanel />
     </section>
   );
 }

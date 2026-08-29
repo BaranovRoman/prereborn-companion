@@ -242,6 +242,16 @@ pub async fn end_stream_session(app: AppHandle) -> Result<serde_json::Value, Str
 }
 
 #[tauri::command]
+pub async fn get_favorite_heroes(app: AppHandle) -> Result<Vec<u32>, String> {
+    backend::get_favorite_heroes(&app).await
+}
+
+#[tauri::command]
+pub async fn save_favorite_heroes(app: AppHandle, hero_ids: Vec<u32>) -> Result<Vec<u32>, String> {
+    backend::save_favorite_heroes(&app, hero_ids).await
+}
+
+#[tauri::command]
 pub fn save_obs_config(
     app: AppHandle,
     state: State<AppState>,
@@ -340,6 +350,37 @@ pub fn test_obs_connection(app: AppHandle, state: State<AppState>) -> Result<Vec
             Err(error)
         }
     }
+}
+
+// WK-121 - OBS Browser Source migration (§13). Read-only detection - never
+// mutates AppState.obs_connected/obs_last_error (those track the scene-
+// switching connection's health, a separate concern from "is there a
+// PreReborn Browser Source and where does it point").
+#[tauri::command]
+pub fn detect_obs_browser_source(state: State<AppState>) -> Result<obs::BrowserSourceDetection, String> {
+    let config = state.0.lock().unwrap().obs_config.clone();
+    obs::detect_browser_source(&config)
+}
+
+#[tauri::command]
+pub fn migrate_obs_browser_source(
+    app: AppHandle,
+    state: State<AppState>,
+    input_name: String,
+) -> Result<(), String> {
+    let config = state.0.lock().unwrap().obs_config.clone();
+    let result = obs::migrate_browser_source(&config, &input_name);
+    match &result {
+        Ok(()) => storage::append_rolling_log(
+            &app,
+            &format!("OBS Browser Source '{input_name}' migrated to the local overlay URL."),
+        ),
+        Err(error) => storage::append_rolling_log(
+            &app,
+            &format!("OBS Browser Source migration failed for '{input_name}': {error}"),
+        ),
+    }
+    result
 }
 
 #[tauri::command]

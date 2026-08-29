@@ -10,17 +10,15 @@
 // round trip is a pure latency/hop removal opportunity, independent of
 // whether the internet happens to be reachable.
 //
-// Scope of THIS slice, deliberately narrow (see the doc's "existing users /
-// migration" section for the full rationale):
-//   - the transport (this file) is real and production-shippable;
-//   - the served renderer is a minimal, explicitly-labeled dev-preview, NOT
-//     yet the production-parity shared renderer extracted from apps/web -
-//     that extraction is deferred to a follow-up slice;
-//   - NOTHING today points any existing production OBS Browser Source at
-//     this server - it is new, additive, opt-in surface. Shipping it changes
-//     zero behavior for any existing user until they explicitly point a
-//     Browser Source at it (a future slice's job, not this one's - no
-//     automatic URL rewrite happens here or anywhere yet).
+// WK-121 update: `/overlay` now serves the real production renderer
+// (apps/companion/overlay-renderer/, see RENDERER_HTML below) instead of
+// WK-120's dev-preview page - a real OBS Browser Source can be pointed at
+// http://127.0.0.1:3666/overlay today. See
+// docs/research/wk-121-companion-product-consolidation.md for what "real"
+// means here precisely (real local session/current-game data, the same
+// Dota-like visual language as the rest of Companion, NOT a pixel-identical
+// port of apps/web's user-positionable widget layout - that depends on data
+// this server does not have local access to yet, documented as follow-up).
 //
 // Security: binds 127.0.0.1 only (never 0.0.0.0), and the payload this
 // server can ever emit is `OverlayStateSnapshot` - two fields, `scene` and
@@ -36,6 +34,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::broadcast_state::{self, BroadcastState};
+use crate::local_runtime::summary::{self, LocalSessionSummary};
 use crate::state::AppState;
 use crate::storage;
 
@@ -50,17 +49,56 @@ pub const OVERLAY_PORT: u16 = 3666;
 // polls), not an aggressive busy-loop.
 const POLL_INTERVAL: Duration = Duration::from_millis(300);
 
+// WK-121 - production renderer widget data. Deliberately reuses
+// `local_runtime::summary::LocalSessionSummary` verbatim (the exact same
+// read-only projection the Home page's MMR/matches panels already consume,
+// see summary.rs's doc comment) rather than a second session-summary
+// computation, and derives `CurrentGameSnapshot` from `AppState.
+// last_gsi_payload` using the same `/hero/id` pointer path
+// `local_runtime::gsi::parse`/`game_sounds::events::hero_identity_changed`
+// already use elsewhere (kills/deaths/assists have no existing Rust-side
+// extraction anywhere in this codebase - added here, presentation-only,
+// same `.pointer()` idiom). Hero name/icon resolution stays entirely
+// frontend-side (the renderer bundle imports the same `heroCatalog.ts`
+// HomePage.tsx already uses) - no new Rust-side hero id -> name mapping.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CurrentGameSnapshot {
+    pub hero_id: Option<i64>,
+    pub kills: Option<i64>,
+    pub deaths: Option<i64>,
+    pub assists: Option<i64>,
+}
+
+fn current_game_from_gsi(payload: &serde_json::Value) -> CurrentGameSnapshot {
+    CurrentGameSnapshot {
+        hero_id: payload.pointer("/hero/id").and_then(serde_json::Value::as_i64),
+        kills: payload.pointer("/player/kills").and_then(serde_json::Value::as_i64),
+        deaths: payload.pointer("/player/deaths").and_then(serde_json::Value::as_i64),
+        assists: payload.pointer("/player/assists").and_then(serde_json::Value::as_i64),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct OverlayStateSnapshot {
     pub scene: BroadcastState,
     pub updated_at: String,
+    /// `has_session: false` (the struct's own `Default`) when no local
+    /// session is open yet - see summary.rs. Never a nested `Option`: the
+    /// renderer only ever needs to branch on `hasSession`.
+    pub session: LocalSessionSummary,
+    /// Only populated while GSI reports an active hero (Draft/Gameplay) -
+    /// `None` in BetweenMatches/PostStream, exactly like the equivalent
+    /// `BroadcastState::from_gsi` reads no hero data for those states either.
+    pub current_game: Option<CurrentGameSnapshot>,
 }
 
-/// Reads exactly the two AppState fields the canonical resolver needs and
-/// nothing else - see this module's doc comment on why that matters for the
-/// security guarantee. Mirrors the same lock-read-drop shape every other
-/// AppState reader in this codebase already uses.
+/// Reads AppState (canonical resolver fields) plus the local runtime's
+/// session summary - see this module's doc comment on why the security
+/// guarantee (no secrets ever reachable from this function's return type)
+/// still holds with the widened payload. Mirrors the same lock-read-drop
+/// shape every other AppState reader in this codebase already uses.
 ///
 /// Generic over `R: Runtime` (WK-116 pattern, see local_runtime/mod.rs's
 /// `handle_gsi`) so this - the real production code path - can be driven
@@ -68,17 +106,31 @@ pub struct OverlayStateSnapshot {
 /// than only testing a hand-built stand-in. Every real call site keeps
 /// compiling unchanged (`R = Wry` by inference).
 pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
-    let state = app.state::<AppState>();
-    let inner = state.0.lock().unwrap();
-    let gsi_derived = inner
-        .last_gsi_payload
-        .as_ref()
-        .map(BroadcastState::from_gsi)
-        .unwrap_or(BroadcastState::BetweenMatches);
-    let scene = broadcast_state::resolve(gsi_derived, inner.session_ended, inner.obs_manual_summary_override);
+    let (gsi_derived_source, session_ended, obs_manual_summary_override, current_game) = {
+        let state = app.state::<AppState>();
+        let inner = state.0.lock().unwrap();
+        let current_game = inner
+            .last_gsi_payload
+            .as_ref()
+            .map(current_game_from_gsi)
+            .filter(|game| game.hero_id.is_some());
+        (
+            inner.last_gsi_payload.as_ref().map(BroadcastState::from_gsi),
+            inner.session_ended,
+            inner.obs_manual_summary_override,
+            current_game,
+        )
+    };
+    let gsi_derived = gsi_derived_source.unwrap_or(BroadcastState::BetweenMatches);
+    let scene = broadcast_state::resolve(gsi_derived, session_ended, obs_manual_summary_override);
     OverlayStateSnapshot {
         scene,
         updated_at: chrono::Utc::now().to_rfc3339(),
+        session: summary::get(app),
+        current_game: match scene {
+            BroadcastState::Draft | BroadcastState::Gameplay => current_game,
+            BroadcastState::BetweenMatches | BroadcastState::PostStream => None,
+        },
     }
 }
 
@@ -127,7 +179,14 @@ fn respond_json<T: Serialize>(request: tiny_http::Request, body: &T) {
     let _ = request.respond(response);
 }
 
-const PREVIEW_HTML: &str = include_str!("overlay_server/preview.html");
+// WK-121 - the real production renderer (apps/companion/overlay-renderer/,
+// built via `pnpm build:overlay-renderer` into one self-contained HTML file
+// with vite-plugin-singlefile, then committed here) - replaces WK-120's
+// explicitly-labeled dev-preview page. Fetches /overlay/state and
+// subscribes to /overlay/events itself once loaded; this constant is just
+// the static shell. See vite.overlay-renderer.config.ts's doc comment for
+// why the built output is committed rather than gitignored.
+const RENDERER_HTML: &str = include_str!("overlay_server/renderer-dist/index.html");
 
 fn respond_html(request: tiny_http::Request, html: &str) {
     let header = tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..]).unwrap();
@@ -202,7 +261,7 @@ fn handle_request<R: Runtime>(app: &AppHandle<R>, request: tiny_http::Request) {
             respond_json(request, &snapshot);
         }
         (tiny_http::Method::Get, "/overlay/events") => serve_sse(app, request),
-        (tiny_http::Method::Get, "/overlay") | (tiny_http::Method::Get, "/overlay/") => respond_html(request, PREVIEW_HTML),
+        (tiny_http::Method::Get, "/overlay") | (tiny_http::Method::Get, "/overlay/") => respond_html(request, RENDERER_HTML),
         _ => respond_not_found(request),
     }
 }
@@ -217,6 +276,14 @@ mod tests {
     fn test_app() -> tauri::AppHandle<tauri::test::MockRuntime> {
         let app = tauri::test::mock_app();
         app.manage(AppState::new());
+        // WK-121 - `current()` now also calls `summary::get(app)`, which
+        // reads `LocalRuntimeState` (panics via Tauri's `Manager::state`
+        // if the type was never `.manage()`d at all, a different case from
+        // "managed but its inner DB connection is None" - see summary.rs's
+        // documented fallback). Never opens a real DB here; the inner
+        // `Option<Connection>` stays `None`, exercising exactly that
+        // documented fallback path.
+        app.manage(crate::local_runtime::LocalRuntimeState::new());
         app.handle().clone()
     }
 
@@ -271,6 +338,54 @@ mod tests {
         let app = test_app();
         let snapshot = current(&app);
         assert_eq!(snapshot.scene, BroadcastState::BetweenMatches);
+        assert!(!snapshot.session.has_session, "no local session opened yet");
+        assert!(snapshot.current_game.is_none(), "no current-game data outside Draft/Gameplay");
+    }
+
+    // WK-121 - the renderer's CurrentGame widget only ever has real data
+    // during Draft/Gameplay; BetweenMatches/PostStream must never carry a
+    // stale hero from the last match.
+    #[test]
+    fn current_game_is_populated_during_gameplay_and_cleared_between_matches() {
+        let app = test_app();
+        {
+            let state = app.state::<AppState>();
+            let mut inner = state.0.lock().unwrap();
+            inner.last_gsi_payload = Some(serde_json::json!({
+                "map": { "game_state": "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS" },
+                "player": { "activity": "playing", "kills": 5, "deaths": 2, "assists": 9 },
+                "hero": { "id": 14 },
+            }));
+        }
+        let snapshot = current(&app);
+        assert_eq!(snapshot.scene, BroadcastState::Gameplay);
+        let game = snapshot.current_game.expect("current_game populated during Gameplay");
+        assert_eq!(game.hero_id, Some(14));
+        assert_eq!(game.kills, Some(5));
+        assert_eq!(game.deaths, Some(2));
+        assert_eq!(game.assists, Some(9));
+
+        {
+            let state = app.state::<AppState>();
+            let mut inner = state.0.lock().unwrap();
+            inner.last_gsi_payload = None;
+        }
+        assert!(current(&app).current_game.is_none(), "clears once GSI signal is gone (back to BetweenMatches)");
+    }
+
+    // WK-121 - `session` reuses local_runtime::summary::get verbatim, not a
+    // second computation: `current()` calls the exact same function
+    // `commands::get_local_session_summary` (the Home page's own data
+    // source) calls, over the exact same `LocalRuntimeState` - summary.rs's
+    // own test module already covers the store composition logic
+    // (`session_match_tally`/`find_active_match`/`list_recent_matches`)
+    // this delegates to; this test only pins the delegation itself (no
+    // managed LocalRuntimeState -> the documented "storage failed to open"
+    // fallback -> default summary, never a panic).
+    #[test]
+    fn session_field_is_the_local_runtime_summarys_documented_fallback_when_unavailable() {
+        let app = test_app();
+        assert_eq!(current(&app).session, LocalSessionSummary::default());
     }
 
     #[test]
@@ -307,6 +422,21 @@ mod tests {
         let port = start_test_server(app);
         let body = http_get(port, "/overlay/health");
         assert!(body.contains("\"status\":\"ok\""));
+    }
+
+    // WK-121 - `/overlay` must serve the real production renderer, not any
+    // kind of placeholder: pins that the served HTML actually is the built
+    // React app (its own mount point + the /overlay/state and /overlay/
+    // events URLs it's wired to fetch/subscribe to), not just "some HTML".
+    #[test]
+    fn overlay_route_serves_the_real_renderer_not_a_placeholder() {
+        let app = test_app();
+        let port = start_test_server(app);
+        let body = http_get(port, "/overlay");
+        assert!(body.contains("id=\"root\""), "renderer's mount point missing: {body}");
+        assert!(body.contains("/overlay/state"), "renderer must fetch the real snapshot endpoint: {body}");
+        assert!(body.contains("/overlay/events"), "renderer must subscribe to the real SSE endpoint: {body}");
+        assert!(!body.to_lowercase().contains("dev-preview"), "must not still be the WK-120 dev-preview page");
     }
 
     #[test]
@@ -430,11 +560,35 @@ mod tests {
         // struct is forced to justify itself against this assertion.
         #[test]
         fn served_payload_never_contains_a_token_secret_or_password_field() {
-            let snapshot = OverlayStateSnapshot { scene: BroadcastState::Gameplay, updated_at: "2026-01-01T00:00:00Z".to_string() };
+            let snapshot = OverlayStateSnapshot {
+                scene: BroadcastState::Gameplay,
+                updated_at: "2026-01-01T00:00:00Z".to_string(),
+                session: LocalSessionSummary::default(),
+                current_game: Some(CurrentGameSnapshot { hero_id: Some(14), kills: Some(3), deaths: Some(1), assists: Some(7) }),
+            };
             let json = serde_json::to_string(&snapshot).unwrap().to_lowercase();
             for forbidden in ["token", "secret", "password", "companion_token", "bearer"] {
                 assert!(!json.contains(forbidden), "payload leaked a forbidden field/substring: {forbidden} in {json}");
             }
+        }
+
+        // WK-121 - the widened payload (session summary + current game) is
+        // still built entirely from `current()`'s own AppState/local-runtime
+        // reads, never anything backend/credential-shaped - pins the
+        // widened struct's field set itself, not just one example instance.
+        #[test]
+        fn current_game_extraction_reads_only_gsi_hero_and_kda_pointers() {
+            let payload = serde_json::json!({
+                "hero": { "id": 14, "name": "npc_dota_hero_pudge" },
+                "player": { "kills": 3, "deaths": 1, "assists": 7, "steam_id": "should not leak" },
+            });
+            let game = current_game_from_gsi(&payload);
+            assert_eq!(game.hero_id, Some(14));
+            assert_eq!(game.kills, Some(3));
+            assert_eq!(game.deaths, Some(1));
+            assert_eq!(game.assists, Some(7));
+            let json = serde_json::to_string(&game).unwrap();
+            assert!(!json.contains("steam_id"), "must only read the specific pointers it declares, not pass through the raw payload");
         }
 
         #[test]
