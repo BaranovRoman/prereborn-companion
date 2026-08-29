@@ -29,16 +29,24 @@ function statusLabel(ability: TrackedAbility): string {
   return ability.displayName;
 }
 
-// WK-121 §7/§8 - hero opens as a full workspace page, not a modal. Hero
-// visual is a lazy, muted, looping video (production media host - same
-// production-acceptable assets apps/web already serves, see
-// heroCatalog.ts's doc comment) with the existing portrait as `poster` and
-// as the fallback if the video fails to load/decode - only ever mounted
-// while this specific hero's page is open (HomePage's own section switch
-// unmounts it), so Companion never holds more than one hero video alive at
-// once. Ability sound assignment reuses the exact same SoundBindingRow /
-// game-sounds commands the Sounds → Heroes flow already uses (via the
-// props passed down from AppShell) - no parallel sound-mapping model.
+// WK-121/WK-122 §10 - hero opens as a full workspace page, not a modal.
+// The hero video is the SCENE's background, not a card in the document
+// flow: it fills `.hero-detail__scene` absolutely (object-fit: cover),
+// with the back link and name/favorite/attribute identity layered on top
+// of it (over a top scrim for legibility) rather than stacked above/below
+// it as separate blocks - see this slice's research doc §"Hero detail —
+// пересобрать композицию" for why the previous sequential
+// back→video-card→header layout didn't satisfy this. Video is a lazy,
+// muted, looping element (production media host - same production-
+// acceptable assets apps/web already serves, see heroCatalog.ts's doc
+// comment) with the existing portrait as `poster` and as the fallback if
+// the video fails to load/decode - only ever mounted while this specific
+// hero's page is open (HomePage's own section switch unmounts it), so
+// Companion never holds more than one hero video alive at once. Ability
+// sound assignment (below the scene, not overlaid on it - a compact bar
+// stays legible against any hero's video) reuses the exact same
+// SoundBindingRow/game-sounds commands the Sounds → Heroes flow already
+// used - no parallel sound-mapping model.
 export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBack, onChooseFile, onPreview, onRemove }: Props) {
   const [selectedAbilityId, setSelectedAbilityId] = useState<string | null>(null);
   const [videoFailed, setVideoFailed] = useState(false);
@@ -58,10 +66,8 @@ export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBac
 
   return (
     <div className="hero-detail">
-      <button className="ui-button ui-button--ghost hero-detail__back" onClick={onBack}>← Герои</button>
-
-      <div className="hero-detail__visual">
-        {!videoFailed && (
+      <div className="hero-detail__scene">
+        {!videoFailed ? (
           <video
             className="hero-detail__video"
             key={hero.videoUrl}
@@ -73,22 +79,26 @@ export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBac
             playsInline
             onError={() => setVideoFailed(true)}
           />
+        ) : (
+          <img className="hero-detail__poster" src={hero.portraitUrl} alt="" />
         )}
-        {videoFailed && <img className="hero-detail__poster" src={hero.portraitUrl} alt="" />}
-      </div>
+        <div className="hero-detail__scrim" aria-hidden="true" />
 
-      <div className="hero-detail__header">
-        <h2>{hero.localizedName}</h2>
-        <button
-          type="button"
-          className={`hero-detail__favorite ${isFavorite ? "is-active" : ""}`}
-          aria-label={isFavorite ? "Убрать из избранного" : "Добавить в избранное"}
-          disabled={favorites.busyId === hero.id}
-          onClick={() => void favorites.toggle(hero.id)}
-        >
-          ★
-        </button>
-        <Badge tone="gold">{ATTRIBUTE_LABEL[hero.attribute]}</Badge>
+        <button className="ui-button ui-button--ghost hero-detail__back" onClick={onBack}>← Герои</button>
+
+        <div className="hero-detail__identity">
+          <h2>{hero.localizedName}</h2>
+          <button
+            type="button"
+            className={`hero-detail__favorite ${isFavorite ? "is-active" : ""}`}
+            aria-label={isFavorite ? "Убрать из избранного" : "Добавить в избранное"}
+            disabled={favorites.busyId === hero.id}
+            onClick={() => void favorites.toggle(hero.id)}
+          >
+            ★
+          </button>
+          <Badge tone="gold">{ATTRIBUTE_LABEL[hero.attribute]}</Badge>
+        </div>
       </div>
       {favorites.error && <p className="app__error">Ошибка: {favorites.error}</p>}
 
