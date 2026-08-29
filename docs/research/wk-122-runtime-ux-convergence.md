@@ -202,9 +202,52 @@ clobbers either) is still exercised against the real function bodies, not a re-i
 
 ## 4. Remaining sections
 
-Heroes search/composition ✅, Hero detail composition ✅, Items catalog ✅ (below), Sounds →
-Герои removed ✅ — Оформление editor/renderer parity, Chat, Home, Settings, performance, tests,
-visual QA remain — tracked in Weeek WK-122 (task id 123) and filled in here as each lands.
+Heroes search/composition ✅, Hero detail composition ✅, Items catalog ✅, Sounds → Герои
+removed ✅, Оформление editor/renderer parity ✅ (below) — Chat, Home, Settings, OBS UX check,
+performance, remaining tests, visual QA, release remain — tracked in Weeek WK-122 (task id 123)
+and filled in here as each lands.
+
+## 7. Оформление editor + OverlayLayout renderer parity (§16-19)
+
+Closed the WK-121-documented gap end to end: Companion editor → authoritative config → local
+renderer, immediately.
+
+- **Backend** (`apps/api`): `GET/PUT /stream/companion/overlay-layout` reuses the web cabinet's
+  EXACT SAME controllers (`getOverlayLayoutController`/`putOverlayLayoutController`) behind
+  `authenticateCompanionSession` — no new service logic, no narrowed wire shape (unlike
+  favorite-heroes' intentionally narrow subset, Companion needs the full layout to render
+  accurately).
+- **Rust**: `backend::refresh_overlay_layout`/`save_overlay_layout` fetch/cache the layout as an
+  opaque `serde_json::Value` (same "pass through untyped" pattern `get_stream_session` already
+  uses — Rust never needs to interpret individual widget fields). A background poll (60s cadence)
+  catches web-editor changes; a save through Companion's own editor applies immediately.
+  `overlay_server.rs` gained `GET /overlay/layout` (serves the cache, `null` until first fetched —
+  the renderer's fixed-default fallback handles that, not an error) and `OverlayStateSnapshot.
+  layoutVersion`, which the SSE stream now also diffs on (scene alone isn't enough — the scene can
+  stay unchanged for a long time while actively editing).
+- **Renderer** (`overlay-renderer/`): `AnchoredBox.tsx` ports the non-interactive half of apps/web's
+  `AnchoredWidget` (anchor-fraction + xVw/yVh/scale math, no drag/snap — this renderer only
+  displays). `OverlayApp.tsx` positions Session/CurrentGame from the real saved layout in
+  Draft/Gameplay, re-fetching only when `layoutVersion` moves. A client-only `?previewScene=`
+  query param lets the editor preview any scene tab regardless of the streamer's actual current
+  state — never affects a real, query-string-free OBS Browser Source URL.
+- **Editor** (`DesignPage.tsx`): no longer a non-interactive debug preview — real settings controls
+  (visibility/anchor/scale/position, via this app's `ui/` primitives) for the two widgets the
+  renderer actually visualizes, live preview via the exact same renderer a Browser Source uses,
+  full available width (the old 1600px centered cap is gone).
+
+**Scope decision, documented rather than silently dropped**: the editor here is ordinary form
+controls, not a mouse-drag WYSIWYG canvas like apps/web's own editor (which additionally has
+snapping, multi-widget drag-bounds, etc.) — building that would mean porting a materially larger
+piece of interactive-canvas code for marginal UX gain over numeric position fields, given
+Companion's target user is the SAME streamer who'd otherwise use the web editor once and rarely
+touch it again. `cameraZone`/`minimapCover`/`recentMatches`/`companionStatus` widgets/
+`draftProtection`/`aspectRatio` have no editor UI yet — **critically, they are never lost**: every
+save round-trips the full fetched document, mutating only the two fields this editor actually
+edits (verified by a dedicated test asserting untyped passthrough fields survive a save
+unchanged) — the real risk this closes is apps/api's `normalizeOverlayLayout` falling back to
+DEFAULTS for anything missing from a PUT body, which a naive "send only what changed" save would
+have silently triggered.
 
 ## 6. Items catalog + Sounds → Герои removal (§12-14)
 
