@@ -29,24 +29,96 @@ function statusLabel(ability: TrackedAbility): string {
   return ability.displayName;
 }
 
-// WK-121/WK-122 §10 - hero opens as a full workspace page, not a modal.
-// The hero video is the SCENE's background, not a card in the document
-// flow: it fills `.hero-detail__scene` absolutely (object-fit: cover),
-// with the back link and name/favorite/attribute identity layered on top
-// of it (over a top scrim for legibility) rather than stacked above/below
-// it as separate blocks - see this slice's research doc §"Hero detail —
-// пересобрать композицию" for why the previous sequential
-// back→video-card→header layout didn't satisfy this. Video is a lazy,
-// muted, looping element (production media host - same production-
-// acceptable assets apps/web already serves, see heroCatalog.ts's doc
-// comment) with the existing portrait as `poster` and as the fallback if
-// the video fails to load/decode - only ever mounted while this specific
-// hero's page is open (HomePage's own section switch unmounts it), so
-// Companion never holds more than one hero video alive at once. Ability
-// sound assignment (below the scene, not overlaid on it - a compact bar
-// stays legible against any hero's video) reuses the exact same
-// SoundBindingRow/game-sounds commands the Sounds → Heroes flow already
-// used - no parallel sound-mapping model.
+interface AbilityColumnProps {
+  align: "left" | "right";
+  abilities: TrackedAbility[];
+  settings: GameSoundSettings;
+  selectedAbilityId: string | null;
+  onSelect: (id: string | null) => void;
+  onChooseFile: Props["onChooseFile"];
+  onPreview: Props["onPreview"];
+  onRemove: Props["onRemove"];
+}
+
+// Each row surfaces the full assignment state up front (icon, name, support
+// state, bound file) - only the three action buttons (Выбрать/Прослушать/
+// Удалить) stay behind a single click, via the same inline SoundBindingRow
+// HeroDetailPage always used (no modal). Splitting the hero's ability list
+// across two columns is what lets the hero visual sit at the horizontal
+// center of the workspace (see §3 of this slice's brief) instead of pushing
+// everything below a full-width video row.
+function AbilityColumn({ align, abilities, settings, selectedAbilityId, onSelect, onChooseFile, onPreview, onRemove }: AbilityColumnProps) {
+  return (
+    <div className={`hero-ability-column hero-ability-column--${align}`}>
+      {abilities.map((ability) => {
+        const binding = settings.bindings.find((b) => b.eventId === ability.id && b.kind === "abilityCast");
+        const asset = binding ? settings.assets.find((a) => a.id === binding.assetId) : undefined;
+        const disabled = ability.status === "unsupported";
+        const isSelected = ability.id === selectedAbilityId;
+
+        let stateLabel: string;
+        if (ability.status === "unsupported") stateLabel = "Недоступно";
+        else if (binding) stateLabel = asset ? asset.originalName : "Звук назначен";
+        else if (ability.status === "experimental") stateLabel = "Экспериментально";
+        else stateLabel = "Звук не назначен";
+
+        return (
+          <div key={ability.id} className="hero-ability-item">
+            <button
+              type="button"
+              className={[
+                "hero-ability-row",
+                `hero-ability-row--${ability.status}`,
+                binding ? "hero-ability-row--bound" : "",
+                isSelected ? "hero-ability-row--selected" : "",
+              ].filter(Boolean).join(" ")}
+              disabled={disabled}
+              title={statusLabel(ability)}
+              onClick={() => onSelect(isSelected ? null : ability.id)}
+            >
+              <img className="hero-ability-row__icon" src={ability.iconUrl} alt="" width={40} height={40} />
+              <span className="hero-ability-row__meta">
+                <span className="hero-ability-row__name">{ability.displayName}</span>
+                <span className="hero-ability-row__state">{stateLabel}</span>
+              </span>
+              {ability.status === "experimental" && <span className="hero-ability-row__flag" aria-hidden="true">?</span>}
+              {binding && <span className="hero-ability-row__bound-dot" aria-hidden="true" />}
+            </button>
+            {isSelected && (
+              <SoundBindingRow
+                eventId={ability.id}
+                kind="abilityCast"
+                masterVolume={settings.masterVolume}
+                binding={binding}
+                assets={settings.assets}
+                onChooseFile={onChooseFile}
+                onPreview={onPreview}
+                onRemove={onRemove}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// WK-123 - Hero Detail rebuilt around a three-part horizontal composition
+// (left abilities / hero visual / right abilities) instead of the previous
+// full-width video "scene" with abilities stacked below it: that shape left
+// the assignment workflow (the actual point of this screen) below the fold
+// on common desktop sizes, with the video reading as a giant player card
+// rather than the hero simply being present in the interface. The hero's
+// own ability list (`trackedHero.abilities`, same order the Rust catalog
+// returns them in) is split in half so both columns flank the visual and
+// stay in original order end-to-end when the layout collapses to one column
+// under 1200px (see `.hero-detail__workspace`'s media query in App.css) -
+// there is no separate "left" vs "right" ability grouping, it is purely a
+// spatial split of one ordered list. Video is masked with a soft radial
+// fade (no rectangular border/background box) so it reads as hero artwork
+// embedded in the workspace rather than a bordered video player - same
+// lazy/muted/looping/poster-fallback video element as before, only mounted
+// while this hero's page is open.
 export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBack, onChooseFile, onPreview, onRemove }: Props) {
   const [selectedAbilityId, setSelectedAbilityId] = useState<string | null>(null);
   const [videoFailed, setVideoFailed] = useState(false);
@@ -62,30 +134,15 @@ export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBac
   }
 
   const isFavorite = favorites.heroIds.includes(hero.id);
-  const selectedAbility = trackedHero?.abilities.find((a) => a.id === selectedAbilityId) ?? null;
+  const abilities = trackedHero?.abilities ?? [];
+  const splitAt = Math.ceil(abilities.length / 2);
+  const leftAbilities = abilities.slice(0, splitAt);
+  const rightAbilities = abilities.slice(splitAt);
 
   return (
     <div className="hero-detail">
-      <div className="hero-detail__scene">
-        {!videoFailed ? (
-          <video
-            className="hero-detail__video"
-            key={hero.videoUrl}
-            src={hero.videoUrl}
-            poster={hero.portraitUrl}
-            muted
-            autoPlay
-            loop
-            playsInline
-            onError={() => setVideoFailed(true)}
-          />
-        ) : (
-          <img className="hero-detail__poster" src={hero.portraitUrl} alt="" />
-        )}
-        <div className="hero-detail__scrim" aria-hidden="true" />
-
+      <div className="hero-detail__topbar">
         <button className="ui-button ui-button--ghost hero-detail__back" onClick={onBack}>← Герои</button>
-
         <div className="hero-detail__identity">
           <h2>{hero.localizedName}</h2>
           <button
@@ -102,63 +159,51 @@ export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBac
       </div>
       {favorites.error && <p className="app__error">Ошибка: {favorites.error}</p>}
 
-      <section className="hero-detail__abilities">
-        <h3 className="ui-settings-group__title">Способности</h3>
-        {!trackedHero || !settings ? (
-          <p className="heroes-grid__empty">Загрузка каталога звуков…</p>
-        ) : (
-          <>
-            <div className="hero-ability-bar">
-              {trackedHero.abilities.map((ability) => {
-                const bound = settings.bindings.some((b) => b.eventId === ability.id && b.kind === "abilityCast");
-                const disabled = ability.status === "unsupported";
-                const isSelected = ability.id === selectedAbilityId;
-                return (
-                  <button
-                    key={ability.id}
-                    type="button"
-                    className={[
-                      "hero-ability-card",
-                      `hero-ability-card--${ability.status}`,
-                      bound ? "hero-ability-card--bound" : "",
-                      isSelected ? "hero-ability-card--selected" : "",
-                    ].filter(Boolean).join(" ")}
-                    disabled={disabled}
-                    title={statusLabel(ability)}
-                    onClick={() => setSelectedAbilityId(isSelected ? null : ability.id)}
-                  >
-                    <img className="hero-ability-card__icon" src={ability.iconUrl} alt="" width={48} height={48} />
-                    <span className="hero-ability-card__name">{ability.displayName}</span>
-                    {ability.status === "experimental" && <span className="hero-ability-card__flag" aria-hidden="true">?</span>}
-                    {bound && <span className="hero-ability-card__bound-dot" aria-hidden="true" />}
-                  </button>
-                );
-              })}
-            </div>
+      <h3 className="ui-settings-group__title">Способности</h3>
+      {!trackedHero || !settings ? (
+        <p className="heroes-grid__empty">Загрузка каталога звуков…</p>
+      ) : (
+        <div className="hero-detail__workspace">
+          <AbilityColumn
+            align="left"
+            abilities={leftAbilities}
+            settings={settings}
+            selectedAbilityId={selectedAbilityId}
+            onSelect={setSelectedAbilityId}
+            onChooseFile={onChooseFile}
+            onPreview={onPreview}
+            onRemove={onRemove}
+          />
 
-            {selectedAbility && (
-              <div className="hero-ability-detail">
-                <div className="hero-ability-detail__header">
-                  <strong>{selectedAbility.displayName}</strong>
-                  {selectedAbility.status === "experimental" && (
-                    <small className="hero-ability-detail__caveat">Экспериментально — {selectedAbility.reason}</small>
-                  )}
-                </div>
-                <SoundBindingRow
-                  eventId={selectedAbility.id}
-                  kind="abilityCast"
-                  masterVolume={settings.masterVolume}
-                  binding={settings.bindings.find((b) => b.eventId === selectedAbility.id && b.kind === "abilityCast")}
-                  assets={settings.assets}
-                  onChooseFile={onChooseFile}
-                  onPreview={onPreview}
-                  onRemove={onRemove}
-                />
-              </div>
+          <div className="hero-detail__visual">
+            {!videoFailed ? (
+              <video
+                key={hero.videoUrl}
+                src={hero.videoUrl}
+                poster={hero.portraitUrl}
+                muted
+                autoPlay
+                loop
+                playsInline
+                onError={() => setVideoFailed(true)}
+              />
+            ) : (
+              <img src={hero.portraitUrl} alt="" />
             )}
-          </>
-        )}
-      </section>
+          </div>
+
+          <AbilityColumn
+            align="right"
+            abilities={rightAbilities}
+            settings={settings}
+            selectedAbilityId={selectedAbilityId}
+            onSelect={setSelectedAbilityId}
+            onChooseFile={onChooseFile}
+            onPreview={onPreview}
+            onRemove={onRemove}
+          />
+        </div>
+      )}
     </div>
   );
 }
