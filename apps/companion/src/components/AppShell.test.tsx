@@ -229,13 +229,13 @@ describe("AppShell navigation", () => {
 });
 
 describe("AppShell Настройки modal (gear icon)", () => {
-  it("is closed by default and opens via the gear button, hosting the token form, OBS scene mapping, and hotkeys", () => {
+  it("is closed by default and opens via the gear button, hosting the account form, OBS scene mapping, and hotkeys", () => {
     render(<AppShell />);
     expect(screen.queryByRole("dialog", { name: "Настройки" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Настройки" }));
     const modal = screen.getByRole("dialog", { name: "Настройки" });
-    expect(within(modal).getByText("Companion token")).toBeTruthy();
+    expect(within(modal).getByRole("heading", { name: "Аккаунт" })).toBeTruthy();
 
     fireEvent.click(within(modal).getByRole("button", { name: "OBS" }));
     expect(within(modal).getByRole("heading", { name: "Сцены OBS" })).toBeTruthy();

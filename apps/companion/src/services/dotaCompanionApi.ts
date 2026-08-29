@@ -24,7 +24,7 @@ export interface TwitchChatStatus {
   messages: TwitchChatMessage[];
 }
 import { invoke } from "@tauri-apps/api/core";
-import type { DiagnosticsStatusSnapshot, LifecycleStatus, LocalSessionSummary, ObsConfig, StatusSnapshot, SyncOutboxStatus } from "../types/status";
+import type { AccountStatus, DiagnosticsStatusSnapshot, LifecycleStatus, LocalSessionSummary, ObsConfig, StatusSnapshot, SyncOutboxStatus } from "../types/status";
 import type { StreamSessionSummary } from "../session/session-prompt";
 
 export const getStatus = () => invoke<StatusSnapshot>("get_status");
@@ -36,6 +36,13 @@ export const openDotaFolder = () => invoke<void>("open_dota_folder");
 export const clearLog = () => invoke<StatusSnapshot>("clear_log");
 export const saveCompanionToken = (token: string) =>
   invoke<StatusSnapshot>("save_companion_token", { token });
+
+// WK-122 §7 - Companion account (email/password login), replacing the
+// copy/paste Companion Token as the normal user-facing flow.
+export const getAccountStatus = () => invoke<AccountStatus>("get_account_status");
+export const accountLogin = (email: string, password: string) =>
+  invoke<AccountStatus>("account_login", { email, password });
+export const accountLogout = () => invoke<AccountStatus>("account_logout");
 export const getTwitchChat = () => invoke<TwitchChatStatus>("get_twitch_chat");
 export const openTwitchSettings = () => invoke<void>("open_twitch_settings");
 

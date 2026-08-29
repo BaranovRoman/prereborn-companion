@@ -736,16 +736,23 @@ h1, h2, p { margin-top: 0; }
 .check-item { display: flex; align-items: baseline; gap: 8px; padding: 7px 0; border-bottom: 1px solid var(--border); }
 .check-item__box { display: inline-flex; align-items: center; justify-content: center; width: 1.2em; height: 1.2em; border: 1px solid var(--ui-edge); border-radius: var(--radius); font-size: .8em; }
 .check-item--ok .check-item__box { color: #09140f; background: var(--success); border-color: var(--success); }
-.check-item__detail, .last-event dt, .last-event__empty, .event-history__time, .backend-status__line, .companion-token__hint, .companion-token__status, .diagnostics-panel__hint, .diagnostics-panel__stats dt, .diagnostics-panel__export-path, .obs-panel__hint, .obs-panel__status, .obs-panel__message, .autostart-setting__hint, .hotkey-settings__status, .hotkey-settings__hint { color: var(--ui-text-soft); }
-.check-item__detail, .event-history, .backend-status__line, .backend-status__error, .companion-token__hint, .companion-token__status, .diagnostics-panel__hint, .diagnostics-panel__stats, .diagnostics-panel__export-path, .obs-panel__hint, .obs-panel__status, .obs-panel__message, .obs-panel__error, .autostart-setting__hint, .hotkey-settings__status, .hotkey-settings__hint { font-size: .82rem; }
+.check-item__detail, .last-event dt, .last-event__empty, .event-history__time, .backend-status__line, .account-form__hint, .account-form__status, .diagnostics-panel__hint, .diagnostics-panel__stats dt, .diagnostics-panel__export-path, .obs-panel__hint, .obs-panel__status, .obs-panel__message, .autostart-setting__hint, .hotkey-settings__status, .hotkey-settings__hint { color: var(--ui-text-soft); }
+.check-item__detail, .event-history, .backend-status__line, .backend-status__error, .account-form__hint, .account-form__status, .diagnostics-panel__hint, .diagnostics-panel__stats, .diagnostics-panel__export-path, .obs-panel__hint, .obs-panel__status, .obs-panel__message, .obs-panel__error, .autostart-setting__hint, .hotkey-settings__status, .hotkey-settings__hint { font-size: .82rem; }
 .last-event dl, .diagnostics-panel__stats { display: grid; grid-template-columns: max-content 1fr; gap: 5px 12px; }
 .last-event dd, .diagnostics-panel__stats dd { margin: 0; word-break: break-word; }
 .event-history li { display: flex; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border); }
 .event-history__time { flex-shrink: 0; }
 .action-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
-.companion-token__row { display: flex; gap: 8px; }
-.companion-token__row input { flex: 1; }
-.companion-token input, .obs-panel input:not([type="checkbox"]), .obs-panel select {
+/* WK-122 §7 - AccountForm (email/password login, replacing the old
+   copy/paste Companion Token form). Uses the ui/ Input/Button primitives
+   directly (no raw <input> here), so - unlike ObsScenePanel below - needs
+   no dark-input override rule of its own. */
+.account-form { display: grid; gap: 10px; }
+.account-form h2 { margin: 0; font-size: 1rem; color: var(--ui-text); font-weight: 600; }
+.account-form__login, .account-form__connected { display: grid; gap: 8px; }
+.account-form__identity { margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--ui-text); }
+.account-form__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+.obs-panel input:not([type="checkbox"]), .obs-panel select {
   min-width: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -787,7 +794,7 @@ h1, h2, p { margin-top: 0; }
 .setup-steps > li::before { content: counter(setup); grid-row: 1 / span 3; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; color: var(--ui-text-soft); background: var(--ui-raised); font-size: .85rem; }
 .setup-steps > li.is-complete::before { content: "✓"; color: #09140f; background: var(--success); }
 .setup-steps > li > span { color: var(--ui-text-soft); }
-.setup-steps > li > small, .setup-steps > li > button, .setup-steps > li > .companion-token, .setup-steps > li > .obs-panel { grid-column: 2 / -1; }
+.setup-steps > li > small, .setup-steps > li > button, .setup-steps > li > .account-form, .setup-steps > li > .obs-panel { grid-column: 2 / -1; }
 .setup-steps > li > button { justify-self: start; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 14px; background: linear-gradient(180deg, var(--ui-raised), var(--ui-well)); color: var(--ui-text); }
 .setup-guide__footer { padding-top: 14px; border-top: 1px solid var(--border); }
 

@@ -1,13 +1,12 @@
 import { useEffect, useState } from "react";
+import { AccountForm } from "./AccountForm";
 import { AutostartSetting } from "./AutostartSetting";
-import { CompanionTokenForm } from "./CompanionTokenForm";
 import { HotkeySettings } from "./HotkeySettings";
 import { ObsScenePanel } from "./ObsScenePanel";
 import { ChatTtsSettings } from "./settings/ChatTtsSettings";
 import type { TwitchChatSession } from "../chat/useTwitchChatSession";
 import type { AutostartState } from "../hooks/useAutostart";
 import { useModalBehavior } from "../hooks/useModalBehavior";
-import * as api from "../services/dotaCompanionApi";
 import type { SkipHotkeyStatus } from "../services/dotaCompanionApi";
 import type { StatusSnapshot } from "../types/status";
 
@@ -15,10 +14,10 @@ import type { StatusSnapshot } from "../types/status";
 // autostart stay (app-behavior configuration), "Чат и TTS" is new (moved
 // out of the Chat screen's sidebar - see ChatTtsSettings.tsx's doc
 // comment). Chat itself keeps only runtime concerns.
-export type Category = "connection" | "obs" | "chat" | "hotkeys" | "autostart";
+export type Category = "account" | "obs" | "chat" | "hotkeys" | "autostart";
 
 const CATEGORIES: { key: Category; label: string }[] = [
-  { key: "connection", label: "Подключение" },
+  { key: "account", label: "Аккаунт" },
   { key: "obs", label: "OBS" },
   { key: "chat", label: "Чат и TTS" },
   { key: "hotkeys", label: "Горячие клавиши" },
@@ -56,10 +55,10 @@ interface Props {
 // mapping, hotkeys, autostart - nothing lost in the move, see this
 // component's removal in the same change.
 export function SettingsModal({
-  open, onClose, status, setStatus, busy, run, autostart, hotkeyStatus, hotkeyBusy, onUpdateHotkey,
+  open, onClose, status, setStatus, autostart, hotkeyStatus, hotkeyBusy, onUpdateHotkey,
   chatSession, initialCategory,
 }: Props) {
-  const [category, setCategory] = useState<Category>("connection");
+  const [category, setCategory] = useState<Category>("account");
   const containerRef = useModalBehavior(open, onClose);
 
   useEffect(() => {
@@ -93,17 +92,14 @@ export function SettingsModal({
             ))}
           </nav>
           <div className="settings-modal__content">
-            {/* WK-115 - CompanionTokenForm/ObsScenePanel both render nothing
-                at all while `status` hasn't loaded yet (see ObsScenePanel's
-                early `return null`) - in practice status resolves almost
-                instantly after launch, but an empty content pane with no
-                explanation is still a real loading-state gap the audit
-                should close, not leave as silent blank space. */}
-            {category === "connection" && (
-              status
-                ? <CompanionTokenForm status={status} busy={busy} onSave={(token) => run(() => api.saveCompanionToken(token))} />
-                : <p className="matches-panel__empty">Загрузка…</p>
-            )}
+            {/* WK-115 - ObsScenePanel renders nothing at all while `status`
+                hasn't loaded yet (see its early `return null`) - in practice
+                status resolves almost instantly after launch, but an empty
+                content pane with no explanation is still a real
+                loading-state gap the audit should close, not leave as
+                silent blank space. AccountForm manages its own loading
+                state (account status is a separate, async Tauri call). */}
+            {category === "account" && <AccountForm />}
             {category === "obs" && (
               status
                 ? <ObsScenePanel status={status} onStatus={setStatus} />

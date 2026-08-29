@@ -67,6 +67,20 @@ export interface LifecycleStatus {
   session_started_at: string | null;
   pending_end_at: string | null;
   obs_streaming: boolean | null;
+  // WK-122 P0 diagnostics - last time the OBS stream-state watcher actually
+  // confirmed streaming truth (event, initial fetch, or heartbeat re-probe).
+  obs_streaming_confirmed_at: string | null;
+}
+
+// WK-122 §7 - Companion account (email/password login), replacing the
+// copy/paste Companion Token. Mirrors backend::AccountStatus/AccountMethod
+// field-for-field - never carries the token/refresh-token/password.
+export type AccountMethod = "none" | "session" | "legacy_token";
+
+export interface AccountStatus {
+  connected: boolean;
+  method: AccountMethod;
+  email: string | null;
 }
 
 // WK-114 - local-first Home page data (session MMR/W-L/current+recent
