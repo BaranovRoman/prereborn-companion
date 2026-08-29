@@ -134,13 +134,26 @@ export function AppShell() {
           `section` changes - see AppAtmosphere.tsx. */}
       <AppAtmosphere />
       <header className="app-header">
-        <div className="app-header__left">
-          <button className="app-header__gear" onClick={() => openSettings()} aria-label="Настройки">⚙</button>
-          <img className="app-header__logo" src="/logo-new.png" alt="" width="40" height="40" />
-          <span className="app-header__brandmark">
-            <strong className="app-header__brand">PreReborn</strong>
-            <span className="app-header__brand-sub">Companion</span>
-          </span>
+        <div className="app-header__side app-header__side--left">
+          <button className="app-header__gear" onClick={() => openSettings()} aria-label="Настройки">
+            <svg className="app-header__gear-icon" viewBox="0 0 24 24" width="23" height="23" aria-hidden="true">
+              <circle cx="12" cy="12" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+              <circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" strokeWidth="1.8" />
+              <path
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                d="M18.2 12h2.4M3.4 12h2.4M12 5.8V3.4M12 20.6v-2.4M16.38 7.62l1.7-1.7M5.92 18.08l1.7-1.7M16.38 16.38l1.7 1.7M5.92 5.92l1.7 1.7"
+              />
+            </svg>
+          </button>
+          <div className="app-header__crest" aria-hidden="true">
+            <span className="app-header__crest-rim" />
+            <span className="app-header__crest-bevel" />
+            <span className="app-header__crest-face" />
+            <img className="app-header__crest-emblem" src="/logo-new.png" alt="" width="52" height="52" />
+          </div>
         </div>
         <nav className="app-header__nav" aria-label="Разделы приложения">
           {MAIN_NAV_ITEMS.map((item) => (
@@ -149,7 +162,7 @@ export function AppShell() {
             </button>
           ))}
         </nav>
-        <div className="app-header__right">
+        <div className="app-header__side app-header__side--right">
           <button
             className={`app-header__diagnostics ${section === "diagnostics" ? "is-active" : ""}`}
             onClick={() => setSection("diagnostics")}
@@ -159,6 +172,7 @@ export function AppShell() {
           {status?.companion_version && <span className="app-header__version">v{status.companion_version}</span>}
         </div>
       </header>
+      <div className="app-header__ledge" aria-hidden="true" />
 
       <ProblemBar status={status} backendStatus={backendStatus} syncStatus={syncStatus} />
 

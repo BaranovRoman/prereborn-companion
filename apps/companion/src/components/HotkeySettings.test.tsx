@@ -37,7 +37,7 @@ describe("HotkeySettings", () => {
         onUpdate={vi.fn()}
       />
     );
-    expect(screen.getByText(/не удалось зарегистрировать/)).toBeTruthy();
+    expect(screen.getByText(/не удалось зарегистрировать/i)).toBeTruthy();
   });
 
   it("toggling the checkbox calls onUpdate with the current shortcut", () => {
@@ -75,8 +75,8 @@ describe("HotkeySettings", () => {
         onUpdate={onUpdate}
       />
     );
-    fireEvent.click(screen.getByRole("button", { name: "Изменить" }));
-    expect(screen.getByRole("button", { name: /Нажмите новую комбинацию/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Ctrl+Alt+F9" }));
+    expect(screen.getByRole("button", { name: /Нажмите клавиши/ })).toBeTruthy();
 
     fireEvent.keyDown(window, { code: "F11", key: "F11" });
 
@@ -92,11 +92,11 @@ describe("HotkeySettings", () => {
         onUpdate={onUpdate}
       />
     );
-    fireEvent.click(screen.getByRole("button", { name: "Изменить" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ctrl+Alt+F9" }));
     fireEvent.keyDown(window, { code: "Escape", key: "Escape" });
 
     expect(onUpdate).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Изменить" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Ctrl+Alt+F9" })).toBeTruthy();
   });
 
   it("disables controls while busy", () => {
@@ -108,7 +108,7 @@ describe("HotkeySettings", () => {
       />
     );
     expect((screen.getByRole("checkbox") as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Изменить" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Ctrl+Alt+F9" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("shows a lastError from status even without a local recording error", () => {

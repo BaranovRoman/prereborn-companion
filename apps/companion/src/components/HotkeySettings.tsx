@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { DEFAULT_SKIP_SHORTCUT, shortcutFromKeyboardEvent } from "../chat/hotkey-format";
 import type { SkipHotkeyStatus } from "../services/dotaCompanionApi";
-import { Button, Checkbox } from "./ui";
+import { Checkbox, SettingsGroup, SettingsRow } from "./ui";
 
 interface Props {
   status: SkipHotkeyStatus | null;
@@ -17,6 +17,11 @@ interface Props {
 // chat-specific, they're a general Companion setting that happened to live
 // next to TTS controls only because that's where the feature originally
 // shipped (WK-93).
+//
+// Visual-quality pass (Dota Keybindings reference): the shortcut is now a
+// compact key-binding field (`.hotkey-keybind`) that IS the click target
+// for recording, with a separate small reset icon beside it, laid out as a
+// settings row - not a status paragraph + a text button.
 export function HotkeySettings({ status, busy, onUpdate }: Props) {
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,27 +49,41 @@ export function HotkeySettings({ status, busy, onUpdate }: Props) {
     onUpdate(true, DEFAULT_SKIP_SHORTCUT).catch((cause) => setError(String(cause)));
   };
 
+  const fieldsDisabled = busy || recording;
+
   return (
     <section className="hotkey-settings">
-      <h2>Пропустить озвучку</h2>
-      <Checkbox
-        checked={status?.enabled ?? false}
-        disabled={busy}
-        onChange={(event) => toggleEnabled(event.target.checked)}
-        label="Включить горячую клавишу"
-      />
-      <p className="hotkey-settings__status">
-        Текущая комбинация: <strong>{status?.shortcut ?? DEFAULT_SKIP_SHORTCUT}</strong>
-        {status?.enabled && !status?.registered && " (не удалось зарегистрировать)"}
-      </p>
-      <div className="tts-buttons">
-        <Button onClick={() => { setError(null); setRecording(true); }} disabled={busy || recording}>
-          {recording ? "Нажмите новую комбинацию… (Esc — отмена)" : "Изменить"}
-        </Button>
-        <Button onClick={resetToDefault} disabled={busy || recording}>
-          Сбросить по умолчанию
-        </Button>
-      </div>
+      <h2>Горячие клавиши</h2>
+      <SettingsGroup>
+        <SettingsRow label="Включить горячую клавишу" description="Пропустить озвучку текущего сообщения чата">
+          <Checkbox checked={status?.enabled ?? false} disabled={busy} onChange={(event) => toggleEnabled(event.target.checked)} />
+        </SettingsRow>
+        <SettingsRow
+          label="Пропустить озвучку"
+          description={status?.enabled && !status?.registered ? "Не удалось зарегистрировать" : "Комбинация клавиш"}
+        >
+          <div className="hotkey-keybind-group">
+            <button
+              type="button"
+              className={`hotkey-keybind${recording ? " is-recording" : ""}`}
+              disabled={fieldsDisabled}
+              onClick={() => { setError(null); setRecording(true); }}
+            >
+              {recording ? "Нажмите клавиши… (Esc)" : (status?.shortcut ?? DEFAULT_SKIP_SHORTCUT)}
+            </button>
+            <button
+              type="button"
+              className="hotkey-keybind__reset"
+              title="Сбросить по умолчанию"
+              aria-label="Сбросить по умолчанию"
+              disabled={fieldsDisabled}
+              onClick={resetToDefault}
+            >
+              ↺
+            </button>
+          </div>
+        </SettingsRow>
+      </SettingsGroup>
       {(error || status?.lastError) && (
         <p className="app__error">Не удалось применить горячую клавишу: {error ?? status?.lastError}</p>
       )}

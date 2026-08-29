@@ -241,7 +241,7 @@ describe("AppShell Настройки modal (gear icon)", () => {
     expect(within(modal).getByRole("heading", { name: "Сцены OBS" })).toBeTruthy();
 
     fireEvent.click(within(modal).getByRole("button", { name: "Горячие клавиши" }));
-    expect(within(modal).getByRole("heading", { name: "Пропустить озвучку" })).toBeTruthy();
+    expect(within(modal).getByRole("heading", { name: "Горячие клавиши" })).toBeTruthy();
   });
 
   it("closes via the close button without changing the active main section", () => {
@@ -278,13 +278,13 @@ describe("AppShell Настройки modal (gear icon)", () => {
     clickNav("Диагностика");
     expect(screen.queryByText("Companion token")).toBeNull();
     expect(screen.queryByRole("heading", { name: "Сцены OBS" })).toBeNull();
-    expect(screen.queryByRole("heading", { name: "Пропустить озвучку" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Горячие клавиши" })).toBeNull();
   });
 
   it("Чат no longer hosts the hotkey controls (moved to the Настройки modal)", () => {
     render(<AppShell />);
     clickNav("Чат");
-    expect(screen.queryByRole("heading", { name: "Пропустить озвучку" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Горячие клавиши" })).toBeNull();
     expect(screen.queryByText("Включить горячую клавишу")).toBeNull();
   });
 });

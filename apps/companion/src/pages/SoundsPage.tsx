@@ -1,4 +1,4 @@
-import { Checkbox, Tabs } from "../components/ui";
+import { Checkbox, Slider, Tabs } from "../components/ui";
 import { ItemsCatalog } from "../components/sounds/ItemsCatalog";
 import type { useGameSoundEngine } from "../sounds/useGameSoundEngine";
 import type { GameSoundEventKind } from "../services/dotaCompanionApi";
@@ -67,13 +67,13 @@ export function SoundsPage({ engine }: Props) {
               <span>Громкость</span>
               <span className="tts-volume__value">{settings.masterVolume}%</span>
             </div>
-            <input
-              type="range"
+            <Slider
               min={0}
               max={100}
               value={settings.masterVolume}
               disabled={!settings.enabled}
               onChange={(event) => void setMaster(settings.enabled, Number(event.target.value))}
+              aria-label="Громкость"
             />
           </div>
         </div>
