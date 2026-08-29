@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "pnpm build:overlay-renderer && tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "typecheck:overlay-renderer": "tsc --noEmit -p overlay-renderer/tsconfig.json",
+    "build:overlay-renderer": "pnpm typecheck:overlay-renderer && vite build --config vite.overlay-renderer.config.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -28,6 +30,7 @@
     "jsdom": "^27.4.0",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",
+    "vite-plugin-singlefile": "^2.3.0",
     "vitest": "^4.1.10"
   }
 }
