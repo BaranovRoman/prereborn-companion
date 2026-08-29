@@ -1,7 +1,7 @@
 {
   "source": "https://github.com/odota/dotaconstants",
   "sourceCommit": "e7705ee975ebec2a88a59a7b455d4cae5dc69ca1",
-  "generatedAt": "2026-08-27T10:18:58.399Z",
+  "generatedAt": "2026-08-29T17:15:56.539Z",
   "heroCount": 127,
   "heroes": [
     {
@@ -31,6 +31,15 @@
           "id": "abaddon_frostmourne",
           "displayName": "Curse of Avernus",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/abaddon_frostmourne.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
+          "id": "abaddon_withering_mist",
+          "displayName": "Withering Mist",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/abaddon_withering_mist.png",
           "status": "unsupported",
           "signal": null,
           "toggleActiveAlias": null,
@@ -80,6 +89,15 @@
           "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
+          "id": "abyssal_underlord_raid_boss",
+          "displayName": "Invading Force",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/abyssal_underlord_raid_boss.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "abyssal_underlord_dark_portal",
           "displayName": "Fiend's Gate",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/abyssal_underlord_dark_portal.png",
@@ -123,6 +141,24 @@
           "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
+          "id": "alchemist_berserk_potion",
+          "displayName": "Berserk Potion",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/alchemist_berserk_potion.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "alchemist_goblins_greed",
+          "displayName": "Greevil's Greed",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/alchemist_goblins_greed.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "alchemist_chemical_rage",
           "displayName": "Chemical Rage",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/alchemist_chemical_rage.png",
@@ -130,6 +166,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "alchemist_unstable_concoction_throw",
+          "displayName": "Unstable Concoction Throw",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/alchemist_unstable_concoction_throw.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
         }
       ]
     },
@@ -166,9 +211,27 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "ancient_apparition_bone_chill",
+          "displayName": "Bone Chill",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/ancient_apparition_bone_chill.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "ancient_apparition_ice_blast",
           "displayName": "Ice Blast",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/ancient_apparition_ice_blast.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "ancient_apparition_ice_blast_release",
+          "displayName": "Release",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/ancient_apparition_ice_blast_release.png",
           "status": "experimental",
           "signal": "cooldown",
           "toggleActiveAlias": null,
@@ -261,6 +324,15 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "arc_warden_runic_infusion",
+          "displayName": "Runic Infusion",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/arc_warden_runic_infusion.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "arc_warden_tempest_double",
           "displayName": "Tempest Double",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/arc_warden_tempest_double.png",
@@ -311,6 +383,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "axe_one_man_army",
+          "displayName": "One Man Army",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/axe_one_man_army.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         }
       ]
     },
@@ -354,6 +435,24 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "bane_nightmare_end",
+          "displayName": "Nightmare End",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/bane_nightmare_end.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
+        },
+        {
+          "id": "bane_ichor_of_nyctasha",
+          "displayName": "Ichor of Nyctasha",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/bane_ichor_of_nyctasha.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         }
       ]
     },
@@ -442,6 +541,15 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "beastmaster_inner_beast",
+          "displayName": "Inner Beast",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/beastmaster_inner_beast.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "beastmaster_drums_of_slom",
           "displayName": "Drums of Slom",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/beastmaster_drums_of_slom.png",
@@ -488,6 +596,15 @@
           "id": "bloodseeker_thirst",
           "displayName": "Thirst",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/bloodseeker_thirst.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
+          "id": "bloodseeker_sanguivore",
+          "displayName": "Sanguivore",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/bloodseeker_sanguivore.png",
           "status": "unsupported",
           "signal": null,
           "toggleActiveAlias": null,
@@ -598,6 +715,15 @@
           "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
         },
         {
+          "id": "brewmaster_liquid_courage",
+          "displayName": "Liquid Courage",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/brewmaster_liquid_courage.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "brewmaster_primal_split",
           "displayName": "Primal Split",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/brewmaster_primal_split.png",
@@ -639,6 +765,15 @@
           "signal": null,
           "toggleActiveAlias": null,
           "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
+          "id": "bristleback_hairball",
+          "displayName": "Hairball",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/bristleback_hairball.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
           "id": "bristleback_warpath",
@@ -693,6 +828,24 @@
           "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
+          "id": "broodmother_sticky_snare",
+          "displayName": "Spinner's Snare",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/broodmother_sticky_snare.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
+        },
+        {
+          "id": "broodmother_spiders_milk",
+          "displayName": "Spider's Milk",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/broodmother_spiders_milk.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "broodmother_spawn_spiderlings",
           "displayName": "Spawn Spiderlings",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/broodmother_spawn_spiderlings.png",
@@ -739,6 +892,15 @@
           "id": "centaur_work_horse",
           "displayName": "Work Horse",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/centaur_work_horse.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "centaur_mount",
+          "displayName": "Hitch A Ride",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/centaur_mount.png",
           "status": "experimental",
           "signal": "cooldown",
           "toggleActiveAlias": null,
@@ -971,9 +1133,36 @@
           "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
+          "id": "crystal_maiden_crystal_clone",
+          "displayName": "Crystal Clone",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/crystal_maiden_crystal_clone.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "crystal_maiden_glacial_guard",
+          "displayName": "Glacial Guard",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/crystal_maiden_glacial_guard.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "crystal_maiden_freezing_field",
           "displayName": "Freezing Field",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/crystal_maiden_freezing_field.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "crystal_maiden_freezing_field_stop",
+          "displayName": "Stop Freezing Field",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/crystal_maiden_freezing_field_stop.png",
           "status": "experimental",
           "signal": "cooldown",
           "toggleActiveAlias": null,
@@ -1012,6 +1201,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "dark_seer_normal_punch",
+          "displayName": "Normal Punch",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/dark_seer_normal_punch.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
           "id": "dark_seer_aggrandize",
@@ -1127,6 +1325,15 @@
           "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
+          "id": "dawnbreaker_converge",
+          "displayName": "Converge",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/dawnbreaker_converge.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
           "id": "dawnbreaker_break_of_dawn",
           "displayName": "Break of Dawn",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/dawnbreaker_break_of_dawn.png",
@@ -1179,6 +1386,15 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "dazzle_innate_weave",
+          "displayName": "Weave",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/dazzle_innate_weave.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "dazzle_nothl_projection",
           "displayName": "Nothl Projection",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/dazzle_nothl_projection.png",
@@ -1186,6 +1402,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "dazzle_nothl_projection_end",
+          "displayName": "End Projection",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/dazzle_nothl_projection_end.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
         }
       ]
     },
@@ -1220,6 +1445,15 @@
           "signal": null,
           "toggleActiveAlias": null,
           "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
+        },
+        {
+          "id": "death_prophet_witchcraft",
+          "displayName": "Witchcraft",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/death_prophet_witchcraft.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
           "id": "death_prophet_exorcism",
@@ -1263,6 +1497,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "disruptor_kinetic_fence",
+          "displayName": "Kinetic Fence",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/disruptor_kinetic_fence.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
         },
         {
           "id": "disruptor_electromagnetic_repulsion",
@@ -1360,6 +1603,15 @@
           "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
+          "id": "dragon_knight_fireball",
+          "displayName": "Fireball",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/dragon_knight_fireball.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
           "id": "dragon_knight_dragon_blood",
           "displayName": "Dragon Blood",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/dragon_knight_dragon_blood.png",
@@ -1421,6 +1673,15 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "drow_ranger_trueshot",
+          "displayName": "Precision Aura",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/drow_ranger_trueshot.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "drow_ranger_marksmanship",
           "displayName": "Marksmanship",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/drow_ranger_marksmanship.png",
@@ -1471,6 +1732,15 @@
           "signal": null,
           "toggleActiveAlias": null,
           "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
+        },
+        {
+          "id": "earth_spirit_petrify",
+          "displayName": "Enchant Remnant",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/earth_spirit_petrify.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
           "id": "earth_spirit_magnetize",
@@ -1568,6 +1838,15 @@
           "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
+          "id": "elder_titan_move_spirit",
+          "displayName": "Move Astral Spirit",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/elder_titan_move_spirit.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
+        },
+        {
           "id": "elder_titan_momentum",
           "displayName": "Momentum",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/elder_titan_momentum.png",
@@ -1584,6 +1863,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "elder_titan_return_spirit",
+          "displayName": "Return Astral Spirit",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/elder_titan_return_spirit.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
         }
       ]
     },
@@ -1681,6 +1969,15 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "enchantress_bunny_hop",
+          "displayName": "Sproink",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/enchantress_bunny_hop.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
           "id": "enchantress_little_friends",
           "displayName": "Little Friends",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/enchantress_little_friends.png",
@@ -1693,6 +1990,15 @@
           "id": "enchantress_untouchable",
           "displayName": "Untouchable",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/enchantress_untouchable.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
+          "id": "enchantress_rabblerouser",
+          "displayName": "Rabble-Rouser",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/enchantress_rabblerouser.png",
           "status": "unsupported",
           "signal": null,
           "toggleActiveAlias": null,
@@ -1731,6 +2037,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "enigma_event_horizon",
+          "displayName": "Event Horizon",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/enigma_event_horizon.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
           "id": "enigma_black_hole",
@@ -1774,6 +2089,15 @@
           "signal": null,
           "toggleActiveAlias": null,
           "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
+          "id": "faceless_void_time_walk_reverse",
+          "displayName": "Reverse Time Walk",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/faceless_void_time_walk_reverse.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
           "id": "faceless_void_distortion_field",
@@ -1837,6 +2161,15 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "furion_spirit_of_the_forest",
+          "displayName": "Spirit of the Forest",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/furion_spirit_of_the_forest.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "furion_wrath_of_nature",
           "displayName": "Wrath of Nature",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/furion_wrath_of_nature.png",
@@ -1880,6 +2213,15 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "grimstroke_dark_portrait",
+          "displayName": "Dark Portrait",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/grimstroke_dark_portrait.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
           "id": "grimstroke_soul_chain",
           "displayName": "Soulbind",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/grimstroke_soul_chain.png",
@@ -1887,6 +2229,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "grimstroke_ink_trail",
+          "displayName": "Ink Trail",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/grimstroke_ink_trail.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         }
       ]
     },
@@ -1921,6 +2272,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "gyrocopter_afterburner",
+          "displayName": "Afterburner",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/gyrocopter_afterburner.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
           "id": "gyrocopter_side_gunner_spawn_ability",
@@ -1975,6 +2335,24 @@
           "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
         },
         {
+          "id": "hoodwink_decoy",
+          "displayName": "Decoy",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/hoodwink_decoy.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "hoodwink_hunters_boomerang",
+          "displayName": "Hunter's Boomerang",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/hoodwink_hunters_boomerang.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
           "id": "hoodwink_sharpshooter",
           "displayName": "Sharpshooter",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/hoodwink_sharpshooter.png",
@@ -1982,6 +2360,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "hoodwink_sharpshooter_release",
+          "displayName": "End Sharpshooter",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/hoodwink_sharpshooter_release.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
         },
         {
           "id": "hoodwink_mistwoods_wayfarer",
@@ -2334,6 +2721,24 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "keeper_of_the_light_radiant_bind",
+          "displayName": "Solar Bind",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/keeper_of_the_light_radiant_bind.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "keeper_of_the_light_will_o_wisp",
+          "displayName": "Will-O-Wisp",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/keeper_of_the_light_will_o_wisp.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
           "id": "keeper_of_the_light_spirit_form",
           "displayName": "Spirit Form",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/keeper_of_the_light_spirit_form.png",
@@ -2341,6 +2746,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "keeper_of_the_light_illuminate_end",
+          "displayName": "Release Illuminate",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/keeper_of_the_light_illuminate_end.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
         },
         {
           "id": "keeper_of_the_light_bright_speed",
@@ -2402,6 +2816,51 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "kez_falcon_rush",
+          "displayName": "Falcon Rush",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/kez_falcon_rush.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "kez_talon_toss",
+          "displayName": "Talon Toss",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/kez_talon_toss.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "kez_shodo_sai",
+          "displayName": "Shodo Sai",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/kez_shodo_sai.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "kez_ravens_veil",
+          "displayName": "Raven's Veil",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/kez_ravens_veil.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "kez_shodo_sai_parry_cancel",
+          "displayName": "Cancel",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/kez_shodo_sai_parry_cancel.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
         }
       ]
     },
@@ -2447,9 +2906,27 @@
           "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
+          "id": "kunkka_tidal_wave",
+          "displayName": "Tidal Wave",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/kunkka_tidal_wave.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
           "id": "kunkka_ghostship",
           "displayName": "Ghostship",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/kunkka_ghostship.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "kunkka_return",
+          "displayName": "Return",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/kunkka_return.png",
           "status": "experimental",
           "signal": "cooldown",
           "toggleActiveAlias": null,
@@ -2490,9 +2967,45 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "largo_encore",
+          "displayName": "Encore",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/largo_encore.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "largo_amphibian_rhapsody",
           "displayName": "Amphibian Rhapsody",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/largo_amphibian_rhapsody.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "largo_song_fight_song",
+          "displayName": "Bullbelly Blitz",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/largo_song_fight_song.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "largo_song_double_time",
+          "displayName": "Hotfeet Hustle",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/largo_song_double_time.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "largo_song_good_vibrations",
+          "displayName": "Island Elixir",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/largo_song_good_vibrations.png",
           "status": "experimental",
           "signal": "cooldown",
           "toggleActiveAlias": null,
@@ -2527,6 +3040,15 @@
           "id": "legion_commander_moment_of_courage",
           "displayName": "Moment of Courage",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/legion_commander_moment_of_courage.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
+          "id": "legion_commander_outfight_them",
+          "displayName": "Outfight Them!",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/legion_commander_outfight_them.png",
           "status": "unsupported",
           "signal": null,
           "toggleActiveAlias": null,
@@ -2637,6 +3159,15 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "lich_ice_spire",
+          "displayName": "Ice Spire",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/lich_ice_spire.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
           "id": "lich_death_charge",
           "displayName": "Sacrifice",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/lich_death_charge.png",
@@ -2689,6 +3220,15 @@
           "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
+          "id": "life_stealer_ghoul_frenzy",
+          "displayName": "Ghoul Frenzy",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/life_stealer_ghoul_frenzy.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "life_stealer_infest",
           "displayName": "Infest",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/life_stealer_infest.png",
@@ -2696,6 +3236,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "life_stealer_consume",
+          "displayName": "Consume",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/life_stealer_consume.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
         }
       ]
     },
@@ -2897,6 +3446,15 @@
           "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
+          "id": "luna_lunar_blessing",
+          "displayName": "Lunar Blessing",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/luna_lunar_blessing.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "luna_eclipse",
           "displayName": "Eclipse",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/luna_eclipse.png",
@@ -2938,6 +3496,15 @@
           "signal": null,
           "toggleActiveAlias": null,
           "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
+          "id": "lycan_wolf_bite",
+          "displayName": "Wolf Bite",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/lycan_wolf_bite.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
           "id": "lycan_apex_predator",
@@ -2990,6 +3557,24 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "magnataur_horn_toss",
+          "displayName": "Horn Toss",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/magnataur_horn_toss.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "magnataur_solid_core",
+          "displayName": "Solid Core",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/magnataur_solid_core.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
           "id": "magnataur_reverse_polarity",
@@ -3139,6 +3724,24 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "medusa_cold_blooded",
+          "displayName": "Cold Blooded",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/medusa_cold_blooded.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
+          "id": "medusa_mana_shield",
+          "displayName": "Mana Shield",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/medusa_mana_shield.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "medusa_stone_gaze",
           "displayName": "Stone Gaze",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/medusa_stone_gaze.png",
@@ -3182,6 +3785,15 @@
           "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
+          "id": "meepo_petrify",
+          "displayName": "Dig",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/meepo_petrify.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
           "id": "meepo_megameepo",
           "displayName": "MegaMeepo",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/meepo_megameepo.png",
@@ -3198,6 +3810,24 @@
           "signal": null,
           "toggleActiveAlias": null,
           "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
+          "id": "meepo_geomancy",
+          "displayName": "Geomancy",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/meepo_geomancy.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
+          "id": "meepo_megameepo_fling",
+          "displayName": "MegaMeepo Fling",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/meepo_megameepo_fling.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         }
       ]
     },
@@ -3311,6 +3941,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "monkey_king_primal_spring_early",
+          "displayName": "Spring Early",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/monkey_king_primal_spring_early.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
         }
       ]
     },
@@ -3338,6 +3977,15 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "morphling_ebb_and_flow",
+          "displayName": "Ebb and Flow",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/morphling_ebb_and_flow.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "morphling_morph_agi",
           "displayName": "Attribute Shift (Agility Gain)",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/morphling_morph_agi.png",
@@ -3359,6 +4007,15 @@
           "id": "morphling_replicate",
           "displayName": "Morph",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/morphling_replicate.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "morphling_morph_replicate",
+          "displayName": "Morph Replicate",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/morphling_morph_replicate.png",
           "status": "experimental",
           "signal": "cooldown",
           "toggleActiveAlias": null,
@@ -3415,6 +4072,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "muerta_supernatural",
+          "displayName": "Supernatural",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/muerta_supernatural.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         }
       ]
     },
@@ -3476,6 +4142,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "naga_siren_song_of_the_siren_cancel",
+          "displayName": "Song of the Siren End",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/naga_siren_song_of_the_siren_cancel.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         }
       ]
     },
@@ -3506,6 +4181,24 @@
           "id": "necrolyte_heartstopper_aura",
           "displayName": "Heartstopper Aura",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/necrolyte_heartstopper_aura.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
+          "id": "necrolyte_death_seeker",
+          "displayName": "Death Seeker",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/necrolyte_death_seeker.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "necrolyte_sadist",
+          "displayName": "Sadist",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/necrolyte_sadist.png",
           "status": "unsupported",
           "signal": null,
           "toggleActiveAlias": null,
@@ -3580,6 +4273,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "nevermore_necromastery",
+          "displayName": "Necromastery",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/nevermore_necromastery.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         }
       ]
     },
@@ -3610,6 +4312,15 @@
           "id": "night_stalker_midnight_feast",
           "displayName": "Midnight Feast",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/night_stalker_midnight_feast.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
+          "id": "night_stalker_hunter_in_the_night",
+          "displayName": "Hunter in the Night",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/night_stalker_hunter_in_the_night.png",
           "status": "unsupported",
           "signal": null,
           "toggleActiveAlias": null,
@@ -3659,6 +4370,24 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "nyx_assassin_burrow",
+          "displayName": "Burrow",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/nyx_assassin_burrow.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
+        },
+        {
+          "id": "nyx_assassin_neuro_sting",
+          "displayName": "Mana Burn",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/nyx_assassin_neuro_sting.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "nyx_assassin_vendetta",
           "displayName": "Vendetta",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/nyx_assassin_vendetta.png",
@@ -3666,6 +4395,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "nyx_assassin_unburrow",
+          "displayName": "Unburrow",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/nyx_assassin_unburrow.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
         }
       ]
     },
@@ -3700,6 +4438,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "obsidian_destroyer_equilibrium",
+          "displayName": "Essence Flux",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/obsidian_destroyer_equilibrium.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
           "id": "obsidian_destroyer_sanity_eclipse",
@@ -3745,6 +4492,33 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "ogre_magi_unrefined_fireblast",
+          "displayName": "Unrefined Fireblast",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/ogre_magi_unrefined_fireblast.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "ogre_magi_smash",
+          "displayName": "Fire Shield",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/ogre_magi_smash.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "ogre_magi_dumb_luck",
+          "displayName": "Dumb Luck",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/ogre_magi_dumb_luck.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "ogre_magi_multicast",
           "displayName": "Multicast",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/ogre_magi_multicast.png",
@@ -3786,6 +4560,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "omniknight_degen_aura",
+          "displayName": "Degen Aura",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/omniknight_degen_aura.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
           "id": "omniknight_guardian_angel",
@@ -3901,6 +4684,15 @@
           "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
+          "id": "pangolier_rollup",
+          "displayName": "Roll Up",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/pangolier_rollup.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
           "id": "pangolier_gyroshell",
           "displayName": "Rolling Thunder",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/pangolier_gyroshell.png",
@@ -3908,6 +4700,33 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "pangolier_gyroshell_stop",
+          "displayName": "Stop Rolling",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/pangolier_gyroshell_stop.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
+        },
+        {
+          "id": "pangolier_rollup_stop",
+          "displayName": "End Roll Up",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/pangolier_rollup_stop.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
+        },
+        {
+          "id": "pangolier_fortune_favors_the_bold",
+          "displayName": "Fortune Favors the Bold",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/pangolier_fortune_favors_the_bold.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         }
       ]
     },
@@ -3938,6 +4757,15 @@
           "id": "phantom_assassin_blur",
           "displayName": "Blur",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/phantom_assassin_blur.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "phantom_assassin_fan_of_knives",
+          "displayName": "Fan of Knives",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/phantom_assassin_fan_of_knives.png",
           "status": "experimental",
           "signal": "cooldown",
           "toggleActiveAlias": null,
@@ -3996,6 +4824,15 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "phantom_lancer_illusory_armaments",
+          "displayName": "Illusory Armaments",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/phantom_lancer_illusory_armaments.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "phantom_lancer_juxtapose",
           "displayName": "Juxtapose",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/phantom_lancer_juxtapose.png",
@@ -4048,6 +4885,15 @@
           "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
         },
         {
+          "id": "phoenix_dying_light",
+          "displayName": "Dying Light",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/phoenix_dying_light.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "phoenix_supernova",
           "displayName": "Supernova",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/phoenix_supernova.png",
@@ -4055,6 +4901,33 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "phoenix_launch_fire_spirit",
+          "displayName": "Launch Fire Spirit",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/phoenix_launch_fire_spirit.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
+        },
+        {
+          "id": "phoenix_icarus_dive_stop",
+          "displayName": "Stop Icarus Dive",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/phoenix_icarus_dive_stop.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
+        },
+        {
+          "id": "phoenix_sun_ray_stop",
+          "displayName": "Stop Sun Ray",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/phoenix_sun_ray_stop.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
         }
       ]
     },
@@ -4089,6 +4962,24 @@
           "signal": null,
           "toggleActiveAlias": null,
           "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
+        },
+        {
+          "id": "primal_beast_rock_throw",
+          "displayName": "Rock Throw",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/primal_beast_rock_throw.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "primal_beast_onslaught_release",
+          "displayName": "Begin Onslaught",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/primal_beast_onslaught_release.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
           "id": "primal_beast_pulverize",
@@ -4202,6 +5093,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "pudge_innate_graft_flesh",
+          "displayName": "Flesh Heap",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/pudge_innate_graft_flesh.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
           "id": "pudge_dismember",
@@ -4351,6 +5251,24 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "rattletrap_overclocking",
+          "displayName": "Overclocking",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/rattletrap_overclocking.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "rattletrap_jetpack",
+          "displayName": "Jetpack",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/rattletrap_jetpack.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
           "id": "rattletrap_hookshot",
           "displayName": "Hookshot",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/rattletrap_hookshot.png",
@@ -4464,6 +5382,15 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "riki_innate_backstab",
+          "displayName": "Backstab",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/riki_innate_backstab.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "riki_backstab",
           "displayName": "Cloak and Dagger",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/riki_backstab.png",
@@ -4532,6 +5459,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "ringmaster_tame_the_beasts_crack",
+          "displayName": "Crack",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/ringmaster_tame_the_beasts_crack.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         }
       ]
     },
@@ -4575,6 +5511,33 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "rubick_telekinesis_land",
+          "displayName": "Telekinesis Land",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/rubick_telekinesis_land.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
+        },
+        {
+          "id": "rubick_curiosity",
+          "displayName": "Curiosity",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/rubick_curiosity.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
+          "id": "rubick_telekinesis_land_self",
+          "displayName": "Telekinesis Land",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/rubick_telekinesis_land_self.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
         }
       ]
     },
@@ -4609,6 +5572,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "sandking_caustic_finale",
+          "displayName": "Caustic Finale",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/sandking_caustic_finale.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
           "id": "sandking_epicenter",
@@ -4679,6 +5651,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "shadow_demon_menace",
+          "displayName": "Menace",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/shadow_demon_menace.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         }
       ]
     },
@@ -4776,6 +5757,15 @@
           "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
+          "id": "shredder_flamethrower",
+          "displayName": "Flamethrower",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/shredder_flamethrower.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
           "id": "shredder_chakram",
           "displayName": "Chakram",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/shredder_chakram.png",
@@ -4783,6 +5773,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "shredder_return_chakram",
+          "displayName": "Return Chakram",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/shredder_return_chakram.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
         },
         {
           "id": "shredder_exposure_therapy",
@@ -4844,6 +5843,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "silencer_oppressive_silence",
+          "displayName": "Suffer In Silence",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/silencer_oppressive_silence.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         }
       ]
     },
@@ -4930,6 +5938,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "skywrath_mage_shield_of_the_scion",
+          "displayName": "Shield of the Scion",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/skywrath_mage_shield_of_the_scion.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
           "id": "skywrath_mage_mystic_flare",
@@ -5027,6 +6044,24 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "slark_depth_shroud",
+          "displayName": "Depth Shroud",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/slark_depth_shroud.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "slark_essence_shift",
+          "displayName": "Essence Shift",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/slark_essence_shift.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "slark_shadow_dance",
           "displayName": "Shadow Dance",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/slark_shadow_dance.png",
@@ -5064,6 +6099,15 @@
           "id": "snapfire_lil_shredder",
           "displayName": "Lil' Shredder",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/snapfire_lil_shredder.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "snapfire_gobble_up",
+          "displayName": "Gobble Up",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/snapfire_gobble_up.png",
           "status": "experimental",
           "signal": "cooldown",
           "toggleActiveAlias": null,
@@ -5201,6 +6245,15 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "spectre_desolate",
+          "displayName": "Desolate",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/spectre_desolate.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "spectre_haunt",
           "displayName": "Haunt",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/spectre_haunt.png",
@@ -5251,6 +6304,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "spirit_breaker_bull_rush",
+          "displayName": "Empowering Haste",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/spirit_breaker_bull_rush.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
           "id": "spirit_breaker_nether_strike",
@@ -5355,6 +6417,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "sven_wrath_of_god",
+          "displayName": "Wrath of God",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/sven_wrath_of_god.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         }
       ]
     },
@@ -5391,6 +6462,24 @@
           "reason": null
         },
         {
+          "id": "techies_mutually_assured_destruction",
+          "displayName": "M.A.D.",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/techies_mutually_assured_destruction.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
+          "id": "techies_minefield_sign",
+          "displayName": "Minefield Sign",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/techies_minefield_sign.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
           "id": "techies_land_mines",
           "displayName": "Proximity Mines",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/techies_land_mines.png",
@@ -5398,6 +6487,15 @@
           "signal": "charges",
           "toggleActiveAlias": null,
           "reason": null
+        },
+        {
+          "id": "techies_focused_detonate",
+          "displayName": "Detonate M.A.D.",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/techies_focused_detonate.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         }
       ]
     },
@@ -5437,6 +6535,15 @@
           "id": "templar_assassin_trap",
           "displayName": "Trap",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/templar_assassin_trap.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "templar_assassin_trap_teleport",
+          "displayName": "Psionic Projection",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/templar_assassin_trap_teleport.png",
           "status": "experimental",
           "signal": "cooldown",
           "toggleActiveAlias": null,
@@ -5489,6 +6596,15 @@
           "id": "terrorblade_metamorphosis",
           "displayName": "Metamorphosis",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/terrorblade_metamorphosis.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "terrorblade_demon_zeal",
+          "displayName": "Demon Zeal",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/terrorblade_demon_zeal.png",
           "status": "experimental",
           "signal": "cooldown",
           "toggleActiveAlias": null,
@@ -5608,6 +6724,15 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "tinker_warp_grenade",
+          "displayName": "Warp Flare",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/tinker_warp_grenade.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
           "id": "tinker_keen_teleport",
           "displayName": "Keen Conveyance",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/tinker_keen_teleport.png",
@@ -5669,6 +6794,24 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "tiny_tree_channel",
+          "displayName": "Tree Volley",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/tiny_tree_channel.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "tiny_insurmountable",
+          "displayName": "Insurmountable",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/tiny_insurmountable.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
           "id": "tiny_grow",
           "displayName": "Grow",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/tiny_grow.png",
@@ -5676,6 +6819,15 @@
           "signal": null,
           "toggleActiveAlias": null,
           "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
+        },
+        {
+          "id": "tiny_toss_tree",
+          "displayName": "Tree Throw",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/tiny_toss_tree.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
         }
       ]
     },
@@ -5710,6 +6862,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "treant_eyes_in_the_forest",
+          "displayName": "Eyes In The Forest",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/treant_eyes_in_the_forest.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
         },
         {
           "id": "treant_natures_guise",
@@ -5834,6 +6995,15 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "tusk_walrus_kick",
+          "displayName": "Walrus Kick",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/tusk_walrus_kick.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
           "id": "tusk_walrus_punch",
           "displayName": "Walrus PUNCH!",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/tusk_walrus_punch.png",
@@ -5841,6 +7011,24 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "tusk_launch_snowball",
+          "displayName": "Launch Snowball",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/tusk_launch_snowball.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
+        },
+        {
+          "id": "tusk_bitter_chill",
+          "displayName": "Bitter Chill",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/tusk_bitter_chill.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         }
       ]
     },
@@ -6031,6 +7219,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "venomancer_poison_sting",
+          "displayName": "Poison Sting",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/venomancer_poison_sting.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
           "id": "venomancer_noxious_plague",
@@ -6318,6 +7515,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "weaver_threads_of_fate",
+          "displayName": "Threads of Fate",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/weaver_threads_of_fate.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         }
       ]
     },
@@ -6354,6 +7560,24 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "windrunner_gale_force",
+          "displayName": "Gale Force",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/windrunner_gale_force.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "windrunner_focusfire_cancel",
+          "displayName": "Focus Fire Cancel",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/windrunner_focusfire_cancel.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
+        },
+        {
           "id": "windrunner_focusfire",
           "displayName": "Focus Fire",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/windrunner_focusfire.png",
@@ -6361,6 +7585,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "windrunner_tailwind",
+          "displayName": "Tailwind",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/windrunner_tailwind.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         }
       ]
     },
@@ -6395,6 +7628,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "winter_wyvern_eldwurms_edda",
+          "displayName": "Eldwurm's Edda",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/winter_wyvern_eldwurms_edda.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         },
         {
           "id": "winter_wyvern_winters_curse",
@@ -6440,6 +7682,24 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "wisp_spirits_in",
+          "displayName": "Spirits In",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/wisp_spirits_in.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
+        },
+        {
+          "id": "wisp_spirits_out",
+          "displayName": "Spirits Out",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/wisp_spirits_out.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Метаданные Dota не сообщают кулдаун для этой способности — нет сигнала, на основе которого можно строить detection."
+        },
+        {
           "id": "wisp_relocate",
           "displayName": "Relocate",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/wisp_relocate.png",
@@ -6447,6 +7707,24 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "wisp_tether_break",
+          "displayName": "Break Tether",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/wisp_tether_break.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "wisp_equilibrium",
+          "displayName": "Equilibrium",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/wisp_equilibrium.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         }
       ]
     },
@@ -6477,6 +7755,15 @@
           "id": "witch_doctor_maledict",
           "displayName": "Maledict",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/witch_doctor_maledict.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "witch_doctor_voodoo_switcheroo",
+          "displayName": "Voodoo Switcheroo",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/witch_doctor_voodoo_switcheroo.png",
           "status": "experimental",
           "signal": "cooldown",
           "toggleActiveAlias": null,
@@ -6535,6 +7822,15 @@
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
         },
         {
+          "id": "zuus_cloud",
+          "displayName": "Nimbus",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/zuus_cloud.png",
+          "status": "experimental",
+          "signal": "cooldown",
+          "toggleActiveAlias": null,
+          "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
           "id": "zuus_lightning_hands",
           "displayName": "Lightning Hands",
           "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/zuus_lightning_hands.png",
@@ -6551,6 +7847,15 @@
           "signal": "cooldown",
           "toggleActiveAlias": null,
           "reason": "Способность похожа на обычный cast с кулдауном по метаданным Dota, но реальное GSI-поведение не подтверждено реальным capture — возможны случаи вроде Reactive Tazer, где метаданные вводят в заблуждение."
+        },
+        {
+          "id": "zuus_static_field",
+          "displayName": "Static Field",
+          "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/abilities/zuus_static_field.png",
+          "status": "unsupported",
+          "signal": null,
+          "toggleActiveAlias": null,
+          "reason": "Пассивная способность/эффект по метаданным Dota — не имеет момента явного применения игроком."
         }
       ]
     }

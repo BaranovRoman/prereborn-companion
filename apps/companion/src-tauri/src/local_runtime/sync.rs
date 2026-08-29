@@ -15,7 +15,7 @@
 // independently; backend failure only ever affects how long a row waits
 // here, never the local entity it describes.
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration as StdDuration;
 
 use chrono::{DateTime, Duration, Utc};
@@ -299,9 +299,27 @@ fn send_event(token: &str, event_id: &str, event_type: &str, payload_json: &str)
 /// shadow rows (see `is_eligible`) are the one case allowed to be skipped
 /// without blocking anything newer - they can never succeed and were never
 /// meant to sync at all (see the WK-113 migration/bootstrap boundary).
+// WK-126 - `drain_outbox` used to return here with zero observability: a
+// missing companion token (never configured, or cleared) meant every
+// session/match sync event queued up forever with no log line anywhere
+// explaining why - the exact "backend sees 0 matches, no diagnosis
+// possible" symptom this ticket investigates. Logged once per token
+// disappearing (reset back to `false` the moment a token IS present again,
+// see below), never once per DRAIN_INTERVAL tick.
+static NO_TOKEN_WARNED: AtomicBool = AtomicBool::new(false);
+
 fn drain_outbox(app: &AppHandle) {
     let token = { app.state::<AppState>().0.lock().unwrap().companion_token.clone() };
-    let Some(token) = token else { return };
+    let Some(token) = token else {
+        if !NO_TOKEN_WARNED.swap(true, Ordering::Relaxed) {
+            crate::storage::append_rolling_log(
+                app,
+                "Sync: no companion token configured - local matches/sessions are being recorded but will not sync to the backend until one is set.",
+            );
+        }
+        return;
+    };
+    NO_TOKEN_WARNED.store(false, Ordering::Relaxed);
 
     loop {
         let now = Utc::now();

@@ -1,9 +1,18 @@
 import type { StatusSnapshot, SyncOutboxStatus } from "../types/status";
 import type { BackendStatusDescription } from "../utils/backendStatus";
 
+// WK-124 - replaces the old "warning"/"error" tone pair (mustard-yellow
+// read as a generic modern alert, not Dota HUD chrome - see App.css) with
+// the palette this slice's reference calls for: "recovering" is a
+// restrained dark red/crimson (a transient, still-retrying state),
+// "critical" is a deeper, more saturated red (confirmed down / permanent
+// data loss), "info" is a desaturated steel/blue reserved for backend/sync
+// issues, which never touch the live stream and stay categorically softer
+// than a GSI/OBS problem. No tone is ever yellow.
+type ProblemTone = "recovering" | "critical" | "info";
 interface ProblemItem {
   key: string;
-  tone: "warning" | "error";
+  tone: ProblemTone;
   label: string;
   detail: string;
 }
@@ -34,15 +43,15 @@ export function ProblemBar({ status, backendStatus, syncStatus }: Props) {
   // available on Диагностика for anyone who actually needs it (see
   // StatusChecklist).
   if (status.gsi_state === "unavailable") {
-    items.push({ key: "gsi", tone: "error", label: "Нет сигнала Dota", detail: "Локальный сервис недоступен. Подробности — в Диагностике." });
+    items.push({ key: "gsi", tone: "critical", label: "Нет сигнала Dota", detail: "Локальный сервис недоступен. Подробности — в Диагностике." });
   } else if (status.gsi_state === "recovering") {
-    items.push({ key: "gsi", tone: "warning", label: "Нет сигнала Dota", detail: "Переподключение…" });
+    items.push({ key: "gsi", tone: "recovering", label: "Нет сигнала Dota", detail: "Переподключение…" });
   }
 
   if (status.obs_state === "unavailable") {
-    items.push({ key: "obs", tone: "error", label: "OBS не подключён", detail: "Проверьте, что OBS запущен и WebSocket включён." });
+    items.push({ key: "obs", tone: "critical", label: "OBS не подключён", detail: "Проверьте, что OBS запущен и WebSocket включён." });
   } else if (status.obs_state === "recovering") {
-    items.push({ key: "obs", tone: "warning", label: "OBS не подключён", detail: "Переподключение…" });
+    items.push({ key: "obs", tone: "recovering", label: "OBS не подключён", detail: "Переподключение…" });
   }
 
   if (backendStatus.tone !== "ok" && (status.backend_state === "recovering" || status.backend_state === "unavailable")) {
@@ -52,7 +61,7 @@ export function ProblemBar({ status, backendStatus, syncStatus }: Props) {
     // than adding a second one, per the "no separate big sync card" rule.
     const pending = syncStatus?.pendingCount ?? 0;
     const detail = pending > 0 ? `${backendStatus.detail} Ожидает отправки: ${pending}.` : backendStatus.detail;
-    items.push({ key: "backend", tone: "warning", label: backendStatus.label, detail });
+    items.push({ key: "backend", tone: "info", label: backendStatus.label, detail });
   }
 
   // WK-119 - dead-lettered sync events (the backend permanently rejected
@@ -63,7 +72,7 @@ export function ProblemBar({ status, backendStatus, syncStatus }: Props) {
   if (syncStatus && syncStatus.failedCount > 0) {
     items.push({
       key: "sync-dead-letter",
-      tone: "error",
+      tone: "critical",
       label: "Часть данных не синхронизирована",
       detail: `${syncStatus.failedCount} событий отклонены сервером. Подробности — в Диагностике.`,
     });

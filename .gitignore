@@ -27,3 +27,4 @@ uploads/
 *.dmg
 *.AppImage
 .DS_Store
+/docs/qa-screenshots/

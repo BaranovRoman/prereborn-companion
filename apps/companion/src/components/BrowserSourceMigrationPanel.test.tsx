@@ -26,19 +26,25 @@ describe("BrowserSourceMigrationPanel", () => {
     expect(screen.queryByRole("button", { name: "Перевести на localhost" })).toBeNull();
   });
 
-  it("shows the missing state with no migrate action", async () => {
+  // WK-126 - "missing" means detectObsBrowserSource found no existing input
+  // to migrate at all (a fresh OBS setup, nothing to auto-create from) - the
+  // user must add a Browser Source by hand, so the URL to paste must be on
+  // screen, not just implied by the panel's own description text above.
+  it("shows the missing state with no migrate action, and the URL to paste manually", async () => {
     mockedDetect.mockResolvedValue({ state: "missing" });
     render(<BrowserSourceMigrationPanel />);
     fireEvent.click(screen.getByRole("button", { name: "Проверить" }));
     await waitFor(() => expect(screen.getByText(/не найден/)).toBeTruthy());
+    expect(screen.getByText("http://127.0.0.1:3666/overlay")).toBeTruthy();
   });
 
-  it("shows the ambiguous state listing every candidate, with no migrate action", async () => {
+  it("shows the ambiguous state listing every candidate, with no migrate action, and the URL to paste manually", async () => {
     mockedDetect.mockResolvedValue({ state: "ambiguous", candidates: ["Overlay A", "Overlay B"] });
     render(<BrowserSourceMigrationPanel />);
     fireEvent.click(screen.getByRole("button", { name: "Проверить" }));
     await waitFor(() => expect(screen.getByText("Overlay A")).toBeTruthy());
     expect(screen.getByText("Overlay B")).toBeTruthy();
+    expect(screen.getByText("http://127.0.0.1:3666/overlay")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Перевести на localhost" })).toBeNull();
   });
 

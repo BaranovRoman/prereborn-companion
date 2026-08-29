@@ -23,14 +23,22 @@ const ATTRIBUTE_LABEL: Record<string, string> = {
   universal: "Универсальный",
 };
 
+// WK-125 - past this many abilities a single vertical column starts running
+// noticeably taller than the hero visual next to it (Invoker's 14 is the
+// production example) - the list switches to a compact 2-column grid. A
+// plain count threshold, not a hero id: any current or future hero with
+// this many abilities gets the same treatment, and an ordinary hero (4-8
+// abilities - Techies, Largo) always stays a single column, per this
+// slice's "не Invoker-specific CSS" requirement.
+const DENSE_ABILITY_LIST_THRESHOLD = 8;
+
 function statusLabel(ability: TrackedAbility): string {
   if (ability.status === "unsupported") return `${ability.displayName}: ${ability.reason}`;
   if (ability.status === "experimental") return `${ability.displayName} (экспериментально): ${ability.reason}`;
   return ability.displayName;
 }
 
-interface AbilityColumnProps {
-  align: "left" | "right";
+interface AbilityListProps {
   abilities: TrackedAbility[];
   settings: GameSoundSettings;
   selectedAbilityId: string | null;
@@ -43,13 +51,11 @@ interface AbilityColumnProps {
 // Each row surfaces the full assignment state up front (icon, name, support
 // state, bound file) - only the three action buttons (Выбрать/Прослушать/
 // Удалить) stay behind a single click, via the same inline SoundBindingRow
-// HeroDetailPage always used (no modal). Splitting the hero's ability list
-// across two columns is what lets the hero visual sit at the horizontal
-// center of the workspace (see §3 of this slice's brief) instead of pushing
-// everything below a full-width video row.
-function AbilityColumn({ align, abilities, settings, selectedAbilityId, onSelect, onChooseFile, onPreview, onRemove }: AbilityColumnProps) {
+// HeroDetailPage always used (no modal).
+function AbilityList({ abilities, settings, selectedAbilityId, onSelect, onChooseFile, onPreview, onRemove }: AbilityListProps) {
+  const dense = abilities.length > DENSE_ABILITY_LIST_THRESHOLD;
   return (
-    <div className={`hero-ability-column hero-ability-column--${align}`}>
+    <div className={`hero-ability-list ${dense ? "hero-ability-list--dense" : ""}`}>
       {abilities.map((ability) => {
         const binding = settings.bindings.find((b) => b.eventId === ability.id && b.kind === "abilityCast");
         const asset = binding ? settings.assets.find((a) => a.id === binding.assetId) : undefined;
@@ -103,22 +109,21 @@ function AbilityColumn({ align, abilities, settings, selectedAbilityId, onSelect
   );
 }
 
-// WK-123 - Hero Detail rebuilt around a three-part horizontal composition
-// (left abilities / hero visual / right abilities) instead of the previous
-// full-width video "scene" with abilities stacked below it: that shape left
-// the assignment workflow (the actual point of this screen) below the fold
-// on common desktop sizes, with the video reading as a giant player card
-// rather than the hero simply being present in the interface. The hero's
-// own ability list (`trackedHero.abilities`, same order the Rust catalog
-// returns them in) is split in half so both columns flank the visual and
-// stay in original order end-to-end when the layout collapses to one column
-// under 1200px (see `.hero-detail__workspace`'s media query in App.css) -
-// there is no separate "left" vs "right" ability grouping, it is purely a
-// spatial split of one ordered list. Video is masked with a soft radial
-// fade (no rectangular border/background box) so it reads as hero artwork
-// embedded in the workspace rather than a bordered video player - same
-// lazy/muted/looping/poster-fallback video element as before, only mounted
-// while this hero's page is open.
+// WK-125 - production visual review of WK-123's three-column layout
+// ([left abilities] [hero] [right abilities], spanning the full workspace
+// width) found abilities reading as two independent columns pinned to the
+// window's edges, with the hero visual stranded alone in a wide gap between
+// them - especially on ordinary 4-ability heroes, where each side column
+// only had 2 rows to show. Rebuilt as ONE compact composition instead:
+// [hero visual] [ability list], centered together as a single flex group
+// (`.hero-detail__workspace`'s `justify-content: center` centers the PAIR,
+// not each side independently) - since the ability list only ever extends
+// to the visual's right, the hero itself reads as sitting slightly left of
+// the workspace's true center, which is the effect this slice asked for
+// without any extra offset math. The ability list is one ordered array
+// again (no more artificial left/right split of a single hero's abilities)
+// and only grows into a 2-column grid past DENSE_ABILITY_LIST_THRESHOLD -
+// see AbilityList above.
 export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBack, onChooseFile, onPreview, onRemove }: Props) {
   const [selectedAbilityId, setSelectedAbilityId] = useState<string | null>(null);
   const [videoFailed, setVideoFailed] = useState(false);
@@ -135,9 +140,6 @@ export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBac
 
   const isFavorite = favorites.heroIds.includes(hero.id);
   const abilities = trackedHero?.abilities ?? [];
-  const splitAt = Math.ceil(abilities.length / 2);
-  const leftAbilities = abilities.slice(0, splitAt);
-  const rightAbilities = abilities.slice(splitAt);
 
   return (
     <div className="hero-detail">
@@ -164,17 +166,6 @@ export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBac
         <p className="heroes-grid__empty">Загрузка каталога звуков…</p>
       ) : (
         <div className="hero-detail__workspace">
-          <AbilityColumn
-            align="left"
-            abilities={leftAbilities}
-            settings={settings}
-            selectedAbilityId={selectedAbilityId}
-            onSelect={setSelectedAbilityId}
-            onChooseFile={onChooseFile}
-            onPreview={onPreview}
-            onRemove={onRemove}
-          />
-
           <div className="hero-detail__visual">
             {!videoFailed ? (
               <video
@@ -192,9 +183,8 @@ export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBac
             )}
           </div>
 
-          <AbilityColumn
-            align="right"
-            abilities={rightAbilities}
+          <AbilityList
+            abilities={abilities}
             settings={settings}
             selectedAbilityId={selectedAbilityId}
             onSelect={setSelectedAbilityId}

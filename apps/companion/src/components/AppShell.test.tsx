@@ -221,6 +221,27 @@ describe("AppShell navigation", () => {
     expect(screen.queryByRole("heading", { name: "Диагностика" })).toBeNull();
   });
 
+  // WK-124 - clicking the main "Герои" nav item while already inside Hero
+  // Detail used to be a no-op (setSection("heroes") when `section` is
+  // already "heroes" doesn't touch `selectedHeroId`), stranding the user on
+  // whatever hero they'd drilled into. It must always land on the Heroes
+  // root/list. Uses the exact (non-regex) accessible name "Герои" - Hero
+  // Detail's own back link is "← Герои", a different accessible name, so
+  // this unambiguously targets only the main nav button even while both are
+  // on screen at once.
+  it("clicking Герои from Hero Detail navigates back to the Heroes list, not a no-op", () => {
+    render(<AppShell />);
+    fireEvent.click(screen.getByRole("button", { name: "Герои" }));
+    fireEvent.click(screen.getByTitle("Pudge"));
+    expect(screen.getByText("← Герои")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Герои" }));
+
+    expect(screen.queryByText("← Герои")).toBeNull();
+    expect(screen.getByTitle("Pudge")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Герои" }).className).toContain("is-active");
+  });
+
   it("Настройки is not one of the main nav tabs (only the gear button, outside the nav, is named that)", () => {
     render(<AppShell />);
     const nav = screen.getByRole("navigation", { name: "Разделы приложения" });
@@ -360,12 +381,12 @@ describe("ProblemBar (Главная)", () => {
     expect(screen.queryByText(/os error/)).toBeNull();
   });
 
-  it("shows the backend/sync problem bar as a non-blocking warning when the backend is unavailable", () => {
+  it("shows the backend/sync problem bar with the info tone (desaturated steel/blue) when the backend is unavailable", () => {
     statusFixture = buildStatusFixture({ backend_state: "unavailable", backend_last_error: "503" });
     render(<AppShell />);
     const bar = screen.getByText("PreReborn недоступен").closest(".problem-bar");
-    expect(bar?.className).toContain("problem-bar--warning");
-    expect(bar?.className).not.toContain("problem-bar--error");
+    expect(bar?.className).toContain("problem-bar--info");
+    expect(bar?.className).not.toContain("problem-bar--critical");
   });
 
   it("multiple simultaneous problems all render without hiding one another", () => {
@@ -403,11 +424,11 @@ describe("ProblemBar sync visibility (WK-119)", () => {
     expect(screen.queryByText(/Ожидает отправки/)).toBeNull();
   });
 
-  it("shows a dead-letter problem bar (tone error) whenever events failed permanently, independent of backend connectivity", () => {
+  it("shows a dead-letter problem bar (tone critical) whenever events failed permanently, independent of backend connectivity", () => {
     syncStatusFixture = { pendingCount: 0, failedCount: 2, oldestPendingAt: null, lastError: "422 invalid" };
     render(<AppShell />);
     const bar = screen.getByText("Часть данных не синхронизирована").closest(".problem-bar");
-    expect(bar?.className).toContain("problem-bar--error");
+    expect(bar?.className).toContain("problem-bar--critical");
     expect(screen.getByText(/2 событий отклонены сервером/)).toBeTruthy();
   });
 });
