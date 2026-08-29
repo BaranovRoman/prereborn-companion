@@ -31,28 +31,107 @@ fn companion_config_path(app: &AppHandle) -> PathBuf {
         .join("companion-config.json")
 }
 
+// WK-122 - every function below that touches companion-config.json is
+// split into a thin `AppHandle`-resolving public wrapper and a `_at(path)`
+// core that takes the file path directly and does no Tauri I/O of its own -
+// the actual logic (JSON merge/read/write) lives entirely in the `_at`
+// versions, which the test module drives directly against a `tempfile`
+// path. This is deliberate, not incidental: `tauri::test::mock_app()`'s
+// `app_data_dir()` resolves to a REAL path on the host filesystem (it is
+// NOT sandboxed to a per-test temp directory the way the mocked DB
+// connections in local_runtime's tests are), so exercising these functions
+// through a mocked `AppHandle` would have every test in this module read
+// and write the SAME real file on disk, racing every other test that runs
+// in parallel (and, worse, quietly touching whatever this file actually
+// resolves to in the real Application Support / AppData for whoever runs
+// the tests). Routing through a `Path` instead keeps every test hermetic.
+
 // Companion token - лежит локально в открытом виде (как любой API-ключ CLI-
 // инструмента, например ~/.aws/credentials) - это единственный секрет,
 // который companion предъявляет backend'у, храниться он обязан где-то на
 // диске, иначе токен пришлось бы вставлять заново при каждом запуске.
 // Никогда не пишется в rolling log/файлы payload'ов (см. commands.rs).
 pub fn save_companion_token(app: &AppHandle, token: &str) -> std::io::Result<()> {
-    let path = companion_config_path(app);
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    let contents = serde_json::json!({ "companion_token": token });
-    fs::write(path, serde_json::to_string_pretty(&contents)?)
+    save_companion_token_at(&companion_config_path(app), token)
 }
 
 pub fn load_companion_token(app: &AppHandle) -> Option<String> {
-    let path = companion_config_path(app);
-    let raw = fs::read_to_string(path).ok()?;
-    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    value
+    load_companion_token_at(&companion_config_path(app))
+}
+
+// WK-122 §7 - the desktop-auth session (email/password login, see
+// backend::login), stored alongside the legacy companion_token in the same
+// file/trust model (plain JSON on disk, same as any CLI tool's credentials
+// file - see save_companion_token's doc comment above). Only the refresh
+// token is a real secret here; the short-lived access token it mints is
+// kept purely in memory (AppState.companion_token) and never written to
+// disk - see backend::refresh_session_access_token. Reading/writing merges
+// with whatever else already lives in companion-config.json (the legacy
+// token key) rather than overwriting the whole file, so logging in via the
+// new flow doesn't silently destroy a working legacy token before the new
+// session has proven itself, and vice versa.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompanionSession {
+    pub email: String,
+    pub refresh_token: String,
+}
+
+pub fn save_session(app: &AppHandle, session: &CompanionSession) -> std::io::Result<()> {
+    save_session_at(&companion_config_path(app), session)
+}
+
+pub fn load_session(app: &AppHandle) -> Option<CompanionSession> {
+    load_session_at(&companion_config_path(app))
+}
+
+pub fn clear_session(app: &AppHandle) -> std::io::Result<()> {
+    clear_session_at(&companion_config_path(app))
+}
+
+fn read_companion_config_at(path: &Path) -> serde_json::Value {
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+
+fn write_companion_config_at(path: &Path, value: &serde_json::Value) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    fs::write(path, serde_json::to_string_pretty(value)?)
+}
+
+fn save_companion_token_at(path: &Path, token: &str) -> std::io::Result<()> {
+    let mut config = read_companion_config_at(path);
+    config["companion_token"] = serde_json::Value::String(token.to_string());
+    write_companion_config_at(path, &config)
+}
+
+fn load_companion_token_at(path: &Path) -> Option<String> {
+    read_companion_config_at(path)
         .get("companion_token")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string())
+}
+
+fn save_session_at(path: &Path, session: &CompanionSession) -> std::io::Result<()> {
+    let mut config = read_companion_config_at(path);
+    config["session"] = serde_json::to_value(session).expect("CompanionSession always serializes");
+    write_companion_config_at(path, &config)
+}
+
+fn load_session_at(path: &Path) -> Option<CompanionSession> {
+    let config = read_companion_config_at(path);
+    serde_json::from_value(config.get("session")?.clone()).ok()
+}
+
+fn clear_session_at(path: &Path) -> std::io::Result<()> {
+    let mut config = read_companion_config_at(path);
+    if let Some(map) = config.as_object_mut() {
+        map.remove("session");
+    }
+    write_companion_config_at(path, &config)
 }
 
 fn obs_config_path(app: &AppHandle) -> PathBuf {
@@ -398,5 +477,91 @@ mod tests {
         fs::create_dir_all(logs_root.path().join("diagnostics")).unwrap();
 
         assert!(collect_legacy_cleanup_targets(logs_root.path()).is_empty());
+    }
+
+    // WK-122 §7 - drives the REAL `_at` entry points the AppHandle-facing
+    // save_session/load_session/clear_session/save_companion_token/
+    // load_companion_token wrappers delegate to (see this section's own
+    // doc comment on why `_at(path)` rather than a mocked AppHandle - the
+    // latter would resolve to a real, unsandboxed path on the host and
+    // race across parallel test runs). Each test gets its own `tempfile`
+    // directory, so these are fully hermetic. The whole point of these
+    // functions is that the new session and the legacy token share one
+    // file without clobbering each other - only exercising the real
+    // merge/read/write logic can catch a regression in that guarantee.
+    mod session_storage {
+        use super::*;
+
+        fn config_path(dir: &tempfile::TempDir) -> PathBuf {
+            dir.path().join("companion-config.json")
+        }
+
+        #[test]
+        fn save_then_load_session_round_trips() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = config_path(&dir);
+            let session = CompanionSession { email: "roma@example.com".into(), refresh_token: "rt-1".into() };
+
+            assert!(load_session_at(&path).is_none());
+            save_session_at(&path, &session).unwrap();
+            let loaded = load_session_at(&path).unwrap();
+            assert_eq!(loaded.email, session.email);
+            assert_eq!(loaded.refresh_token, session.refresh_token);
+        }
+
+        #[test]
+        fn logging_in_via_session_does_not_erase_an_existing_legacy_companion_token() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = config_path(&dir);
+
+            save_companion_token_at(&path, "legacy-secret-token").unwrap();
+            save_session_at(&path, &CompanionSession { email: "roma@example.com".into(), refresh_token: "rt-1".into() }).unwrap();
+
+            assert_eq!(load_companion_token_at(&path).as_deref(), Some("legacy-secret-token"));
+            assert!(load_session_at(&path).is_some());
+        }
+
+        #[test]
+        fn saving_a_legacy_token_does_not_erase_an_existing_session() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = config_path(&dir);
+
+            save_session_at(&path, &CompanionSession { email: "roma@example.com".into(), refresh_token: "rt-1".into() }).unwrap();
+            save_companion_token_at(&path, "legacy-secret-token").unwrap();
+
+            assert!(load_session_at(&path).is_some());
+            assert_eq!(load_companion_token_at(&path).as_deref(), Some("legacy-secret-token"));
+        }
+
+        #[test]
+        fn refreshing_a_session_overwrites_only_the_refresh_token_field() {
+            // Mirrors backend::refresh_session_access_token's save_session
+            // call after a successful rotation - the point being that a
+            // second save_session call REPLACES the session wholesale
+            // (rotation invalidates the old refresh token), not merges
+            // field-by-field.
+            let dir = tempfile::tempdir().unwrap();
+            let path = config_path(&dir);
+
+            save_session_at(&path, &CompanionSession { email: "roma@example.com".into(), refresh_token: "rt-1".into() }).unwrap();
+            save_session_at(&path, &CompanionSession { email: "roma@example.com".into(), refresh_token: "rt-2-rotated".into() }).unwrap();
+
+            let loaded = load_session_at(&path).unwrap();
+            assert_eq!(loaded.refresh_token, "rt-2-rotated");
+        }
+
+        #[test]
+        fn logout_clears_the_session_but_leaves_a_legacy_token_untouched() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = config_path(&dir);
+
+            save_companion_token_at(&path, "legacy-secret-token").unwrap();
+            save_session_at(&path, &CompanionSession { email: "roma@example.com".into(), refresh_token: "rt-1".into() }).unwrap();
+
+            clear_session_at(&path).unwrap();
+
+            assert!(load_session_at(&path).is_none());
+            assert_eq!(load_companion_token_at(&path).as_deref(), Some("legacy-secret-token"));
+        }
     }
 }
