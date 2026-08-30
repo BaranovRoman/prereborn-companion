@@ -700,3 +700,114 @@ pub fn preview_game_sound(app: AppHandle, asset_id: String) -> Result<GameSoundP
 pub fn log_game_sound_timing(app: AppHandle, correlation_id: String, stage: String, elapsed_ms: u64) {
     game_sounds::log_frontend_timing(&app, &correlation_id, &stage, elapsed_ms);
 }
+
+#[cfg(test)]
+mod ipc_contract_tests {
+    use tauri::ipc::{CallbackFn, InvokeBody};
+    use tauri::test::{get_ipc_response, mock_context, noop_assets};
+    use tauri::webview::InvokeRequest;
+
+    // WK-127 - production bug report: clicking "Перевести на localhost" in
+    // Settings -> OBS failed with `invalid args \`inputName\` for command
+    // \`migrate_obs_browser_source\`: command migrate_obs_browser_source
+    // missing required key inputName`. Every prior check of this pair (Rust
+    // signature `input_name: String` + frontend `invoke(..., { inputName })`,
+    // and Tauri's own default `rename_all = "camelCase"` argument-name
+    // convention, confirmed by tauri-macros' own source) said this SHOULD
+    // work - so this test drives the REAL Tauri IPC dispatch end to end
+    // (`tauri::test::get_ipc_response`, not a hand-called Rust function) the
+    // same way `local_runtime::handle_gsi`'s WK-116 regression test drives
+    // the real GSI entry point instead of the decision layer underneath it -
+    // exactly the class of bug a call-site-skipping unit test cannot catch.
+    fn request(cmd: &str, body: serde_json::Value) -> InvokeRequest {
+        InvokeRequest {
+            cmd: cmd.into(),
+            callback: CallbackFn(0),
+            error: CallbackFn(1),
+            url: if cfg!(any(windows, target_os = "android")) {
+                "http://tauri.localhost"
+            } else {
+                "tauri://localhost"
+            }
+            .parse()
+            .unwrap(),
+            body: InvokeBody::Json(body),
+            headers: Default::default(),
+            invoke_key: tauri::test::INVOKE_KEY.to_string(),
+        }
+    }
+
+    // The real `migrate_obs_browser_source` takes `app: AppHandle` (concrete,
+    // `= AppHandle<Wry>`), which cannot run against `MockRuntime` - only
+    // commands generic over `R: Runtime` can (see local_runtime/mod.rs's
+    // `handle_gsi` for the pattern this codebase already uses when a real
+    // production entry point needs this kind of end-to-end IPC test).
+    // Rewiring the real command to be runtime-generic just for this test
+    // would be a bigger change than this investigation warrants - this local
+    // stand-in has the IDENTICAL argument shape (`input_name: String`, no
+    // injected AppHandle/State) so it exercises the exact same Tauri-macro
+    // argument-name-matching logic the bug report is about, in isolation.
+    #[tauri::command]
+    fn repro_migrate_obs_browser_source(input_name: String) -> Result<String, String> {
+        Ok(input_name)
+    }
+
+    fn build_app() -> tauri::App<tauri::test::MockRuntime> {
+        tauri::test::mock_builder()
+            .invoke_handler(tauri::generate_handler![repro_migrate_obs_browser_source])
+            .build(mock_context(noop_assets()))
+            .expect("failed to build mock app")
+    }
+
+    // Reproduces the EXACT reported failure with the EXACT payload shape the
+    // frontend sends (`invoke("migrate_obs_browser_source", { inputName })`,
+    // see dotaCompanionApi.ts) against the real Tauri IPC dispatch. If this
+    // fails with "missing required key", the bug is real and reproducible at
+    // the IPC boundary, not just a theory.
+    #[test]
+    fn accepts_the_exact_payload_shape_the_frontend_sends() {
+        let app = build_app();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+
+        let response = get_ipc_response(
+            &webview,
+            request(
+                "repro_migrate_obs_browser_source",
+                serde_json::json!({ "inputName": "PreReborn Overlay" }),
+            ),
+        );
+
+        assert_eq!(
+            response.unwrap().deserialize::<String>().unwrap(),
+            "PreReborn Overlay",
+            "the frontend's inputName payload must bind to the Rust input_name parameter"
+        );
+    }
+
+    // The failure mode this test guards against: if a future refactor
+    // renames the Rust parameter (or adds `rename_all = "snake_case"`)
+    // without updating the frontend, `{ inputName }` would stop matching and
+    // MUST fail exactly this way - pinning what the real bug looks like so
+    // it's recognizable again if ever reintroduced.
+    #[test]
+    fn a_snake_case_payload_key_is_rejected_with_the_missing_key_error() {
+        let app = build_app();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+
+        let response = get_ipc_response(
+            &webview,
+            request(
+                "repro_migrate_obs_browser_source",
+                serde_json::json!({ "input_name": "PreReborn Overlay" }),
+            ),
+        );
+
+        let Err(value) = response else { panic!("a snake_case key must not satisfy the camelCase-expecting command") };
+        let message = value.as_str().unwrap_or_default();
+        assert!(message.contains("missing required key"), "got: {message}");
+    }
+}
