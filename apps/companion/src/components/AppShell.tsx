@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { AppAtmosphere } from "./AppAtmosphere";
 import { ProblemBar } from "./ProblemBar";
@@ -80,6 +80,12 @@ export function AppShell() {
     setSettingsCategory(category);
     setSettingsOpen(true);
   };
+  // WK-128 - stable identity (setSettingsOpen from useState is itself
+  // stable) so SettingsModal's onClose prop doesn't change on every
+  // AppShell render - good practice on its own, and no longer the only
+  // thing standing between a caller and useModalBehavior's focus-steal bug
+  // (see that hook's own fix), but still worth being a well-behaved caller.
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [setupOpen, setSetupOpen] = useState(() => localStorage.getItem("companion-setup-complete") !== "true");
@@ -277,7 +283,7 @@ export function AppShell() {
 
       <SettingsModal
         open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
+        onClose={closeSettings}
         status={status}
         setStatus={setStatus}
         busy={busy}
