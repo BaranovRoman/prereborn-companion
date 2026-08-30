@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AnchoredBox } from "./AnchoredBox";
 import { Scene, SCENE_HEIGHT, SCENE_WIDTH } from "./Scene";
 import { CurrentGameWidget } from "./widgets/CurrentGameWidget";
+import { RecentMatchesWidget } from "./widgets/RecentMatchesWidget";
 import { SessionWidget } from "./widgets/SessionWidget";
 import type { OverlayLayout, OverlayStateSnapshot } from "./types";
 
@@ -126,6 +127,7 @@ export function OverlayApp() {
         <div className="ov-anchor ov-anchor--center">
           <div className="ov-scene-title">{SCENE_LABEL[scene]}</div>
           <SessionWidget session={session} big />
+          <RecentMatchesWidget matches={session.recentMatches} />
         </div>
       )}
 
@@ -133,6 +135,7 @@ export function OverlayApp() {
         <div className="ov-anchor ov-anchor--center">
           <div className="ov-scene-title">{SCENE_LABEL[scene]}</div>
           <SessionWidget session={session} big />
+          <RecentMatchesWidget matches={session.recentMatches} />
         </div>
       )}
 

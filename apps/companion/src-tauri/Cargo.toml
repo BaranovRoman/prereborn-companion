@@ -31,7 +31,28 @@ chrono = { version = "0.4", features = ["clock"] }
 # tokio elsewhere in this app), and rustls avoids depending on a system
 # OpenSSL - see the report for why native-tls was a cross-build risk we'd
 # rather not repeat after the Windows CI/llvm-rc lesson from the MVP phase.
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+#
+# WK-128 P0 FIX - production bug: desktop login (and, by the same
+# mechanism, every other backend call - gsi-state forwarding, session
+# polling, sync) failed with reqwest's raw "error sending request for url"
+# on a real Windows install, before any HTTP response was ever received.
+# Plain `rustls-tls` resolves to `rustls-tls-webpki-roots` - a hardcoded,
+# bundled Mozilla root CA list, entirely independent of what the OS itself
+# trusts. This is a well-documented rustls failure class on Windows
+# machines running antivirus/corporate software that does HTTPS
+# inspection by injecting its OWN root CA into the Windows certificate
+# store (Kaspersky and Dr.Web, both common in this product's own CIS
+# userbase, are frequently the culprit) - curl/a browser trusts the
+# connection via the OS store, a webpki-roots-only Rust client does not,
+# and the failure looks exactly like a generic connection error with no
+# certificate-specific detail. `rustls-tls-native-roots` keeps rustls
+# (no OpenSSL/native-tls, no new Windows build toolchain requirement -
+# it pulls in `schannel` on Windows, a lightweight pure binding to the
+# native Crypto API, not a C dependency) but loads the OS's own trusted
+# root store instead of the bundled one, so anything the OS already
+# trusts (standard public CAs Windows Update maintains, PLUS any
+# AV/corporate-injected one) is trusted here too.
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls-native-roots"] }
 # Diagnostics ZIP export only - pure-Rust deflate backend (no system zlib/C
 # toolchain needed), matches the same "no extra native build deps on Windows
 # CI" constraint that drove the reqwest/rustls choice above.
