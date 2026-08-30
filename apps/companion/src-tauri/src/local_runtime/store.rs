@@ -5,7 +5,7 @@ use uuid::Uuid;
 use super::model::{LocalMatch, LocalMatchState, LocalSession, MatchResult, RankedMode, SyncState};
 
 fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<LocalSession> {
-    let stale_ack: i64 = row.get(7)?;
+    let stale_ack: i64 = row.get(8)?;
     Ok(LocalSession {
         local_id: row.get(0)?,
         backend_id: row.get(1)?,
@@ -13,14 +13,15 @@ fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<LocalSession> {
         ended_at: row.get(3)?,
         rating_start: row.get(4)?,
         rating_current: row.get(5)?,
-        pending_end_at: row.get(6)?,
+        rating_adjustment: row.get(6)?,
+        pending_end_at: row.get(7)?,
         stale_ack: stale_ack != 0,
         sync_state: SyncState::Pending,
     })
 }
 
 const SESSION_COLUMNS: &str = "local_id, backend_id, started_at, ended_at, rating_start, \
-     rating_current, pending_end_at, stale_ack";
+     rating_current, rating_adjustment, pending_end_at, stale_ack";
 
 /// Mirrors `getOrCreateActiveSession`'s *read* half (stream-session-service.ts):
 /// the most recent session that hasn't ended, or `None`. Read-only - does
@@ -81,10 +82,32 @@ pub fn ensure_active_session(conn: &mut Connection, now: DateTime<Utc>) -> rusql
         ended_at: None,
         rating_start: carried_rating,
         rating_current: carried_rating,
+        rating_adjustment: 0,
         pending_end_at: None,
         stale_ack: false,
         sync_state: SyncState::Pending,
     })
+}
+
+/// Applies an absolute correction to the open session's Current MMR.
+///
+/// The first known value establishes both the session baseline and current
+/// value. Later corrections change only `rating_current` and accumulate the
+/// difference in `rating_adjustment`; finalized match rows are deliberately
+/// untouched. This is the local-first form of WK-105's existing
+/// session-adjustment semantics, not a second rating model.
+pub fn set_current_rating(conn: &Connection, rating: i64) -> rusqlite::Result<LocalSession> {
+    let session = find_open_session(conn)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
+    conn.execute(
+        "UPDATE local_sessions \
+         SET rating_adjustment = rating_adjustment + \
+                 CASE WHEN rating_current IS NULL THEN 0 ELSE ?2 - rating_current END, \
+             rating_start = COALESCE(rating_start, ?2), \
+             rating_current = ?2 \
+         WHERE local_id = ?1 AND ended_at IS NULL",
+        params![session.local_id, rating],
+    )?;
+    find_open_session(conn)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
 }
 
 /// WK-112 - OBS reported "not streaming" for an open session with no
@@ -604,6 +627,53 @@ mod tests {
             )
             .unwrap();
         assert_eq!(session_row, (Some(6000), Some(6025)));
+    }
+
+    #[test]
+    fn first_current_rating_value_establishes_the_session_baseline() {
+        let mut conn = test_conn();
+        let session = ensure_active_session(&mut conn, Utc::now()).unwrap();
+        assert_eq!(session.rating_current, None);
+
+        let updated = set_current_rating(&conn, 4_500).unwrap();
+        assert_eq!(updated.rating_start, Some(4_500));
+        assert_eq!(updated.rating_current, Some(4_500));
+        assert_eq!(updated.rating_adjustment, 0);
+    }
+
+    #[test]
+    fn current_rating_correction_preserves_historical_match_deltas() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        set_current_rating(&conn, 6_000).unwrap();
+        create_match(&conn, &session.local_id, Some("correction-history"), 14, "radiant", RankedMode::Ranked, now).unwrap();
+        let active = find_active_match(&conn, &session.local_id).unwrap().unwrap();
+        finalize_match(&mut conn, &active.local_id, &session.local_id, RankedMode::Ranked, MatchResult::Win, "confirmed", now).unwrap();
+
+        let before: (Option<i64>, Option<i64>, Option<i64>) = conn
+            .query_row(
+                "SELECT rating_before, detected_rating_delta, rating_after FROM local_matches WHERE local_id = ?1",
+                params![active.local_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+
+        let corrected = set_current_rating(&conn, 6_100).unwrap();
+        let after: (Option<i64>, Option<i64>, Option<i64>) = conn
+            .query_row(
+                "SELECT rating_before, detected_rating_delta, rating_after FROM local_matches WHERE local_id = ?1",
+                params![active.local_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+
+        assert_eq!(before, (Some(6_000), Some(25), Some(6_025)));
+        assert_eq!(after, before, "an absolute Current MMR correction must not rewrite finalized match history");
+        assert_eq!(corrected.rating_start, Some(6_000));
+        assert_eq!(corrected.rating_current, Some(6_100));
+        assert_eq!(corrected.rating_adjustment, 75);
+        assert_eq!(corrected.rating_current.unwrap() - corrected.rating_start.unwrap() - corrected.rating_adjustment, 25);
     }
 
     #[test]

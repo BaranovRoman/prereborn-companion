@@ -9,6 +9,8 @@ const BASE: LocalSessionSummary = {
   startedAt: null,
   ratingStart: null,
   ratingCurrent: null,
+  ratingAdjustment: 0,
+  sessionDelta: null,
   wins: 0,
   losses: 0,
   currentMatch: null,
@@ -30,12 +32,12 @@ describe("SessionWidget", () => {
   });
 
   it("shows a positive MMR delta with a + sign", () => {
-    render(<SessionWidget session={{ ...BASE, hasSession: true, ratingStart: 4200, ratingCurrent: 4260 }} />);
+    render(<SessionWidget session={{ ...BASE, hasSession: true, ratingStart: 4200, ratingCurrent: 4260, sessionDelta: 60 }} />);
     expect(screen.getByText("+60 MMR")).toBeTruthy();
   });
 
   it("shows a negative MMR delta without a double sign", () => {
-    render(<SessionWidget session={{ ...BASE, hasSession: true, ratingStart: 4200, ratingCurrent: 4140 }} />);
+    render(<SessionWidget session={{ ...BASE, hasSession: true, ratingStart: 4200, ratingCurrent: 4140, sessionDelta: -60 }} />);
     expect(screen.getByText("-60 MMR")).toBeTruthy();
   });
 

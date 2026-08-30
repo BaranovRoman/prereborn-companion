@@ -6,6 +6,7 @@ import { DraftProtectionLayer } from "./draft-protection/DraftProtectionLayer";
 import { CurrentGameWidget } from "./widgets/CurrentGameWidget";
 import { RecentMatchesWidget } from "./widgets/RecentMatchesWidget";
 import { SessionWidget } from "./widgets/SessionWidget";
+import { BetweenMatchesScene } from "./between-matches/BetweenMatchesScene";
 import type { OverlayLayout, OverlayStateSnapshot } from "./types";
 
 const SCENE_LABEL: Record<OverlayStateSnapshot["scene"], string> = {
@@ -55,7 +56,8 @@ function sceneDimensions(layout: OverlayLayout | null) {
 // account) - never a blank/broken widget just because the layout request
 // hasn't resolved. Между матчами/Итоги don't have a saved widget layout at
 // all in the real data model (OverlayLayout only defines draft/gameplay
-// scenes) - their big centered SessionWidget treatment is unchanged.
+// scenes). Between Matches has its own fixed production-HUD composition;
+// PostStream keeps the existing centered SessionWidget treatment.
 export function OverlayApp() {
   const [snapshot, setSnapshot] = useState<OverlayStateSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
@@ -140,11 +142,7 @@ export function OverlayApp() {
       )}
 
       {scene === "betweenMatches" && (
-        <div className="ov-anchor ov-anchor--center">
-          <div className="ov-scene-title">{SCENE_LABEL[scene]}</div>
-          <SessionWidget session={session} big />
-          <RecentMatchesWidget matches={session.recentMatches} />
-        </div>
+        <BetweenMatchesScene session={session} />
       )}
 
       {scene === "postStream" && (

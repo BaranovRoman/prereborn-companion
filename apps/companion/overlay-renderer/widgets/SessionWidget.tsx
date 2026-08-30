@@ -32,19 +32,17 @@ function medalFor(rating: number | null): { src: string; label: string } | null 
 // local renderer does not have access to yet - see this slice's research
 // doc, §"Remaining"). Renders nothing at all when there is no open local
 // session, matching the source data's own `hasSession` flag.
-export function SessionWidget({ session }: { session: LocalSessionSummary; big?: boolean }) {
+export function SessionWidget({ session, betweenMatches = false }: { session: LocalSessionSummary; big?: boolean; betweenMatches?: boolean }) {
   const reduced = useReducedMotion();
   if (!session.hasSession) return null;
-  const delta =
-    session.ratingCurrent !== null && session.ratingStart !== null
-      ? session.ratingCurrent - session.ratingStart
-      : null;
+  const delta = session.sessionDelta;
+  const formattedDelta = delta === null ? null : delta > 0 ? `+${delta}` : delta < 0 ? `${delta}` : "±0";
 
   return (
     <div className={styles.card}>
       {medalFor(session.ratingCurrent) && <img className={styles.medal} src={medalFor(session.ratingCurrent)!.src} alt={`${medalFor(session.ratingCurrent)!.label} rank medal`} />}
       <div className={styles.stats}>
-        {session.ratingCurrent !== null && <AnimatePresence mode="wait"><motion.div key={`${session.ratingCurrent}-${delta}`} className={styles.rating} initial={{ opacity: reduced ? 1 : 0 }} animate={{ opacity: 1 }} exit={{ opacity: reduced ? 1 : 0 }} transition={{ duration: reduced ? 0 : 0.2 }}>{session.ratingCurrent} MMR {delta !== null && <span className={delta > 0 ? styles.sessionDeltaPositive : delta < 0 ? styles.sessionDeltaNegative : styles.sessionDeltaNeutral}>{delta > 0 ? "+" : ""}{delta} MMR</span>}</motion.div></AnimatePresence>}
+        {session.ratingCurrent !== null && <AnimatePresence mode="wait"><motion.div key={`${session.ratingCurrent}-${delta}`} className={styles.rating} initial={{ opacity: reduced ? 1 : 0 }} animate={{ opacity: 1 }} exit={{ opacity: reduced ? 1 : 0 }} transition={{ duration: reduced ? 0 : 0.2 }}>{session.ratingCurrent} MMR{delta !== null && <span className={delta > 0 ? styles.sessionDeltaPositive : delta < 0 ? styles.sessionDeltaNegative : styles.sessionDeltaNeutral}>{betweenMatches ? ` (${formattedDelta})` : ` ${delta > 0 ? "+" : ""}${delta} MMR`}</span>}</motion.div></AnimatePresence>}
         <div className={styles.record}><span>{session.wins}W</span> / <span>{session.losses}L</span></div>
       </div>
     </div>

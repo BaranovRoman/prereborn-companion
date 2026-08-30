@@ -468,6 +468,7 @@ fn apply_one_correction(
     rating_delta: i64,
     rating_after: Option<i64>,
     session_rating: Option<i64>,
+    session_rating_adjustment: Option<i64>,
 ) -> rusqlite::Result<()> {
     let detected: Option<i64> = conn
         .query_row("SELECT detected_rating_delta FROM local_matches WHERE local_id = ?1", params![local_match_id], |row| row.get(0))
@@ -481,9 +482,11 @@ fn apply_one_correction(
     )?;
     if let Some(session_rating) = session_rating {
         conn.execute(
-            "UPDATE local_sessions SET rating_current = ?2
+            "UPDATE local_sessions
+             SET rating_current = ?2,
+                 rating_adjustment = COALESCE(?3, rating_adjustment)
              WHERE local_id = (SELECT session_local_id FROM local_matches WHERE local_id = ?1)",
-            params![local_match_id, session_rating],
+            params![local_match_id, session_rating, session_rating_adjustment],
         )?;
     }
     Ok(())
@@ -533,9 +536,17 @@ fn pull_corrections(app: &AppHandle) {
         };
         let rating_after = correction.get("ratingAfter").and_then(Value::as_i64);
         let session_rating = correction.get("sessionRating").and_then(Value::as_i64);
+        let session_rating_adjustment = correction.get("sessionRatingAdjustment").and_then(Value::as_i64);
         let corrected_at = parse_rfc3339(corrected_at_raw);
 
-        let _ = apply_one_correction(conn, local_match_id, rating_delta, rating_after, session_rating);
+        let _ = apply_one_correction(
+            conn,
+            local_match_id,
+            rating_delta,
+            rating_after,
+            session_rating,
+            session_rating_adjustment,
+        );
         latest_seen = Some(latest_seen.map_or(corrected_at, |current| current.max(corrected_at)));
     }
 
@@ -829,7 +840,7 @@ mod tests {
         assert_eq!(before, Some(25));
 
         // Web dashboard corrected this match's delta from +25 to +26.
-        apply_one_correction(&conn, &m.local_id, 26, Some(6026), Some(6026)).unwrap();
+        apply_one_correction(&conn, &m.local_id, 26, Some(6026), Some(6026), Some(0)).unwrap();
 
         let (detected, correction, rating_after): (Option<i64>, i64, Option<i64>) = conn
             .query_row(
@@ -860,7 +871,15 @@ mod tests {
         // session.rating_current is now 6025.
 
         // Streamer syncs with the in-game client via the web dashboard mid-stream.
-        apply_one_correction(&conn, &m1.local_id, 25, Some(6040), Some(6040)).unwrap();
+        apply_one_correction(&conn, &m1.local_id, 25, Some(6040), Some(6040), Some(15)).unwrap();
+        let pulled_adjustment: i64 = conn
+            .query_row(
+                "SELECT rating_adjustment FROM local_sessions WHERE local_id = ?1",
+                params![session.local_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(pulled_adjustment, 15, "the server's session-level correction ledger must stay authoritative on pull");
 
         store::create_match(&conn, &session.local_id, Some("2"), 14, "radiant", RankedMode::Ranked, now).unwrap();
         let m2 = store::find_active_match(&conn, &session.local_id).unwrap().unwrap();
@@ -1008,7 +1027,7 @@ mod tests {
             enqueue(tx, entity_type, entity_local_id, event_type, payload, now)
         }
         fn _apply_correction_type_check(conn: &Connection, local_match_id: &str, rating_delta: i64, rating_after: Option<i64>, session_rating: Option<i64>) -> rusqlite::Result<()> {
-            apply_one_correction(conn, local_match_id, rating_delta, rating_after, session_rating)
+            apply_one_correction(conn, local_match_id, rating_delta, rating_after, session_rating, None)
         }
         let conn = test_conn();
         assert!(next_pending(&conn, Utc::now()).unwrap().is_none());

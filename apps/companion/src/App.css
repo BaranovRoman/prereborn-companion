@@ -802,12 +802,20 @@ h1, h2, p { margin-top: 0; }
 .mmr-panel { display: flex; gap: 32px; flex-wrap: wrap; margin-bottom: 16px; padding: 16px 20px; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-panel), var(--ui-well)); }
 .mmr-panel__divider { align-self: stretch; width: 1px; background: linear-gradient(180deg, transparent, var(--ui-edge-soft) 20%, var(--ui-edge-soft) 80%, transparent); }
 .mmr-panel__stat { display: grid; gap: 5px; }
+.mmr-panel__stat--current { min-width: 220px; }
 .mmr-panel__stat strong { font-variant-numeric: tabular-nums; font-size: 1.65rem; color: var(--ui-text); font-weight: 600; line-height: 1; }
 .mmr-panel--hero .mmr-panel__stat strong { font-size: 3.15rem; font-weight: 800; letter-spacing: -.01em; color: #f2ede4; text-shadow: 0 0 20px rgba(184, 91, 83, .3), 0 2px 3px rgba(0, 0, 0, .6); }
 .mmr-panel__delta { font-size: .82rem; font-weight: 600; }
 .mmr-panel--hero .mmr-panel__delta { font-size: .95rem; font-weight: 700; }
 .mmr-panel__delta.is-positive { color: var(--success); }
 .mmr-panel__delta.is-negative { color: var(--danger); }
+.mmr-panel__edit { justify-self: start; margin-top: 3px; padding: 0; font-size: .82rem; }
+.mmr-panel__form { display: grid; gap: 9px; min-width: 250px; }
+.mmr-panel__form input { width: 180px; padding: 9px 11px; border: 1px solid var(--ui-edge); border-radius: var(--radius); background: var(--ui-void); color: #f2ede4; font: inherit; font-size: 1.2rem; font-variant-numeric: tabular-nums; }
+.mmr-panel__form input:focus { outline: 1px solid var(--ui-red-hover); border-color: var(--ui-red-hover); }
+.mmr-panel__form-actions { display: flex; gap: 8px; }
+.mmr-panel__hint { color: var(--ui-text-soft); font-size: .74rem; }
+.mmr-panel__error { color: var(--danger); font-size: .78rem; }
 
 .matches-panel { margin-bottom: 16px; padding: 18px 20px; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-panel), var(--ui-well)); }
 .matches-panel__empty { margin: 0; color: var(--ui-text-soft); font-size: .85rem; }
