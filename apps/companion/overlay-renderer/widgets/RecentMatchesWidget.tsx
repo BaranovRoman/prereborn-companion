@@ -17,7 +17,7 @@ import styles from "./widget.module.scss";
 // too, out of scope for this fix. Renders nothing when there's no finalized
 // match yet, matching every other widget's "render nothing over rendering a
 // placeholder" convention here.
-export function RecentMatchesWidget({ matches, settings, anchor = "top-left" }: { matches: LocalMatchSummary[]; settings?: RecentMatchesSettings; anchor?: OverlayAnchor }) {
+export function RecentMatchesWidget({ matches, settings, anchor = "top-left", betweenMatches = false }: { matches: LocalMatchSummary[]; settings?: RecentMatchesSettings; anchor?: OverlayAnchor; betweenMatches?: boolean }) {
   const finalized = matches.filter((match) => match.result !== null);
   if (finalized.length === 0) return null;
   const ordered = settings?.direction === "oldest-first" ? [...finalized].reverse() : finalized;
@@ -39,9 +39,11 @@ export function RecentMatchesWidget({ matches, settings, anchor = "top-left" }: 
             className={styles.matchRow}
             title={hero?.localizedName}
           >
-            {delta !== null && <span className={styles.matchIndex}>{index + 1}</span>}
+            {(betweenMatches || delta !== null) && <span className={styles.matchIndex}>{index + 1}</span>}
             {hero && <img className={styles.heroIconTiny} src={hero.iconUrl} alt={hero.localizedName} />}
-            {delta !== null && <span className={styles.matchKda}>{`${delta >= 0 ? "+" : ""}${delta}`}</span>}
+            {betweenMatches
+              ? <span className={styles.matchKda}>{delta === null ? "—" : `${delta >= 0 ? "+" : ""}${delta} MMR`}</span>
+              : delta !== null && <span className={styles.matchKda}>{`${delta >= 0 ? "+" : ""}${delta}`}</span>}
             <span className={match.result === "win" ? styles.matchResultWin : match.result === "loss" ? styles.matchResultLoss : styles.matchResultAbandon}>{match.result === "win" ? "W" : match.result === "loss" ? "L" : "A"}</span>
           </div>
         );

@@ -161,6 +161,34 @@ pub fn handle_gsi<R: Runtime>(app: &AppHandle<R>, payload: &Value) {
     log_match_transition(app, &session.local_id, before.as_ref(), after.as_ref());
 }
 
+/// Sets/corrects Current MMR on the authoritative open local session.
+/// Match history is never rewritten; see store::set_current_rating.
+pub fn set_current_rating<R: Runtime>(app: &AppHandle<R>, rating: i64) -> Result<summary::LocalSessionSummary, String> {
+    if !(0..=30_000).contains(&rating) {
+        return Err("MMR must be between 0 and 30000".to_string());
+    }
+
+    let previous = {
+        let state = app.state::<LocalRuntimeState>();
+        let mut guard = state.lock();
+        let conn = guard.as_mut().ok_or_else(|| "Local runtime is unavailable".to_string())?;
+        let previous = store::find_open_session(conn)
+            .map_err(|error| error.to_string())?
+            .and_then(|session| session.rating_current);
+        store::set_current_rating(conn, rating).map_err(|error| match error {
+            rusqlite::Error::QueryReturnedNoRows => "Start the stream before setting Current MMR".to_string(),
+            other => other.to_string(),
+        })?;
+        previous
+    };
+
+    crate::storage::append_rolling_log(
+        app,
+        &format!("Local current MMR corrected: previous={previous:?} current={rating}"),
+    );
+    Ok(summary::get(app))
+}
+
 /// WK-116 - logs only on an actual change in the session's active match, so
 /// a real stream produces a handful of lines (created/transition/finalized/
 /// interrupted), never one line per GSI tick. Correlated by

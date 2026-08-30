@@ -112,6 +112,14 @@ const MIGRATIONS: &[&str] = &[
     -- backend's own DEFAULT 0 (migrate.ts) meant the same thing there.
     ALTER TABLE local_matches ADD COLUMN rating_delta_correction INTEGER NOT NULL DEFAULT 0;
     "#,
+    // v3 -> v4 - local-first equivalent of WK-105's absolute Current MMR
+    // correction. The adjustment is session-level bookkeeping only: match
+    // rating_before/rating_after/detected_rating_delta rows remain immutable,
+    // while `rating_current - rating_start - rating_adjustment` continues to
+    // mean "MMR earned/lost through finalized matches in this session".
+    r#"
+    ALTER TABLE local_sessions ADD COLUMN rating_adjustment INTEGER NOT NULL DEFAULT 0;
+    "#,
 ];
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {

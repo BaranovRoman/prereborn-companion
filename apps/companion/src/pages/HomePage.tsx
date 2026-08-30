@@ -1,5 +1,6 @@
 import { AccountForm } from "../components/AccountForm";
 import { LocalStreamLifecycleCard } from "../components/LocalStreamLifecycleCard";
+import { CurrentMmrControl } from "../components/CurrentMmrControl";
 import type { LocalLifecycleState } from "../hooks/useLocalLifecycle";
 import * as api from "../services/dotaCompanionApi";
 import { getHeroById } from "../services/heroCatalog";
@@ -108,9 +109,7 @@ export function HomePage({
 
   const summaryActive = status?.obs_manual_summary_active ?? false;
   const hasSession = sessionSummary?.hasSession ?? false;
-  const sessionDelta = hasSession && sessionSummary?.ratingStart != null && sessionSummary?.ratingCurrent != null
-    ? sessionSummary.ratingCurrent - sessionSummary.ratingStart
-    : null;
+  const sessionDelta = hasSession ? sessionSummary?.sessionDelta ?? null : null;
 
   return (
     <>
@@ -130,11 +129,11 @@ export function HomePage({
           identical to the previous stacked order. */}
       <div className="home-grid">
         <section className="mmr-panel mmr-panel--hero">
-          <div className="mmr-panel__stat">
-            <span className="section-heading__eyebrow">Текущий MMR</span>
-            <strong>{hasSession && sessionSummary?.ratingCurrent != null ? sessionSummary.ratingCurrent : "—"}</strong>
-            {sessionDelta != null && <span className={`mmr-panel__delta ${sessionDelta >= 0 ? "is-positive" : "is-negative"}`}>{sessionDelta >= 0 ? `+${sessionDelta}` : sessionDelta} за сессию</span>}
-          </div>
+          <CurrentMmrControl
+            currentMmr={sessionSummary?.ratingCurrent ?? null}
+            sessionDelta={sessionDelta}
+            hasSession={hasSession}
+          />
           <div className="mmr-panel__divider" aria-hidden="true" />
           <div className="mmr-panel__stat">
             <span className="section-heading__eyebrow">Победы / Поражения</span>

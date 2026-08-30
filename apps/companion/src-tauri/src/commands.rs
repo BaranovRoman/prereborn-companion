@@ -53,6 +53,14 @@ pub fn get_local_session_summary(app: AppHandle) -> crate::local_runtime::summar
     crate::local_runtime::summary::get(&app)
 }
 
+#[tauri::command]
+pub fn set_current_mmr(
+    app: AppHandle,
+    rating: i64,
+) -> Result<crate::local_runtime::summary::LocalSessionSummary, String> {
+    crate::local_runtime::set_current_rating(&app, rating)
+}
+
 // WK-119 - sync_outbox (WK-113) had zero UI surface until now: pending/
 // dead-lettered counts for ProblemBar's pending/dead-letter states and
 // Диагностика's detail view. Read-only, same "inert if local runtime failed

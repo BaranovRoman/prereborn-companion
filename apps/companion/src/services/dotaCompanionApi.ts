@@ -81,6 +81,8 @@ export const staleRecoveryEnd = () => invoke<void>("local_lifecycle_stale_end");
 
 // WK-114 - read-only local session/match/MMR data for Главная.
 export const getLocalSessionSummary = () => invoke<LocalSessionSummary>("get_local_session_summary");
+export const setCurrentMmr = (rating: number) =>
+  invoke<LocalSessionSummary>("set_current_mmr", { rating });
 
 // WK-119 - read-only sync_outbox visibility (pending/dead-lettered counts).
 export const getSyncOutboxStatus = () => invoke<SyncOutboxStatus>("get_sync_outbox_status");

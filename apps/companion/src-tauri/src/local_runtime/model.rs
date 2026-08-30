@@ -134,6 +134,7 @@ pub struct LocalSession {
     pub ended_at: Option<String>,
     pub rating_start: Option<i64>,
     pub rating_current: Option<i64>,
+    pub rating_adjustment: i64,
     // WK-112 - set the instant OBS reports "not streaming" for a session
     // that was open; cleared if streaming resumes within the grace window.
     // See `local_runtime::lifecycle`.

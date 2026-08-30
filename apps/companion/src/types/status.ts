@@ -154,6 +154,8 @@ export interface LocalSessionSummary {
   startedAt: string | null;
   ratingStart: number | null;
   ratingCurrent: number | null;
+  ratingAdjustment: number;
+  sessionDelta: number | null;
   wins: number;
   losses: number;
   currentMatch: LocalMatchSummary | null;

@@ -220,6 +220,7 @@ pub fn run() {
             commands::local_lifecycle_stale_continue,
             commands::local_lifecycle_stale_end,
             commands::get_local_session_summary,
+            commands::set_current_mmr,
             commands::get_sync_outbox_status,
             commands::find_dota,
             commands::pick_dota_folder,

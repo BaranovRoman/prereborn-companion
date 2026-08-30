@@ -34,7 +34,7 @@ body {
 .ov-loading { position: absolute; inset: 0; }
 
 .ov-background { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
-.ov-background--betweenMatches,
+.ov-background--betweenMatches { background: transparent; }
 .ov-background--postStream {
   background: radial-gradient(ellipse at 50% 40%, rgba(123, 53, 50, .18) 0%, transparent 60%);
 }
