@@ -93,6 +93,26 @@ body {
 .ov-current-game__hero { color: #f2ede4; font-weight: 700; font-size: 20px; letter-spacing: .02em; }
 .ov-current-game__kda { color: var(--ov-gold); font-variant-numeric: tabular-nums; font-weight: 700; font-size: 18px; }
 
+.ov-recent-matches {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 10px 16px;
+  border: 1px solid var(--ov-edge);
+  border-radius: 1px;
+  background: linear-gradient(180deg, var(--ov-panel), var(--ov-well));
+  box-shadow: inset 0 0 0 1px var(--ov-edge-soft), 0 8px 20px rgba(0, 0, 0, .5);
+}
+.ov-recent-matches__item { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.ov-recent-matches__portrait { width: 40px; height: 40px; object-fit: cover; border-radius: 1px; box-shadow: inset 0 0 0 1px var(--ov-edge-soft); }
+.ov-recent-matches__item--win .ov-recent-matches__portrait { box-shadow: inset 0 0 0 1px var(--ov-edge-soft), 0 0 0 2px var(--ov-green); }
+.ov-recent-matches__item--loss .ov-recent-matches__portrait { box-shadow: inset 0 0 0 1px var(--ov-edge-soft), 0 0 0 2px var(--ov-danger); }
+.ov-recent-matches__item--abandon .ov-recent-matches__portrait { filter: grayscale(1); opacity: .6; }
+.ov-recent-matches__delta { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ov-recent-matches__delta.is-positive { color: var(--ov-green); }
+.ov-recent-matches__delta.is-negative { color: var(--ov-danger); }
+
 .ov-reconnecting {
   padding: 6px 12px;
   border-radius: 1px;
