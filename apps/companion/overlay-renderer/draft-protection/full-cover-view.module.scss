@@ -1,0 +1,7 @@
+// WK-129 - ported verbatim from apps/web's full-cover/full-cover-view.module.scss.
+.layer {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    overflow: hidden;
+}

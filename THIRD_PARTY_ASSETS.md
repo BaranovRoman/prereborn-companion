@@ -22,6 +22,7 @@ rights.
 | `apps/web/public/generated/chatgpt/dota-current-clean-minimap.png` | OpenAI ImageGen edit based on a user-supplied in-game minimap screenshot | Project owner / Valve-inspired game imagery | Clean terrain base for configurable anti-streamsniping variants | Repository | Dynamic HUD markers and frame removed; ward variants are rendered separately in code |
 | `apps/web/public/assets/minimap/ward-*.png` | User-supplied ward glyphs | User-provided / Valve-inspired game imagery | Observer and sentry marker shapes for minimap decoys | Repository | Neutral source glyphs are colored green or red at render time with CSS masks |
 | `apps/web/public/assets/minimap/dotabod-stream-sniper-cover.png` | User-supplied Dotabod minimap cover | Dotabod / Valve game imagery | Primary static anti-streamsniping minimap preset | Repository | Used directly to preserve the reference map, ward scale, and ward density |
+| `apps/companion/overlay-renderer/assets/rank-medals/*.png`, `apps/companion/overlay-renderer/assets/minimap/*.png` | Same files as the `apps/web` rows above | Same as above | Local overlay renderer parity (WK-129) - the Companion desktop app's own `127.0.0.1:3666/overlay` needs the same rank-medal/minimap-cover assets self-contained (single-file bundle, no shared static-file server with `apps/web`) | Repository | Byte-identical copies, not a second source - see the corresponding `apps/web` row for provenance |
 
 Future Valve video files are stored under
 `apps/web/public/vendor/valve/video/`. Add a row with a direct source and exact

@@ -1,0 +1,20 @@
+// WK-129 - ported verbatim from apps/web/src/components/pages/overlay/anti-snipe-layer.module.scss.
+.minimapCover { position: absolute; z-index: 0; display: block; overflow: hidden; pointer-events: none; user-select: none; background: #15231c; }
+.mapBase { display: block; width: 100%; height: 100%; object-fit: cover; }
+.colorFilters { position: absolute; width: 0; height: 0; }
+.wardLayer { position: absolute; inset: 0; }
+.ward {
+    position: absolute; left: var(--x); top: var(--y); width: 5.8%; aspect-ratio: 35 / 27;
+    transform: translate(-50%, -50%);
+    object-fit: contain;
+}
+.radiant { filter: url("#ward-radiant") drop-shadow(0 0 1px #000); }
+.dire { filter: url("#ward-dire") drop-shadow(0 0 1px #000); }
+.moving {
+    will-change: left, top;
+    animation: ward-drift var(--duration) ease-in-out var(--delay) infinite alternate;
+}
+@keyframes ward-drift {
+    from { left: var(--x); top: var(--y); }
+    to { left: calc(var(--x) + var(--dx)); top: calc(var(--y) + var(--dy)); }
+}

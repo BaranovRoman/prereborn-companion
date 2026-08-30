@@ -14,7 +14,7 @@ export const SCENE_HEIGHT = 1080;
 // logic, not a shared import - this renderer is a standalone Vite build (see
 // vite.overlay-renderer.config.ts), not something that can import a Next.js
 // component tree.
-export function Scene({ children }: { children: ReactNode }) {
+export function Scene({ children, sceneWidth = SCENE_WIDTH, sceneHeight = SCENE_HEIGHT }: { children: ReactNode; sceneWidth?: number; sceneHeight?: number }) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const [transform, setTransform] = useState({ scale: 1, offsetX: 0, offsetY: 0 });
 
@@ -24,26 +24,26 @@ export function Scene({ children }: { children: ReactNode }) {
     const measure = () => {
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) return;
-      const scale = Math.max(rect.width / SCENE_WIDTH, rect.height / SCENE_HEIGHT);
+      const scale = Math.max(rect.width / sceneWidth, rect.height / sceneHeight);
       setTransform({
         scale,
-        offsetX: (rect.width - SCENE_WIDTH * scale) / 2,
-        offsetY: (rect.height - SCENE_HEIGHT * scale) / 2,
+        offsetX: (rect.width - sceneWidth * scale) / 2,
+        offsetY: (rect.height - sceneHeight * scale) / 2,
       });
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [sceneWidth, sceneHeight]);
 
   return (
     <div ref={viewportRef} className="overlay-viewport">
       <div
         className="overlay-scene"
         style={{
-          width: SCENE_WIDTH,
-          height: SCENE_HEIGHT,
+          width: sceneWidth,
+          height: sceneHeight,
           transform: `translate(${transform.offsetX}px, ${transform.offsetY}px) scale(${transform.scale})`,
         }}
       >

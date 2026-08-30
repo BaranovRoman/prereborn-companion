@@ -110,6 +110,9 @@ importers:
       '@tauri-apps/plugin-updater':
         specifier: ^2
         version: 2.10.1
+      motion:
+        specifier: ^12.23.26
+        version: 12.42.2(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       react:
         specifier: ^19.1.0
         version: 19.2.8
@@ -135,6 +138,9 @@ importers:
       jsdom:
         specifier: ^27.4.0
         version: 27.4.0(@noble/hashes@1.8.0)
+      sass:
+        specifier: ^1.80.0
+        version: 1.102.0
       typescript:
         specifier: ~5.8.3
         version: 5.8.3
