@@ -1,5 +1,6 @@
 import { getHeroById } from "../../src/services/heroCatalog";
-import type { LocalMatchSummary } from "../types";
+import type { LocalMatchSummary, OverlayAnchor, RecentMatchesSettings } from "../types";
+import styles from "./widget.module.scss";
 
 // WK-128 - closes the parity gap flagged in a production visual review:
 // Между матчами/Итоги стрима previously showed only a title + the win/loss
@@ -16,13 +17,17 @@ import type { LocalMatchSummary } from "../types";
 // too, out of scope for this fix. Renders nothing when there's no finalized
 // match yet, matching every other widget's "render nothing over rendering a
 // placeholder" convention here.
-export function RecentMatchesWidget({ matches }: { matches: LocalMatchSummary[] }) {
+export function RecentMatchesWidget({ matches, settings, anchor = "top-left" }: { matches: LocalMatchSummary[]; settings?: RecentMatchesSettings; anchor?: OverlayAnchor }) {
   const finalized = matches.filter((match) => match.result !== null);
   if (finalized.length === 0) return null;
+  const ordered = settings?.direction === "oldest-first" ? [...finalized].reverse() : finalized;
+  const visible = ordered.slice(0, settings?.limit ?? 8);
+  const growUp = anchor.startsWith("bottom");
 
   return (
-    <div className="ov-recent-matches">
-      {finalized.map((match) => {
+    <div className={styles.card}>
+      <div className={`${styles.matchesList} ${growUp ? styles.matchesListGrowUp : styles.matchesListGrowDown}`}>
+      {visible.map((match, index) => {
         const hero = getHeroById(match.heroId);
         const delta =
           match.ratingBefore !== null && match.ratingAfter !== null
@@ -31,19 +36,18 @@ export function RecentMatchesWidget({ matches }: { matches: LocalMatchSummary[] 
         return (
           <div
             key={match.matchId ?? match.startedAt}
-            className={`ov-recent-matches__item ov-recent-matches__item--${match.result}`}
+            className={styles.matchRow}
             title={hero?.localizedName}
           >
-            {hero && <img className="ov-recent-matches__portrait" src={hero.iconUrl} alt="" />}
-            {delta !== null && (
-              <span className={`ov-recent-matches__delta ${delta >= 0 ? "is-positive" : "is-negative"}`}>
-                {delta >= 0 ? "+" : ""}
-                {delta}
-              </span>
-            )}
+            {delta !== null && <span className={styles.matchIndex}>{index + 1}</span>}
+            {hero && <img className={styles.heroIconTiny} src={hero.iconUrl} alt={hero.localizedName} />}
+            {delta !== null && <span className={styles.matchKda}>{`${delta >= 0 ? "+" : ""}${delta}`}</span>}
+            <span className={match.result === "win" ? styles.matchResultWin : match.result === "loss" ? styles.matchResultLoss : styles.matchResultAbandon}>{match.result === "win" ? "W" : match.result === "loss" ? "L" : "A"}</span>
           </div>
         );
       })}
+      </div>
+      {ordered.length > visible.length && <div className={styles.matchesOverflow}>+{ordered.length - visible.length} ещё</div>}
     </div>
   );
 }

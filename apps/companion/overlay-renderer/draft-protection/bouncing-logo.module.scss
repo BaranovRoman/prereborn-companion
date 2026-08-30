@@ -1,0 +1,17 @@
+// WK-129 - ported verbatim from apps/web's full-cover/bouncing-logo.module.scss.
+.viewport {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+}
+
+.logo {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: block;
+    will-change: transform;
+    user-select: none;
+    pointer-events: none;
+}

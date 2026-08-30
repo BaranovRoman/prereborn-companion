@@ -68,6 +68,10 @@ pub fn init(app: AppHandle) {
         let state = app.state::<AppState>();
         let mut inner = state.0.lock().unwrap();
         inner.obs_config = storage::load_obs_config(&app);
+        inner.overlay_layout = storage::load_overlay_layout(&app);
+        if inner.overlay_layout.is_some() {
+            inner.overlay_layout_version = 1;
+        }
     }
     // WK-122 §7 - if a session (email/password login) was ever established,
     // this immediately refreshes it into a fresh `companion_token`,
@@ -725,8 +729,12 @@ fn apply_overlay_layout(app: &AppHandle, layout: serde_json::Value) {
     let state = app.state::<AppState>();
     let mut inner = state.0.lock().unwrap();
     if inner.overlay_layout.as_ref() != Some(&layout) {
-        inner.overlay_layout = Some(layout);
+        inner.overlay_layout = Some(layout.clone());
         inner.overlay_layout_version = inner.overlay_layout_version.saturating_add(1);
+        drop(inner);
+        if let Err(error) = storage::save_overlay_layout(app, &layout) {
+            storage::append_rolling_log(app, &format!("Overlay layout: local cache write failed ({error})"));
+        }
     }
 }
 

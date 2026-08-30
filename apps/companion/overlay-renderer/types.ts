@@ -69,12 +69,56 @@ export interface OverlayWidgetLayout {
 export interface OverlaySceneWidgets {
   session: OverlayWidgetLayout;
   currentGame: OverlayWidgetLayout;
+  recentMatches: RecentMatchesWidgetLayout;
+  companionStatus: OverlayWidgetLayout;
+}
+
+export interface RecentMatchesSettings {
+  limit: number;
+  source: "current-stream" | "recent-matches";
+  direction: "newest-first" | "oldest-first";
+  compact: boolean;
+}
+
+export interface RecentMatchesWidgetLayout extends OverlayWidgetLayout {
+  recentMatches: RecentMatchesSettings;
+}
+
+export interface OverlayAspectRatio {
+  preset: "16:9" | "16:10" | "21:9" | "32:9" | "4:3" | "custom";
+  widthRatio: number;
+  heightRatio: number;
+  width: number;
+  height: number;
+}
+
+export interface MinimapCoverSettings {
+  enabled: boolean;
+  preset: "clean" | "random-a" | "random-b" | "random-dense" | "interactive";
+  anchor: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+  x: number;
+  y: number;
+  size: number;
+}
+
+export interface DraftProtectionTextSettings extends OverlayWidgetLayout {
+  content: string;
+}
+
+export interface OverlaySceneLayout {
+  widgets: OverlaySceneWidgets;
+  minimapCover: MinimapCoverSettings;
 }
 
 export interface OverlayLayout {
   version: number;
   scenes: {
-    draft: { widgets: OverlaySceneWidgets };
-    gameplay: { widgets: OverlaySceneWidgets };
+    draft: OverlaySceneLayout;
+    gameplay: OverlaySceneLayout;
+  };
+  aspectRatio: OverlayAspectRatio;
+  draftProtection: {
+    mode: "off" | "cover";
+    text: DraftProtectionTextSettings;
   };
 }

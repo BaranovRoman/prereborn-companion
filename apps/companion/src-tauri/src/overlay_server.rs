@@ -234,19 +234,17 @@ fn serve_sse<R: Runtime>(app: &AppHandle<R>, request: tiny_http::Request) {
     let response = tiny_http::Response::empty(tiny_http::StatusCode(200)).with_header(header);
     let mut stream = request.upgrade("sse", response);
 
-    let mut last_sent_scene: Option<BroadcastState> = None;
-    // WK-122 §19 - a second, independent reason to push a frame: the scene
-    // can easily stay unchanged for a long time while the streamer is
-    // actively editing Оформление (see DesignPage.tsx's live preview) -
-    // gating on scene alone would leave the preview stale until the next
-    // real scene transition. `None` initially so the very first snapshot
-    // (whatever its version) always counts as a change.
-    let mut last_sent_layout_version: Option<u64> = None;
+    let mut last_sent_snapshot: Option<OverlayStateSnapshot> = None;
     loop {
         let snapshot = current(app);
-        if scene_changed(last_sent_scene, snapshot.scene) || last_sent_layout_version != Some(snapshot.layout_version) {
-            last_sent_scene = Some(snapshot.scene);
-            last_sent_layout_version = Some(snapshot.layout_version);
+        // `updated_at` is intentionally excluded from the diff: it changes
+        // on every poll. Everything visible is included, so KDA, MMR,
+        // W/L/recent matches and layout edits update without a reload even
+        // when BroadcastState itself stays unchanged.
+        let mut comparable = snapshot.clone();
+        comparable.updated_at.clear();
+        if last_sent_snapshot.as_ref() != Some(&comparable) {
+            last_sent_snapshot = Some(comparable);
             let payload = serde_json::to_string(&snapshot).unwrap_or_default();
             if stream.write_all(format!("data: {payload}\n\n").as_bytes()).is_err() {
                 return; // client disconnected
@@ -266,6 +264,7 @@ fn serve_sse<R: Runtime>(app: &AppHandle<R>, request: tiny_http::Request) {
 /// EVERY poll tick regardless of whether the scene actually changed,
 /// defeating diff-gating entirely (see the `scene_changed` test below and
 /// `serve_sse`'s doc comment for the bug this caught).
+#[cfg(test)]
 fn scene_changed(last_sent_scene: Option<BroadcastState>, current_scene: BroadcastState) -> bool {
     last_sent_scene != Some(current_scene)
 }
@@ -537,6 +536,35 @@ mod tests {
         let second_frame = read_one_sse_frame(&mut reader);
         assert!(second_frame.contains("\"scene\":\"betweenMatches\""), "scene must not have changed: {second_frame}");
         assert!(second_frame.contains("\"layoutVersion\":1"), "layout_version bump alone must still push a frame: {second_frame}");
+    }
+
+    #[test]
+    fn sse_stream_pushes_visible_data_changes_without_a_scene_transition() {
+        let app = test_app();
+        {
+            let state = app.state::<AppState>();
+            state.0.lock().unwrap().last_gsi_payload = Some(serde_json::json!({
+                "map": { "game_state": "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS" },
+                "player": { "activity": "playing", "kills": 3, "deaths": 1, "assists": 7 },
+                "hero": { "id": 14 }
+            }));
+        }
+        let port = start_test_server(app.clone());
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        stream.write_all(b"GET /overlay/events HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut reader = std::io::BufReader::new(stream);
+        let first = read_one_sse_frame(&mut reader);
+        assert!(first.contains("\"scene\":\"gameplay\""));
+        assert!(first.contains("\"kills\":3"));
+
+        {
+            let state = app.state::<AppState>();
+            state.0.lock().unwrap().last_gsi_payload.as_mut().unwrap()["player"]["kills"] = serde_json::json!(4);
+        }
+        let second = read_one_sse_frame(&mut reader);
+        assert!(second.contains("\"scene\":\"gameplay\""));
+        assert!(second.contains("\"kills\":4"), "same-scene data change must be pushed: {second}");
     }
 
     // WK-122 §19 - `null`, not an error, when nothing has been fetched yet

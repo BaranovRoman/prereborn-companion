@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { AnchoredBox } from "./AnchoredBox";
 import { Scene, SCENE_HEIGHT, SCENE_WIDTH } from "./Scene";
+import { AntiSnipeLayer } from "./AntiSnipeLayer";
+import { DraftProtectionLayer } from "./draft-protection/DraftProtectionLayer";
 import { CurrentGameWidget } from "./widgets/CurrentGameWidget";
 import { RecentMatchesWidget } from "./widgets/RecentMatchesWidget";
 import { SessionWidget } from "./widgets/SessionWidget";
@@ -27,6 +29,12 @@ const VALID_SCENES = Object.keys(SCENE_LABEL) as OverlayStateSnapshot["scene"][]
 function readPreviewScene(): OverlayStateSnapshot["scene"] | null {
   const value = new URLSearchParams(window.location.search).get("previewScene");
   return VALID_SCENES.includes(value as OverlayStateSnapshot["scene"]) ? (value as OverlayStateSnapshot["scene"]) : null;
+}
+
+function sceneDimensions(layout: OverlayLayout | null) {
+  const ratio = layout?.aspectRatio;
+  if (!ratio || ratio.widthRatio <= 0 || ratio.heightRatio <= 0) return { width: SCENE_WIDTH, height: SCENE_HEIGHT };
+  return { width: SCENE_WIDTH, height: SCENE_WIDTH * ratio.heightRatio / ratio.widthRatio };
 }
 
 // WK-121/WK-122 §19 - the real production local-overlay renderer, replacing
@@ -93,20 +101,28 @@ export function OverlayApp() {
 
   const { session, currentGame } = snapshot;
   const scene = readPreviewScene() ?? snapshot.scene;
-  const sceneWidgets = scene === "draft" || scene === "gameplay" ? layout?.scenes[scene].widgets : undefined;
+  const sceneLayout = scene === "draft" || scene === "gameplay" ? layout?.scenes[scene] : undefined;
+  const sceneWidgets = sceneLayout?.widgets;
+  const dimensions = sceneDimensions(layout);
 
   return (
-    <Scene>
+    <Scene sceneWidth={dimensions.width} sceneHeight={dimensions.height}>
       <div className={`ov-background ov-background--${scene}`} />
+
+      {(scene === "draft" || scene === "gameplay") && <AntiSnipeLayer settings={sceneLayout?.minimapCover} />}
+      {scene === "draft" && layout && <DraftProtectionLayer mode={layout.draftProtection.mode} text={layout.draftProtection.text} sceneWidth={dimensions.width} sceneHeight={dimensions.height} />}
 
       {(scene === "draft" || scene === "gameplay") && (
         sceneWidgets ? (
           <>
-            <AnchoredBox layout={sceneWidgets.currentGame} sceneWidth={SCENE_WIDTH} sceneHeight={SCENE_HEIGHT}>
+            <AnchoredBox layout={sceneWidgets.currentGame} sceneWidth={dimensions.width} sceneHeight={dimensions.height}>
               <CurrentGameWidget game={currentGame} />
             </AnchoredBox>
-            <AnchoredBox layout={sceneWidgets.session} sceneWidth={SCENE_WIDTH} sceneHeight={SCENE_HEIGHT}>
+            <AnchoredBox layout={sceneWidgets.session} sceneWidth={dimensions.width} sceneHeight={dimensions.height}>
               <SessionWidget session={session} />
+            </AnchoredBox>
+            <AnchoredBox layout={sceneWidgets.recentMatches} sceneWidth={dimensions.width} sceneHeight={dimensions.height}>
+              <RecentMatchesWidget matches={session.recentMatches} settings={sceneWidgets.recentMatches.recentMatches} anchor={sceneWidgets.recentMatches.anchor} />
             </AnchoredBox>
           </>
         ) : (
