@@ -555,7 +555,7 @@
     z-index: -1;
     width: clamp(110px, 8vw, 150px);
     aspect-ratio: 1;
-    background: url("/logo-new.png") center / contain no-repeat;
+    background: var(--queue-logo-url, url("/logo-new.png")) center / contain no-repeat;
     opacity: .045;
     transform: translateY(-50%);
     pointer-events: none;
@@ -845,7 +845,7 @@
     z-index: 2;
     width: 76%;
     aspect-ratio: 1;
-    background: url("/logo-new.png") center / contain no-repeat;
+    background: var(--queue-logo-url, url("/logo-new.png")) center / contain no-repeat;
     opacity: .03;
     transform: translate(-50%, -50%);
     pointer-events: none;
@@ -1124,7 +1124,7 @@
     z-index: 1;
     width: 72%;
     aspect-ratio: 1;
-    background: url("/logo-new.png") center / contain no-repeat;
+    background: var(--queue-logo-url, url("/logo-new.png")) center / contain no-repeat;
     opacity: .03;
     transform: translate(-50%, -50%);
     pointer-events: none;

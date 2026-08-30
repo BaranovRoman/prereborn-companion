@@ -22,15 +22,21 @@ afterEach(() => cleanup());
 describe("BetweenMatchesScene", () => {
   it("renders authoritative current MMR and match-only session delta", () => {
     render(<BetweenMatchesScene session={SESSION} />);
-    expect(screen.getByText(/6025 MMR/)).toBeTruthy();
-    expect(screen.getByText("(+25)")).toBeTruthy();
-    expect(screen.getByText("1W")).toBeTruthy();
+    expect(screen.getByText("6,025")).toBeTruthy();
+    expect(screen.getByText(/6000 → 6025 \(\+25\)/)).toBeTruthy();
+    expect(screen.getByText("1–0")).toBeTruthy();
+    expect(screen.getByLabelText("LAST MATCH")).toBeTruthy();
+    expect(screen.getByLabelText("LIVE CAPTURE")).toBeTruthy();
+    expect(screen.getByLabelText("FAVORITE HEROES")).toBeTruthy();
+    expect(screen.getByLabelText("RECENT GAMES")).toBeTruthy();
+    expect(screen.getByLabelText("TWITCH CHAT")).toBeTruthy();
   });
 
   it("keeps a complete honest layout when recent matches are empty", () => {
     render(<BetweenMatchesScene session={SESSION} />);
-    expect(screen.getByLabelText("Нет завершённых матчей")).toBeTruthy();
-    expect(screen.queryByText("ПОСЛЕДНИЕ МАТЧИ")).toBeNull();
+    expect(screen.getByText("Match history is empty")).toBeTruthy();
+    expect(screen.getAllByText("No completed matches").length).toBeGreaterThan(0);
+    expect(screen.queryByText("VICTORY")).toBeNull();
   });
 
   it("shows a finalized recent match with its real hero, result and MMR delta", () => {
@@ -48,8 +54,16 @@ describe("BetweenMatchesScene", () => {
         finalizedAt: "2026-08-30T12:40:00Z",
       }],
     }} />);
-    expect(screen.getByAltText("Pudge")).toBeTruthy();
+    expect(screen.getAllByText(/PUDGE/i).length).toBeGreaterThan(0);
     expect(screen.getByText("+25 MMR")).toBeTruthy();
-    expect(screen.getByText("W")).toBeTruthy();
+    expect(screen.getAllByText("VICTORY").length).toBeGreaterThan(0);
+  });
+
+  it("updates authoritative SSE-driven values without remounting the scene", () => {
+    const view = render(<BetweenMatchesScene session={SESSION} />);
+    view.rerender(<BetweenMatchesScene session={{ ...SESSION, ratingCurrent: 5_975, sessionDelta: -25, wins: 1, losses: 1 }} />);
+    expect(screen.getByText("5,975")).toBeTruthy();
+    expect(screen.getByText(/6000 → 5975 \(-25\)/)).toBeTruthy();
+    expect(screen.getByText("1–1")).toBeTruthy();
   });
 });
