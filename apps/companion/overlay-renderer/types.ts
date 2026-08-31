@@ -107,12 +107,22 @@ export interface MinimapCoverSettings {
   size: number;
 }
 
+export interface CameraZone {
+  enabled: boolean;
+  anchor: OverlayAnchor;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface DraftProtectionTextSettings extends OverlayWidgetLayout {
   content: string;
 }
 
 export interface OverlaySceneLayout {
   widgets: OverlaySceneWidgets;
+  cameraZone: CameraZone;
   minimapCover: MinimapCoverSettings;
 }
 

@@ -24,6 +24,7 @@ const ANCHOR_LABEL: Record<OverlayAnchor, string> = {
   "bottom-right": "Снизу справа",
 };
 const ANCHOR_OPTIONS = Object.keys(ANCHOR_LABEL) as OverlayAnchor[];
+const MINIMAP_SIZE = { normal: 282, large: 360 } as const;
 
 function WidgetSettings({
   title, widget, onChange,
@@ -101,6 +102,7 @@ export function DesignPage() {
   const [error, setError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
   const [queueSettings, setQueueSettings] = useState<QueueSettingsDoc | null>(null);
+  const [currentMmr, setCurrentMmr] = useState<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,6 +114,7 @@ export function DesignPage() {
   }, []);
 
   useEffect(() => { api.getQueueSettings().then(setQueueSettings).catch(() => {}); }, []);
+  useEffect(() => { api.getLocalSessionSummary().then((summary) => setCurrentMmr(summary.ratingCurrent)).catch(() => {}); }, []);
 
   useEffect(() => {
     const receive = (event: MessageEvent) => {
@@ -141,6 +144,12 @@ export function DesignPage() {
         setSavedFlash(false);
         return;
       }
+      if (event.data?.type === "prereborn-overlay-camera-change" && event.data.patch && (event.data.scene === "draft" || event.data.scene === "gameplay")) {
+        const scene = event.data.scene as "draft" | "gameplay";
+        setLayout((current) => current ? { ...current, scenes: { ...current.scenes, [scene]: { ...current.scenes[scene], cameraZone: { ...current.scenes[scene].cameraZone, ...event.data.patch } } } } : current);
+        setSavedFlash(false);
+        return;
+      }
       if (event.data?.type !== "prereborn-overlay-draft-text-position" || !Number.isFinite(event.data.xVw) || !Number.isFinite(event.data.yVh)) return;
       setLayout((current) => current ? {
         ...current,
@@ -157,7 +166,7 @@ export function DesignPage() {
     frame?.contentWindow?.postMessage({ type: "prereborn-overlay-layout-preview", layout, queueSettings }, "*");
   }, [layout, queueSettings, tab]);
 
-  const editableScene = tab === "draft" || tab === "gameplay" ? tab : null;
+  const editableScene = tab === "gameplay" ? tab : null;
 
   const updateWidget = (widgetKey: "session" | "currentGame" | "recentMatches", patch: Partial<OverlayWidgetLayout>) => {
     if (!layout || !editableScene) return;
@@ -207,6 +216,22 @@ export function DesignPage() {
     }
   };
 
+  const chooseWebcamFallback = async () => {
+    if (!queueSettings) return;
+    try {
+      const webcamImageUrl = await api.chooseQueueWebcamFallback();
+      setQueueSettings({ ...queueSettings, webcamImageUrl });
+      setSavedFlash(false);
+    } catch (cause) { if (!String(cause).includes("отменён")) setError(String(cause)); }
+  };
+
+  const removeWebcamFallback = async () => {
+    if (!queueSettings) return;
+    await api.removeQueueWebcamFallback();
+    setQueueSettings({ ...queueSettings, webcamImageUrl: null });
+    setSavedFlash(false);
+  };
+
   return (
     <div className="design-page">
       <div className="page-heading">
@@ -234,45 +259,32 @@ export function DesignPage() {
         <aside className="design-page__inspector" aria-label="Настройки оформления">
           {loading && <p className="matches-panel__empty">Загрузка…</p>}
 
-          {!loading && editableScene && layout && (
+          {!loading && tab === "gameplay" && layout && (
             <>
               <WidgetSettings
                 title="Текущая игра"
-                widget={layout.scenes[editableScene].widgets.currentGame}
+                widget={layout.scenes.gameplay.widgets.currentGame}
                 onChange={(patch) => updateWidget("currentGame", patch)}
               />
               <WidgetSettings
                 title="История матчей"
-                widget={layout.scenes[editableScene].widgets.recentMatches}
+                widget={layout.scenes.gameplay.widgets.recentMatches}
                 onChange={(patch) => updateWidget("recentMatches", patch)}
               />
-              {tab === "gameplay" && (
-                <div className="design-page__widget-settings">
-                  <h3>Защита миникарты</h3>
-                  <Checkbox label="Показывать" checked={layout.scenes.gameplay.minimapCover.enabled} onChange={(event) => updateMinimap({ enabled: event.target.checked })} />
-                  <label className="design-page__field"><span>Вариант</span><Select value={layout.scenes.gameplay.minimapCover.preset} onChange={(event) => updateMinimap({ preset: event.target.value as MinimapCoverSettings["preset"] })}>
-                    <option value="clean">Чистая карта</option><option value="random-a">Dotabod</option><option value="random-b">Варды</option><option value="random-dense">Плотные варды</option><option value="interactive">Движущиеся варды</option>
-                  </Select></label>
-                  <label className="design-page__field"><span>Угол</span><Select value={layout.scenes.gameplay.minimapCover.anchor} onChange={(event) => updateMinimap({ anchor: event.target.value as MinimapCoverSettings["anchor"] })}>
-                    <option value="top-left">Сверху слева</option><option value="top-right">Сверху справа</option><option value="bottom-left">Снизу слева</option><option value="bottom-right">Снизу справа</option>
-                  </Select></label>
-                  <label className="design-page__field"><span>Размер, px</span><Slider min={120} max={700} step={5} value={layout.scenes.gameplay.minimapCover.size} onChange={(event) => updateMinimap({ size: Number(event.target.value) })} /></label>
-                  <div className="design-page__widget-position"><label className="design-page__field"><span>X, px</span><Input type="number" value={layout.scenes.gameplay.minimapCover.x} onChange={(event) => updateMinimap({ x: Number(event.target.value) })} /></label><label className="design-page__field"><span>Y, px</span><Input type="number" value={layout.scenes.gameplay.minimapCover.y} onChange={(event) => updateMinimap({ y: Number(event.target.value) })} /></label></div>
-                </div>
-              )}
-              {tab === "draft" && (
-                <div className="design-page__widget-settings">
-                  <h3>Защита драфта</h3>
-                  <Checkbox label="Включить защиту" checked={layout.draftProtection.mode === "cover"} onChange={(event) => setLayout({ ...layout, draftProtection: { ...layout.draftProtection, mode: event.target.checked ? "cover" : "off" } })} />
-                  <Checkbox label="Показывать свой текст" checked={layout.draftProtection.text.visible} onChange={(event) => updateDraftText({ visible: event.target.checked })} />
-                  <label className="design-page__field"><span>Текст</span><Input value={layout.draftProtection.text.content} onChange={(event) => updateDraftText({ content: event.target.value })} /></label>
-                  <label className="design-page__field"><span>Масштаб ({layout.draftProtection.text.scale.toFixed(2)}×)</span><Slider min={0.5} max={2} step={0.05} value={layout.draftProtection.text.scale} onChange={(event) => updateDraftText({ scale: Number(event.target.value) })} /></label>
-                  <p className="design-page__hint">Текст можно перетащить прямо в предпросмотре.</p>
-                </div>
-              )}
+              <div className="design-page__widget-settings">
+                <h3>Защита миникарты</h3>
+                <Checkbox label="Показывать" checked={layout.scenes.gameplay.minimapCover.enabled} onChange={(event) => updateMinimap({ enabled: event.target.checked })} />
+                <label className="design-page__field"><span>Сторона</span><Select value={layout.scenes.gameplay.minimapCover.anchor.endsWith("right") ? "right" : "left"} onChange={(event) => updateMinimap({ anchor: event.target.value === "right" ? "bottom-right" : "bottom-left", x: 0, y: 0 })}><option value="left">Слева</option><option value="right">Справа</option></Select></label>
+                <label className="design-page__field"><span>Размер</span><Select value={layout.scenes.gameplay.minimapCover.size > MINIMAP_SIZE.normal ? "large" : "normal"} onChange={(event) => updateMinimap({ size: MINIMAP_SIZE[event.target.value as keyof typeof MINIMAP_SIZE], x: 0, y: 0 })}><option value="normal">Обычный</option><option value="large">Большой</option></Select></label>
+              </div>
+              <div className="design-page__widget-settings">
+                <h3>Камера в OBS</h3>
+                <Checkbox label="Показывать область в редакторе" checked={layout.scenes.gameplay.cameraZone.enabled} onChange={(event) => setLayout({ ...layout, scenes: { ...layout.scenes, gameplay: { ...layout.scenes.gameplay, cameraZone: { ...layout.scenes.gameplay.cameraZone, enabled: event.target.checked } } } })} />
+                <p className="design-page__hint">Перетащите рамку камеры или измените её размер за угол. Это направляющая редактора; Companion не меняет transform источника камеры в OBS.</p>
+              </div>
               <WidgetSettings
                 title="Сессия"
-                widget={layout.scenes[editableScene].widgets.session}
+                widget={layout.scenes.gameplay.widgets.session}
                 onChange={(patch) => updateWidget("session", patch)}
               />
               <div className="design-page__actions">
@@ -284,6 +296,20 @@ export function DesignPage() {
             </>
           )}
 
+          {!loading && tab === "draft" && layout && (
+            <>
+              <div className="design-page__widget-settings">
+                <h3>Защита драфта</h3>
+                <label className="design-page__field"><span>Режим</span><Select value={layout.draftProtection.mode} onChange={(event) => setLayout({ ...layout, draftProtection: { ...layout.draftProtection, mode: event.target.value as "off" | "cover" } })}><option value="off">Без защиты</option><option value="cover">Полная заглушка</option></Select></label>
+                <Checkbox label="Показывать свой текст" checked={layout.draftProtection.text.visible} onChange={(event) => updateDraftText({ visible: event.target.checked })} />
+                <label className="design-page__field"><span>Текст</span><Input value={layout.draftProtection.text.content} onChange={(event) => updateDraftText({ content: event.target.value })} /></label>
+                <label className="design-page__field"><span>Точный масштаб ({layout.draftProtection.text.scale.toFixed(2)}×)</span><Slider min={0.5} max={2} step={0.05} value={layout.draftProtection.text.scale} onChange={(event) => updateDraftText({ scale: Number(event.target.value) })} /></label>
+                <p className="design-page__hint">Текст перемещается и масштабируется рамкой прямо в предпросмотре.</p>
+              </div>
+              <div className="design-page__actions"><Button variant="primary" onClick={() => void handleSave()} disabled={saving}>{saving ? "Сохранение…" : "Сохранить"}</Button>{savedFlash && <span className="design-page__saved">Сохранено ✓</span>}</div>
+            </>
+          )}
+
           {!loading && tab === "betweenMatches" && queueSettings && (
             <>
               <div className="design-page__widget-settings"><h3>Блоки Between Matches</h3>
@@ -291,8 +317,12 @@ export function DesignPage() {
               </div>
               <div className="design-page__widget-settings"><h3>Канал и контент</h3>
                 <label className="design-page__field"><span>Заголовок канала</span><Input value={queueSettings.widgets.titles.streamProfile} onChange={(event) => setQueueSettings({ ...queueSettings, widgets: { ...queueSettings.widgets, titles: { ...queueSettings.widgets.titles, streamProfile: event.target.value } } })} /></label>
-                <label className="design-page__field"><span>Webcam / Live Capture URL</span><Input value={queueSettings.webcamImageUrl ?? ""} onChange={(event) => setQueueSettings({ ...queueSettings, webcamImageUrl: event.target.value || null })} /></label>
+                <span className="design-page__field">Fallback для Live Capture</span>
+                {queueSettings.webcamImageUrl && <img className="design-page__fallback-preview" src={queueSettings.webcamImageUrl.startsWith("/") ? `https://prereborn.ru${queueSettings.webcamImageUrl}` : queueSettings.webcamImageUrl} alt="Предпросмотр fallback Live Capture" />}
+                <div className="design-page__inline-actions"><Button onClick={() => void chooseWebcamFallback()}>{queueSettings.webcamImageUrl ? "Заменить изображение" : "Выбрать изображение"}</Button>{queueSettings.webcamImageUrl && <Button onClick={() => void removeWebcamFallback()}>Удалить</Button>}</div>
                 <label className="design-page__field"><span>Последних игр ({queueSettings.widgets.recentGamesLimit})</span><Slider min={1} max={15} step={1} value={queueSettings.widgets.recentGamesLimit} onChange={(event) => setQueueSettings({ ...queueSettings, widgets: { ...queueSettings.widgets, recentGamesLimit: Number(event.target.value) } })} /></label>
+                <Checkbox label="Цель по рейтингу" checked={queueSettings.channelGoal.type === "rating"} onChange={(event) => setQueueSettings({ ...queueSettings, channelGoal: event.target.checked ? { type: "rating", label: "RATING GOAL", startValue: currentMmr ?? queueSettings.channelGoal.startValue, targetValue: queueSettings.channelGoal.targetValue || (currentMmr ?? 0) + 300 } : { ...queueSettings.channelGoal, type: "none" } })} />
+                {queueSettings.channelGoal.type === "rating" && <label className="design-page__field"><span>Целевой MMR</span><Input type="number" min={0} value={queueSettings.channelGoal.targetValue} onChange={(event) => setQueueSettings({ ...queueSettings, channelGoal: { ...queueSettings.channelGoal, targetValue: Number(event.target.value), startValue: currentMmr ?? queueSettings.channelGoal.startValue } })} /></label>}
                 <p className="design-page__hint">Избранные герои выбираются в разделе «Герои» (до трёх). Социальные ссылки сохраняются в существующих настройках аккаунта.</p>
                 <p className="design-page__hint">Отдельный Twitch Chat блок старого web overlay не переносится: локальный OBS renderer не получает публичную ленту сообщений. Twitch-профиль канала загружается из подключённого аккаунта.</p>
               </div>

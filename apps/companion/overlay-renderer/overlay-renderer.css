@@ -31,6 +31,32 @@ body {
 
 .overlay-viewport { position: absolute; inset: 0; overflow: hidden; }
 .overlay-scene { position: absolute; top: 0; left: 0; transform-origin: top left; overflow: hidden; }
+.ov-atmosphere-stage { position: absolute; inset: 0; z-index: 0; overflow: hidden; isolation: isolate; background: #090305; pointer-events: none; }
+
+.ov-camera-zone {
+  position: absolute;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  border: 3px dashed rgba(229, 180, 95, .9);
+  background: rgba(18, 12, 8, .38);
+  color: #f2d7a0;
+  font: 700 24px/1 Inter, "Segoe UI", sans-serif;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  cursor: move;
+  touch-action: none;
+}
+.ov-camera-zone > span {
+  position: absolute;
+  right: -10px;
+  bottom: -10px;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #21170d;
+  background: #e5b45f;
+  cursor: nwse-resize;
+}
 
 .ov-loading { position: absolute; inset: 0; }
 

@@ -75,6 +75,8 @@ describe("AnchoredBox", () => {
       // the full box must sit to the top-left of the anchor point.
       expect(wrapper.style.left).toBe(`${anchorX - 200 * 2}px`);
       expect(wrapper.style.top).toBe(`${anchorY - 100 * 2}px`);
+      expect(wrapper.style.width).toBe("400px");
+      expect(wrapper.style.height).toBe("200px");
     });
   });
 

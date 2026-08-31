@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { AnchoredBox } from "./AnchoredBox";
-import { Scene, SCENE_HEIGHT, SCENE_WIDTH } from "./Scene";
+import { Scene } from "./Scene";
 import { AntiSnipeLayer } from "./AntiSnipeLayer";
 import { DraftProtectionLayer } from "./draft-protection/DraftProtectionLayer";
 import { CurrentGameWidget } from "./widgets/CurrentGameWidget";
@@ -8,6 +8,7 @@ import { RecentMatchesWidget } from "./widgets/RecentMatchesWidget";
 import { SessionWidget } from "./widgets/SessionWidget";
 import { BetweenMatchesScene } from "./between-matches/BetweenMatchesScene";
 import type { OverlayLayout, OverlayStateSnapshot, QueueSettings } from "./types";
+import { resolveSceneDimensions } from "./sceneDimensions";
 
 const SCENE_LABEL: Record<OverlayStateSnapshot["scene"], string> = {
   betweenMatches: "Между матчами",
@@ -17,6 +18,37 @@ const SCENE_LABEL: Record<OverlayStateSnapshot["scene"], string> = {
 };
 
 const VALID_SCENES = Object.keys(SCENE_LABEL) as OverlayStateSnapshot["scene"][];
+
+function cameraAnchorFraction(anchor: string) {
+  const x = anchor.endsWith("left") ? 0 : anchor.endsWith("right") ? 1 : 0.5;
+  const y = anchor.startsWith("top") ? 0 : anchor.startsWith("bottom") ? 1 : 0.5;
+  return { x, y };
+}
+
+function CameraZoneEditor({ zone, sceneWidth, sceneHeight, onChange }: { zone: NonNullable<OverlayLayout["scenes"]["gameplay"]>["cameraZone"]; sceneWidth: number; sceneHeight: number; onChange: (patch: Record<string, number>) => void }) {
+  const gesture = useRef<{ mode: "move" | "resize"; x: number; y: number; zone: typeof zone } | null>(null);
+  const fraction = cameraAnchorFraction(zone.anchor);
+  const begin = (event: ReactPointerEvent<HTMLElement>, mode: "move" | "resize") => {
+    event.preventDefault(); event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    gesture.current = { mode, x: event.clientX, y: event.clientY, zone };
+  };
+  const move = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const active = gesture.current;
+    if (!active) return;
+    const root = event.currentTarget.closest<HTMLElement>("[data-scene-root]");
+    const scale = root ? root.getBoundingClientRect().width / root.offsetWidth : 1;
+    const dx = (event.clientX - active.x) / (scale || 1), dy = (event.clientY - active.y) / (scale || 1);
+    const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+    onChange(active.mode === "move"
+      ? { x: Math.round(clamp(active.zone.x + dx, 0, sceneWidth)), y: Math.round(clamp(active.zone.y + dy, 0, sceneHeight)) }
+      : { width: Math.round(clamp(active.zone.width + dx, 80, sceneWidth)), height: Math.round(clamp(active.zone.height + dy, 80, sceneHeight)) });
+  };
+  return <div className="ov-camera-zone" style={{ left: zone.x - fraction.x * zone.width, top: zone.y - fraction.y * zone.height, width: zone.width, height: zone.height }} onPointerDown={(event) => begin(event, "move")} onPointerMove={move} onPointerUp={() => { gesture.current = null; }} onPointerCancel={() => { gesture.current = null; }}>
+    Камера в OBS
+    <span aria-label="Изменить размер области камеры" onPointerDown={(event) => begin(event, "resize")} />
+  </div>;
+}
 
 // WK-122 §18 - Оформление's editor (DesignPage.tsx) needs to preview
 // whichever scene tab the user is currently editing, not only whatever the
@@ -34,12 +66,6 @@ function readPreviewScene(): OverlayStateSnapshot["scene"] | null {
 
 function isEditorPreview() {
   return new URLSearchParams(window.location.search).get("editor") === "1";
-}
-
-function sceneDimensions(layout: OverlayLayout | null) {
-  const ratio = layout?.aspectRatio;
-  if (!ratio || ratio.widthRatio <= 0 || ratio.heightRatio <= 0) return { width: SCENE_WIDTH, height: SCENE_HEIGHT };
-  return { width: SCENE_WIDTH, height: SCENE_WIDTH * ratio.heightRatio / ratio.widthRatio };
 }
 
 // WK-121/WK-122 §19 - the real production local-overlay renderer, replacing
@@ -128,7 +154,7 @@ export function OverlayApp() {
   const scene = readPreviewScene() ?? snapshot.scene;
   const sceneLayout = scene === "draft" || scene === "gameplay" ? layout?.scenes[scene] : undefined;
   const sceneWidgets = sceneLayout?.widgets;
-  const dimensions = sceneDimensions(layout);
+  const dimensions = resolveSceneDimensions(layout);
   const editor = isEditorPreview();
   const patchWidget = (key: "currentGame" | "session" | "recentMatches", patch: Record<string, unknown>) => {
     if (!layout || (scene !== "draft" && scene !== "gameplay")) return;
@@ -153,15 +179,10 @@ export function OverlayApp() {
     <Scene sceneWidth={dimensions.width} sceneHeight={dimensions.height}>
       <div className={`ov-background ov-background--${scene}`} />
 
-      {(scene === "draft" || scene === "gameplay") && <AntiSnipeLayer settings={sceneLayout?.minimapCover} editable={editor && scene === "gameplay"} onChange={(patch) => {
-        if (!layout || scene !== "gameplay") return;
-        const next = { ...layout, scenes: { ...layout.scenes, gameplay: { ...layout.scenes.gameplay, minimapCover: { ...layout.scenes.gameplay.minimapCover, ...patch } } } };
-        setLayout(next);
-        window.parent.postMessage({ type: "prereborn-overlay-minimap-change", patch }, "*");
-      }} />}
+      {scene === "gameplay" && <AntiSnipeLayer settings={sceneLayout?.minimapCover} />}
       {scene === "draft" && layout && <DraftProtectionLayer mode={layout.draftProtection.mode} text={layout.draftProtection.text} sceneWidth={dimensions.width} sceneHeight={dimensions.height} editable={isEditorPreview()} />}
 
-      {(scene === "draft" || scene === "gameplay") && (
+      {scene === "gameplay" && (
         sceneWidgets ? (
           <>
             <AnchoredBox layout={sceneWidgets.currentGame} sceneWidth={dimensions.width} sceneHeight={dimensions.height} editable={editor} selected={selectedWidget === "currentGame"} onSelect={() => setSelectedWidget("currentGame")} onChange={(patch) => patchWidget("currentGame", patch)}>
@@ -186,6 +207,15 @@ export function OverlayApp() {
             </div>
           </>
         )
+      )}
+
+      {editor && (scene === "draft" || scene === "gameplay") && sceneLayout?.cameraZone.enabled && (
+        <CameraZoneEditor zone={sceneLayout.cameraZone} sceneWidth={dimensions.width} sceneHeight={dimensions.height} onChange={(patch) => {
+          if (!layout || (scene !== "draft" && scene !== "gameplay")) return;
+          const next = { ...layout, scenes: { ...layout.scenes, [scene]: { ...layout.scenes[scene], cameraZone: { ...layout.scenes[scene].cameraZone, ...patch } } } };
+          setLayout(next);
+          window.parent.postMessage({ type: "prereborn-overlay-camera-change", scene, patch }, "*");
+        }} />
       )}
 
       {scene === "betweenMatches" && (
