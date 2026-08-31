@@ -253,6 +253,17 @@ pub async fn save_overlay_layout(app: AppHandle, layout: serde_json::Value) -> R
     backend::save_overlay_layout(&app, layout).await
 }
 
+#[tauri::command]
+pub async fn get_queue_settings(app: AppHandle, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let cached = state.0.lock().unwrap().queue_settings.clone();
+    match cached { Some(value) => Ok(value), None => backend::refresh_queue_settings(&app).await }
+}
+
+#[tauri::command]
+pub async fn save_queue_settings(app: AppHandle, settings: serde_json::Value) -> Result<serde_json::Value, String> {
+    backend::save_queue_settings(&app, settings).await
+}
+
 
 // WK-78 - both `async` so the blocking, network-bound backend call inside
 // runs via `spawn_blocking` on Tauri's blocking pool instead of the main

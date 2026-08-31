@@ -289,6 +289,10 @@ fn handle_request<R: Runtime>(app: &AppHandle<R>, request: tiny_http::Request) {
             let layout = app.state::<AppState>().0.lock().unwrap().overlay_layout.clone();
             respond_json(request, &layout);
         }
+        (tiny_http::Method::Get, "/overlay/queue-settings") => {
+            let settings = app.state::<AppState>().0.lock().unwrap().queue_settings.clone();
+            respond_json(request, &settings);
+        }
         (tiny_http::Method::Get, "/overlay") | (tiny_http::Method::Get, "/overlay/") => respond_html(request, RENDERER_HTML),
         _ => respond_not_found(request),
     }
@@ -590,6 +594,22 @@ mod tests {
         let body = http_get(port, "/overlay/layout");
         let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(parsed["hello"], "world");
+    }
+
+    #[test]
+    fn queue_settings_endpoint_serves_the_cached_account_configuration() {
+        let app = test_app();
+        {
+            let state = app.state::<AppState>();
+            state.0.lock().unwrap().queue_settings = Some(serde_json::json!({
+                "version": 2,
+                "favoriteHeroIds": [14, 26, 83]
+            }));
+        }
+        let port = start_test_server(app);
+        let body = http_get(port, "/overlay/queue-settings");
+        let parsed: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(parsed["favoriteHeroIds"], serde_json::json!([14, 26, 83]));
     }
 
     // WK-120 regression test - direct pin for the bug the integration test

@@ -7,6 +7,7 @@ import {
     getCorrectionsSince,
 } from "../../services/stream-sync-service.js";
 import { getStreamUserGameMode } from "../../services/stream-user-service.js";
+import { getLatestSessionForUser } from "../../services/stream-session-service.js";
 import { logger } from "../../utils/logger.js";
 
 // WK-113 - the only entry point through which Companion's local-first
@@ -125,8 +126,11 @@ export const getSyncCorrectionsController = async (req: Request, res: Response) 
 export const getCompanionAccountSettingsController = async (req: Request, res: Response) => {
     try {
         const streamUserId = req.streamUserId as string;
-        const gameMode = await getStreamUserGameMode(streamUserId);
-        res.json({ gameMode });
+        const [gameMode, latestSession] = await Promise.all([
+            getStreamUserGameMode(streamUserId),
+            getLatestSessionForUser(streamUserId),
+        ]);
+        res.json({ gameMode, currentMmr: latestSession?.rating ?? null });
     } catch (error) {
         logger.error("Companion account-settings fetch error", {
             requestId: req.requestId,

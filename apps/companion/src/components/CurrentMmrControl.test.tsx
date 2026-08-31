@@ -13,8 +13,14 @@ afterEach(() => {
 
 describe("CurrentMmrControl", () => {
   it("shows an explicit CTA when Current MMR is unset", () => {
-    render(<CurrentMmrControl currentMmr={null} sessionDelta={null} hasSession />);
+    render(<CurrentMmrControl currentMmr={null} sessionDelta={null} hasSession={false} />);
     expect(screen.getByRole("button", { name: "Указать MMR" })).toBeTruthy();
+    expect(screen.getByText("Будет стартовым MMR следующей сессии.")).toBeTruthy();
+  });
+
+  it("allows Current MMR to be configured before a stream starts", () => {
+    render(<CurrentMmrControl currentMmr={null} sessionDelta={null} hasSession={false} />);
+    expect(screen.getByRole("button", { name: "Указать MMR" })).not.toHaveProperty("disabled", true);
   });
 
   it("sets Current MMR through the local-first command", async () => {

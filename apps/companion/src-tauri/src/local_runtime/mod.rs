@@ -175,10 +175,7 @@ pub fn set_current_rating<R: Runtime>(app: &AppHandle<R>, rating: i64) -> Result
         let previous = store::find_open_session(conn)
             .map_err(|error| error.to_string())?
             .and_then(|session| session.rating_current);
-        store::set_current_rating(conn, rating).map_err(|error| match error {
-            rusqlite::Error::QueryReturnedNoRows => "Start the stream before setting Current MMR".to_string(),
-            other => other.to_string(),
-        })?;
+        store::set_current_rating(conn, rating).map_err(|error| error.to_string())?;
         previous
     };
 

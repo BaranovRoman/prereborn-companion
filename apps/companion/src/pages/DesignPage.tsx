@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button, Checkbox, Input, Select, Slider, Tabs } from "../components/ui";
 import * as api from "../services/dotaCompanionApi";
-import type { OverlayAnchor, OverlayLayoutDoc, OverlayWidgetLayout } from "../types/status";
+import type { MinimapCoverSettings, OverlayAnchor, OverlayLayoutDoc, OverlayWidgetLayout, QueueSettingsDoc } from "../types/status";
 
 type DesignTab = "betweenMatches" | "draft" | "gameplay" | "postStream";
 
@@ -100,6 +100,7 @@ export function DesignPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [queueSettings, setQueueSettings] = useState<QueueSettingsDoc | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -110,9 +111,31 @@ export function DesignPage() {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => { api.getQueueSettings().then(setQueueSettings).catch(() => {}); }, []);
+
+  useEffect(() => {
+    const receive = (event: MessageEvent) => {
+      if (event.data?.type !== "prereborn-overlay-draft-text-position") return;
+      const frame = document.querySelector<HTMLIFrameElement>(".design-page__preview");
+      if (event.source !== frame?.contentWindow || !Number.isFinite(event.data.xVw) || !Number.isFinite(event.data.yVh)) return;
+      setLayout((current) => current ? {
+        ...current,
+        draftProtection: { ...current.draftProtection, text: { ...current.draftProtection.text, xVw: event.data.xVw, yVh: event.data.yVh } },
+      } : current);
+      setSavedFlash(false);
+    };
+    window.addEventListener("message", receive);
+    return () => window.removeEventListener("message", receive);
+  }, []);
+
+  useEffect(() => {
+    const frame = document.querySelector<HTMLIFrameElement>(".design-page__preview");
+    frame?.contentWindow?.postMessage({ type: "prereborn-overlay-layout-preview", layout }, "*");
+  }, [layout, tab]);
+
   const editableScene = tab === "draft" || tab === "gameplay" ? tab : null;
 
-  const updateWidget = (widgetKey: "session" | "currentGame", patch: Partial<OverlayWidgetLayout>) => {
+  const updateWidget = (widgetKey: "session" | "currentGame" | "recentMatches", patch: Partial<OverlayWidgetLayout>) => {
     if (!layout || !editableScene) return;
     setSavedFlash(false);
     const scene = layout.scenes[editableScene];
@@ -131,6 +154,19 @@ export function DesignPage() {
     });
   };
 
+  const updateMinimap = (patch: Partial<MinimapCoverSettings>) => {
+    if (!layout || !editableScene) return;
+    const scene = layout.scenes[editableScene];
+    setSavedFlash(false);
+    setLayout({ ...layout, scenes: { ...layout.scenes, [editableScene]: { ...scene, minimapCover: { ...scene.minimapCover, ...patch } } } });
+  };
+
+  const updateDraftText = (patch: Partial<OverlayLayoutDoc["draftProtection"]["text"]>) => {
+    if (!layout) return;
+    setSavedFlash(false);
+    setLayout({ ...layout, draftProtection: { ...layout.draftProtection, text: { ...layout.draftProtection.text, ...patch } } });
+  };
+
   const handleSave = async () => {
     if (!layout) return;
     setSaving(true);
@@ -138,6 +174,7 @@ export function DesignPage() {
     try {
       const saved = await api.saveOverlayLayout(layout);
       setLayout(saved);
+      if (queueSettings) setQueueSettings(await api.saveQueueSettings(queueSettings));
       setSavedFlash(true);
     } catch (cause) {
       setError(String(cause));
@@ -164,7 +201,8 @@ export function DesignPage() {
           <iframe
             key={tab}
             className="design-page__preview"
-            src={`http://127.0.0.1:3666/overlay?previewScene=${tab}`}
+            src={`http://127.0.0.1:3666/overlay?previewScene=${tab}&editor=1`}
+            onLoad={(event) => event.currentTarget.contentWindow?.postMessage({ type: "prereborn-overlay-layout-preview", layout }, "*")}
             title="Предпросмотр локального оверлея"
           />
         </div>
@@ -180,6 +218,35 @@ export function DesignPage() {
                 onChange={(patch) => updateWidget("currentGame", patch)}
               />
               <WidgetSettings
+                title="История матчей"
+                widget={layout.scenes[editableScene].widgets.recentMatches}
+                onChange={(patch) => updateWidget("recentMatches", patch)}
+              />
+              {tab === "gameplay" && (
+                <div className="design-page__widget-settings">
+                  <h3>Защита миникарты</h3>
+                  <Checkbox label="Показывать" checked={layout.scenes.gameplay.minimapCover.enabled} onChange={(event) => updateMinimap({ enabled: event.target.checked })} />
+                  <label className="design-page__field"><span>Вариант</span><Select value={layout.scenes.gameplay.minimapCover.preset} onChange={(event) => updateMinimap({ preset: event.target.value as MinimapCoverSettings["preset"] })}>
+                    <option value="clean">Чистая карта</option><option value="random-a">Dotabod</option><option value="random-b">Варды</option><option value="random-dense">Плотные варды</option><option value="interactive">Движущиеся варды</option>
+                  </Select></label>
+                  <label className="design-page__field"><span>Угол</span><Select value={layout.scenes.gameplay.minimapCover.anchor} onChange={(event) => updateMinimap({ anchor: event.target.value as MinimapCoverSettings["anchor"] })}>
+                    <option value="top-left">Сверху слева</option><option value="top-right">Сверху справа</option><option value="bottom-left">Снизу слева</option><option value="bottom-right">Снизу справа</option>
+                  </Select></label>
+                  <label className="design-page__field"><span>Размер, px</span><Slider min={120} max={700} step={5} value={layout.scenes.gameplay.minimapCover.size} onChange={(event) => updateMinimap({ size: Number(event.target.value) })} /></label>
+                  <div className="design-page__widget-position"><label className="design-page__field"><span>X, px</span><Input type="number" value={layout.scenes.gameplay.minimapCover.x} onChange={(event) => updateMinimap({ x: Number(event.target.value) })} /></label><label className="design-page__field"><span>Y, px</span><Input type="number" value={layout.scenes.gameplay.minimapCover.y} onChange={(event) => updateMinimap({ y: Number(event.target.value) })} /></label></div>
+                </div>
+              )}
+              {tab === "draft" && (
+                <div className="design-page__widget-settings">
+                  <h3>Защита драфта</h3>
+                  <Checkbox label="Включить защиту" checked={layout.draftProtection.mode === "cover"} onChange={(event) => setLayout({ ...layout, draftProtection: { ...layout.draftProtection, mode: event.target.checked ? "cover" : "off" } })} />
+                  <Checkbox label="Показывать свой текст" checked={layout.draftProtection.text.visible} onChange={(event) => updateDraftText({ visible: event.target.checked })} />
+                  <label className="design-page__field"><span>Текст</span><Input value={layout.draftProtection.text.content} onChange={(event) => updateDraftText({ content: event.target.value })} /></label>
+                  <label className="design-page__field"><span>Масштаб ({layout.draftProtection.text.scale.toFixed(2)}×)</span><Slider min={0.5} max={2} step={0.05} value={layout.draftProtection.text.scale} onChange={(event) => updateDraftText({ scale: Number(event.target.value) })} /></label>
+                  <p className="design-page__hint">Текст можно перетащить прямо в предпросмотре.</p>
+                </div>
+              )}
+              <WidgetSettings
                 title="Сессия"
                 widget={layout.scenes[editableScene].widgets.session}
                 onChange={(patch) => updateWidget("session", patch)}
@@ -193,12 +260,22 @@ export function DesignPage() {
             </>
           )}
 
-          {!loading && !editableScene && (
-            <p className="design-page__hint">
-              У сцены «{TABS.find((item) => item.key === tab)?.label}» нет отдельных виджетов
-              положения — показывается фиксированная сводка сессии по центру экрана.
-            </p>
+          {!loading && tab === "betweenMatches" && queueSettings && (
+            <>
+              <div className="design-page__widget-settings"><h3>Блоки Between Matches</h3>
+                {(["playerProfile", "streamProfile", "featuredMatch", "webcam", "favoriteHeroes", "recentGames", "twitchChat"] as const).map((key) => <Checkbox key={key} label={queueSettings.widgets.titles[key]} checked={queueSettings.visibility[key]} onChange={(event) => { setSavedFlash(false); setQueueSettings({ ...queueSettings, visibility: { ...queueSettings.visibility, [key]: event.target.checked } }); }} />)}
+              </div>
+              <div className="design-page__widget-settings"><h3>Канал и контент</h3>
+                <label className="design-page__field"><span>Заголовок канала</span><Input value={queueSettings.widgets.titles.streamProfile} onChange={(event) => setQueueSettings({ ...queueSettings, widgets: { ...queueSettings.widgets, titles: { ...queueSettings.widgets.titles, streamProfile: event.target.value } } })} /></label>
+                <label className="design-page__field"><span>Webcam / Live Capture URL</span><Input value={queueSettings.webcamImageUrl ?? ""} onChange={(event) => setQueueSettings({ ...queueSettings, webcamImageUrl: event.target.value || null })} /></label>
+                <label className="design-page__field"><span>Последних игр ({queueSettings.widgets.recentGamesLimit})</span><Slider min={1} max={15} step={1} value={queueSettings.widgets.recentGamesLimit} onChange={(event) => setQueueSettings({ ...queueSettings, widgets: { ...queueSettings.widgets, recentGamesLimit: Number(event.target.value) } })} /></label>
+                <p className="design-page__hint">Избранные герои выбираются в разделе «Герои» (до трёх). Социальные ссылки сохраняются в существующих настройках аккаунта.</p>
+              </div>
+              <div className="design-page__actions"><Button variant="primary" onClick={() => void handleSave()} disabled={saving}>{saving ? "Сохранение…" : "Сохранить"}</Button>{savedFlash && <span className="design-page__saved">Сохранено ✓</span>}</div>
+            </>
           )}
+
+          {!loading && tab === "postStream" && <p className="design-page__hint">Итоги автоматически используют текущую локальную сессию и завершённые матчи.</p>}
 
           {error && <p className="app__error">Ошибка: {error}</p>}
         </aside>

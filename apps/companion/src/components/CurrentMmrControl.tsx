@@ -68,12 +68,10 @@ export function CurrentMmrControl({ currentMmr, sessionDelta, hasSession }: Prop
             type="button"
             className="link-button mmr-panel__edit"
             onClick={beginEdit}
-            disabled={!hasSession}
-            title={hasSession ? undefined : "MMR можно задать после начала локальной сессии"}
           >
             {savedMmr == null ? "Указать MMR" : "Изменить"}
           </button>
-          {!hasSession && <small className="mmr-panel__hint">Доступно после начала эфира.</small>}
+          {!hasSession && <small className="mmr-panel__hint">Будет стартовым MMR следующей сессии.</small>}
         </>
       ) : (
         <form className="mmr-panel__form" onSubmit={(event) => void save(event)}>

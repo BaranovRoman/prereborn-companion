@@ -5,7 +5,7 @@ import treeFarUrl from "../../../web/public/generated/chatgpt/trees-1.png";
 import treeMiddleUrl from "../../../web/public/generated/chatgpt/trees-2.png";
 import treeNearUrl from "../../../web/public/generated/chatgpt/trees-3.png";
 import logoUrl from "../../../web/public/logo-new.png";
-import type { LocalMatchSummary, LocalSessionSummary } from "../types";
+import type { LocalMatchSummary, LocalSessionSummary, QueueSettings } from "../types";
 import styles from "../../../web/src/components/pages/stream/queue/queue-scene.module.scss";
 
 const EMPTY_VALUE = "—";
@@ -99,11 +99,11 @@ function Atmosphere() {
   );
 }
 
-function PlayerProfile({ session }: { session: LocalSessionSummary }) {
+function PlayerProfile({ session, title = "PLAYER PROFILE" }: { session: LocalSessionSummary; title?: string }) {
   const total = session.wins + session.losses;
   const winRate = total ? Math.round((session.wins / total) * 100) : 0;
   return (
-    <Panel title="PLAYER PROFILE" className={styles.playerProfile}>
+    <Panel title={title} className={styles.playerProfile}>
       <div className={styles.profileBody}>
         <div className={styles.profileBrand}>
           <span><strong>PREREBORN</strong><small>Companion</small></span>
@@ -121,10 +121,10 @@ function PlayerProfile({ session }: { session: LocalSessionSummary }) {
   );
 }
 
-function StreamProfile({ session }: { session: LocalSessionSummary }) {
+function StreamProfile({ session, title = "STREAM PROFILE", goal }: { session: LocalSessionSummary; title?: string; goal?: QueueSettings["channelGoal"] }) {
   const delta = session.sessionDelta;
   return (
-    <Panel title="STREAM PROFILE" className={styles.streamProfile}>
+    <Panel title={title} className={styles.streamProfile}>
       <div className={styles.streamProfileBody}>
         <span className={styles.twitchAvatarFrame}><span className={styles.twitchAvatar}>PR</span></span>
         <div><strong>МЕЖДУ МАТЧАМИ</strong><small>LOCAL COMPANION OVERLAY</small></div>
@@ -133,8 +133,8 @@ function StreamProfile({ session }: { session: LocalSessionSummary }) {
           <span className={styles.goalTrack}>
             <i style={{ width: "100%" }} />
             <span className={styles.goalMeta}>
-              <span>SESSION MMR</span>
-              <b>{session.ratingStart ?? EMPTY_VALUE} → {session.ratingCurrent ?? EMPTY_VALUE} ({formatDelta(delta)})</b>
+              <span>{goal && goal.type !== "none" && goal.label ? goal.label : "SESSION MMR"}</span>
+              <b>{goal && goal.type !== "none" ? `${goal.startValue} → ${goal.targetValue}` : `${session.ratingStart ?? EMPTY_VALUE} → ${session.ratingCurrent ?? EMPTY_VALUE} (${formatDelta(delta)})`}</b>
             </span>
           </span>
         </div>
@@ -143,11 +143,11 @@ function StreamProfile({ session }: { session: LocalSessionSummary }) {
   );
 }
 
-function FeaturedMatch({ match }: { match: LocalMatchSummary | undefined }) {
+function FeaturedMatch({ match, title = "LAST MATCH" }: { match: LocalMatchSummary | undefined; title?: string }) {
   const hero = match ? getHeroById(match.heroId) : null;
   const delta = match ? ratingDelta(match) : null;
   return (
-    <Panel title="LAST MATCH" className={styles.featuredMatch}>
+    <Panel title={title} className={styles.featuredMatch}>
       <div className={styles.heroArt} data-empty={hero ? undefined : "true"}>
         {hero ? (
           <PreloadedVideo className={styles.featuredHeroImage} src={hero.videoUrl} poster={hero.portraitUrl} />
@@ -182,16 +182,16 @@ function FeaturedMatch({ match }: { match: LocalMatchSummary | undefined }) {
   );
 }
 
-function WebcamPanel() {
-  return <Panel title="LIVE CAPTURE" className={styles.webcamPanel}><div className={styles.webcam}><span>LIVE CAPTURE</span><small>EXTERNAL OBS SOURCE</small></div></Panel>;
+function WebcamPanel({ title, imageUrl }: { title: string; imageUrl: string }) {
+  return <Panel title={title} className={styles.webcamPanel}><div className={styles.webcam}><img src={imageUrl} alt="" /></div></Panel>;
 }
 
-function FavoriteHeroes({ matches }: { matches: LocalMatchSummary[] }) {
+function FavoriteHeroes({ matches, heroIds, title }: { matches: LocalMatchSummary[]; heroIds: number[]; title: string }) {
   const counts = new Map<number, number>();
   matches.forEach((match) => counts.set(match.heroId, (counts.get(match.heroId) ?? 0) + 1));
-  const favorites = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 3);
+  const favorites = (heroIds.length ? heroIds.map((id) => [id, counts.get(id) ?? 0] as [number, number]) : [...counts].sort((a, b) => b[1] - a[1])).slice(0, 3);
   return (
-    <Panel title="FAVORITE HEROES" className={styles.favorites}>
+    <Panel title={title} className={styles.favorites}>
       <div className={styles.favoriteList}>
         {favorites.length ? favorites.map(([heroId]) => {
           const hero = getHeroById(heroId);
@@ -210,11 +210,11 @@ function FavoriteHeroes({ matches }: { matches: LocalMatchSummary[] }) {
   );
 }
 
-function RecentGames({ matches }: { matches: LocalMatchSummary[] }) {
+function RecentGames({ matches, title, limit }: { matches: LocalMatchSummary[]; title: string; limit: number }) {
   return (
-    <Panel title="RECENT GAMES" className={styles.recentGames}>
+    <Panel title={title} className={styles.recentGames}>
       <div className={styles.gamesList}>
-        {matches.length ? matches.slice(0, 5).map((match, index) => {
+        {matches.length ? matches.slice(0, limit).map((match, index) => {
           const hero = getHeroById(match.heroId);
           const result = resultLabel(match);
           const delta = ratingDelta(match);
@@ -233,26 +233,19 @@ function RecentGames({ matches }: { matches: LocalMatchSummary[] }) {
   );
 }
 
-function TwitchArea() {
+function CommunityArea({ links, title }: { links: QueueSettings["widgets"]["friends"]["socialLinks"]; title: string }) {
   return (
-    <>
-      <Panel title="TWITCH CHAT" className={styles.chatPanel}>
-        <div className={`${styles.chatBody} ${styles.chatUnavailable}`}>
-          <i aria-hidden="true">T</i><strong>TWITCH PANEL</strong>
-          <span>Local mode keeps the production composition without remote runtime dependency.</span>
-        </div>
-      </Panel>
-      <Panel title="COMMUNITY" className={styles.donationPanel}>
+      <Panel title={title} className={styles.donationPanel}>
         <div className={styles.friendsBody}>
-          <section className={styles.friendSection}><h3>Local Companion</h3><div className={styles.friendGrid}><em>Stream community data is not required for this overlay.</em></div></section>
-          <section className={styles.friendSection}><h3>Connection</h3><div className={styles.friendGrid}><div className={styles.friendEntry}><i>GSI</i><p><strong>LOCAL STATE</strong><small>AUTHORITATIVE SESSION DATA</small></p></div></div></section>
+          <section className={styles.friendSection}><div className={styles.friendGrid}>{links.map((link) => <div className={styles.friendEntry} key={link.id}><i>{link.platform.slice(0, 2).toUpperCase()}</i><p><strong>{link.label}</strong><small>{link.url}</small></p></div>)}</div></section>
         </div>
       </Panel>
-    </>
   );
 }
 
-export function BetweenMatchesScene({ session }: { session: LocalSessionSummary }) {
+export function BetweenMatchesScene({ session, settings = null }: { session: LocalSessionSummary; settings?: QueueSettings | null }) {
+  const visible = settings?.visibility;
+  const titles = settings?.widgets.titles;
   const sceneStyle = {
     width: "100%",
     height: "100%",
@@ -263,17 +256,17 @@ export function BetweenMatchesScene({ session }: { session: LocalSessionSummary 
       <Atmosphere />
       <div className={styles.interface}>
         <div className={styles.dashboard} data-top-count={2}>
-          <PlayerProfile session={session} />
-          <StreamProfile session={session} />
+          {visible?.playerProfile !== false && <PlayerProfile session={session} title={titles?.playerProfile} />}
+          {visible?.streamProfile !== false && <StreamProfile session={session} title={titles?.streamProfile} goal={settings?.channelGoal} />}
           <div className={styles.leftMain} data-featured="true">
-            <FeaturedMatch match={session.recentMatches[0]} />
+            {visible?.featuredMatch !== false && <FeaturedMatch match={session.recentMatches[0]} title={titles?.featuredMatch} />}
             <div className={styles.sideStack} data-widget-count={3}>
-              <WebcamPanel />
-              <FavoriteHeroes matches={session.recentMatches} />
-              <RecentGames matches={session.recentMatches} />
+              {visible?.webcam !== false && settings?.webcamImageUrl && <WebcamPanel title={titles?.webcam ?? "LIVE CAPTURE"} imageUrl={settings.webcamImageUrl} />}
+              {visible?.favoriteHeroes !== false && <FavoriteHeroes title={titles?.favoriteHeroes ?? "FAVORITE HEROES"} matches={session.recentMatches} heroIds={settings?.favoriteHeroIds ?? []} />}
+              {visible?.recentGames !== false && <RecentGames title={titles?.recentGames ?? "RECENT GAMES"} matches={session.recentMatches} limit={settings?.widgets.recentGamesLimit ?? 5} />}
             </div>
           </div>
-          <div className={styles.rightMain}><TwitchArea /></div>
+          {(settings?.widgets.friends.socialLinks.length ?? 0) > 0 && <div className={styles.rightMain}><CommunityArea title={titles?.friends ?? "COMMUNITY"} links={settings?.widgets.friends.socialLinks ?? []} /></div>}
         </div>
       </div>
     </main>
