@@ -89,7 +89,10 @@ pub fn get<R: Runtime>(app: &AppHandle<R>) -> LocalSessionSummary {
         return LocalSessionSummary::default();
     };
     let Some(session) = store::find_open_session(conn).ok().flatten() else {
-        return LocalSessionSummary::default();
+        return LocalSessionSummary {
+            rating_current: store::get_current_rating(conn).ok().flatten(),
+            ..LocalSessionSummary::default()
+        };
     };
 
     let current_match = store::find_active_match(conn, &session.local_id)

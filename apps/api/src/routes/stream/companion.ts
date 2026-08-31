@@ -13,6 +13,7 @@ import {
     getOverlayLayoutController,
     putOverlayLayoutController,
 } from "../../controllers/stream/overlay-layout.js";
+import { getQueueSettingsController, putQueueSettingsController } from "../../controllers/stream/queue-settings.js";
 import {
     getCompanionAccountSettingsController,
     getSyncCorrectionsController,
@@ -59,6 +60,11 @@ streamCompanionRouter.put(
     authenticateCompanionSession,
     putCompanionGsiStateController
 );
+
+// Same account-owned Between Matches configuration used by the old web
+// dashboard. Companion auth changes only how the existing row is reached.
+streamCompanionRouter.get("/queue-settings", authenticateCompanionSession, getQueueSettingsController);
+streamCompanionRouter.put("/queue-settings", authenticateCompanionSession, putQueueSettingsController);
 
 // WK-113 - local-first cutover: session/match/MMR now reach the backend
 // through these, not through gsi-state above (see

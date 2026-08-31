@@ -211,6 +211,7 @@ pub struct InnerState {
     // a second push channel.
     pub overlay_layout: Option<serde_json::Value>,
     pub overlay_layout_version: u64,
+    pub queue_settings: Option<serde_json::Value>,
 }
 
 pub struct AppState(pub Mutex<InnerState>);

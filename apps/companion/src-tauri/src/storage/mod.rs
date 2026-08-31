@@ -48,6 +48,20 @@ pub fn load_overlay_layout(app: &AppHandle) -> Option<serde_json::Value> {
     fs::read_to_string(overlay_layout_path(app)).ok().and_then(|raw| serde_json::from_str(&raw).ok())
 }
 
+fn queue_settings_path(app: &AppHandle) -> PathBuf {
+    app.path().app_data_dir().expect("app_data_dir must resolve").join("queue-settings.json")
+}
+
+pub fn save_queue_settings(app: &AppHandle, settings: &serde_json::Value) -> std::io::Result<()> {
+    let path = queue_settings_path(app);
+    if let Some(dir) = path.parent() { fs::create_dir_all(dir)?; }
+    fs::write(path, serde_json::to_string_pretty(settings)?)
+}
+
+pub fn load_queue_settings(app: &AppHandle) -> Option<serde_json::Value> {
+    fs::read_to_string(queue_settings_path(app)).ok().and_then(|raw| serde_json::from_str(&raw).ok())
+}
+
 // WK-122 - every function below that touches companion-config.json is
 // split into a thin `AppHandle`-resolving public wrapper and a `_at(path)`
 // core that takes the file path directly and does no Tauri I/O of its own -

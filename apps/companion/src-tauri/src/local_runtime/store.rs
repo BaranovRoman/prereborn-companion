@@ -37,6 +37,28 @@ pub fn find_open_session(conn: &Connection) -> rusqlite::Result<Option<LocalSess
     .optional()
 }
 
+const CURRENT_RATING_KEY: &str = "current_rating";
+
+pub fn get_current_rating(conn: &Connection) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT value FROM sync_meta WHERE key = ?1",
+        params![CURRENT_RATING_KEY],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()?
+    .map(|value| value.parse::<i64>().map_err(|_| rusqlite::Error::InvalidQuery))
+    .transpose()
+}
+
+fn persist_current_rating(conn: &Connection, rating: i64) -> rusqlite::Result<()> {
+    conn.execute(
+        "INSERT INTO sync_meta (key, value) VALUES (?1, ?2) \
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![CURRENT_RATING_KEY, rating.to_string()],
+    )?;
+    Ok(())
+}
+
 /// Mirrors `getOrCreateActiveSession` (stream-session-service.ts): finds the
 /// most recent session that hasn't ended, or creates a fresh one. The ONLY
 /// place a new LocalSession is created (see local_runtime::mod.rs's
@@ -53,10 +75,11 @@ pub fn ensure_active_session(conn: &mut Connection, now: DateTime<Utc>) -> rusql
     // not null - the account's last-known MMR doesn't reset just because a
     // new stream (OBS Start Streaming) began. Genuinely null only for this
     // device's very first session ever.
-    let carried_rating: Option<i64> = conn
+    let previous_session_rating: Option<i64> = conn
         .query_row("SELECT rating_current FROM local_sessions ORDER BY rowid DESC LIMIT 1", [], |row| row.get(0))
         .optional()?
         .flatten();
+    let carried_rating = get_current_rating(conn)?.or(previous_session_rating);
 
     let local_id = Uuid::new_v4().to_string();
     let tx = conn.transaction()?;
@@ -96,18 +119,22 @@ pub fn ensure_active_session(conn: &mut Connection, now: DateTime<Utc>) -> rusql
 /// difference in `rating_adjustment`; finalized match rows are deliberately
 /// untouched. This is the local-first form of WK-105's existing
 /// session-adjustment semantics, not a second rating model.
-pub fn set_current_rating(conn: &Connection, rating: i64) -> rusqlite::Result<LocalSession> {
-    let session = find_open_session(conn)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
-    conn.execute(
-        "UPDATE local_sessions \
-         SET rating_adjustment = rating_adjustment + \
-                 CASE WHEN rating_current IS NULL THEN 0 ELSE ?2 - rating_current END, \
-             rating_start = COALESCE(rating_start, ?2), \
-             rating_current = ?2 \
-         WHERE local_id = ?1 AND ended_at IS NULL",
-        params![session.local_id, rating],
-    )?;
-    find_open_session(conn)?.ok_or(rusqlite::Error::QueryReturnedNoRows)
+pub fn set_current_rating(conn: &mut Connection, rating: i64) -> rusqlite::Result<Option<LocalSession>> {
+    let tx = conn.transaction()?;
+    if let Some(session) = find_open_session(&tx)? {
+        tx.execute(
+            "UPDATE local_sessions \
+             SET rating_adjustment = rating_adjustment + \
+                     CASE WHEN rating_current IS NULL THEN 0 ELSE ?2 - rating_current END, \
+                 rating_start = COALESCE(rating_start, ?2), \
+                 rating_current = ?2 \
+             WHERE local_id = ?1 AND ended_at IS NULL",
+            params![session.local_id, rating],
+        )?;
+    }
+    persist_current_rating(&tx, rating)?;
+    tx.commit()?;
+    find_open_session(conn)
 }
 
 /// WK-112 - OBS reported "not streaming" for an open session with no
@@ -417,6 +444,7 @@ pub fn finalize_match(
              WHERE local_id = ?1",
             params![session_local_id, rating_after, rating_before],
         )?;
+        persist_current_rating(&tx, rating_after.expect("checked above"))?;
     }
 
     // WK-113 - the match's fully-resolved outcome, durably queued in the
@@ -635,7 +663,7 @@ mod tests {
         let session = ensure_active_session(&mut conn, Utc::now()).unwrap();
         assert_eq!(session.rating_current, None);
 
-        let updated = set_current_rating(&conn, 4_500).unwrap();
+        let updated = set_current_rating(&mut conn, 4_500).unwrap().unwrap();
         assert_eq!(updated.rating_start, Some(4_500));
         assert_eq!(updated.rating_current, Some(4_500));
         assert_eq!(updated.rating_adjustment, 0);
@@ -646,7 +674,7 @@ mod tests {
         let mut conn = test_conn();
         let now = Utc::now();
         let session = ensure_active_session(&mut conn, now).unwrap();
-        set_current_rating(&conn, 6_000).unwrap();
+        set_current_rating(&mut conn, 6_000).unwrap();
         create_match(&conn, &session.local_id, Some("correction-history"), 14, "radiant", RankedMode::Ranked, now).unwrap();
         let active = find_active_match(&conn, &session.local_id).unwrap().unwrap();
         finalize_match(&mut conn, &active.local_id, &session.local_id, RankedMode::Ranked, MatchResult::Win, "confirmed", now).unwrap();
@@ -659,7 +687,7 @@ mod tests {
             )
             .unwrap();
 
-        let corrected = set_current_rating(&conn, 6_100).unwrap();
+        let corrected = set_current_rating(&mut conn, 6_100).unwrap().unwrap();
         let after: (Option<i64>, Option<i64>, Option<i64>) = conn
             .query_row(
                 "SELECT rating_before, detected_rating_delta, rating_after FROM local_matches WHERE local_id = ?1",
@@ -674,6 +702,18 @@ mod tests {
         assert_eq!(corrected.rating_current, Some(6_100));
         assert_eq!(corrected.rating_adjustment, 75);
         assert_eq!(corrected.rating_current.unwrap() - corrected.rating_start.unwrap() - corrected.rating_adjustment, 25);
+    }
+
+    #[test]
+    fn idle_current_rating_is_snapshotted_by_the_next_session() {
+        let mut conn = test_conn();
+        assert!(set_current_rating(&mut conn, 5_750).unwrap().is_none());
+        assert_eq!(get_current_rating(&conn).unwrap(), Some(5_750));
+
+        let session = ensure_active_session(&mut conn, Utc::now()).unwrap();
+        assert_eq!(session.rating_start, Some(5_750));
+        assert_eq!(session.rating_current, Some(5_750));
+        assert_eq!(session.rating_adjustment, 0);
     }
 
     #[test]

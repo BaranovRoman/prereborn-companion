@@ -24,7 +24,7 @@ export interface TwitchChatStatus {
   messages: TwitchChatMessage[];
 }
 import { invoke } from "@tauri-apps/api/core";
-import type { AccountStatus, DiagnosticsStatusSnapshot, LifecycleStatus, LocalSessionSummary, ObsConfig, OverlayLayoutDoc, StatusSnapshot, SyncOutboxStatus } from "../types/status";
+import type { AccountStatus, DiagnosticsStatusSnapshot, LifecycleStatus, LocalSessionSummary, ObsConfig, OverlayLayoutDoc, QueueSettingsDoc, StatusSnapshot, SyncOutboxStatus } from "../types/status";
 import type { StreamSessionSummary } from "../session/session-prompt";
 
 export const getStatus = () => invoke<StatusSnapshot>("get_status");
@@ -56,6 +56,8 @@ export const accountLogout = () => invoke<AccountStatus>("account_logout");
 export const getOverlayLayout = () => invoke<OverlayLayoutDoc>("get_overlay_layout");
 export const saveOverlayLayout = (layout: OverlayLayoutDoc) =>
   invoke<OverlayLayoutDoc>("save_overlay_layout", { layout });
+export const getQueueSettings = () => invoke<QueueSettingsDoc>("get_queue_settings");
+export const saveQueueSettings = (settings: QueueSettingsDoc) => invoke<QueueSettingsDoc>("save_queue_settings", { settings });
 export const getTwitchChat = () => invoke<TwitchChatStatus>("get_twitch_chat");
 export const openTwitchSettings = () => invoke<void>("open_twitch_settings");
 

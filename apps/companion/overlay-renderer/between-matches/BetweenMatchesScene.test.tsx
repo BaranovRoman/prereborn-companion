@@ -26,10 +26,10 @@ describe("BetweenMatchesScene", () => {
     expect(screen.getByText(/6000 → 6025 \(\+25\)/)).toBeTruthy();
     expect(screen.getByText("1–0")).toBeTruthy();
     expect(screen.getByLabelText("LAST MATCH")).toBeTruthy();
-    expect(screen.getByLabelText("LIVE CAPTURE")).toBeTruthy();
     expect(screen.getByLabelText("FAVORITE HEROES")).toBeTruthy();
     expect(screen.getByLabelText("RECENT GAMES")).toBeTruthy();
-    expect(screen.getByLabelText("TWITCH CHAT")).toBeTruthy();
+    expect(screen.queryByLabelText("LIVE CAPTURE")).toBeNull();
+    expect(screen.queryByLabelText("TWITCH CHAT")).toBeNull();
   });
 
   it("keeps a complete honest layout when recent matches are empty", () => {

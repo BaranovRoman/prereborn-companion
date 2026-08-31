@@ -234,6 +234,8 @@ pub fn run() {
             commands::account_logout,
             commands::get_overlay_layout,
             commands::save_overlay_layout,
+            commands::get_queue_settings,
+            commands::save_queue_settings,
             commands::get_twitch_chat,
             commands::open_twitch_settings,
             commands::resend_current_state,

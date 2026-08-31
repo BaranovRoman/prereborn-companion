@@ -69,6 +69,7 @@ pub fn init(app: AppHandle) {
         let mut inner = state.0.lock().unwrap();
         inner.obs_config = storage::load_obs_config(&app);
         inner.overlay_layout = storage::load_overlay_layout(&app);
+        inner.queue_settings = storage::load_queue_settings(&app);
         if inner.overlay_layout.is_some() {
             inner.overlay_layout_version = 1;
         }
@@ -112,6 +113,7 @@ pub fn init(app: AppHandle) {
             }
             if last_overlay_layout_poll.elapsed() >= OVERLAY_LAYOUT_POLL_INTERVAL {
                 let _ = tauri::async_runtime::block_on(refresh_overlay_layout(&app_for_loop));
+                let _ = tauri::async_runtime::block_on(refresh_queue_settings(&app_for_loop));
                 last_overlay_layout_poll = Instant::now();
             }
             // WK-113 - no more automatic session-state poll here. PostStream
@@ -734,6 +736,46 @@ fn apply_overlay_layout(app: &AppHandle, layout: serde_json::Value) {
         drop(inner);
         if let Err(error) = storage::save_overlay_layout(app, &layout) {
             storage::append_rolling_log(app, &format!("Overlay layout: local cache write failed ({error})"));
+        }
+    }
+}
+
+pub async fn refresh_queue_settings(app: &AppHandle) -> Result<serde_json::Value, String> {
+    let token = app.state::<AppState>().0.lock().unwrap().companion_token.clone()
+        .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())?;
+    let settings = tauri::async_runtime::spawn_blocking(move || request_queue_settings(&token, None))
+        .await.map_err(|e| format!("Internal error: {e}"))??;
+    apply_queue_settings(app, settings.clone());
+    Ok(settings)
+}
+
+pub async fn save_queue_settings(app: &AppHandle, settings: serde_json::Value) -> Result<serde_json::Value, String> {
+    let token = app.state::<AppState>().0.lock().unwrap().companion_token.clone()
+        .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())?;
+    let saved = tauri::async_runtime::spawn_blocking(move || request_queue_settings(&token, Some(settings)))
+        .await.map_err(|e| format!("Internal error: {e}"))??;
+    apply_queue_settings(app, saved.clone());
+    Ok(saved)
+}
+
+fn request_queue_settings(token: &str, body: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
+    let client = reqwest::blocking::Client::builder().timeout(REQUEST_TIMEOUT).build().map_err(|e| e.to_string())?;
+    let url = format!("{DEFAULT_BACKEND_URL}/stream/companion/queue-settings");
+    let response = match body { Some(value) => client.put(url).bearer_auth(token).json(&value).send(), None => client.get(url).bearer_auth(token).send() }
+        .map_err(|e| format!("Настройки Between Matches недоступны: {e}"))?;
+    if !response.status().is_success() { return Err(format!("Backend ответил {}", response.status())); }
+    response.json().map_err(|e| format!("Неверный ответ настроек: {e}"))
+}
+
+fn apply_queue_settings(app: &AppHandle, settings: serde_json::Value) {
+    let state = app.state::<AppState>();
+    let mut inner = state.0.lock().unwrap();
+    if inner.queue_settings.as_ref() != Some(&settings) {
+        inner.queue_settings = Some(settings.clone());
+        inner.overlay_layout_version = inner.overlay_layout_version.saturating_add(1);
+        drop(inner);
+        if let Err(error) = storage::save_queue_settings(app, &settings) {
+            storage::append_rolling_log(app, &format!("Queue settings: local cache write failed ({error})"));
         }
     }
 }

@@ -26,6 +26,7 @@ use tauri::{AppHandle, Manager};
 use uuid::Uuid;
 
 use super::model::RankedMode;
+use super::store;
 use super::LocalRuntimeState;
 use crate::state::{AppState, DEFAULT_BACKEND_URL};
 
@@ -434,15 +435,20 @@ fn refresh_game_mode(app: &AppHandle) {
         return; // best-effort - keep whatever was cached before
     };
     let Ok(json) = response.json::<Value>() else { return };
-    let Some(mode) = json.get("gameMode").and_then(Value::as_str) else { return };
-    if mode != "ranked" && mode != "unranked" {
-        return;
-    }
-
     let state = app.state::<LocalRuntimeState>();
     let mut guard = state.lock();
     let Some(conn) = guard.as_mut() else { return };
-    let _ = meta_set(conn, "cached_game_mode", mode);
+    if let Some(mode) = json.get("gameMode").and_then(Value::as_str) {
+        if mode == "ranked" || mode == "unranked" { let _ = meta_set(conn, "cached_game_mode", mode); }
+    }
+    // Backend is only a bootstrap source. Once this device has an explicit
+    // local value (or a live session), a stale account response must never
+    // overwrite the streamer's correction.
+    if store::find_open_session(conn).ok().flatten().is_none() && store::get_current_rating(conn).ok().flatten().is_none() {
+        if let Some(rating) = json.get("currentMmr").and_then(Value::as_i64) {
+            let _ = store::set_current_rating(conn, rating);
+        }
+    }
 }
 
 /// WK-113 §6 - the pull direction of MMR reconciliation: a match corrected

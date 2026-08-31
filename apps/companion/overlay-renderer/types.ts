@@ -124,3 +124,17 @@ export interface OverlayLayout {
     text: DraftProtectionTextSettings;
   };
 }
+
+export interface QueueSettings {
+  version: number;
+  visibility: Record<"playerProfile" | "streamProfile" | "featuredMatch" | "webcam" | "favoriteHeroes" | "recentGames" | "twitchChat" | "systemStatus", boolean>;
+  favoriteHeroIds: number[];
+  webcamImageUrl: string | null;
+  channelGoal: { type: "none" | "rating" | "custom"; label: string; startValue: number; targetValue: number };
+  widgets: {
+    titles: Record<"playerProfile" | "streamProfile" | "featuredMatch" | "webcam" | "favoriteHeroes" | "recentGames" | "twitchChat" | "friends", string>;
+    recentGamesLimit: number;
+    chatMessagesLimit: number;
+    friends: { showDonaters: boolean; showSubscribers: boolean; showFollowers: boolean; socialLinks: Array<{ id: string; platform: string; label: string; url: string }> };
+  };
+}

@@ -7,7 +7,7 @@ import { CurrentGameWidget } from "./widgets/CurrentGameWidget";
 import { RecentMatchesWidget } from "./widgets/RecentMatchesWidget";
 import { SessionWidget } from "./widgets/SessionWidget";
 import { BetweenMatchesScene } from "./between-matches/BetweenMatchesScene";
-import type { OverlayLayout, OverlayStateSnapshot } from "./types";
+import type { OverlayLayout, OverlayStateSnapshot, QueueSettings } from "./types";
 
 const SCENE_LABEL: Record<OverlayStateSnapshot["scene"], string> = {
   betweenMatches: "Между матчами",
@@ -30,6 +30,10 @@ const VALID_SCENES = Object.keys(SCENE_LABEL) as OverlayStateSnapshot["scene"][]
 function readPreviewScene(): OverlayStateSnapshot["scene"] | null {
   const value = new URLSearchParams(window.location.search).get("previewScene");
   return VALID_SCENES.includes(value as OverlayStateSnapshot["scene"]) ? (value as OverlayStateSnapshot["scene"]) : null;
+}
+
+function isEditorPreview() {
+  return new URLSearchParams(window.location.search).get("editor") === "1";
 }
 
 function sceneDimensions(layout: OverlayLayout | null) {
@@ -62,6 +66,19 @@ export function OverlayApp() {
   const [snapshot, setSnapshot] = useState<OverlayStateSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
   const [layout, setLayout] = useState<OverlayLayout | null>(null);
+  const [queueSettings, setQueueSettings] = useState<QueueSettings | null>(null);
+
+  useEffect(() => {
+    if (!isEditorPreview()) return;
+    const receive = (event: MessageEvent) => {
+      if (event.source === window.parent && event.data?.type === "prereborn-overlay-layout-preview" && event.data.layout) {
+        setLayout(event.data.layout as OverlayLayout);
+      }
+    };
+    window.addEventListener("message", receive);
+    window.parent.postMessage({ type: "prereborn-overlay-preview-ready" }, "*");
+    return () => window.removeEventListener("message", receive);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,6 +112,10 @@ export function OverlayApp() {
       .then((response) => response.json())
       .then((data: OverlayLayout | null) => { if (!cancelled) setLayout(data); })
       .catch(() => {});
+    fetch("/overlay/queue-settings")
+      .then((response) => response.json())
+      .then((data: QueueSettings | null) => { if (!cancelled) setQueueSettings(data); })
+      .catch(() => {});
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot?.layoutVersion]);
@@ -112,7 +133,7 @@ export function OverlayApp() {
       <div className={`ov-background ov-background--${scene}`} />
 
       {(scene === "draft" || scene === "gameplay") && <AntiSnipeLayer settings={sceneLayout?.minimapCover} />}
-      {scene === "draft" && layout && <DraftProtectionLayer mode={layout.draftProtection.mode} text={layout.draftProtection.text} sceneWidth={dimensions.width} sceneHeight={dimensions.height} />}
+      {scene === "draft" && layout && <DraftProtectionLayer mode={layout.draftProtection.mode} text={layout.draftProtection.text} sceneWidth={dimensions.width} sceneHeight={dimensions.height} editable={isEditorPreview()} />}
 
       {(scene === "draft" || scene === "gameplay") && (
         sceneWidgets ? (
@@ -142,7 +163,7 @@ export function OverlayApp() {
       )}
 
       {scene === "betweenMatches" && (
-        <BetweenMatchesScene session={session} />
+        <BetweenMatchesScene session={session} settings={queueSettings} />
       )}
 
       {scene === "postStream" && (

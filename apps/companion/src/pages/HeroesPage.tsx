@@ -95,6 +95,9 @@ export function HeroesPage({ favorites, soundSettings, trackedHeroes, onSelectHe
   const grouped = useMemo(() => {
     const groups = new Map<DotaHeroAttribute, HeroCatalogEntry[]>(ATTRIBUTES.map((a) => [a.id, []]));
     for (const hero of filtered) groups.get(hero.attribute)?.push(hero);
+    for (const heroes of groups.values()) {
+      heroes.sort((a, b) => a.localizedName.localeCompare(b.localizedName, "ru"));
+    }
     return groups;
   }, [filtered]);
 
