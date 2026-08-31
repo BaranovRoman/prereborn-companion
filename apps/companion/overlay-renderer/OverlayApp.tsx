@@ -67,12 +67,14 @@ export function OverlayApp() {
   const [connected, setConnected] = useState(false);
   const [layout, setLayout] = useState<OverlayLayout | null>(null);
   const [queueSettings, setQueueSettings] = useState<QueueSettings | null>(null);
+  const [selectedWidget, setSelectedWidget] = useState<string | null>("currentGame");
 
   useEffect(() => {
     if (!isEditorPreview()) return;
     const receive = (event: MessageEvent) => {
       if (event.source === window.parent && event.data?.type === "prereborn-overlay-layout-preview" && event.data.layout) {
         setLayout(event.data.layout as OverlayLayout);
+        if (event.data.queueSettings) setQueueSettings(event.data.queueSettings as QueueSettings);
       }
     };
     window.addEventListener("message", receive);
@@ -127,24 +129,48 @@ export function OverlayApp() {
   const sceneLayout = scene === "draft" || scene === "gameplay" ? layout?.scenes[scene] : undefined;
   const sceneWidgets = sceneLayout?.widgets;
   const dimensions = sceneDimensions(layout);
+  const editor = isEditorPreview();
+  const patchWidget = (key: "currentGame" | "session" | "recentMatches", patch: Record<string, unknown>) => {
+    if (!layout || (scene !== "draft" && scene !== "gameplay")) return;
+    const next = {
+      ...layout,
+      scenes: {
+        ...layout.scenes,
+        [scene]: {
+          ...layout.scenes[scene],
+          widgets: {
+            ...layout.scenes[scene].widgets,
+            [key]: { ...layout.scenes[scene].widgets[key], ...patch },
+          },
+        },
+      },
+    };
+    setLayout(next);
+    window.parent.postMessage({ type: "prereborn-overlay-widget-change", scene, widget: key, patch }, "*");
+  };
 
   return (
     <Scene sceneWidth={dimensions.width} sceneHeight={dimensions.height}>
       <div className={`ov-background ov-background--${scene}`} />
 
-      {(scene === "draft" || scene === "gameplay") && <AntiSnipeLayer settings={sceneLayout?.minimapCover} />}
+      {(scene === "draft" || scene === "gameplay") && <AntiSnipeLayer settings={sceneLayout?.minimapCover} editable={editor && scene === "gameplay"} onChange={(patch) => {
+        if (!layout || scene !== "gameplay") return;
+        const next = { ...layout, scenes: { ...layout.scenes, gameplay: { ...layout.scenes.gameplay, minimapCover: { ...layout.scenes.gameplay.minimapCover, ...patch } } } };
+        setLayout(next);
+        window.parent.postMessage({ type: "prereborn-overlay-minimap-change", patch }, "*");
+      }} />}
       {scene === "draft" && layout && <DraftProtectionLayer mode={layout.draftProtection.mode} text={layout.draftProtection.text} sceneWidth={dimensions.width} sceneHeight={dimensions.height} editable={isEditorPreview()} />}
 
       {(scene === "draft" || scene === "gameplay") && (
         sceneWidgets ? (
           <>
-            <AnchoredBox layout={sceneWidgets.currentGame} sceneWidth={dimensions.width} sceneHeight={dimensions.height}>
+            <AnchoredBox layout={sceneWidgets.currentGame} sceneWidth={dimensions.width} sceneHeight={dimensions.height} editable={editor} selected={selectedWidget === "currentGame"} onSelect={() => setSelectedWidget("currentGame")} onChange={(patch) => patchWidget("currentGame", patch)}>
               <CurrentGameWidget game={currentGame} />
             </AnchoredBox>
-            <AnchoredBox layout={sceneWidgets.session} sceneWidth={dimensions.width} sceneHeight={dimensions.height}>
+            <AnchoredBox layout={sceneWidgets.session} sceneWidth={dimensions.width} sceneHeight={dimensions.height} editable={editor} selected={selectedWidget === "session"} onSelect={() => setSelectedWidget("session")} onChange={(patch) => patchWidget("session", patch)}>
               <SessionWidget session={session} />
             </AnchoredBox>
-            <AnchoredBox layout={sceneWidgets.recentMatches} sceneWidth={dimensions.width} sceneHeight={dimensions.height}>
+            <AnchoredBox layout={sceneWidgets.recentMatches} sceneWidth={dimensions.width} sceneHeight={dimensions.height} editable={editor} selected={selectedWidget === "recentMatches"} onSelect={() => setSelectedWidget("recentMatches")} onChange={(patch) => patchWidget("recentMatches", patch)}>
               <RecentMatchesWidget matches={session.recentMatches} settings={sceneWidgets.recentMatches.recentMatches} anchor={sceneWidgets.recentMatches.anchor} />
             </AnchoredBox>
           </>
@@ -163,7 +189,7 @@ export function OverlayApp() {
       )}
 
       {scene === "betweenMatches" && (
-        <BetweenMatchesScene session={session} settings={queueSettings} />
+        <BetweenMatchesScene session={session} settings={queueSettings} account={snapshot.account} />
       )}
 
       {scene === "postStream" && (

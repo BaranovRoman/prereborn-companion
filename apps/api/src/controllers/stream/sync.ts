@@ -7,6 +7,9 @@ import {
     getCorrectionsSince,
 } from "../../services/stream-sync-service.js";
 import { getStreamUserGameMode } from "../../services/stream-user-service.js";
+import { getSteamLink } from "../../services/stream-user-service.js";
+import { getCachedSteamProfile } from "../../services/steam-profile-cache-service.js";
+import { getTwitchStatus } from "../../services/twitch-integration-service.js";
 import { getLatestSessionForUser } from "../../services/stream-session-service.js";
 import { logger } from "../../utils/logger.js";
 
@@ -126,11 +129,27 @@ export const getSyncCorrectionsController = async (req: Request, res: Response) 
 export const getCompanionAccountSettingsController = async (req: Request, res: Response) => {
     try {
         const streamUserId = req.streamUserId as string;
-        const [gameMode, latestSession] = await Promise.all([
+        const [gameMode, latestSession, steamLink, twitch] = await Promise.all([
             getStreamUserGameMode(streamUserId),
             getLatestSessionForUser(streamUserId),
+            getSteamLink(streamUserId),
+            getTwitchStatus(streamUserId),
         ]);
-        res.json({ gameMode, currentMmr: latestSession?.rating ?? null });
+        const steamProfile = steamLink ? await getCachedSteamProfile(steamLink.dotaAccountId) : null;
+        res.json({
+            gameMode,
+            currentMmr: latestSession?.rating ?? null,
+            steam: { connected: steamLink !== null, profile: steamProfile },
+            twitch: {
+                connected: twitch.connected,
+                ...(twitch.connected ? {
+                    login: twitch.login,
+                    displayName: twitch.displayName,
+                    profileImageUrl: twitch.profileImageUrl,
+                    live: twitch.live,
+                } : {}),
+            },
+        });
     } catch (error) {
         logger.error("Companion account-settings fetch error", {
             requestId: req.requestId,

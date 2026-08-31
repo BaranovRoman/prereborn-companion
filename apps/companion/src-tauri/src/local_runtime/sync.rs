@@ -581,7 +581,16 @@ pub fn start_sync_worker(app: AppHandle) {
         if n % CORRECTIONS_PULL_EVERY_TICKS == 0 {
             pull_corrections(&app);
         }
-        if n % GAME_MODE_REFRESH_EVERY_TICKS == 0 {
+        // Bootstrap promptly after login/app start. A match stores its mode
+        // at creation and never rewrites history, so waiting the ordinary
+        // 60-second refresh interval could permanently classify an early
+        // real ranked match as Unknown and suppress its MMR delta.
+        let game_mode_unknown = {
+            let state = app.state::<LocalRuntimeState>();
+            let guard = state.lock();
+            guard.as_ref().map(cached_ranked_mode) == Some(RankedMode::Unknown)
+        };
+        if game_mode_unknown || n % GAME_MODE_REFRESH_EVERY_TICKS == 0 {
             refresh_game_mode(&app);
         }
         if n % PURGE_EVERY_TICKS == 0 {

@@ -70,6 +70,7 @@ pub fn init(app: AppHandle) {
         inner.obs_config = storage::load_obs_config(&app);
         inner.overlay_layout = storage::load_overlay_layout(&app);
         inner.queue_settings = storage::load_queue_settings(&app);
+        inner.account_overlay_data = storage::load_account_overlay_data(&app);
         if inner.overlay_layout.is_some() {
             inner.overlay_layout_version = 1;
         }
@@ -114,6 +115,7 @@ pub fn init(app: AppHandle) {
             if last_overlay_layout_poll.elapsed() >= OVERLAY_LAYOUT_POLL_INTERVAL {
                 let _ = tauri::async_runtime::block_on(refresh_overlay_layout(&app_for_loop));
                 let _ = tauri::async_runtime::block_on(refresh_queue_settings(&app_for_loop));
+                let _ = tauri::async_runtime::block_on(refresh_account_overlay_data(&app_for_loop));
                 last_overlay_layout_poll = Instant::now();
             }
             // WK-113 - no more automatic session-state poll here. PostStream
@@ -778,6 +780,28 @@ fn apply_queue_settings(app: &AppHandle, settings: serde_json::Value) {
             storage::append_rolling_log(app, &format!("Queue settings: local cache write failed ({error})"));
         }
     }
+}
+
+pub async fn refresh_account_overlay_data(app: &AppHandle) -> Result<serde_json::Value, String> {
+    let token = app.state::<AppState>().0.lock().unwrap().companion_token.clone()
+        .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())?;
+    let data = tauri::async_runtime::spawn_blocking(move || {
+        let response = reqwest::blocking::Client::builder().timeout(REQUEST_TIMEOUT).build()
+            .map_err(|error| error.to_string())?
+            .get(format!("{DEFAULT_BACKEND_URL}/stream/companion/account-settings"))
+            .bearer_auth(token).send().map_err(|error| error.to_string())?;
+        if !response.status().is_success() { return Err(format!("Backend ответил {}", response.status())); }
+        response.json::<serde_json::Value>().map_err(|error| error.to_string())
+    }).await.map_err(|error| format!("Internal error: {error}"))??;
+    let state = app.state::<AppState>();
+    let mut inner = state.0.lock().unwrap();
+    if inner.account_overlay_data.as_ref() != Some(&data) {
+        inner.account_overlay_data = Some(data.clone());
+        inner.overlay_layout_version = inner.overlay_layout_version.saturating_add(1);
+        drop(inner);
+        let _ = storage::save_account_overlay_data(app, &data);
+    }
+    Ok(data)
 }
 
 /// Manual "resend current state" - ignores `dirty`, sends whatever the last

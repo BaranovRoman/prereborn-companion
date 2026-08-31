@@ -48,6 +48,10 @@ export interface OverlayStateSnapshot {
   // OverlayApp.tsx re-fetches GET /overlay/layout only when this moves,
   // rather than embedding the whole layout blob in every SSE frame.
   layoutVersion: number;
+  account: {
+    steam?: { connected: boolean; profile: { displayName: string; avatarUrl: string | null; profileUrl: string | null } | null };
+    twitch?: { connected: boolean; login?: string; displayName?: string; profileImageUrl?: string | null; live?: { title: string; viewerCount: number; gameName: string } | null };
+  } | null;
 }
 
 // WK-122 §19 - mirrors apps/api's stream-overlay-layout-service.ts (the

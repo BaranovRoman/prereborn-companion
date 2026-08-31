@@ -5,7 +5,7 @@ import treeFarUrl from "../../../web/public/generated/chatgpt/trees-1.png";
 import treeMiddleUrl from "../../../web/public/generated/chatgpt/trees-2.png";
 import treeNearUrl from "../../../web/public/generated/chatgpt/trees-3.png";
 import logoUrl from "../../../web/public/logo-new.png";
-import type { LocalMatchSummary, LocalSessionSummary, QueueSettings } from "../types";
+import type { LocalMatchSummary, LocalSessionSummary, OverlayStateSnapshot, QueueSettings } from "../types";
 import styles from "../../../web/src/components/pages/stream/queue/queue-scene.module.scss";
 
 const EMPTY_VALUE = "—";
@@ -99,9 +99,11 @@ function Atmosphere() {
   );
 }
 
-function PlayerProfile({ session, title = "PLAYER PROFILE" }: { session: LocalSessionSummary; title?: string }) {
+function PlayerProfile({ session, account, title = "PLAYER PROFILE" }: { session: LocalSessionSummary; account: OverlayStateSnapshot["account"]; title?: string }) {
   const total = session.wins + session.losses;
   const winRate = total ? Math.round((session.wins / total) * 100) : 0;
+  const profile = account?.steam?.profile;
+  const name = profile?.displayName || "STREAMER";
   return (
     <Panel title={title} className={styles.playerProfile}>
       <div className={styles.profileBody}>
@@ -109,8 +111,8 @@ function PlayerProfile({ session, title = "PLAYER PROFILE" }: { session: LocalSe
           <span><strong>PREREBORN</strong><small>Companion</small></span>
           <img src={logoUrl} alt="" />
         </div>
-        <div className={styles.profileAvatarFrame}><div className={styles.avatar}>PR</div></div>
-        <div className={styles.playerIdentity}><strong>LOCAL SESSION</strong></div>
+        <div className={styles.profileAvatarFrame}>{profile?.avatarUrl ? <img className={styles.avatarImage} src={profile.avatarUrl} alt="" /> : <div className={styles.avatar}>{name.slice(0, 2).toUpperCase()}</div>}</div>
+        <div className={styles.playerIdentity}><strong>{name}</strong></div>
         <div className={styles.profileStats}>
           <div><span>RATING</span><b>{session.ratingCurrent?.toLocaleString("en-US") ?? EMPTY_VALUE}</b></div>
           <div><span>STREAM</span><b>{session.wins}–{session.losses}</b></div>
@@ -121,14 +123,16 @@ function PlayerProfile({ session, title = "PLAYER PROFILE" }: { session: LocalSe
   );
 }
 
-function StreamProfile({ session, title = "STREAM PROFILE", goal }: { session: LocalSessionSummary; title?: string; goal?: QueueSettings["channelGoal"] }) {
+function StreamProfile({ session, account, title = "STREAM PROFILE", goal }: { session: LocalSessionSummary; account: OverlayStateSnapshot["account"]; title?: string; goal?: QueueSettings["channelGoal"] }) {
   const delta = session.sessionDelta;
+  const twitch = account?.twitch;
+  const channelName = twitch?.displayName || twitch?.login || "TWITCH CHANNEL";
   return (
     <Panel title={title} className={styles.streamProfile}>
       <div className={styles.streamProfileBody}>
-        <span className={styles.twitchAvatarFrame}><span className={styles.twitchAvatar}>PR</span></span>
-        <div><strong>МЕЖДУ МАТЧАМИ</strong><small>LOCAL COMPANION OVERLAY</small></div>
-        <div className={styles.liveBadge}><i data-online="true" /> SESSION LIVE</div>
+        <span className={styles.twitchAvatarFrame}>{twitch?.profileImageUrl ? <img className={styles.avatarImage} src={twitch.profileImageUrl} alt="" /> : <span className={styles.twitchAvatar}>{channelName.slice(0, 2).toUpperCase()}</span>}</span>
+        <div><strong>{channelName}</strong><small>{twitch?.live?.title || "МЕЖДУ МАТЧАМИ"}</small></div>
+        <div className={styles.liveBadge}><i data-online={Boolean(twitch?.live)} /> {twitch?.live ? `${twitch.live.viewerCount} LIVE` : "OFFLINE"}</div>
         <div className={styles.goal}>
           <span className={styles.goalTrack}>
             <i style={{ width: "100%" }} />
@@ -243,7 +247,7 @@ function CommunityArea({ links, title }: { links: QueueSettings["widgets"]["frie
   );
 }
 
-export function BetweenMatchesScene({ session, settings = null }: { session: LocalSessionSummary; settings?: QueueSettings | null }) {
+export function BetweenMatchesScene({ session, settings = null, account = null }: { session: LocalSessionSummary; settings?: QueueSettings | null; account?: OverlayStateSnapshot["account"] }) {
   const visible = settings?.visibility;
   const titles = settings?.widgets.titles;
   const sceneStyle = {
@@ -256,8 +260,8 @@ export function BetweenMatchesScene({ session, settings = null }: { session: Loc
       <Atmosphere />
       <div className={styles.interface}>
         <div className={styles.dashboard} data-top-count={2}>
-          {visible?.playerProfile !== false && <PlayerProfile session={session} title={titles?.playerProfile} />}
-          {visible?.streamProfile !== false && <StreamProfile session={session} title={titles?.streamProfile} goal={settings?.channelGoal} />}
+          {visible?.playerProfile !== false && <PlayerProfile session={session} account={account} title={titles?.playerProfile} />}
+          {visible?.streamProfile !== false && <StreamProfile session={session} account={account} title={titles?.streamProfile} goal={settings?.channelGoal} />}
           <div className={styles.leftMain} data-featured="true">
             {visible?.featuredMatch !== false && <FeaturedMatch match={session.recentMatches[0]} title={titles?.featuredMatch} />}
             <div className={styles.sideStack} data-widget-count={3}>

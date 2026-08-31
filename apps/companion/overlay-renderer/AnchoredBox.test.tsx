@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AnchoredBox } from "./AnchoredBox";
 import type { OverlayWidgetLayout } from "./types";
 
@@ -86,5 +86,32 @@ describe("AnchoredBox", () => {
     );
     const inner = (container.firstChild as HTMLElement).firstChild as HTMLElement;
     expect(inner.style.transform).toBe("scale(1.5)");
+  });
+
+  it("shows editor bounds and a resize handle only for the selected widget", () => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <div data-scene-root="true"><AnchoredBox layout={BASE} sceneWidth={1920} sceneHeight={1080} editable selected onChange={onChange}>
+        <span>content</span>
+      </AnchoredBox></div>
+    );
+    expect(container.querySelector('[data-editor-widget="true"]')).toBeTruthy();
+    expect(screen.getByLabelText("Resize widget")).toBeTruthy();
+  });
+
+  it("emits persisted layout coordinates when dragged directly in the preview", () => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <div data-scene-root="true" style={{ width: 1920, height: 1080 }}><AnchoredBox layout={BASE} sceneWidth={1920} sceneHeight={1080} editable onChange={onChange}>
+        <span>content</span>
+      </AnchoredBox></div>
+    );
+    const wrapper = container.querySelector<HTMLElement>('[data-editor-widget="true"]')!;
+    Object.defineProperty(wrapper, "setPointerCapture", { value: vi.fn() });
+    const scene = container.querySelector<HTMLElement>('[data-scene-root="true"]')!;
+    scene.getBoundingClientRect = () => ({ width: 1920, height: 1080, x: 0, y: 0, top: 0, left: 0, right: 1920, bottom: 1080, toJSON: () => ({}) });
+    fireEvent.pointerDown(wrapper, { pointerId: 1, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(wrapper, { pointerId: 1, clientX: 292, clientY: 208 });
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ xVw: 20, yVh: 30 }));
   });
 });

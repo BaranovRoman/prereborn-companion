@@ -141,11 +141,50 @@ pub fn handle_snapshot(
     snapshot: &GsiSnapshot,
     now: DateTime<Utc>,
 ) -> rusqlite::Result<()> {
-    if !snapshot.is_in_match() || snapshot.custom_game_name.is_some() {
-        if let Some(active) = store::find_active_match(conn, session_local_id)? {
+    let mut active = store::find_active_match(conn, session_local_id)?;
+
+    if !snapshot.is_match_lifecycle_tick() || snapshot.custom_game_name.is_some() {
+        if let Some(active) = active {
             apply_leave(conn, &active, now)?;
         }
         return Ok(());
+    }
+
+    // A real final GSI tick is frequently reduced to map data only and may
+    // already report `player.activity = menu`. The active local row is the
+    // authoritative identity/team captured during the game, so POST_GAME
+    // must be processed before requiring this tick's hero/player sections.
+    if snapshot.is_post_game() {
+        let Some(current) = active else {
+            // Duplicate post-game tick after finalization, or Companion was
+            // launched only after the game ended. Never fabricate a match.
+            return Ok(());
+        };
+
+        if let (Some(observed), Some(tracked)) = (&snapshot.match_id, &current.match_id) {
+            if observed != tracked {
+                return store::mark_needs_review(conn, &current.local_id);
+            }
+        }
+
+        let observation = resolve_observation(snapshot, &current.player_team);
+        return match decide_post_game(current.state, current.result, observation) {
+            PostGameDecision::TransitionToPending(result) => store::set_post_game(conn, &current.local_id, result),
+            PostGameDecision::SetFirstObservation(result) => {
+                store::set_post_game(conn, &current.local_id, Some(result))
+            }
+            PostGameDecision::FinalizeConfirmed => store::finalize_match(
+                conn,
+                &current.local_id,
+                &current.session_local_id,
+                current.ranked_mode,
+                current.result.expect("FinalizeConfirmed only returned when a result exists"),
+                "confirmed",
+                now,
+            ),
+            PostGameDecision::MarkNeedsReview => store::mark_needs_review(conn, &current.local_id),
+            PostGameDecision::NoOp => Ok(()),
+        };
     }
 
     let (Some(hero_id), Some(team_name)) = (snapshot.hero_id, snapshot.team_name.clone()) else {
@@ -154,8 +193,6 @@ pub fn handle_snapshot(
     if hero_id <= 0 {
         return Ok(());
     }
-
-    let mut active = store::find_active_match(conn, session_local_id)?;
 
     if let Some(current) = &active {
         if is_same_match(current, snapshot, now) {
@@ -168,42 +205,13 @@ pub fn handle_snapshot(
     }
 
     if active.is_none() {
-        if snapshot.is_post_game() {
-            // Already on the post-game screen with no active row: either
-            // this match was already finalized and Dota keeps sending
-            // ticks for the same screen, or Companion started mid-screen -
-            // nothing reliable to start tracking from here (mirrors the
-            // backend's identical guard).
-            return Ok(());
-        }
         store::create_match(conn, session_local_id, snapshot.match_id.as_deref(), hero_id, &team_name, ranked_mode, now)?;
         active = store::find_active_match(conn, session_local_id)?;
     }
 
-    let Some(active) = active else { return Ok(()) }; // creation raced away - next tick picks it up
+    let Some(_active) = active else { return Ok(()) }; // creation raced away - next tick picks it up
 
-    if !snapshot.is_post_game() {
-        return Ok(());
-    }
-
-    let observation = resolve_observation(snapshot, &team_name);
-    match decide_post_game(active.state, active.result, observation) {
-        PostGameDecision::TransitionToPending(result) => store::set_post_game(conn, &active.local_id, result),
-        PostGameDecision::SetFirstObservation(result) => {
-            store::set_post_game(conn, &active.local_id, Some(result))
-        }
-        PostGameDecision::FinalizeConfirmed => store::finalize_match(
-            conn,
-            &active.local_id,
-            &active.session_local_id,
-            active.ranked_mode,
-            active.result.expect("FinalizeConfirmed only returned when a result exists"),
-            "confirmed",
-            now,
-        ),
-        PostGameDecision::MarkNeedsReview => store::mark_needs_review(conn, &active.local_id),
-        PostGameDecision::NoOp => Ok(()),
-    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -323,6 +331,35 @@ mod tests {
             .unwrap();
         assert_eq!(state, "finalized");
         assert_eq!(result, "win");
+    }
+
+
+    #[test]
+    fn reduced_menu_post_game_payload_finalizes_the_existing_match() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        handle_snapshot(&mut conn, &session.local_id, RankedMode::Ranked, &tick("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", 14, "radiant", Some("8123456789"), None), now).unwrap();
+
+        let final_tick = GsiSnapshot {
+            game_state: "DOTA_GAMERULES_STATE_POST_GAME".to_string(),
+            activity: Some("menu".to_string()),
+            custom_game_name: None,
+            match_id: Some("8123456789".to_string()),
+            win_team: Some("radiant".to_string()),
+            hero_id: None,
+            team_name: None,
+        };
+        handle_snapshot(&mut conn, &session.local_id, RankedMode::Ranked, &final_tick, now).unwrap();
+        handle_snapshot(&mut conn, &session.local_id, RankedMode::Ranked, &final_tick, now).unwrap();
+
+        assert!(find_active_match(&conn, &session.local_id).unwrap().is_none());
+        let (state, result, delta): (String, String, i64) = conn
+            .query_row("SELECT state, result, detected_rating_delta FROM local_matches", [], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .unwrap();
+        assert_eq!((state.as_str(), result.as_str(), delta), ("finalized", "win", 25));
     }
 
     #[test]

@@ -66,4 +66,16 @@ describe("BetweenMatchesScene", () => {
     expect(screen.getByText(/6000 → 5975 \(-25\)/)).toBeTruthy();
     expect(screen.getByText("1–1")).toBeTruthy();
   });
+
+  it("renders authenticated Steam and Twitch identity instead of local placeholders", () => {
+    render(<BetweenMatchesScene session={SESSION} account={{
+      steam: { connected: true, profile: { displayName: "Roman", avatarUrl: "https://example.com/steam.png", profileUrl: null } },
+      twitch: { connected: true, login: "romaromych", displayName: "RomaRomych", profileImageUrl: "https://example.com/twitch.png", live: { title: "Ranked grind", viewerCount: 42, gameName: "Dota 2" } },
+    }} />);
+    expect(screen.getByText("Roman")).toBeTruthy();
+    expect(screen.getByText("RomaRomych")).toBeTruthy();
+    expect(screen.getByText("Ranked grind")).toBeTruthy();
+    expect(screen.getByText("42 LIVE")).toBeTruthy();
+    expect(screen.queryByText("LOCAL SESSION")).toBeNull();
+  });
 });

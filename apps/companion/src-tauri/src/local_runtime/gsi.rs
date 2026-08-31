@@ -56,6 +56,14 @@ impl GsiSnapshot {
         self.player_is_playing() && is_in_match_game_state(&self.game_state)
     }
 
+    /// POST_GAME is a lifecycle signal in its own right. Real Dota payloads
+    /// can switch `player.activity` to `menu` (and omit player/hero fields)
+    /// before the post-game map state disappears. Requiring `playing` here
+    /// makes the detector interpret a completed match as a disconnect.
+    pub fn is_match_lifecycle_tick(&self) -> bool {
+        self.is_post_game() || self.is_in_match()
+    }
+
     pub fn is_post_game(&self) -> bool {
         self.game_state == "DOTA_GAMERULES_STATE_POST_GAME"
     }
@@ -69,6 +77,18 @@ fn non_zero_match_id(raw: Option<&str>) -> Option<String> {
     raw.filter(|value| *value != "0").map(|value| value.to_string())
 }
 
+fn scalar_id(value: Option<&Value>) -> Option<String> {
+    match value? {
+        Value::String(raw) => non_zero_match_id(Some(raw)),
+        Value::Number(raw) => non_zero_match_id(Some(&raw.to_string())),
+        _ => None,
+    }
+}
+
+fn non_blank_string(value: Option<&str>) -> Option<String> {
+    value.map(str::trim).filter(|value| !value.is_empty()).map(str::to_string)
+}
+
 /// Parses one raw GSI payload into a `GsiSnapshot`, or `None` if it doesn't
 /// even have a `map.game_state` (nothing to act on this tick). Mirrors the
 /// `asRecord`/`asString`/`asNumber` extraction at the top of
@@ -78,8 +98,8 @@ pub fn parse(payload: &Value) -> Option<GsiSnapshot> {
     Some(GsiSnapshot {
         game_state,
         activity: as_str(payload, "/player/activity").map(str::to_string),
-        custom_game_name: as_str(payload, "/map/customgamename").map(str::to_string),
-        match_id: non_zero_match_id(as_str(payload, "/map/matchid")),
+        custom_game_name: non_blank_string(as_str(payload, "/map/customgamename")),
+        match_id: scalar_id(payload.pointer("/map/matchid")),
         win_team: as_str(payload, "/map/win_team").map(str::to_string),
         hero_id: payload.pointer("/hero/id").and_then(Value::as_i64),
         team_name: as_str(payload, "/player/team_name").map(str::to_string),
@@ -115,6 +135,35 @@ mod tests {
         });
         let snapshot = parse(&payload).unwrap();
         assert_eq!(snapshot.match_id, None);
+    }
+
+
+    #[test]
+    fn parses_numeric_match_id_from_production_shaped_payload() {
+        let payload = json!({
+            "player": { "activity": "menu" },
+            "map": {
+                "game_state": "DOTA_GAMERULES_STATE_POST_GAME",
+                "matchid": 8123456789_i64,
+                "win_team": "radiant"
+            }
+        });
+        let snapshot = parse(&payload).unwrap();
+        assert_eq!(snapshot.match_id.as_deref(), Some("8123456789"));
+        assert!(snapshot.is_match_lifecycle_tick());
+    }
+
+    #[test]
+    fn empty_custom_game_name_is_a_normal_match_not_a_custom_lobby() {
+        let payload = json!({
+            "player": { "activity": "playing", "team_name": "radiant" },
+            "hero": { "id": 14 },
+            "map": {
+                "game_state": "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS",
+                "customgamename": ""
+            }
+        });
+        assert_eq!(parse(&payload).unwrap().custom_game_name, None);
     }
 
     #[test]
