@@ -115,9 +115,33 @@ export function DesignPage() {
 
   useEffect(() => {
     const receive = (event: MessageEvent) => {
-      if (event.data?.type !== "prereborn-overlay-draft-text-position") return;
       const frame = document.querySelector<HTMLIFrameElement>(".design-page__preview");
-      if (event.source !== frame?.contentWindow || !Number.isFinite(event.data.xVw) || !Number.isFinite(event.data.yVh)) return;
+      if (event.source !== frame?.contentWindow) return;
+      if (event.data?.type === "prereborn-overlay-widget-change") {
+        const { scene, widget, patch } = event.data;
+        if ((scene !== "draft" && scene !== "gameplay") || !["session", "currentGame", "recentMatches"].includes(widget) || !patch) return;
+        const sceneKey = scene as "draft" | "gameplay";
+        const widgetKey = widget as "session" | "currentGame" | "recentMatches";
+        const widgetPatch = patch as Partial<OverlayWidgetLayout>;
+        setLayout((current) => {
+          if (!current) return current;
+          const currentScene = current.scenes[sceneKey];
+          return { ...current, scenes: { ...current.scenes, [sceneKey]: { ...currentScene, widgets: { ...currentScene.widgets, [widgetKey]: { ...currentScene.widgets[widgetKey], ...widgetPatch } } } } };
+        });
+        setSavedFlash(false);
+        return;
+      }
+      if (event.data?.type === "prereborn-overlay-draft-text-change" && event.data.patch) {
+        setLayout((current) => current ? { ...current, draftProtection: { ...current.draftProtection, text: { ...current.draftProtection.text, ...event.data.patch } } } : current);
+        setSavedFlash(false);
+        return;
+      }
+      if (event.data?.type === "prereborn-overlay-minimap-change" && event.data.patch) {
+        setLayout((current) => current ? { ...current, scenes: { ...current.scenes, gameplay: { ...current.scenes.gameplay, minimapCover: { ...current.scenes.gameplay.minimapCover, ...event.data.patch } } } } : current);
+        setSavedFlash(false);
+        return;
+      }
+      if (event.data?.type !== "prereborn-overlay-draft-text-position" || !Number.isFinite(event.data.xVw) || !Number.isFinite(event.data.yVh)) return;
       setLayout((current) => current ? {
         ...current,
         draftProtection: { ...current.draftProtection, text: { ...current.draftProtection.text, xVw: event.data.xVw, yVh: event.data.yVh } },
@@ -130,8 +154,8 @@ export function DesignPage() {
 
   useEffect(() => {
     const frame = document.querySelector<HTMLIFrameElement>(".design-page__preview");
-    frame?.contentWindow?.postMessage({ type: "prereborn-overlay-layout-preview", layout }, "*");
-  }, [layout, tab]);
+    frame?.contentWindow?.postMessage({ type: "prereborn-overlay-layout-preview", layout, queueSettings }, "*");
+  }, [layout, queueSettings, tab]);
 
   const editableScene = tab === "draft" || tab === "gameplay" ? tab : null;
 
@@ -202,7 +226,7 @@ export function DesignPage() {
             key={tab}
             className="design-page__preview"
             src={`http://127.0.0.1:3666/overlay?previewScene=${tab}&editor=1`}
-            onLoad={(event) => event.currentTarget.contentWindow?.postMessage({ type: "prereborn-overlay-layout-preview", layout }, "*")}
+            onLoad={(event) => event.currentTarget.contentWindow?.postMessage({ type: "prereborn-overlay-layout-preview", layout, queueSettings }, "*")}
             title="Предпросмотр локального оверлея"
           />
         </div>
@@ -263,13 +287,14 @@ export function DesignPage() {
           {!loading && tab === "betweenMatches" && queueSettings && (
             <>
               <div className="design-page__widget-settings"><h3>Блоки Between Matches</h3>
-                {(["playerProfile", "streamProfile", "featuredMatch", "webcam", "favoriteHeroes", "recentGames", "twitchChat"] as const).map((key) => <Checkbox key={key} label={queueSettings.widgets.titles[key]} checked={queueSettings.visibility[key]} onChange={(event) => { setSavedFlash(false); setQueueSettings({ ...queueSettings, visibility: { ...queueSettings.visibility, [key]: event.target.checked } }); }} />)}
+                {(["playerProfile", "streamProfile", "featuredMatch", "webcam", "favoriteHeroes", "recentGames"] as const).map((key) => <Checkbox key={key} label={queueSettings.widgets.titles[key]} checked={queueSettings.visibility[key]} onChange={(event) => { setSavedFlash(false); setQueueSettings({ ...queueSettings, visibility: { ...queueSettings.visibility, [key]: event.target.checked } }); }} />)}
               </div>
               <div className="design-page__widget-settings"><h3>Канал и контент</h3>
                 <label className="design-page__field"><span>Заголовок канала</span><Input value={queueSettings.widgets.titles.streamProfile} onChange={(event) => setQueueSettings({ ...queueSettings, widgets: { ...queueSettings.widgets, titles: { ...queueSettings.widgets.titles, streamProfile: event.target.value } } })} /></label>
                 <label className="design-page__field"><span>Webcam / Live Capture URL</span><Input value={queueSettings.webcamImageUrl ?? ""} onChange={(event) => setQueueSettings({ ...queueSettings, webcamImageUrl: event.target.value || null })} /></label>
                 <label className="design-page__field"><span>Последних игр ({queueSettings.widgets.recentGamesLimit})</span><Slider min={1} max={15} step={1} value={queueSettings.widgets.recentGamesLimit} onChange={(event) => setQueueSettings({ ...queueSettings, widgets: { ...queueSettings.widgets, recentGamesLimit: Number(event.target.value) } })} /></label>
                 <p className="design-page__hint">Избранные герои выбираются в разделе «Герои» (до трёх). Социальные ссылки сохраняются в существующих настройках аккаунта.</p>
+                <p className="design-page__hint">Отдельный Twitch Chat блок старого web overlay не переносится: локальный OBS renderer не получает публичную ленту сообщений. Twitch-профиль канала загружается из подключённого аккаунта.</p>
               </div>
               <div className="design-page__actions"><Button variant="primary" onClick={() => void handleSave()} disabled={saving}>{saving ? "Сохранение…" : "Сохранить"}</Button>{savedFlash && <span className="design-page__saved">Сохранено ✓</span>}</div>
             </>

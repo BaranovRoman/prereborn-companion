@@ -352,5 +352,7 @@ describe("GET /api/stream/companion/account-settings", () => {
             .set("Authorization", `Bearer ${companionToken}`);
         expect(res.status).toBe(200);
         expect(res.body.gameMode).toBe("unranked");
+        expect(res.body.steam).toEqual({ connected: false, profile: null });
+        expect(res.body.twitch.connected).toBe(false);
     });
 });

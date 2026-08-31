@@ -100,6 +100,7 @@ pub struct OverlayStateSnapshot {
     /// whole layout blob here - it fetches `/overlay/layout` once and
     /// re-fetches only when this number moves.
     pub layout_version: u64,
+    pub account: Option<serde_json::Value>,
 }
 
 /// Reads AppState (canonical resolver fields) plus the local runtime's
@@ -114,7 +115,7 @@ pub struct OverlayStateSnapshot {
 /// than only testing a hand-built stand-in. Every real call site keeps
 /// compiling unchanged (`R = Wry` by inference).
 pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
-    let (gsi_derived_source, session_ended, obs_manual_summary_override, current_game, layout_version) = {
+    let (gsi_derived_source, session_ended, obs_manual_summary_override, current_game, layout_version, account) = {
         let state = app.state::<AppState>();
         let inner = state.0.lock().unwrap();
         let current_game = inner
@@ -128,6 +129,7 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
             inner.obs_manual_summary_override,
             current_game,
             inner.overlay_layout_version,
+            inner.account_overlay_data.clone(),
         )
     };
     let gsi_derived = gsi_derived_source.unwrap_or(BroadcastState::BetweenMatches);
@@ -141,6 +143,7 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
             BroadcastState::BetweenMatches | BroadcastState::PostStream => None,
         },
         layout_version,
+        account,
     }
 }
 
@@ -421,6 +424,17 @@ mod tests {
     }
 
     #[test]
+    fn current_includes_only_the_cached_account_overlay_projection() {
+        let app = test_app();
+        let account = serde_json::json!({
+            "steam": { "connected": true, "profile": { "displayName": "Roman", "avatarUrl": null, "profileUrl": null } },
+            "twitch": { "connected": true, "displayName": "RomaRomych", "profileImageUrl": null, "live": null }
+        });
+        app.state::<AppState>().0.lock().unwrap().account_overlay_data = Some(account.clone());
+        assert_eq!(current(&app).account, Some(account));
+    }
+
+    #[test]
     fn session_ended_wins_over_the_latest_gsi_tick_in_the_served_state() {
         let app = test_app();
         {
@@ -697,6 +711,7 @@ mod tests {
                 session: LocalSessionSummary::default(),
                 current_game: Some(CurrentGameSnapshot { hero_id: Some(14), kills: Some(3), deaths: Some(1), assists: Some(7) }),
                 layout_version: 1,
+                account: None,
             };
             let json = serde_json::to_string(&snapshot).unwrap().to_lowercase();
             for forbidden in ["token", "secret", "password", "companion_token", "bearer"] {

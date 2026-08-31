@@ -6,6 +6,7 @@
    palette. Background is transparent by design: OBS composites this over
    whatever is beneath the Browser Source. */
 :root {
+  --font-title: "Reaver", "Forum", "Times New Roman", serif;
   --ov-void: #090c0d;
   --ov-panel: #181c1d;
   --ov-well: #101415;

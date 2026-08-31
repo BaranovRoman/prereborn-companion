@@ -79,6 +79,8 @@ describe("DesignPage", () => {
     await waitFor(() => expect(screen.queryByText(/Загрузка/)).toBeNull());
     expect(await screen.findByText("Блоки Between Matches")).toBeTruthy();
     expect(screen.getByText("Канал и контент")).toBeTruthy();
+    expect(screen.queryByText("Twitch chat")).toBeNull();
+    expect(screen.getByText(/Twitch-профиль канала/)).toBeTruthy();
   });
 
   it("saves the FULL layout on Сохранить, preserving fields this editor doesn't understand", async () => {

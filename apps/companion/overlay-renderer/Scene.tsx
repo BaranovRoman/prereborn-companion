@@ -40,6 +40,7 @@ export function Scene({ children, sceneWidth = SCENE_WIDTH, sceneHeight = SCENE_
   return (
     <div ref={viewportRef} className="overlay-viewport">
       <div
+        data-scene-root="true"
         className="overlay-scene"
         style={{
           width: sceneWidth,

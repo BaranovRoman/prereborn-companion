@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import cleanMap from "./assets/minimap/dota-current-clean-minimap.png";
 import dotabodMap from "./assets/minimap/dotabod-stream-sniper-cover.png";
 import observerWard from "./assets/minimap/ward-observer.png";
@@ -23,16 +23,42 @@ export function createMinimapWards(preset: Preset): Ward[] {
   }));
 }
 
-export function AntiSnipeLayer({ settings }: { settings?: MinimapCoverSettings }) {
+export function AntiSnipeLayer({ settings, editable = false, onChange }: { settings?: MinimapCoverSettings; editable?: boolean; onChange?: (patch: Partial<MinimapCoverSettings>) => void }) {
   if (!settings?.enabled) return null;
   const vertical = settings.anchor.startsWith("bottom") ? { bottom: settings.y } : { top: settings.y };
   const horizontal = settings.anchor.endsWith("right") ? { right: settings.x } : { left: settings.x };
   const interactive = settings.preset === "interactive";
+  const drag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!editable || !onChange) return;
+    event.preventDefault();
+    const element = event.currentTarget;
+    const startX = event.clientX, startY = event.clientY, start = { x: settings.x, y: settings.y };
+    const scene = element.closest<HTMLElement>("[data-scene-root]");
+    const sceneScale = scene ? scene.getBoundingClientRect().width / scene.offsetWidth || 1 : 1;
+    element.setPointerCapture(event.pointerId);
+    const move = (next: PointerEvent) => onChange({
+      x: Math.max(0, Math.round(start.x + ((next.clientX - startX) / sceneScale) * (settings.anchor.endsWith("right") ? -1 : 1))),
+      y: Math.max(0, Math.round(start.y + ((next.clientY - startY) / sceneScale) * (settings.anchor.startsWith("bottom") ? -1 : 1))),
+    });
+    const end = () => { element.removeEventListener("pointermove", move); element.removeEventListener("pointerup", end); };
+    element.addEventListener("pointermove", move); element.addEventListener("pointerup", end);
+  };
+  const resize = (event: ReactPointerEvent<HTMLSpanElement>) => {
+    event.stopPropagation(); event.preventDefault();
+    const element = event.currentTarget, startX = event.clientX, start = settings.size;
+    const scene = element.closest<HTMLElement>("[data-scene-root]");
+    const sceneScale = scene ? scene.getBoundingClientRect().width / scene.offsetWidth || 1 : 1;
+    element.setPointerCapture(event.pointerId);
+    const move = (next: PointerEvent) => onChange?.({ size: Math.max(120, Math.min(700, Math.round(start + (next.clientX - startX) / sceneScale))) });
+    const end = () => { element.removeEventListener("pointermove", move); element.removeEventListener("pointerup", end); };
+    element.addEventListener("pointermove", move); element.addEventListener("pointerup", end);
+  };
   return (
-    <div className={styles.minimapCover} data-testid="minimap-cover" style={{ width: settings.size, height: settings.size, ...vertical, ...horizontal }}>
+    <div className={styles.minimapCover} data-testid="minimap-cover" onPointerDown={drag} style={{ width: settings.size, height: settings.size, ...vertical, ...horizontal, outline: editable ? "3px solid #e5b45f" : undefined, cursor: editable ? "move" : undefined }}>
       <svg className={styles.colorFilters} aria-hidden="true"><filter id="ward-radiant" colorInterpolationFilters="sRGB"><feColorMatrix values="0.44 0 0 0 0  0 1 0 0 0  0 0 0.21 0 0  0 0 0 1 0" /></filter><filter id="ward-dire" colorInterpolationFilters="sRGB"><feColorMatrix values="1 0 0 0 0  0 0.15 0 0 0  0 0 0.2 0 0  0 0 0 1 0" /></filter></svg>
       <img className={styles.mapBase} src={settings.preset === "random-a" ? dotabodMap : cleanMap} alt="" />
       <div className={styles.wardLayer}>{createMinimapWards(settings.preset).map((ward) => <img key={ward.id} className={`${styles.ward} ${styles[ward.team]} ${interactive ? styles.moving : ""}`} src={ward.kind === "observer" ? observerWard : sentryWard} alt="" style={{ "--x": `${ward.x}%`, "--y": `${ward.y}%`, "--dx": `${ward.dx}%`, "--dy": `${ward.dy}%`, "--duration": `${ward.duration}s`, "--delay": `${ward.delay}s` } as CSSProperties} />)}</div>
+      {editable && <span aria-label="Resize minimap" onPointerDown={resize} style={{ position: "absolute", right: -10, bottom: -10, width: 20, height: 20, background: "#e5b45f", border: "2px solid #21170d", zIndex: 20, cursor: "nwse-resize" }} />}
     </div>
   );
 }

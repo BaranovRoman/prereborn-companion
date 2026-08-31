@@ -158,7 +158,11 @@ pub fn handle_gsi<R: Runtime>(app: &AppHandle<R>, payload: &Value) {
         return;
     }
     let after = store::find_active_match(conn, &session.local_id).ok().flatten();
-    log_match_transition(app, &session.local_id, before.as_ref(), after.as_ref());
+    let terminal = before
+        .as_ref()
+        .filter(|_| after.is_none())
+        .and_then(|old| store::find_match(conn, &old.local_id).ok().flatten());
+    log_match_transition(app, &session.local_id, before.as_ref(), after.as_ref(), terminal.as_ref());
 }
 
 /// Sets/corrects Current MMR on the authoritative open local session.
@@ -196,6 +200,7 @@ fn log_match_transition<R: Runtime>(
     session_local_id: &str,
     before: Option<&model::LocalMatch>,
     after: Option<&model::LocalMatch>,
+    terminal: Option<&model::LocalMatch>,
 ) {
     match (before, after) {
         (None, Some(new)) => {
@@ -220,8 +225,12 @@ fn log_match_transition<R: Runtime>(
             crate::storage::append_rolling_log(
                 app,
                 &format!(
-                    "Local match no longer active: session={session_local_id} match={} last_state={:?}",
-                    old.local_id, old.state
+                    "Local match terminal: session={session_local_id} match={} state={:?} result={:?} rating_delta={:?} rating_after={:?}",
+                    old.local_id,
+                    terminal.map(|value| value.state).unwrap_or(old.state),
+                    terminal.and_then(|value| value.result),
+                    terminal.and_then(|value| value.detected_rating_delta),
+                    terminal.and_then(|value| value.rating_after),
                 ),
             );
         }
@@ -338,6 +347,62 @@ mod tests {
         let recent = store::list_recent_matches(conn, &session_local_id, 10).unwrap();
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0].match_id.as_deref(), Some("555"));
+    }
+
+
+    #[test]
+    fn real_reduced_post_game_payload_updates_rating_history_and_outbox_once() {
+        let app = tauri::test::mock_app();
+        app.manage(LocalRuntimeState::new());
+
+        let mut conn = Connection::open_in_memory().unwrap();
+        schema::migrate(&conn).unwrap();
+        let session = store::ensure_active_session(&mut conn, Utc::now()).unwrap();
+        store::set_current_rating(&mut conn, 6000).unwrap();
+        conn.execute(
+            "INSERT INTO sync_meta (key, value) VALUES ('cached_game_mode', 'ranked') \
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [],
+        )
+        .unwrap();
+        let session_local_id = session.local_id.clone();
+        *app.state::<LocalRuntimeState>().lock() = Some(conn);
+
+        let handle = app.handle();
+        handle_gsi(
+            handle,
+            &serde_json::json!({
+                "map": { "game_state": "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", "matchid": 8123456789_i64, "customgamename": "" },
+                "player": { "activity": "playing", "team_name": "radiant" },
+                "hero": { "id": 14 }
+            }),
+        );
+        let reduced_post_game = serde_json::json!({
+            "map": {
+                "game_state": "DOTA_GAMERULES_STATE_POST_GAME",
+                "matchid": 8123456789_i64,
+                "win_team": "radiant"
+            },
+            "player": { "activity": "menu" }
+        });
+        handle_gsi(handle, &reduced_post_game);
+        handle_gsi(handle, &reduced_post_game);
+        handle_gsi(handle, &reduced_post_game); // repeated final screen must be idempotent
+
+        let state = app.state::<LocalRuntimeState>();
+        let mut guard = state.lock();
+        let conn = guard.as_mut().unwrap();
+        let summary = store::find_open_session(conn).unwrap().unwrap();
+        assert_eq!(summary.rating_current, Some(6025));
+        assert_eq!(store::session_match_tally(conn, &session_local_id).unwrap(), (1, 0));
+        let recent = store::list_recent_matches(conn, &session_local_id, 10).unwrap();
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].match_id.as_deref(), Some("8123456789"));
+        assert_eq!(recent[0].detected_rating_delta, Some(25));
+        let outbox_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM sync_outbox WHERE event_type = 'match_finalized'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(outbox_count, 1);
     }
 
     // WK-116 - same real entry point, proving a GSI tick is silently

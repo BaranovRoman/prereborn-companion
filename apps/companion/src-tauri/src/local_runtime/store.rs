@@ -244,6 +244,15 @@ pub fn find_active_match(conn: &Connection, session_local_id: &str) -> rusqlite:
     .optional()
 }
 
+pub fn find_match(conn: &Connection, local_id: &str) -> rusqlite::Result<Option<LocalMatch>> {
+    conn.query_row(
+        &format!("SELECT {MATCH_COLUMNS} FROM local_matches WHERE local_id = ?1"),
+        params![local_id],
+        row_to_match,
+    )
+    .optional()
+}
+
 /// WK-114 - powers the Home page's "recent matches" list. Ordered newest
 /// first, including the currently in-progress match if any (the caller
 /// distinguishes by `state`) - mirrors `find_active_match`'s "always
