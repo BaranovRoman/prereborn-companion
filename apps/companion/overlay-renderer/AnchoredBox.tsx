@@ -35,6 +35,8 @@ export function AnchoredBox({
   selected = false,
   onSelect,
   onChange,
+  minimumScale = 0.5,
+  maximumScale = 2,
 }: {
   layout: OverlayWidgetLayout;
   sceneWidth: number;
@@ -44,6 +46,8 @@ export function AnchoredBox({
   selected?: boolean;
   onSelect?: () => void;
   onChange?: (patch: Partial<OverlayWidgetLayout>) => void;
+  minimumScale?: number;
+  maximumScale?: number | null;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -100,7 +104,10 @@ export function AnchoredBox({
     const startScale = layout.scale;
     const element = event.currentTarget;
     element.setPointerCapture(event.pointerId);
-    const move = (next: PointerEvent) => onChange({ scale: Math.max(0.5, Math.min(2, startScale + (next.clientX - startX) / 240)) });
+    const move = (next: PointerEvent) => {
+      const requested = Math.max(minimumScale, startScale + (next.clientX - startX) / 240);
+      onChange({ scale: maximumScale === null ? requested : Math.min(maximumScale, requested) });
+    };
     const end = () => {
       element.removeEventListener("pointermove", move);
       element.removeEventListener("pointerup", end);

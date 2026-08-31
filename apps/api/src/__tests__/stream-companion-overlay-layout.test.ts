@@ -59,7 +59,7 @@ describe("GET/PUT /api/stream/companion/overlay-layout", () => {
             .get("/api/stream/companion/overlay-layout")
             .set("Authorization", `Bearer ${companionToken}`);
         expect(res.status).toBe(200);
-        expect(res.body.version).toBe(4);
+        expect(res.body.version).toBe(5);
         expect(res.body.scenes.gameplay.widgets.session.anchor).toBe("top-left");
     });
 
@@ -68,7 +68,7 @@ describe("GET/PUT /api/stream/companion/overlay-layout", () => {
             .get("/api/stream/companion/overlay-layout")
             .set("Authorization", `Bearer ${jwtToken}`);
         expect(res.status).toBe(200);
-        expect(res.body.version).toBe(4);
+        expect(res.body.version).toBe(5);
     });
 
     it("saves a layout via the companion token and reads it back", async () => {

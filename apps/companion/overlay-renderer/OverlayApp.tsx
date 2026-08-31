@@ -3,7 +3,6 @@ import { AnchoredBox } from "./AnchoredBox";
 import { Scene } from "./Scene";
 import { AntiSnipeLayer } from "./AntiSnipeLayer";
 import { DraftProtectionLayer } from "./draft-protection/DraftProtectionLayer";
-import { CurrentGameWidget } from "./widgets/CurrentGameWidget";
 import { RecentMatchesWidget } from "./widgets/RecentMatchesWidget";
 import { SessionWidget } from "./widgets/SessionWidget";
 import { BetweenMatchesScene } from "./between-matches/BetweenMatchesScene";
@@ -77,7 +76,7 @@ function isEditorPreview() {
 // implementation" requirement.
 //
 // WK-122 §19 closes WK-121's own documented gap: Draft/Gameplay's
-// Session/CurrentGame widgets now position themselves from the user's REAL
+// Session/RecentMatches widgets position themselves from the user's REAL
 // saved OverlayLayout (`GET /overlay/layout`, re-fetched only when
 // `layoutVersion` moves - see AnchoredBox.tsx for the position math, ported
 // from apps/web's AnchoredWidget) instead of a fixed `.ov-anchor--X` class.
@@ -93,7 +92,7 @@ export function OverlayApp() {
   const [connected, setConnected] = useState(false);
   const [layout, setLayout] = useState<OverlayLayout | null>(null);
   const [queueSettings, setQueueSettings] = useState<QueueSettings | null>(null);
-  const [selectedWidget, setSelectedWidget] = useState<string | null>("currentGame");
+  const [selectedWidget, setSelectedWidget] = useState<string | null>("session");
 
   useEffect(() => {
     if (!isEditorPreview()) return;
@@ -150,13 +149,13 @@ export function OverlayApp() {
 
   if (!snapshot) return <Scene><div className="ov-loading" /></Scene>;
 
-  const { session, currentGame } = snapshot;
+  const { session } = snapshot;
   const scene = readPreviewScene() ?? snapshot.scene;
   const sceneLayout = scene === "draft" || scene === "gameplay" ? layout?.scenes[scene] : undefined;
   const sceneWidgets = sceneLayout?.widgets;
   const dimensions = resolveSceneDimensions(layout);
   const editor = isEditorPreview();
-  const patchWidget = (key: "currentGame" | "session" | "recentMatches", patch: Record<string, unknown>) => {
+  const patchWidget = (key: "session" | "recentMatches", patch: Record<string, unknown>) => {
     if (!layout || (scene !== "draft" && scene !== "gameplay")) return;
     const next = {
       ...layout,
@@ -185,9 +184,6 @@ export function OverlayApp() {
       {scene === "gameplay" && (
         sceneWidgets ? (
           <>
-            <AnchoredBox layout={sceneWidgets.currentGame} sceneWidth={dimensions.width} sceneHeight={dimensions.height} editable={editor} selected={selectedWidget === "currentGame"} onSelect={() => setSelectedWidget("currentGame")} onChange={(patch) => patchWidget("currentGame", patch)}>
-              <CurrentGameWidget game={currentGame} />
-            </AnchoredBox>
             <AnchoredBox layout={sceneWidgets.session} sceneWidth={dimensions.width} sceneHeight={dimensions.height} editable={editor} selected={selectedWidget === "session"} onSelect={() => setSelectedWidget("session")} onChange={(patch) => patchWidget("session", patch)}>
               <SessionWidget session={session} />
             </AnchoredBox>
@@ -199,9 +195,6 @@ export function OverlayApp() {
           // No saved layout fetched yet - same fixed fallback positions
           // WK-121 originally shipped, not a blank scene.
           <>
-            <div className="ov-anchor ov-anchor--bottom-center">
-              <CurrentGameWidget game={currentGame} />
-            </div>
             <div className="ov-anchor ov-anchor--top-left">
               <SessionWidget session={session} />
             </div>
@@ -209,9 +202,9 @@ export function OverlayApp() {
         )
       )}
 
-      {editor && (scene === "draft" || scene === "gameplay") && sceneLayout?.cameraZone.enabled && (
+      {editor && scene === "gameplay" && sceneLayout?.cameraZone.enabled && (
         <CameraZoneEditor zone={sceneLayout.cameraZone} sceneWidth={dimensions.width} sceneHeight={dimensions.height} onChange={(patch) => {
-          if (!layout || (scene !== "draft" && scene !== "gameplay")) return;
+          if (!layout || scene !== "gameplay") return;
           const next = { ...layout, scenes: { ...layout.scenes, [scene]: { ...layout.scenes[scene], cameraZone: { ...layout.scenes[scene].cameraZone, ...patch } } } };
           setLayout(next);
           window.parent.postMessage({ type: "prereborn-overlay-camera-change", scene, patch }, "*");

@@ -46,7 +46,7 @@ export const accountLogout = () => invoke<AccountStatus>("account_logout");
 
 // WK-122 §17-19 - Оформление editor. `layout` is deliberately typed loosely
 // (see types/status.ts's OverlayLayoutDoc) - Companion only interprets the
-// session/currentGame widget fields it actually renders an editor for, and
+// session/recentMatches widget fields it actually renders an editor for, and
 // must round-trip everything else (cameraZone, minimapCover,
 // recentMatches/companionStatus widgets, draftProtection, aspectRatio)
 // byte-for-byte, never reconstructing the object from scratch, or a save

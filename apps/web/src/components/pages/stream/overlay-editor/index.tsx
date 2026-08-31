@@ -40,7 +40,6 @@ import {
     type WidgetBounds,
 } from "@/components/pages/overlay/anchored-widget";
 import { SessionStats } from "@/components/pages/overlay/widgets/session-stats";
-import { CurrentGame } from "@/components/pages/overlay/widgets/current-game";
 import { RecentMatches } from "@/components/pages/overlay/widgets/recent-matches";
 import { selectRecentMatches } from "@/components/pages/overlay/lib/select-recent-matches";
 import { AnchorGrid } from "./anchor-grid";
@@ -49,7 +48,6 @@ import { useReferenceBackground } from "./use-reference-background";
 import { CameraZoneEditor } from "./camera-zone-editor";
 import {
     PREVIEW_SESSION,
-    PREVIEW_LAST_HERO_ID,
     PREVIEW_MATCHES,
     PREVIEW_CURRENT_STREAM_MATCHES,
     PREVIEW_GAME_MODE,
@@ -183,7 +181,6 @@ const normalizeWidgetForScene = (
 
 const WIDGET_LABELS: Record<OverlayWidgetId, string> = {
     session: "Рейтинг и W/L",
-    currentGame: "Текущий герой",
     recentMatches: "История матчей",
     companionStatus: "Статус companion",
 };
@@ -289,11 +286,6 @@ export const OverlayEditorPage = () => {
             ...widgets,
             session: { ...widgets.session, ...patch },
         }));
-    const updateCurrentGame = (patch: Partial<OverlayWidgetLayout>) =>
-        updateSceneWidgets((widgets) => ({
-            ...widgets,
-            currentGame: { ...widgets.currentGame, ...patch },
-        }));
     const updateCompanionStatus = (patch: Partial<OverlayWidgetLayout>) =>
         updateSceneWidgets((widgets) => ({
             ...widgets,
@@ -374,7 +366,6 @@ export const OverlayEditorPage = () => {
         (patch: Partial<OverlayWidgetLayout>) => void
     > = {
         session: updateSession,
-        currentGame: updateCurrentGame,
         recentMatches: updateRecentMatches,
         companionStatus: updateCompanionStatus,
     };
@@ -445,7 +436,6 @@ export const OverlayEditorPage = () => {
             aspectRatio,
             scenes: { ...c.scenes, [selectedScene]: { ...c.scenes[selectedScene], widgets: {
                 session: normalize(c.scenes[selectedScene].widgets.session, "session"),
-                currentGame: normalize(c.scenes[selectedScene].widgets.currentGame, "currentGame"),
                 recentMatches: {
                     ...normalize(c.scenes[selectedScene].widgets.recentMatches, "recentMatches"),
                     recentMatches: c.scenes[selectedScene].widgets.recentMatches.recentMatches,
@@ -513,8 +503,6 @@ export const OverlayEditorPage = () => {
                         gameMode={PREVIEW_GAME_MODE}
                     />
                 );
-            case "currentGame":
-                return <CurrentGame lastHeroId={PREVIEW_LAST_HERO_ID} />;
             case "recentMatches":
                 return (
                     <RecentMatches

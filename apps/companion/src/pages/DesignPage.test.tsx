@@ -33,10 +33,10 @@ const minimapCover = { enabled: true, preset: "clean" as const, anchor: "bottom-
 function buildLayout(overrides: Partial<OverlayLayoutDoc> = {}): OverlayLayoutDoc {
   const widget = { xVw: 3, yVh: 4, scale: 1, visible: true, anchor: "top-left" as const };
   return {
-    version: 4,
+    version: 5,
     scenes: {
-      draft: { widgets: { session: { ...widget }, currentGame: { ...widget, visible: false }, recentMatches: { ...recentMatches }, companionStatus: { ...widget } }, cameraZone: { enabled: true, anchor: "bottom-left", x: 60, y: 1013, width: 400, height: 300 }, minimapCover: { ...minimapCover } },
-      gameplay: { widgets: { session: { ...widget }, currentGame: { ...widget }, recentMatches: { ...recentMatches }, companionStatus: { ...widget } }, cameraZone: { enabled: true, anchor: "bottom-right", x: 1860, y: 1013, width: 400, height: 300 }, minimapCover: { ...minimapCover } },
+      draft: { widgets: { session: { ...widget }, recentMatches: { ...recentMatches }, companionStatus: { ...widget } }, cameraZone: { enabled: true, anchor: "bottom-left", x: 60, y: 1013, width: 400, height: 300 }, minimapCover: { ...minimapCover } },
+      gameplay: { widgets: { session: { ...widget }, recentMatches: { ...recentMatches }, companionStatus: { ...widget } }, cameraZone: { enabled: true, anchor: "bottom-right", x: 1860, y: 1013, width: 400, height: 300 }, minimapCover: { ...minimapCover } },
       // Untyped passthrough fields the editor must never touch/lose.
       cameraZoneMarker: "should-survive-a-save",
     },
@@ -71,19 +71,30 @@ describe("DesignPage", () => {
     mockedGet.mockResolvedValue(buildLayout());
     render(<DesignPage />);
     await openGameplayTab();
-    expect(screen.getByText("Сессия")).toBeTruthy();
-    expect(screen.getByText("Текущая игра")).toBeTruthy();
-    expect(screen.getAllByText("Показывать").length).toBe(4);
+    expect(screen.getByText("Текущий MMR")).toBeTruthy();
+    expect(screen.getByText("История матчей")).toBeTruthy();
+    expect(screen.queryByText("Текущая игра")).toBeNull();
   });
 
-  it("shows configurable Between Matches blocks", async () => {
+  it("shows only supported Between Matches controls", async () => {
     mockedGet.mockResolvedValue(buildLayout());
     render(<DesignPage />);
     await waitFor(() => expect(screen.queryByText(/Загрузка/)).toBeNull());
-    expect(await screen.findByText("Блоки Between Matches")).toBeTruthy();
+    expect(screen.queryByText("Блоки Between Matches")).toBeNull();
     expect(screen.getByText("Канал и контент")).toBeTruthy();
+    expect(screen.queryByText("Заголовок канала")).toBeNull();
     expect(screen.queryByText("Twitch chat")).toBeNull();
     expect(screen.getByText(/Twitch-профиль канала/)).toBeTruthy();
+  });
+
+  it("keeps Draft limited to protection text editing without camera or scale controls", async () => {
+    mockedGet.mockResolvedValue(buildLayout());
+    render(<DesignPage />);
+    await waitFor(() => expect(screen.queryByText(/Загрузка/)).toBeNull());
+    fireEvent.click(screen.getByRole("tab", { name: "Драфт" }));
+    expect(screen.getByText("Защита драфта")).toBeTruthy();
+    expect(screen.queryByText("Камера в OBS")).toBeNull();
+    expect(screen.queryByText(/Точный масштаб/)).toBeNull();
   });
 
   it("saves the FULL layout on Сохранить, preserving fields this editor doesn't understand", async () => {
@@ -92,7 +103,7 @@ describe("DesignPage", () => {
     mockedSave.mockResolvedValue(layout);
     render(<DesignPage />);
     await openGameplayTab();
-    expect(screen.getByText("Сессия")).toBeTruthy();
+    expect(screen.getByText("Текущий MMR")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
     await waitFor(() => expect(mockedSave).toHaveBeenCalled());
@@ -103,21 +114,21 @@ describe("DesignPage", () => {
     await waitFor(() => expect(screen.getByText("Сохранено ✓")).toBeTruthy());
   });
 
-  it("toggling a widget's visibility checkbox updates local state without touching the other widget", async () => {
+  it("toggling the MMR widget does not touch match history", async () => {
     mockedGet.mockResolvedValue(buildLayout());
     mockedSave.mockImplementation(async (layout) => layout);
     render(<DesignPage />);
     await openGameplayTab();
-    expect(screen.getByText("Сессия")).toBeTruthy();
+    expect(screen.getByText("Текущий MMR")).toBeTruthy();
 
-    const [currentGameVisible] = screen.getAllByText("Показывать");
-    fireEvent.click(currentGameVisible.closest("label")!.querySelector("input")!);
+    const [mmrVisible] = screen.getAllByText("Показывать");
+    fireEvent.click(mmrVisible.closest("label")!.querySelector("input")!);
     fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
 
     await waitFor(() => expect(mockedSave).toHaveBeenCalled());
     const sent = mockedSave.mock.calls[0][0];
-    expect(sent.scenes.gameplay.widgets.currentGame.visible).toBe(false); // was true in fixture, toggled off
-    expect(sent.scenes.gameplay.widgets.session.visible).toBe(true); // untouched
+    expect(sent.scenes.gameplay.widgets.session.visible).toBe(false);
+    expect(sent.scenes.gameplay.widgets.recentMatches.visible).toBe(true);
   });
 
   it("surfaces a save error without losing the unsaved edits", async () => {
@@ -125,10 +136,10 @@ describe("DesignPage", () => {
     mockedSave.mockRejectedValue(new Error("Backend недоступен"));
     render(<DesignPage />);
     await openGameplayTab();
-    expect(screen.getByText("Сессия")).toBeTruthy();
+    expect(screen.getByText("Текущий MMR")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
     await waitFor(() => expect(screen.getByText(/Backend недоступен/)).toBeTruthy());
-    expect(screen.getByText("Текущая игра")).toBeTruthy();
+    expect(screen.getByText("История матчей")).toBeTruthy();
   });
 });

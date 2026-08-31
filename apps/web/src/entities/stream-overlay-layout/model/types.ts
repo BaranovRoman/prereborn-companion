@@ -1,6 +1,5 @@
 export const OVERLAY_WIDGET_IDS = [
     "session",
-    "currentGame",
     "recentMatches",
     "companionStatus",
 ] as const;
@@ -91,7 +90,6 @@ export interface RecentMatchesWidgetLayout extends OverlayWidgetLayout {
 
 export interface OverlayLayoutWidgets {
     session: OverlayWidgetLayout;
-    currentGame: OverlayWidgetLayout;
     recentMatches: RecentMatchesWidgetLayout;
     companionStatus: OverlayWidgetLayout;
 }
@@ -199,7 +197,7 @@ export interface DraftProtectionSettings {
 }
 
 export type OverlayLayout = {
-    version: 4;
+    version: 5;
     scenes: Record<ConfigurableBroadcastSceneId, OverlaySceneLayout>;
     aspectRatio: OverlayAspectRatio;
     draftProtection: DraftProtectionSettings;

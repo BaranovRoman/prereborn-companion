@@ -5,8 +5,39 @@
    src/App.css (see vite.overlay-renderer.config.ts), not a divergent
    palette. Background is transparent by design: OBS composites this over
    whatever is beneath the Browser Source. */
+@font-face {
+  font-family: "Radiance";
+  src: url("https://cdn.cloudflare.steamstatic.com/apps/dota2/fonts/radiance.woff") format("woff");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+@font-face {
+  font-family: "Radiance";
+  src: url("https://cdn.cloudflare.steamstatic.com/apps/dota2/fonts/radiance-semibold.woff") format("woff");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 600;
+}
+@font-face {
+  font-family: "Reaver";
+  src: url("https://cdn.cloudflare.steamstatic.com/apps/dota2/fonts/Reaver-Regular.woff") format("woff");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+@font-face {
+  font-family: "Reaver";
+  src: url("https://cdn.cloudflare.steamstatic.com/apps/dota2/fonts/Reaver-SemiBold.woff") format("woff");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 600;
+}
+
 :root {
+  --font-ui: "Radiance", "PT Sans Narrow", "Arial Narrow", Arial, sans-serif;
   --font-title: "Reaver", "Forum", "Times New Roman", serif;
+  --font-mono: "Radiance", "PT Sans Narrow", "Arial Narrow", monospace;
   --ov-void: #090c0d;
   --ov-panel: #181c1d;
   --ov-well: #101415;
@@ -24,7 +55,9 @@
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
 body {
-  font-family: Inter, "Segoe UI", sans-serif;
+  color: var(--ov-text);
+  font-family: var(--font-ui);
+  font-size: 14px;
   background: transparent;
   overflow: hidden;
 }

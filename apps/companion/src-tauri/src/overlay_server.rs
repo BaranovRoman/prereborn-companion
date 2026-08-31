@@ -53,31 +53,9 @@ const POLL_INTERVAL: Duration = Duration::from_millis(300);
 // `local_runtime::summary::LocalSessionSummary` verbatim (the exact same
 // read-only projection the Home page's MMR/matches panels already consume,
 // see summary.rs's doc comment) rather than a second session-summary
-// computation, and derives `CurrentGameSnapshot` from `AppState.
-// last_gsi_payload` using the same `/hero/id` pointer path
-// `local_runtime::gsi::parse`/`game_sounds::events::hero_identity_changed`
-// already use elsewhere (kills/deaths/assists have no existing Rust-side
-// extraction anywhere in this codebase - added here, presentation-only,
-// same `.pointer()` idiom). Hero name/icon resolution stays entirely
-// frontend-side (the renderer bundle imports the same `heroCatalog.ts`
-// HomePage.tsx already uses) - no new Rust-side hero id -> name mapping.
-#[derive(Debug, Clone, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct CurrentGameSnapshot {
-    pub hero_id: Option<i64>,
-    pub kills: Option<i64>,
-    pub deaths: Option<i64>,
-    pub assists: Option<i64>,
-}
-
-fn current_game_from_gsi(payload: &serde_json::Value) -> CurrentGameSnapshot {
-    CurrentGameSnapshot {
-        hero_id: payload.pointer("/hero/id").and_then(serde_json::Value::as_i64),
-        kills: payload.pointer("/player/kills").and_then(serde_json::Value::as_i64),
-        deaths: payload.pointer("/player/deaths").and_then(serde_json::Value::as_i64),
-        assists: payload.pointer("/player/assists").and_then(serde_json::Value::as_i64),
-    }
-}
+// computation. Gameplay widgets consume only this authoritative local
+// session projection; the retired Current Game presentation contract is no
+// longer serialized to the standalone renderer.
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -88,10 +66,6 @@ pub struct OverlayStateSnapshot {
     /// session is open yet - see summary.rs. Never a nested `Option`: the
     /// renderer only ever needs to branch on `hasSession`.
     pub session: LocalSessionSummary,
-    /// Only populated while GSI reports an active hero (Draft/Gameplay) -
-    /// `None` in BetweenMatches/PostStream, exactly like the equivalent
-    /// `BroadcastState::from_gsi` reads no hero data for those states either.
-    pub current_game: Option<CurrentGameSnapshot>,
     /// WK-122 §19 - bumped every time `AppState.overlay_layout` actually
     /// changes (a fresh fetch that differs from the cache, or a save from
     /// the Оформление editor - see backend::apply_overlay_layout). The
@@ -115,19 +89,13 @@ pub struct OverlayStateSnapshot {
 /// than only testing a hand-built stand-in. Every real call site keeps
 /// compiling unchanged (`R = Wry` by inference).
 pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
-    let (gsi_derived_source, session_ended, obs_manual_summary_override, current_game, layout_version, account) = {
+    let (gsi_derived_source, session_ended, obs_manual_summary_override, layout_version, account) = {
         let state = app.state::<AppState>();
         let inner = state.0.lock().unwrap();
-        let current_game = inner
-            .last_gsi_payload
-            .as_ref()
-            .map(current_game_from_gsi)
-            .filter(|game| game.hero_id.is_some());
         (
             inner.last_gsi_payload.as_ref().map(BroadcastState::from_gsi),
             inner.session_ended,
             inner.obs_manual_summary_override,
-            current_game,
             inner.overlay_layout_version,
             inner.account_overlay_data.clone(),
         )
@@ -138,10 +106,6 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
         scene,
         updated_at: chrono::Utc::now().to_rfc3339(),
         session: summary::get(app),
-        current_game: match scene {
-            BroadcastState::Draft | BroadcastState::Gameplay => current_game,
-            BroadcastState::BetweenMatches | BroadcastState::PostStream => None,
-        },
         layout_version,
         account,
     }
@@ -386,38 +350,6 @@ mod tests {
         let snapshot = current(&app);
         assert_eq!(snapshot.scene, BroadcastState::BetweenMatches);
         assert!(!snapshot.session.has_session, "no local session opened yet");
-        assert!(snapshot.current_game.is_none(), "no current-game data outside Draft/Gameplay");
-    }
-
-    // WK-121 - the renderer's CurrentGame widget only ever has real data
-    // during Draft/Gameplay; BetweenMatches/PostStream must never carry a
-    // stale hero from the last match.
-    #[test]
-    fn current_game_is_populated_during_gameplay_and_cleared_between_matches() {
-        let app = test_app();
-        {
-            let state = app.state::<AppState>();
-            let mut inner = state.0.lock().unwrap();
-            inner.last_gsi_payload = Some(serde_json::json!({
-                "map": { "game_state": "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS" },
-                "player": { "activity": "playing", "kills": 5, "deaths": 2, "assists": 9 },
-                "hero": { "id": 14 },
-            }));
-        }
-        let snapshot = current(&app);
-        assert_eq!(snapshot.scene, BroadcastState::Gameplay);
-        let game = snapshot.current_game.expect("current_game populated during Gameplay");
-        assert_eq!(game.hero_id, Some(14));
-        assert_eq!(game.kills, Some(5));
-        assert_eq!(game.deaths, Some(2));
-        assert_eq!(game.assists, Some(9));
-
-        {
-            let state = app.state::<AppState>();
-            let mut inner = state.0.lock().unwrap();
-            inner.last_gsi_payload = None;
-        }
-        assert!(current(&app).current_game.is_none(), "clears once GSI signal is gone (back to BetweenMatches)");
     }
 
     // WK-121 - `session` reuses local_runtime::summary::get verbatim, not a
@@ -573,10 +505,14 @@ mod tests {
         let app = test_app();
         {
             let state = app.state::<AppState>();
-            state.0.lock().unwrap().last_gsi_payload = Some(serde_json::json!({
+            let mut inner = state.0.lock().unwrap();
+            inner.last_gsi_payload = Some(serde_json::json!({
                 "map": { "game_state": "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS" },
-                "player": { "activity": "playing", "kills": 3, "deaths": 1, "assists": 7 },
+                "player": { "activity": "playing" },
                 "hero": { "id": 14 }
+            }));
+            inner.account_overlay_data = Some(serde_json::json!({
+                "twitch": { "connected": true, "displayName": "Before" }
             }));
         }
         let port = start_test_server(app.clone());
@@ -586,15 +522,17 @@ mod tests {
         let mut reader = std::io::BufReader::new(stream);
         let first = read_one_sse_frame(&mut reader);
         assert!(first.contains("\"scene\":\"gameplay\""));
-        assert!(first.contains("\"kills\":3"));
+        assert!(first.contains("\"displayName\":\"Before\""));
 
         {
             let state = app.state::<AppState>();
-            state.0.lock().unwrap().last_gsi_payload.as_mut().unwrap()["player"]["kills"] = serde_json::json!(4);
+            state.0.lock().unwrap().account_overlay_data = Some(serde_json::json!({
+                "twitch": { "connected": true, "displayName": "After" }
+            }));
         }
         let second = read_one_sse_frame(&mut reader);
         assert!(second.contains("\"scene\":\"gameplay\""));
-        assert!(second.contains("\"kills\":4"), "same-scene data change must be pushed: {second}");
+        assert!(second.contains("\"displayName\":\"After\""), "same-scene data change must be pushed: {second}");
     }
 
     // WK-122 §19 - `null`, not an error, when nothing has been fetched yet
@@ -721,7 +659,6 @@ mod tests {
                 scene: BroadcastState::Gameplay,
                 updated_at: "2026-01-01T00:00:00Z".to_string(),
                 session: LocalSessionSummary::default(),
-                current_game: Some(CurrentGameSnapshot { hero_id: Some(14), kills: Some(3), deaths: Some(1), assists: Some(7) }),
                 layout_version: 1,
                 account: None,
             };
@@ -729,25 +666,6 @@ mod tests {
             for forbidden in ["token", "secret", "password", "companion_token", "bearer"] {
                 assert!(!json.contains(forbidden), "payload leaked a forbidden field/substring: {forbidden} in {json}");
             }
-        }
-
-        // WK-121 - the widened payload (session summary + current game) is
-        // still built entirely from `current()`'s own AppState/local-runtime
-        // reads, never anything backend/credential-shaped - pins the
-        // widened struct's field set itself, not just one example instance.
-        #[test]
-        fn current_game_extraction_reads_only_gsi_hero_and_kda_pointers() {
-            let payload = serde_json::json!({
-                "hero": { "id": 14, "name": "npc_dota_hero_pudge" },
-                "player": { "kills": 3, "deaths": 1, "assists": 7, "steam_id": "should not leak" },
-            });
-            let game = current_game_from_gsi(&payload);
-            assert_eq!(game.hero_id, Some(14));
-            assert_eq!(game.kills, Some(3));
-            assert_eq!(game.deaths, Some(1));
-            assert_eq!(game.assists, Some(7));
-            let json = serde_json::to_string(&game).unwrap();
-            assert!(!json.contains("steam_id"), "must only read the specific pointers it declares, not pass through the raw payload");
         }
 
         #[test]

@@ -85,7 +85,7 @@ export interface AccountStatus {
 
 // WK-122 §17-19 - mirrors apps/api's stream-overlay-layout-service.ts
 // (OVERLAY_ANCHORS/OverlayWidgetLayout) for the subset Companion's editor
-// actually edits: the session/currentGame widgets in the draft/gameplay
+// actually edits: the session/recentMatches widgets in gameplay
 // scenes (the only two widgets the local renderer visualizes - see
 // overlay-renderer/OverlayApp.tsx). `OverlayLayoutDoc` intentionally keeps
 // every other real field (cameraZone, minimapCover, recentMatches/
@@ -141,7 +141,6 @@ export interface DraftProtectionTextSettings extends OverlayWidgetLayout { conte
 
 export interface OverlaySceneWidgets {
   session: OverlayWidgetLayout;
-  currentGame: OverlayWidgetLayout;
   recentMatches: RecentMatchesWidgetLayout;
   companionStatus: OverlayWidgetLayout;
 }

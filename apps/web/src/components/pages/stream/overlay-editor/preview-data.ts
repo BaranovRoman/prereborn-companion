@@ -2,7 +2,7 @@ import type { StreamMatch } from "@/entities/stream-session/model/types";
 
 // Статичные тестовые данные для превью редактора - не бьём в реальный
 // overlay endpoint ради этого (см. задачу: "тестовые/текущие данные"), а
-// сами виджеты (SessionStats/CurrentGame/RecentMatches/CompanionStatus) -
+// сами виджеты (SessionStats/RecentMatches/CompanionStatus) -
 // те же самые компоненты, что рендерятся на настоящем /overlay/:token.
 // 8 матчей - специально больше дефолтного limit (5), чтобы в редакторе сразу
 // было видно поведение "+N ещё" (см. задачу, п.7), а не только пустой кейс.

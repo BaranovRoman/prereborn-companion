@@ -61,5 +61,5 @@ function BouncingLogo() {
 export function DraftProtectionLayer({ mode, text, sceneWidth, sceneHeight, editable = false }: { mode: "off" | "cover"; text?: DraftProtectionTextSettings; sceneWidth: number; sceneHeight: number; editable?: boolean }) {
   if (mode === "off") return null;
   const change = (patch: Partial<DraftProtectionTextSettings>) => window.parent.postMessage({ type: "prereborn-overlay-draft-text-change", patch }, "*");
-  return <div className={layerStyles.layer} data-testid="draft-protection-layer"><Atmosphere seed={742} /><BouncingLogo />{text && text.content.trim() && <AnchoredBox layout={text} sceneWidth={sceneWidth} sceneHeight={sceneHeight} editable={editable} selected={editable} onChange={change}><div className={textStyles.text} data-editor-draggable={editable || undefined}>{text.content}</div></AnchoredBox>}</div>;
+  return <div className={layerStyles.layer} data-testid="draft-protection-layer"><Atmosphere seed={742} /><BouncingLogo />{text && text.content.trim() && <AnchoredBox layout={text} sceneWidth={sceneWidth} sceneHeight={sceneHeight} editable={editable} selected={editable} onChange={change} minimumScale={0.05} maximumScale={null}><div className={textStyles.text} data-editor-draggable={editable || undefined}>{text.content}</div></AnchoredBox>}</div>;
 }

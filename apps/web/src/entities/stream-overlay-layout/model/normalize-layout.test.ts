@@ -17,9 +17,18 @@ describe("normalizeOverlayLayout", () => {
             aspectRatio: { preset: "16:9", widthRatio: 16, heightRatio: 9 },
         });
 
-        expect(layout.version).toBe(4);
+        expect(layout.version).toBe(5);
         expect(layout.scenes.gameplay.widgets.session.xVw).toBe(42);
         expect(layout.scenes.draft.widgets.session.visible).toBe(true);
+    });
+
+    it("drops the retired currentGame widget when migrating a saved v4 layout", () => {
+        const layout = normalizeOverlayLayout({
+            version: 4,
+            scenes: { gameplay: { widgets: { currentGame: { xVw: 44, yVh: 55, scale: 1, visible: true, anchor: "center" } } } },
+        });
+        expect(layout.version).toBe(5);
+        expect(layout.scenes.gameplay.widgets).not.toHaveProperty("currentGame");
     });
 
     it("fails closed for old or malformed draft protection settings", () => {

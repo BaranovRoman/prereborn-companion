@@ -97,7 +97,7 @@ describe("Draft protection text normalization (WK-86)", () => {
         expect(layout.draftProtection.text.content).toHaveLength(80);
     });
 
-    it("clamps position/scale to their valid ranges", () => {
+    it("clamps position but preserves direct-resize scale above the old UI ceiling", () => {
         const layout = normalizeOverlayLayout({
             version: 4,
             draftProtection: {
@@ -105,6 +105,19 @@ describe("Draft protection text normalization (WK-86)", () => {
                 text: { content: "x", xVw: 500, yVh: -50, scale: 10 },
             },
         });
-        expect(layout.draftProtection.text).toMatchObject({ xVw: 100, yVh: 0, scale: 2 });
+        expect(layout.draftProtection.text).toMatchObject({ xVw: 100, yVh: 0, scale: 10 });
+    });
+});
+
+describe("removed Current Game widget migration", () => {
+    it("drops currentGame while preserving the supported Gameplay widgets", () => {
+        const layout = normalizeOverlayLayout({
+            version: 4,
+            scenes: { gameplay: { widgets: { currentGame: { xVw: 44, yVh: 55, scale: 1, visible: true, anchor: "center" } } } },
+        });
+        expect(layout.version).toBe(5);
+        expect(layout.scenes.gameplay.widgets).not.toHaveProperty("currentGame");
+        expect(layout.scenes.gameplay.widgets).toHaveProperty("session");
+        expect(layout.scenes.gameplay.widgets).toHaveProperty("recentMatches");
     });
 });

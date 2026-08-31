@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { LocalSessionSummary } from "../types";
+import type { LocalSessionSummary, QueueSettings } from "../types";
 import { BetweenMatchesScene } from "./BetweenMatchesScene";
 
 const SESSION: LocalSessionSummary = {
@@ -16,6 +16,14 @@ const SESSION: LocalSessionSummary = {
   currentMatch: null,
   recentMatches: [],
 };
+
+const SETTINGS = {
+  version: 2,
+  visibility: { playerProfile: false, streamProfile: false, featuredMatch: false, webcam: false, favoriteHeroes: false, recentGames: false, twitchChat: false, systemStatus: false },
+  favoriteHeroIds: [], webcamImageUrl: null,
+  channelGoal: { type: "rating", label: "RATING GOAL", startValue: 5_964, targetValue: 6_200 },
+  widgets: { titles: { playerProfile: "wrong", streamProfile: "wrong", featuredMatch: "wrong", webcam: "wrong", favoriteHeroes: "wrong", recentGames: "wrong", twitchChat: "wrong", friends: "wrong" }, recentGamesLimit: 5, chatMessagesLimit: 5, friends: { showDonaters: false, showSubscribers: false, showFollowers: false, socialLinks: [] } },
+} satisfies QueueSettings;
 
 afterEach(() => cleanup());
 
@@ -38,6 +46,15 @@ describe("BetweenMatchesScene", () => {
     expect(screen.getByText("Match history is empty")).toBeTruthy();
     expect(screen.getAllByText("No completed matches").length).toBeGreaterThan(0);
     expect(screen.queryByText("VICTORY")).toBeNull();
+  });
+
+  it("keeps the fixed production blocks and computes a rating goal from its persisted start", () => {
+    const { container } = render(<BetweenMatchesScene session={{ ...SESSION, ratingStart: 6_000, ratingCurrent: 5_989 }} settings={SETTINGS} />);
+    expect(screen.getByLabelText("PLAYER PROFILE")).toBeTruthy();
+    expect(screen.getByLabelText("STREAM PROFILE")).toBeTruthy();
+    expect(screen.getByText("5964 · 5989 → 6200")).toBeTruthy();
+    expect(parseFloat((container.querySelector("[class*='goalTrack'] > i") as HTMLElement).style.width)).toBeCloseTo(10.5932, 4);
+    expect(screen.queryByLabelText("wrong")).toBeNull();
   });
 
   it("shows a finalized recent match with its real hero, result and MMR delta", () => {
