@@ -1,10 +1,7 @@
 import { useState } from "react";
 import { getHeroById } from "../../src/services/heroCatalog";
-import { RedFogBackground } from "../../../web/src/components/pages/stream/queue/red-fog-background";
-import treeFarUrl from "../../../web/public/generated/chatgpt/trees-1.png";
-import treeMiddleUrl from "../../../web/public/generated/chatgpt/trees-2.png";
-import treeNearUrl from "../../../web/public/generated/chatgpt/trees-3.png";
 import logoUrl from "../../../web/public/logo-new.png";
+import { Atmosphere } from "../Atmosphere";
 import type { LocalMatchSummary, LocalSessionSummary, OverlayStateSnapshot, QueueSettings } from "../types";
 import styles from "../../../web/src/components/pages/stream/queue/queue-scene.module.scss";
 
@@ -78,27 +75,6 @@ function PreloadedVideo({ src, poster, className }: { src: string; poster: strin
   );
 }
 
-function Atmosphere() {
-  const treeStyle = { position: "absolute", inset: 0, width: "100%", height: "100%" } as const;
-  return (
-    <>
-      <div className={styles.fallback} aria-hidden="true" />
-      <div className={styles.treeStage} aria-hidden="true">
-        <div className={`${styles.treeLayer} ${styles.treeDistantSilhouette}`}><img className={styles.treeImage} style={treeStyle} src={treeMiddleUrl} alt="" /></div>
-        <div className={`${styles.treeLayer} ${styles.treeFar}`}><img className={styles.treeImage} style={treeStyle} src={treeFarUrl} alt="" /></div>
-        <div className={`${styles.treeLayer} ${styles.treeMiddle}`}><img className={styles.treeImage} style={treeStyle} src={treeMiddleUrl} alt="" /></div>
-        <div className={`${styles.treeLayer} ${styles.treeNear}`}><img className={styles.treeImage} style={treeStyle} src={treeNearUrl} alt="" /></div>
-        <div className={styles.treeFogMiddle} />
-        <div className={styles.treeFogFront} />
-      </div>
-      {import.meta.env.MODE !== "test" && typeof window.matchMedia === "function" && (
-        <RedFogBackground quality="high" seed={123} forceFallback={false} onDebugStateChange={() => undefined} />
-      )}
-      <div className={styles.atmosphereFinish} aria-hidden="true" />
-    </>
-  );
-}
-
 function PlayerProfile({ session, account, title = "PLAYER PROFILE" }: { session: LocalSessionSummary; account: OverlayStateSnapshot["account"]; title?: string }) {
   const total = session.wins + session.losses;
   const winRate = total ? Math.round((session.wins / total) * 100) : 0;
@@ -127,6 +103,11 @@ function StreamProfile({ session, account, title = "STREAM PROFILE", goal }: { s
   const delta = session.sessionDelta;
   const twitch = account?.twitch;
   const channelName = twitch?.displayName || twitch?.login || "TWITCH CHANNEL";
+  const ratingGoal = goal?.type === "rating";
+  const goalStart = session.ratingStart ?? goal?.startValue ?? 0;
+  const goalCurrent = session.ratingCurrent ?? goalStart;
+  const goalTarget = goal?.targetValue ?? goalCurrent;
+  const goalProgress = ratingGoal ? Math.max(0, Math.min(100, ((goalCurrent - goalStart) / Math.max(1, goalTarget - goalStart)) * 100)) : 100;
   return (
     <Panel title={title} className={styles.streamProfile}>
       <div className={styles.streamProfileBody}>
@@ -135,10 +116,10 @@ function StreamProfile({ session, account, title = "STREAM PROFILE", goal }: { s
         <div className={styles.liveBadge}><i data-online={Boolean(twitch?.live)} /> {twitch?.live ? `${twitch.live.viewerCount} LIVE` : "OFFLINE"}</div>
         <div className={styles.goal}>
           <span className={styles.goalTrack}>
-            <i style={{ width: "100%" }} />
+            <i style={{ width: `${goalProgress}%` }} />
             <span className={styles.goalMeta}>
               <span>{goal && goal.type !== "none" && goal.label ? goal.label : "SESSION MMR"}</span>
-              <b>{goal && goal.type !== "none" ? `${goal.startValue} → ${goal.targetValue}` : `${session.ratingStart ?? EMPTY_VALUE} → ${session.ratingCurrent ?? EMPTY_VALUE} (${formatDelta(delta)})`}</b>
+              <b>{ratingGoal ? `${goalCurrent} → ${goalTarget}` : goal?.type === "custom" ? `${goal.startValue} → ${goal.targetValue}` : `${session.ratingStart ?? EMPTY_VALUE} → ${session.ratingCurrent ?? EMPTY_VALUE} (${formatDelta(delta)})`}</b>
             </span>
           </span>
         </div>
@@ -186,8 +167,9 @@ function FeaturedMatch({ match, title = "LAST MATCH" }: { match: LocalMatchSumma
   );
 }
 
-function WebcamPanel({ title, imageUrl }: { title: string; imageUrl: string }) {
-  return <Panel title={title} className={styles.webcamPanel}><div className={styles.webcam}><img src={imageUrl} alt="" /></div></Panel>;
+function WebcamPanel({ title, imageUrl }: { title: string; imageUrl: string | null }) {
+  const resolvedUrl = imageUrl?.startsWith("/") ? `https://prereborn.ru${imageUrl}` : imageUrl;
+  return <Panel title={title} className={styles.webcamPanel}><div className={styles.webcam} data-has-image={Boolean(resolvedUrl)}>{resolvedUrl ? <img src={resolvedUrl} alt="" /> : <><span>LIVE CAPTURE</span><small>FALLBACK NOT SET</small></>}</div></Panel>;
 }
 
 function FavoriteHeroes({ matches, heroIds, title }: { matches: LocalMatchSummary[]; heroIds: number[]; title: string }) {
@@ -265,7 +247,7 @@ export function BetweenMatchesScene({ session, settings = null, account = null }
           <div className={styles.leftMain} data-featured="true">
             {visible?.featuredMatch !== false && <FeaturedMatch match={session.recentMatches[0]} title={titles?.featuredMatch} />}
             <div className={styles.sideStack} data-widget-count={3}>
-              {visible?.webcam !== false && settings?.webcamImageUrl && <WebcamPanel title={titles?.webcam ?? "LIVE CAPTURE"} imageUrl={settings.webcamImageUrl} />}
+              {visible?.webcam !== false && <WebcamPanel title={titles?.webcam ?? "LIVE CAPTURE"} imageUrl={settings?.webcamImageUrl ?? null} />}
               {visible?.favoriteHeroes !== false && <FavoriteHeroes title={titles?.favoriteHeroes ?? "FAVORITE HEROES"} matches={session.recentMatches} heroIds={settings?.favoriteHeroIds ?? []} />}
               {visible?.recentGames !== false && <RecentGames title={titles?.recentGames ?? "RECENT GAMES"} matches={session.recentMatches} limit={settings?.widgets.recentGamesLimit ?? 5} />}
             </div>

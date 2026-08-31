@@ -114,7 +114,7 @@ export function AnchoredBox({
   return (
     <div
       data-editor-widget={editable ? "true" : undefined}
-      style={{ position: "absolute", left, top, outline: selected ? "3px solid #e5b45f" : editable ? "1px dashed rgba(229,180,95,.55)" : undefined, cursor: editable ? "move" : undefined }}
+      style={{ position: "absolute", left, top, width: scaledWidth, height: scaledHeight, outline: selected ? "3px solid #e5b45f" : undefined, cursor: editable ? "move" : undefined, touchAction: editable ? "none" : undefined }}
       onPointerDown={beginDrag}
     >
       <div ref={contentRef} style={{ display: "inline-block", transform: `scale(${layout.scale})`, transformOrigin: "top left" }}>

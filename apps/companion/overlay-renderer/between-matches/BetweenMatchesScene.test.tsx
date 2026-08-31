@@ -28,7 +28,8 @@ describe("BetweenMatchesScene", () => {
     expect(screen.getByLabelText("LAST MATCH")).toBeTruthy();
     expect(screen.getByLabelText("FAVORITE HEROES")).toBeTruthy();
     expect(screen.getByLabelText("RECENT GAMES")).toBeTruthy();
-    expect(screen.queryByLabelText("LIVE CAPTURE")).toBeNull();
+    expect(screen.getByLabelText("LIVE CAPTURE")).toBeTruthy();
+    expect(screen.getByText("FALLBACK NOT SET")).toBeTruthy();
     expect(screen.queryByLabelText("TWITCH CHAT")).toBeNull();
   });
 

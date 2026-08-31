@@ -7,6 +7,9 @@ vi.mock("../services/dotaCompanionApi", () => ({
   saveOverlayLayout: vi.fn(),
   getQueueSettings: vi.fn(),
   saveQueueSettings: vi.fn(),
+  getLocalSessionSummary: vi.fn().mockResolvedValue({ ratingCurrent: 6000 }),
+  chooseQueueWebcamFallback: vi.fn(),
+  removeQueueWebcamFallback: vi.fn(),
 }));
 
 // eslint-disable-next-line import/order
@@ -32,8 +35,8 @@ function buildLayout(overrides: Partial<OverlayLayoutDoc> = {}): OverlayLayoutDo
   return {
     version: 4,
     scenes: {
-      draft: { widgets: { session: { ...widget }, currentGame: { ...widget, visible: false }, recentMatches: { ...recentMatches }, companionStatus: { ...widget } }, minimapCover: { ...minimapCover } },
-      gameplay: { widgets: { session: { ...widget }, currentGame: { ...widget }, recentMatches: { ...recentMatches }, companionStatus: { ...widget } }, minimapCover: { ...minimapCover } },
+      draft: { widgets: { session: { ...widget }, currentGame: { ...widget, visible: false }, recentMatches: { ...recentMatches }, companionStatus: { ...widget } }, cameraZone: { enabled: true, anchor: "bottom-left", x: 60, y: 1013, width: 400, height: 300 }, minimapCover: { ...minimapCover } },
+      gameplay: { widgets: { session: { ...widget }, currentGame: { ...widget }, recentMatches: { ...recentMatches }, companionStatus: { ...widget } }, cameraZone: { enabled: true, anchor: "bottom-right", x: 1860, y: 1013, width: 400, height: 300 }, minimapCover: { ...minimapCover } },
       // Untyped passthrough fields the editor must never touch/lose.
       cameraZoneMarker: "should-survive-a-save",
     },

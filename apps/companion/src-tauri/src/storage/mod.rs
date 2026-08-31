@@ -52,6 +52,10 @@ fn queue_settings_path(app: &AppHandle) -> PathBuf {
     app.path().app_data_dir().expect("app_data_dir must resolve").join("queue-settings.json")
 }
 
+pub fn queue_webcam_fallback_path<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
+    app.path().app_data_dir().expect("app_data_dir must resolve").join("queue-webcam-fallback.image")
+}
+
 pub fn save_queue_settings(app: &AppHandle, settings: &serde_json::Value) -> std::io::Result<()> {
     let path = queue_settings_path(app);
     if let Some(dir) = path.parent() { fs::create_dir_all(dir)?; }
