@@ -3,7 +3,6 @@ import { pool } from "../db/client.js";
 
 export const OVERLAY_WIDGET_IDS = [
     "session",
-    "currentGame",
     "recentMatches",
     "companionStatus",
 ] as const;
@@ -94,7 +93,6 @@ export interface RecentMatchesWidgetLayout extends OverlayWidgetLayout {
 
 export interface OverlayLayoutWidgets {
     session: OverlayWidgetLayout;
-    currentGame: OverlayWidgetLayout;
     recentMatches: RecentMatchesWidgetLayout;
     companionStatus: OverlayWidgetLayout;
 }
@@ -155,7 +153,7 @@ export interface DraftProtectionSettings {
 }
 
 export type OverlayLayout = {
-    version: 4;
+    version: 5;
     scenes: {
         draft: OverlaySceneLayout;
         gameplay: OverlaySceneLayout;
@@ -173,13 +171,6 @@ export type OverlayLayout = {
 // сегодняшний внешний вид заодно с этой задачей.
 const defaultGameplayWidgets: OverlayLayoutWidgets = {
         session: { xVw: 3, yVh: 4, scale: 1, visible: true, anchor: "top-left" },
-        currentGame: {
-            xVw: 3,
-            yVh: 12,
-            scale: 1,
-            visible: true,
-            anchor: "top-left",
-        },
         recentMatches: {
             xVw: 3,
             yVh: 22,
@@ -203,7 +194,7 @@ const defaultGameplayWidgets: OverlayLayoutWidgets = {
 };
 
 export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
-    version: 4,
+    version: 5,
     scenes: {
         gameplay: {
             widgets: defaultGameplayWidgets,
@@ -220,7 +211,6 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
         draft: {
             widgets: {
                 ...defaultGameplayWidgets,
-                currentGame: { ...defaultGameplayWidgets.currentGame, visible: false },
                 recentMatches: {
                     ...defaultGameplayWidgets.recentMatches,
                     xVw: 3,
@@ -371,7 +361,7 @@ const normalizeDraftProtectionText = (
         ...parsed,
         xVw: clamp(parsed.xVw, 0, 100),
         yVh: clamp(parsed.yVh, 0, 100),
-        scale: clamp(parsed.scale, 0.5, 2),
+        scale: Math.max(parsed.scale, 0.05),
     };
 };
 
@@ -399,9 +389,6 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
         ).parse(raw.recentMatches);
         return {
             session: clampWidget(buildWidgetSchema(defaults.session).parse(raw.session)),
-            currentGame: clampWidget(
-                buildWidgetSchema(defaults.currentGame).parse(raw.currentGame)
-            ),
             companionStatus: clampWidget(
                 buildWidgetSchema(defaults.companionStatus).parse(raw.companionStatus)
             ),
@@ -487,7 +474,7 @@ export const normalizeOverlayLayout = (input: unknown): OverlayLayout => {
     ).parse(parsed.data.aspectRatio);
 
     return {
-        version: 4,
+        version: 5,
         scenes: {
             gameplay: {
                 widgets: normalizeWidgets(

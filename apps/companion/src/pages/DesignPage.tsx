@@ -87,7 +87,7 @@ function WidgetSettings({
 // this app's ui/ primitives), not a mouse-drag-on-canvas WYSIWYG editor like
 // apps/web's - see this slice's research doc §"Оформление" for why. Only
 // the two widgets the local renderer actually visualizes (Session,
-// CurrentGame - see overlay-renderer/OverlayApp.tsx) are editable here;
+// Session/RecentMatches - see overlay-renderer/OverlayApp.tsx) are editable here;
 // cameraZone/minimapCover/recentMatches/companionStatus/draftProtection
 // stay whatever they already were (read/written byte-for-byte, never
 // reconstructed - see saveOverlayLayout's doc comment) since this editor
@@ -122,9 +122,9 @@ export function DesignPage() {
       if (event.source !== frame?.contentWindow) return;
       if (event.data?.type === "prereborn-overlay-widget-change") {
         const { scene, widget, patch } = event.data;
-        if ((scene !== "draft" && scene !== "gameplay") || !["session", "currentGame", "recentMatches"].includes(widget) || !patch) return;
+        if ((scene !== "draft" && scene !== "gameplay") || !["session", "recentMatches"].includes(widget) || !patch) return;
         const sceneKey = scene as "draft" | "gameplay";
-        const widgetKey = widget as "session" | "currentGame" | "recentMatches";
+        const widgetKey = widget as "session" | "recentMatches";
         const widgetPatch = patch as Partial<OverlayWidgetLayout>;
         setLayout((current) => {
           if (!current) return current;
@@ -144,9 +144,8 @@ export function DesignPage() {
         setSavedFlash(false);
         return;
       }
-      if (event.data?.type === "prereborn-overlay-camera-change" && event.data.patch && (event.data.scene === "draft" || event.data.scene === "gameplay")) {
-        const scene = event.data.scene as "draft" | "gameplay";
-        setLayout((current) => current ? { ...current, scenes: { ...current.scenes, [scene]: { ...current.scenes[scene], cameraZone: { ...current.scenes[scene].cameraZone, ...event.data.patch } } } } : current);
+      if (event.data?.type === "prereborn-overlay-camera-change" && event.data.patch && event.data.scene === "gameplay") {
+        setLayout((current) => current ? { ...current, scenes: { ...current.scenes, gameplay: { ...current.scenes.gameplay, cameraZone: { ...current.scenes.gameplay.cameraZone, ...event.data.patch } } } } : current);
         setSavedFlash(false);
         return;
       }
@@ -168,7 +167,7 @@ export function DesignPage() {
 
   const editableScene = tab === "gameplay" ? tab : null;
 
-  const updateWidget = (widgetKey: "session" | "currentGame" | "recentMatches", patch: Partial<OverlayWidgetLayout>) => {
+  const updateWidget = (widgetKey: "session" | "recentMatches", patch: Partial<OverlayWidgetLayout>) => {
     if (!layout || !editableScene) return;
     setSavedFlash(false);
     const scene = layout.scenes[editableScene];
@@ -262,9 +261,9 @@ export function DesignPage() {
           {!loading && tab === "gameplay" && layout && (
             <>
               <WidgetSettings
-                title="Текущая игра"
-                widget={layout.scenes.gameplay.widgets.currentGame}
-                onChange={(patch) => updateWidget("currentGame", patch)}
+                title="Текущий MMR"
+                widget={layout.scenes.gameplay.widgets.session}
+                onChange={(patch) => updateWidget("session", patch)}
               />
               <WidgetSettings
                 title="История матчей"
@@ -282,11 +281,6 @@ export function DesignPage() {
                 <Checkbox label="Показывать область в редакторе" checked={layout.scenes.gameplay.cameraZone.enabled} onChange={(event) => setLayout({ ...layout, scenes: { ...layout.scenes, gameplay: { ...layout.scenes.gameplay, cameraZone: { ...layout.scenes.gameplay.cameraZone, enabled: event.target.checked } } } })} />
                 <p className="design-page__hint">Перетащите рамку камеры или измените её размер за угол. Это направляющая редактора; Companion не меняет transform источника камеры в OBS.</p>
               </div>
-              <WidgetSettings
-                title="Сессия"
-                widget={layout.scenes.gameplay.widgets.session}
-                onChange={(patch) => updateWidget("session", patch)}
-              />
               <div className="design-page__actions">
                 <Button variant="primary" onClick={() => void handleSave()} disabled={saving}>
                   {saving ? "Сохранение…" : "Сохранить"}
@@ -303,7 +297,6 @@ export function DesignPage() {
                 <label className="design-page__field"><span>Режим</span><Select value={layout.draftProtection.mode} onChange={(event) => setLayout({ ...layout, draftProtection: { ...layout.draftProtection, mode: event.target.value as "off" | "cover" } })}><option value="off">Без защиты</option><option value="cover">Полная заглушка</option></Select></label>
                 <Checkbox label="Показывать свой текст" checked={layout.draftProtection.text.visible} onChange={(event) => updateDraftText({ visible: event.target.checked })} />
                 <label className="design-page__field"><span>Текст</span><Input value={layout.draftProtection.text.content} onChange={(event) => updateDraftText({ content: event.target.value })} /></label>
-                <label className="design-page__field"><span>Точный масштаб ({layout.draftProtection.text.scale.toFixed(2)}×)</span><Slider min={0.5} max={2} step={0.05} value={layout.draftProtection.text.scale} onChange={(event) => updateDraftText({ scale: Number(event.target.value) })} /></label>
                 <p className="design-page__hint">Текст перемещается и масштабируется рамкой прямо в предпросмотре.</p>
               </div>
               <div className="design-page__actions"><Button variant="primary" onClick={() => void handleSave()} disabled={saving}>{saving ? "Сохранение…" : "Сохранить"}</Button>{savedFlash && <span className="design-page__saved">Сохранено ✓</span>}</div>
@@ -312,17 +305,20 @@ export function DesignPage() {
 
           {!loading && tab === "betweenMatches" && queueSettings && (
             <>
-              <div className="design-page__widget-settings"><h3>Блоки Between Matches</h3>
-                {(["playerProfile", "streamProfile", "featuredMatch", "webcam", "favoriteHeroes", "recentGames"] as const).map((key) => <Checkbox key={key} label={queueSettings.widgets.titles[key]} checked={queueSettings.visibility[key]} onChange={(event) => { setSavedFlash(false); setQueueSettings({ ...queueSettings, visibility: { ...queueSettings.visibility, [key]: event.target.checked } }); }} />)}
-              </div>
               <div className="design-page__widget-settings"><h3>Канал и контент</h3>
-                <label className="design-page__field"><span>Заголовок канала</span><Input value={queueSettings.widgets.titles.streamProfile} onChange={(event) => setQueueSettings({ ...queueSettings, widgets: { ...queueSettings.widgets, titles: { ...queueSettings.widgets.titles, streamProfile: event.target.value } } })} /></label>
                 <span className="design-page__field">Fallback для Live Capture</span>
                 {queueSettings.webcamImageUrl && <img className="design-page__fallback-preview" src={queueSettings.webcamImageUrl.startsWith("/") ? `https://prereborn.ru${queueSettings.webcamImageUrl}` : queueSettings.webcamImageUrl} alt="Предпросмотр fallback Live Capture" />}
                 <div className="design-page__inline-actions"><Button onClick={() => void chooseWebcamFallback()}>{queueSettings.webcamImageUrl ? "Заменить изображение" : "Выбрать изображение"}</Button>{queueSettings.webcamImageUrl && <Button onClick={() => void removeWebcamFallback()}>Удалить</Button>}</div>
                 <label className="design-page__field"><span>Последних игр ({queueSettings.widgets.recentGamesLimit})</span><Slider min={1} max={15} step={1} value={queueSettings.widgets.recentGamesLimit} onChange={(event) => setQueueSettings({ ...queueSettings, widgets: { ...queueSettings.widgets, recentGamesLimit: Number(event.target.value) } })} /></label>
-                <Checkbox label="Цель по рейтингу" checked={queueSettings.channelGoal.type === "rating"} onChange={(event) => setQueueSettings({ ...queueSettings, channelGoal: event.target.checked ? { type: "rating", label: "RATING GOAL", startValue: currentMmr ?? queueSettings.channelGoal.startValue, targetValue: queueSettings.channelGoal.targetValue || (currentMmr ?? 0) + 300 } : { ...queueSettings.channelGoal, type: "none" } })} />
-                {queueSettings.channelGoal.type === "rating" && <label className="design-page__field"><span>Целевой MMR</span><Input type="number" min={0} value={queueSettings.channelGoal.targetValue} onChange={(event) => setQueueSettings({ ...queueSettings, channelGoal: { ...queueSettings.channelGoal, targetValue: Number(event.target.value), startValue: currentMmr ?? queueSettings.channelGoal.startValue } })} /></label>}
+                <Checkbox label="Цель по рейтингу" checked={queueSettings.channelGoal.type === "rating"} onChange={(event) => {
+                  const startValue = currentMmr ?? queueSettings.channelGoal.startValue;
+                  setQueueSettings({ ...queueSettings, channelGoal: event.target.checked ? { type: "rating", label: "RATING GOAL", startValue, targetValue: startValue + 300 } : { ...queueSettings.channelGoal, type: "none" } });
+                }} />
+                {queueSettings.channelGoal.type === "rating" && <>
+                  <label className="design-page__field"><span>Стартовый MMR</span><Input type="number" min={0} value={queueSettings.channelGoal.startValue} onChange={(event) => setQueueSettings({ ...queueSettings, channelGoal: { ...queueSettings.channelGoal, startValue: Number(event.target.value) } })} /></label>
+                  <label className="design-page__field"><span>Текущий MMR</span><Input type="number" value={currentMmr ?? ""} disabled /></label>
+                  <label className="design-page__field"><span>Целевой MMR</span><Input type="number" min={0} value={queueSettings.channelGoal.targetValue} onChange={(event) => setQueueSettings({ ...queueSettings, channelGoal: { ...queueSettings.channelGoal, targetValue: Number(event.target.value) } })} /></label>
+                </>}
                 <p className="design-page__hint">Избранные герои выбираются в разделе «Герои» (до трёх). Социальные ссылки сохраняются в существующих настройках аккаунта.</p>
                 <p className="design-page__hint">Отдельный Twitch Chat блок старого web overlay не переносится: локальный OBS renderer не получает публичную ленту сообщений. Twitch-профиль канала загружается из подключённого аккаунта.</p>
               </div>

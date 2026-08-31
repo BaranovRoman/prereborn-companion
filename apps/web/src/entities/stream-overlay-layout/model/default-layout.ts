@@ -16,13 +16,6 @@ export const DEFAULT_OVERLAY_ASPECT_RATIO: OverlayAspectRatio = {
 // раньше в HUD не было.
 const gameplayWidgets: OverlayLayout["scenes"]["gameplay"]["widgets"] = {
         session: { xVw: 3, yVh: 4, scale: 1, visible: true, anchor: "top-left" },
-        currentGame: {
-            xVw: 3,
-            yVh: 12,
-            scale: 1,
-            visible: true,
-            anchor: "top-left",
-        },
         recentMatches: {
             xVw: 3,
             yVh: 22,
@@ -46,7 +39,7 @@ const gameplayWidgets: OverlayLayout["scenes"]["gameplay"]["widgets"] = {
 };
 
 export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
-    version: 4,
+    version: 5,
     scenes: {
         gameplay: {
             widgets: gameplayWidgets,
@@ -63,7 +56,6 @@ export const DEFAULT_OVERLAY_LAYOUT: OverlayLayout = {
         draft: {
             widgets: {
                 ...gameplayWidgets,
-                currentGame: { ...gameplayWidgets.currentGame, visible: false },
                 recentMatches: {
                     ...gameplayWidgets.recentMatches,
                     xVw: 3,

@@ -1,5 +1,5 @@
 // WK-121 - mirrors apps/companion/src-tauri/src/overlay_server.rs's
-// `OverlayStateSnapshot`/`CurrentGameSnapshot` and
+// `OverlayStateSnapshot` and
 // local_runtime/summary.rs's `LocalSessionSummary`/`LocalMatchSummary`
 // field-for-field (serde `rename_all = "camelCase"` on every struct there).
 // This is the ONE local overlay wire contract - no second copy of it
@@ -32,18 +32,10 @@ export interface LocalSessionSummary {
   recentMatches: LocalMatchSummary[];
 }
 
-export interface CurrentGameSnapshot {
-  heroId: number | null;
-  kills: number | null;
-  deaths: number | null;
-  assists: number | null;
-}
-
 export interface OverlayStateSnapshot {
   scene: BroadcastState;
   updatedAt: string;
   session: LocalSessionSummary;
-  currentGame: CurrentGameSnapshot | null;
   // WK-122 §19 - bumps whenever the cached OverlayLayout actually changes;
   // OverlayApp.tsx re-fetches GET /overlay/layout only when this moves,
   // rather than embedding the whole layout blob in every SSE frame.
@@ -55,10 +47,8 @@ export interface OverlayStateSnapshot {
 }
 
 // WK-122 §19 - mirrors apps/api's stream-overlay-layout-service.ts (the
-// subset this renderer actually visualizes: session/currentGame widgets in
-// the draft/gameplay scenes - recentMatches/companionStatus aren't rendered
-// by this renderer yet, cameraZone/minimapCover/draftProtection are a
-// broadcast-composition concern for a future slice, not a widget position).
+// subset this renderer visualizes: session/recentMatches in Gameplay plus
+// the scene-specific camera/minimap/draft-protection contracts.
 export type OverlayAnchor =
   | "top-left" | "top-center" | "top-right"
   | "center-left" | "center" | "center-right"
@@ -74,7 +64,6 @@ export interface OverlayWidgetLayout {
 
 export interface OverlaySceneWidgets {
   session: OverlayWidgetLayout;
-  currentGame: OverlayWidgetLayout;
   recentMatches: RecentMatchesWidgetLayout;
   companionStatus: OverlayWidgetLayout;
 }

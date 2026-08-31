@@ -31,13 +31,6 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                         compact: true,
                     },
                 },
-                currentGame: {
-                    xVw: 3,
-                    yVh: 20,
-                    scale: 1,
-                    visible: true,
-                    anchor: "top-left",
-                },
                 session: {
                     xVw: 97,
                     yVh: 4,
@@ -76,13 +69,6 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                         compact: true,
                     },
                 },
-                currentGame: {
-                    xVw: 50,
-                    yVh: 97,
-                    scale: 1,
-                    visible: true,
-                    anchor: "bottom-center",
-                },
                 session: {
                     xVw: 97,
                     yVh: 97,
@@ -111,13 +97,6 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                 session: {
                     xVw: 3,
                     yVh: 4,
-                    scale: 0.85,
-                    visible: true,
-                    anchor: "top-left",
-                },
-                currentGame: {
-                    xVw: 3,
-                    yVh: 13,
                     scale: 0.85,
                     visible: true,
                     anchor: "top-left",
@@ -158,13 +137,6 @@ export const OVERLAY_LAYOUT_PRESETS: OverlayLayoutPreset[] = [
                     yVh: 4,
                     scale: 1,
                     visible: true,
-                    anchor: "top-left",
-                },
-                currentGame: {
-                    xVw: 3,
-                    yVh: 12,
-                    scale: 1,
-                    visible: false,
                     anchor: "top-left",
                 },
                 recentMatches: {

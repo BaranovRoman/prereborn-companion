@@ -104,7 +104,11 @@ function StreamProfile({ session, account, title = "STREAM PROFILE", goal }: { s
   const twitch = account?.twitch;
   const channelName = twitch?.displayName || twitch?.login || "TWITCH CHANNEL";
   const ratingGoal = goal?.type === "rating";
-  const goalStart = session.ratingStart ?? goal?.startValue ?? 0;
+  // Legacy rating goals could carry the old default zero. Preserve their
+  // useful session baseline until the user explicitly saves a new start.
+  const goalStart = goal?.startValue && goal.startValue > 0
+    ? goal.startValue
+    : session.ratingStart ?? session.ratingCurrent ?? 0;
   const goalCurrent = session.ratingCurrent ?? goalStart;
   const goalTarget = goal?.targetValue ?? goalCurrent;
   const goalProgress = ratingGoal ? Math.max(0, Math.min(100, ((goalCurrent - goalStart) / Math.max(1, goalTarget - goalStart)) * 100)) : 100;
@@ -119,7 +123,7 @@ function StreamProfile({ session, account, title = "STREAM PROFILE", goal }: { s
             <i style={{ width: `${goalProgress}%` }} />
             <span className={styles.goalMeta}>
               <span>{goal && goal.type !== "none" && goal.label ? goal.label : "SESSION MMR"}</span>
-              <b>{ratingGoal ? `${goalCurrent} → ${goalTarget}` : goal?.type === "custom" ? `${goal.startValue} → ${goal.targetValue}` : `${session.ratingStart ?? EMPTY_VALUE} → ${session.ratingCurrent ?? EMPTY_VALUE} (${formatDelta(delta)})`}</b>
+              <b>{ratingGoal ? `${goalStart} · ${goalCurrent} → ${goalTarget}` : goal?.type === "custom" ? `${goal.startValue} → ${goal.targetValue}` : `${session.ratingStart ?? EMPTY_VALUE} → ${session.ratingCurrent ?? EMPTY_VALUE} (${formatDelta(delta)})`}</b>
             </span>
           </span>
         </div>
@@ -230,8 +234,6 @@ function CommunityArea({ links, title }: { links: QueueSettings["widgets"]["frie
 }
 
 export function BetweenMatchesScene({ session, settings = null, account = null }: { session: LocalSessionSummary; settings?: QueueSettings | null; account?: OverlayStateSnapshot["account"] }) {
-  const visible = settings?.visibility;
-  const titles = settings?.widgets.titles;
   const sceneStyle = {
     width: "100%",
     height: "100%",
@@ -242,17 +244,17 @@ export function BetweenMatchesScene({ session, settings = null, account = null }
       <Atmosphere />
       <div className={styles.interface}>
         <div className={styles.dashboard} data-top-count={2}>
-          {visible?.playerProfile !== false && <PlayerProfile session={session} account={account} title={titles?.playerProfile} />}
-          {visible?.streamProfile !== false && <StreamProfile session={session} account={account} title={titles?.streamProfile} goal={settings?.channelGoal} />}
+          <PlayerProfile session={session} account={account} />
+          <StreamProfile session={session} account={account} goal={settings?.channelGoal} />
           <div className={styles.leftMain} data-featured="true">
-            {visible?.featuredMatch !== false && <FeaturedMatch match={session.recentMatches[0]} title={titles?.featuredMatch} />}
+            <FeaturedMatch match={session.recentMatches[0]} />
             <div className={styles.sideStack} data-widget-count={3}>
-              {visible?.webcam !== false && <WebcamPanel title={titles?.webcam ?? "LIVE CAPTURE"} imageUrl={settings?.webcamImageUrl ?? null} />}
-              {visible?.favoriteHeroes !== false && <FavoriteHeroes title={titles?.favoriteHeroes ?? "FAVORITE HEROES"} matches={session.recentMatches} heroIds={settings?.favoriteHeroIds ?? []} />}
-              {visible?.recentGames !== false && <RecentGames title={titles?.recentGames ?? "RECENT GAMES"} matches={session.recentMatches} limit={settings?.widgets.recentGamesLimit ?? 5} />}
+              <WebcamPanel title="LIVE CAPTURE" imageUrl={settings?.webcamImageUrl ?? null} />
+              <FavoriteHeroes title="FAVORITE HEROES" matches={session.recentMatches} heroIds={settings?.favoriteHeroIds ?? []} />
+              <RecentGames title="RECENT GAMES" matches={session.recentMatches} limit={settings?.widgets.recentGamesLimit ?? 5} />
             </div>
           </div>
-          {(settings?.widgets.friends.socialLinks.length ?? 0) > 0 && <div className={styles.rightMain}><CommunityArea title={titles?.friends ?? "COMMUNITY"} links={settings?.widgets.friends.socialLinks ?? []} /></div>}
+          {(settings?.widgets.friends.socialLinks.length ?? 0) > 0 && <div className={styles.rightMain}><CommunityArea title="COMMUNITY" links={settings?.widgets.friends.socialLinks ?? []} /></div>}
         </div>
       </div>
     </main>

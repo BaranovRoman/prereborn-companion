@@ -7,7 +7,6 @@ import type { OverlayData } from "@/entities/stream-session/model/types";
 import { OverlayCanvas } from "./overlay-canvas";
 import { AnchoredWidget } from "./anchored-widget";
 import { SessionStats } from "./widgets/session-stats";
-import { CurrentGame } from "./widgets/current-game";
 import { RecentMatches } from "./widgets/recent-matches";
 import { DebugPanel } from "./debug-panel";
 import { QueueScene } from "@/components/pages/stream/queue/queue-scene";
@@ -121,14 +120,6 @@ export const OverlayPage = ({
                                     losses={data.losses}
                                     gameMode={data.gameMode}
                                 />
-                            </AnchoredWidget>
-
-                            <AnchoredWidget
-                                layout={widgets.currentGame}
-                                sceneWidth={sceneWidth}
-                                sceneHeight={sceneHeight}
-                            >
-                                <CurrentGame lastHeroId={data.lastHeroId} />
                             </AnchoredWidget>
 
                             <AnchoredWidget

@@ -101,6 +101,16 @@ describe("AnchoredBox", () => {
     expect(screen.getByLabelText("Resize widget")).toBeTruthy();
   });
 
+  it("allows direct resize beyond the removed 2x UI ceiling", () => {
+    const onChange = vi.fn();
+    render(<div data-scene-root="true"><AnchoredBox layout={BASE} sceneWidth={1920} sceneHeight={1080} editable selected onChange={onChange} minimumScale={0.05} maximumScale={null}><span>content</span></AnchoredBox></div>);
+    const handle = screen.getByLabelText("Resize widget");
+    Object.defineProperty(handle, "setPointerCapture", { value: vi.fn() });
+    fireEvent.pointerDown(handle, { pointerId: 1, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 580, clientY: 100 });
+    expect(onChange).toHaveBeenCalledWith({ scale: 3 });
+  });
+
   it("emits persisted layout coordinates when dragged directly in the preview", () => {
     const onChange = vi.fn();
     const { container } = render(

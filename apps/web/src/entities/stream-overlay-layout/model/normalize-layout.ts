@@ -41,7 +41,7 @@ const normalizeWidgets = (
     if (!raw) return clone(fallback);
     const result = clone(fallback);
 
-    for (const id of ["session", "currentGame", "companionStatus"] as const) {
+    for (const id of ["session", "companionStatus"] as const) {
         const widget = asRecord(raw[id]);
         if (!widget) continue;
         result[id] = { ...result[id], ...widget };
@@ -175,7 +175,7 @@ export const normalizeOverlayLayout = (value: unknown): OverlayLayout => {
     const layoutVersion = typeof raw?.version === "number" ? raw.version : 1;
 
     return {
-        version: 4,
+        version: 5,
         aspectRatio:
             aspectRatio &&
             typeof aspectRatio.widthRatio === "number" &&
