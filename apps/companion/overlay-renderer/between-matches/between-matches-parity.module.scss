@@ -28,8 +28,9 @@
 }
 
 .featuredMatch {
-  height: clamp(430px, 43vh, 510px);
-  flex: 0 0 auto;
+  min-height: 0;
+  height: auto;
+  flex: 1 1 0;
   grid-template-rows: 34px minmax(0, 1fr);
 }
 
@@ -81,7 +82,7 @@
 
 .heroDelta small {
   color: #918f89;
-  font-size: .62em;
+  font-size: 1em;
   font-weight: 400;
 }
 .heroDelta small[data-tone="positive"],
@@ -120,10 +121,6 @@
 }
 .webcam small { font-size: 8px; }
 
-@media (max-height: 860px) {
-  .featuredMatch { height: clamp(350px, 46vh, 400px); }
-}
-
 @media (max-width: 1600px) {
   .dashboard { grid-template-columns: minmax(0, 57fr) minmax(0, 43fr); }
   .leftMain { grid-template-columns: minmax(0, 49fr) minmax(0, 51fr); }
@@ -158,14 +155,26 @@
   align-items: baseline;
   gap: 5px;
   color: #d5d1c9;
-  font-size: 11px;
   white-space: nowrap;
 }
 
+.gameRow > .recentRating,
 .recentRating small {
   color: #918f89;
-  font-size: 9px;
+  font-size: 11px;
 }
+
+.gameRow > .recentRating { color: #d5d1c9; }
 
 .gameMark { font-size: 10px; }
 .panelEmpty { font-size: 10px; }
+
+.gamesList[data-short="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 54px 18% 12px;
+  z-index: 0;
+  background: var(--queue-logo-url) center / min(180px, 70%) auto no-repeat;
+  opacity: .022;
+  pointer-events: none;
+}
