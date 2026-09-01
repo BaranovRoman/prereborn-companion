@@ -4,6 +4,7 @@ import logoUrl from "../../../web/public/logo-new.png";
 import { Atmosphere } from "../Atmosphere";
 import type { LocalMatchSummary, LocalSessionSummary, OverlayStateSnapshot, QueueSettings } from "../types";
 import styles from "../../../web/src/components/pages/stream/queue/queue-scene.module.scss";
+import parity from "./between-matches-parity.module.scss";
 
 const EMPTY_VALUE = "—";
 const INVENTORY_SLOTS = Array.from({ length: 9 }, (_, index) => index);
@@ -66,7 +67,7 @@ function Panel({ title, className = "", children }: {
 }) {
   return (
     <section className={`${styles.panel} ${className}`} aria-label={title}>
-      <div className={styles.panelTitle}><span>{title}</span></div>
+      <div className={`${styles.panelTitle} ${parity.panelTitle}`}><span>{title}</span></div>
       {children}
     </section>
   );
@@ -107,13 +108,13 @@ function PlayerProfile({ session, account, title = "PLAYER PROFILE" }: { session
   return (
     <Panel title={title} className={styles.playerProfile}>
       <div className={styles.profileBody}>
-        <div className={styles.profileBrand}>
+        <div className={`${styles.profileBrand} ${parity.profileBrand}`}>
           <span><strong>PREREBORN</strong><small>Companion</small></span>
           <img src={logoUrl} alt="" />
         </div>
         <div className={styles.profileAvatarFrame}>{profile?.avatarUrl ? <img className={styles.avatarImage} src={profile.avatarUrl} alt="" /> : <div className={styles.avatar}>{name.slice(0, 2).toUpperCase()}</div>}</div>
         <div className={styles.playerIdentity}><strong>{name}</strong></div>
-        <div className={styles.profileStats}>
+        <div className={`${styles.profileStats} ${parity.profileStats}`}>
           <div><span>RATING</span><b>{session.ratingCurrent?.toLocaleString("en-US") ?? EMPTY_VALUE}</b></div>
           <div><span>STREAM</span><b>{session.wins}–{session.losses}</b></div>
           <div><span>WIN RATE</span><b>{total ? `${winRate}%` : EMPTY_VALUE}</b></div>
@@ -138,14 +139,14 @@ function StreamProfile({ session, account, title = "STREAM PROFILE", goal }: { s
   const goalProgress = ratingGoal ? Math.max(0, Math.min(100, ((goalCurrent - goalStart) / Math.max(1, goalTarget - goalStart)) * 100)) : 100;
   return (
     <Panel title={title} className={styles.streamProfile}>
-      <div className={styles.streamProfileBody}>
+      <div className={`${styles.streamProfileBody} ${parity.streamProfileBody}`}>
         <span className={styles.twitchAvatarFrame}>{twitch?.profileImageUrl ? <img className={styles.avatarImage} src={twitch.profileImageUrl} alt="" /> : <span className={styles.twitchAvatar}>{channelName.slice(0, 2).toUpperCase()}</span>}</span>
         <div><strong>{channelName}</strong><small>{twitch?.live?.title || "МЕЖДУ МАТЧАМИ"}</small></div>
-        <div className={styles.liveBadge}><i data-online={Boolean(twitch?.live)} /> {twitch?.live ? `${twitch.live.viewerCount} LIVE` : "OFFLINE"}</div>
+        <div className={`${styles.liveBadge} ${parity.liveBadge}`}><i data-online={Boolean(twitch?.live)} /> {twitch?.live ? `${twitch.live.viewerCount} LIVE` : "OFFLINE"}</div>
         <div className={styles.goal}>
           <span className={styles.goalTrack}>
             <i style={{ width: `${goalProgress}%` }} />
-            <span className={styles.goalMeta}>
+            <span className={`${styles.goalMeta} ${parity.goalMeta}`}>
               <span>{goal && goal.type !== "none" && goal.label ? goal.label : "SESSION MMR"}</span>
               <b>{ratingGoal ? `${goalStart} · ${goalCurrent} → ${goalTarget}` : goal?.type === "custom" ? `${goal.startValue} → ${goal.targetValue}` : `${session.ratingStart ?? EMPTY_VALUE} → ${session.ratingCurrent ?? EMPTY_VALUE} (${formatDelta(delta)})`}</b>
             </span>
@@ -161,12 +162,12 @@ function FeaturedMatch({ match, title = "LAST MATCH" }: { match: LocalMatchSumma
   const delta = match ? ratingDelta(match) : null;
   const inventory = INVENTORY_SLOTS.map((slot) => itemAsset(match?.inventory[slot]));
   const renderItem = (item: ReturnType<typeof itemAsset>, slot: number) => (
-    <span key={slot} className={styles.item} data-empty={item ? undefined : "true"} title={item?.label}>
+    <span key={slot} className={`${styles.item} ${parity.item}`} data-empty={item ? undefined : "true"} title={item?.label}>
       {item && <img src={item.url} alt={item.label} />}
     </span>
   );
   return (
-    <Panel title={title} className={styles.featuredMatch}>
+    <Panel title={title} className={`${styles.featuredMatch} ${parity.featuredMatch}`}>
       <div className={styles.heroArt} data-empty={hero ? undefined : "true"}>
         {hero ? (
           <PreloadedVideo className={styles.featuredHeroImage} src={hero.videoUrl} poster={hero.portraitUrl} />
@@ -180,21 +181,21 @@ function FeaturedMatch({ match, title = "LAST MATCH" }: { match: LocalMatchSumma
         <span className={styles.heroMist} />
       </div>
       <div className={styles.heroDetails}>
-        <div className={styles.heroNameRow}>
+        <div className={`${styles.heroNameRow} ${parity.heroNameRow}`}>
           <strong>{hero?.localizedName ?? "No completed matches"}</strong>
           <em data-result={match?.result ?? undefined}>{match ? resultLabel(match) : "NO DATA"}</em>
         </div>
-        <span className={styles.matchMeta}>{match ? `${match.rankedMode.toUpperCase()} • ${formatDate(match.finalizedAt)}` : "MATCH DATA // WAITING"}</span>
-        <div className={styles.matchStats}>
+        <span className={`${styles.matchMeta} ${parity.matchMeta}`}>{match ? `${match.rankedMode.toUpperCase()} • ${formatDate(match.finalizedAt)}` : "MATCH DATA // WAITING"}</span>
+        <div className={`${styles.matchStats} ${parity.matchStats}`}>
           <div className={styles.statsPrimary}>
-            <span className={styles.statValue}>{match && match.kills !== null && match.deaths !== null && match.assists !== null ? `${match.kills} / ${match.deaths} / ${match.assists}` : EMPTY_VALUE}</span>
-            <span className={styles.statValue} data-tone={delta === null ? undefined : delta > 0 ? "positive" : delta < 0 ? "negative" : undefined}>{delta === null ? EMPTY_VALUE : `${formatDelta(delta)} MMR`}</span>
+            <span className={`${styles.statValue} ${parity.statValue}`}>{match && match.kills !== null && match.deaths !== null && match.assists !== null ? `${match.kills} / ${match.deaths} / ${match.assists}` : EMPTY_VALUE}</span>
+            <span className={`${styles.statValue} ${parity.statValue}`} data-tone={delta === null ? undefined : delta > 0 ? "positive" : delta < 0 ? "negative" : undefined}>{delta === null ? EMPTY_VALUE : `${formatDelta(delta)} MMR`}</span>
           </div>
-          <span className={styles.statsSecondary}>KDA {match && match.kills !== null && match.deaths !== null && match.assists !== null ? ((match.kills + match.assists) / Math.max(1, match.deaths)).toFixed(2) : EMPTY_VALUE}</span>
+          <span className={`${styles.statsSecondary} ${parity.statsSecondary}`}>KDA {match && match.kills !== null && match.deaths !== null && match.assists !== null ? ((match.kills + match.assists) / Math.max(1, match.deaths)).toFixed(2) : EMPTY_VALUE}</span>
         </div>
         <div className={styles.inventory} aria-label="Last recorded inventory">
-          <div className={styles.items}>{inventory.slice(0, 6).map(renderItem)}</div>
-          <div className={styles.backpackItems}>{inventory.slice(6).map((item, index) => renderItem(item, index + 6))}</div>
+          <div className={`${styles.items} ${parity.inventory}`}>{inventory.slice(0, 6).map(renderItem)}</div>
+          <div className={`${styles.backpackItems} ${parity.backpackItems}`}>{inventory.slice(6).map((item, index) => renderItem(item, index + 6))}</div>
         </div>
       </div>
     </Panel>
@@ -203,7 +204,7 @@ function FeaturedMatch({ match, title = "LAST MATCH" }: { match: LocalMatchSumma
 
 function WebcamPanel({ title, imageUrl }: { title: string; imageUrl: string | null }) {
   const resolvedUrl = imageUrl?.startsWith("/") ? `https://prereborn.ru${imageUrl}` : imageUrl;
-  return <Panel title={title} className={styles.webcamPanel}><div className={styles.webcam} data-has-image={Boolean(resolvedUrl)}>{resolvedUrl ? <img src={resolvedUrl} alt="" /> : <><span>LIVE CAPTURE</span><small>FALLBACK NOT SET</small></>}</div></Panel>;
+  return <Panel title={title} className={styles.webcamPanel}><div className={`${styles.webcam} ${parity.webcam}`} data-has-image={Boolean(resolvedUrl)}>{resolvedUrl ? <img src={resolvedUrl} alt="" /> : <><span>LIVE CAPTURE</span><small>FALLBACK NOT SET</small></>}</div></Panel>;
 }
 
 function FavoriteHeroes({ matches, heroIds, title }: { matches: LocalMatchSummary[]; heroIds: number[]; title: string }) {
@@ -216,7 +217,7 @@ function FavoriteHeroes({ matches, heroIds, title }: { matches: LocalMatchSummar
         {favorites.length ? favorites.map(([heroId]) => {
           const hero = getHeroById(heroId);
           return (
-            <div className={styles.favorite} key={heroId}>
+            <div className={`${styles.favorite} ${parity.favorite}`} key={heroId}>
               <div className={styles.favoritePortrait}>
                 {hero ? <PreloadedVideo className="" src={hero.videoUrl} poster={hero.portraitUrl} /> : <span>?</span>}
                 {hero && <img className={styles.attributeIcon} src={`https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/icons/hero_${hero.attribute}.png`} alt="" />}
@@ -224,7 +225,7 @@ function FavoriteHeroes({ matches, heroIds, title }: { matches: LocalMatchSummar
               <div className={styles.favoriteCaption}><b>{hero?.localizedName ?? `Hero ${heroId}`}</b></div>
             </div>
           );
-        }) : <div className={styles.panelEmpty}>No match history yet</div>}
+        }) : <div className={`${styles.panelEmpty} ${parity.panelEmpty}`}>No match history yet</div>}
       </div>
     </Panel>
   );
@@ -239,15 +240,15 @@ function RecentGames({ matches, title, limit }: { matches: LocalMatchSummary[]; 
           const result = resultLabel(match);
           const delta = ratingDelta(match);
           return (
-            <div className={styles.gameRow} key={match.matchId ?? `${match.startedAt}-${index}`} data-session="current">
-              {hero ? <img className={styles.gameHeroImage} src={hero.portraitUrl} alt="" /> : <span className={styles.gameMark}>?</span>}
-              <div><b>{hero?.localizedName.toUpperCase() ?? `HERO ${match.heroId}`}</b><small>{match.kills !== null && match.deaths !== null && match.assists !== null ? `KDA ${match.kills}/${match.deaths}/${match.assists}` : "FINALIZED"}</small></div>
+            <div className={`${styles.gameRow} ${parity.gameRow}`} key={match.matchId ?? `${match.startedAt}-${index}`} data-session="current">
+              {hero ? <img className={styles.gameHeroImage} src={hero.portraitUrl} alt="" /> : <span className={`${styles.gameMark} ${parity.gameMark}`}>?</span>}
+              <div><b>{hero?.localizedName.toUpperCase() ?? `HERO ${match.heroId}`}</b><small>{match.kills !== null && match.deaths !== null && match.assists !== null ? `${match.kills}/${match.deaths}/${match.assists}` : "FINALIZED"}</small></div>
               <em data-result={result}>{result}</em>
               <strong data-positive={delta !== null && delta > 0}>({formatDelta(delta)})</strong>
               <time>{formatDate(match.finalizedAt)}</time>
             </div>
           );
-        }) : <div className={styles.panelEmpty}>No completed matches</div>}
+        }) : <div className={`${styles.panelEmpty} ${parity.panelEmpty}`}>No completed matches</div>}
       </div>
     </Panel>
   );
@@ -303,7 +304,7 @@ export function BetweenMatchesScene({ session, settings = null, account = null, 
     "--queue-logo-url": `url(${logoUrl})`,
   } as React.CSSProperties;
   return (
-    <main className={styles.scene} data-testid="between-matches-production" style={sceneStyle}>
+    <main className={styles.scene} data-testid="between-matches-production" data-coordinate-system="viewport" style={sceneStyle}>
       <Atmosphere />
       <div className={styles.interface}>
         <div className={styles.dashboard} data-top-count={2}>

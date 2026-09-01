@@ -176,6 +176,17 @@ export function OverlayApp() {
     window.parent.postMessage({ type: "prereborn-overlay-widget-change", scene, widget: key, patch }, "*");
   };
 
+  // The production Web queue scene is itself the viewport root (100vw ×
+  // 100vh). Keeping it inside Scene's virtual-canvas transform creates a
+  // second scale stage on non-1920 OBS canvases and changes every panel's
+  // geometry, including the physical webcam aperture.
+  if (scene === "betweenMatches") {
+    return <>
+      <BetweenMatchesScene session={session} settings={queueSettings} account={snapshot.account} twitchChat={snapshot.twitchChat} />
+      {!connected && <div className="ov-anchor ov-anchor--top-right"><span className="ov-reconnecting">Переподключение…</span></div>}
+    </>;
+  }
+
   return (
     <Scene sceneWidth={dimensions.width} sceneHeight={dimensions.height}>
       <div className={`ov-background ov-background--${scene}`} />
@@ -212,10 +223,6 @@ export function OverlayApp() {
           setLayout(next);
           window.parent.postMessage({ type: "prereborn-overlay-camera-change", scene, patch }, "*");
         }} />
-      )}
-
-      {scene === "betweenMatches" && (
-        <BetweenMatchesScene session={session} settings={queueSettings} account={snapshot.account} twitchChat={snapshot.twitchChat} />
       )}
 
       {scene === "postStream" && (
