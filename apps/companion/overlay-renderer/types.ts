@@ -15,6 +15,10 @@ export interface LocalMatchSummary {
   state: string;
   ratingBefore: number | null;
   ratingAfter: number | null;
+  kills: number | null;
+  deaths: number | null;
+  assists: number | null;
+  inventory: Array<string | null>;
   startedAt: string;
   finalizedAt: string | null;
 }
@@ -43,6 +47,14 @@ export interface OverlayStateSnapshot {
   account: {
     steam?: { connected: boolean; profile: { displayName: string; avatarUrl: string | null; profileUrl: string | null } | null };
     twitch?: { connected: boolean; login?: string; displayName?: string; profileImageUrl?: string | null; live?: { title: string; viewerCount: number; gameName: string } | null };
+  } | null;
+  twitchChat: {
+    accountConnected: boolean;
+    configured: boolean;
+    displayName: string | null;
+    connected: boolean;
+    state: "connected" | "reconnecting" | "reauth_required" | "unavailable";
+    messages: Array<{ id: string; author: string; color: string | null; text: string; receivedAt: string }>;
   } | null;
 }
 

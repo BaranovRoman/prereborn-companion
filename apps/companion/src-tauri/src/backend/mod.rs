@@ -820,9 +820,65 @@ pub async fn get_twitch_chat(app: &AppHandle) -> Result<serde_json::Value, Strin
         .companion_token
         .clone()
         .ok_or_else(|| "Сначала добавьте companion token.".to_string())?;
-    tauri::async_runtime::spawn_blocking(move || fetch_twitch_chat(&token))
+    let response = tauri::async_runtime::spawn_blocking(move || fetch_twitch_chat(&token))
         .await
-        .map_err(|e| format!("Internal error: {e}"))?
+        .map_err(|e| format!("Internal error: {e}"))??;
+    let (merged, previous_count, current_count) = cache_twitch_chat_response(app, response);
+    if current_count != previous_count {
+        storage::append_rolling_log(
+            app,
+            &format!(
+                "Local overlay chat cache: messages={current_count} new_messages={}",
+                current_count.saturating_sub(previous_count)
+            ),
+        );
+    }
+    Ok(merged)
+}
+
+const LOCAL_CHAT_HISTORY_LIMIT: usize = 50;
+
+fn merge_twitch_chat_status(
+    cached: Option<&serde_json::Value>,
+    mut incoming: serde_json::Value,
+) -> serde_json::Value {
+    let mut by_id = std::collections::BTreeMap::<String, serde_json::Value>::new();
+    for source in [cached, Some(&incoming)].into_iter().flatten() {
+        if let Some(messages) = source.get("messages").and_then(serde_json::Value::as_array) {
+            for message in messages {
+                if let Some(id) = message.get("id").and_then(serde_json::Value::as_str) {
+                    by_id.insert(id.to_string(), message.clone());
+                }
+            }
+        }
+    }
+    let mut messages: Vec<_> = by_id.into_values().collect();
+    messages.sort_by(|left, right| {
+        let left_key = left.get("receivedAt").and_then(serde_json::Value::as_str).unwrap_or("");
+        let right_key = right.get("receivedAt").and_then(serde_json::Value::as_str).unwrap_or("");
+        left_key.cmp(right_key).then_with(|| {
+            left.get("id").and_then(serde_json::Value::as_str).unwrap_or("")
+                .cmp(right.get("id").and_then(serde_json::Value::as_str).unwrap_or(""))
+        })
+    });
+    if messages.len() > LOCAL_CHAT_HISTORY_LIMIT {
+        messages.drain(..messages.len() - LOCAL_CHAT_HISTORY_LIMIT);
+    }
+    incoming["messages"] = serde_json::Value::Array(messages);
+    incoming
+}
+
+fn cache_twitch_chat_response(app: &AppHandle, incoming: serde_json::Value) -> (serde_json::Value, usize, usize) {
+    let state = app.state::<AppState>();
+    let mut inner = state.0.lock().unwrap();
+    let previous_count = inner.twitch_chat.as_ref()
+        .and_then(|value| value.get("messages"))
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+    let merged = merge_twitch_chat_status(inner.twitch_chat.as_ref(), incoming);
+    let current_count = merged.get("messages").and_then(serde_json::Value::as_array).map_or(0, Vec::len);
+    inner.twitch_chat = Some(merged.clone());
+    (merged, previous_count, current_count)
 }
 
 fn fetch_twitch_chat(token: &str) -> Result<serde_json::Value, String> {
@@ -942,5 +998,39 @@ mod tests {
         // attempt is clamped to 5 internally, so 5 and 20 must land in the same capped bucket.
         assert!(retry_delay(5) >= Duration::from_secs(30) && retry_delay(5) < Duration::from_secs(31));
         assert!(retry_delay(20) >= Duration::from_secs(30) && retry_delay(20) < Duration::from_secs(31));
+    }
+
+    #[test]
+    fn twitch_chat_cache_keeps_messages_across_reconnect_and_orders_new_messages() {
+        let cached = serde_json::json!({
+            "connected": true,
+            "messages": [{ "id": "2", "author": "B", "text": "second", "receivedAt": "2026-01-01T00:00:02Z" }]
+        });
+        let reconnect = serde_json::json!({ "connected": false, "state": "reconnecting", "messages": [] });
+        let retained = merge_twitch_chat_status(Some(&cached), reconnect);
+        assert_eq!(retained["messages"].as_array().unwrap().len(), 1);
+
+        let incoming = serde_json::json!({
+            "connected": true,
+            "messages": [{ "id": "1", "author": "A", "text": "first", "receivedAt": "2026-01-01T00:00:01Z" }]
+        });
+        let merged = merge_twitch_chat_status(Some(&retained), incoming);
+        let ids: Vec<_> = merged["messages"].as_array().unwrap().iter().map(|item| item["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, vec!["1", "2"]);
+    }
+
+    #[test]
+    fn twitch_chat_cache_is_bounded_to_the_latest_messages() {
+        let messages: Vec<_> = (0..60).map(|index| serde_json::json!({
+            "id": format!("{index:02}"),
+            "author": "viewer",
+            "text": index.to_string(),
+            "receivedAt": format!("2026-01-01T00:00:{index:02}Z")
+        })).collect();
+        let merged = merge_twitch_chat_status(None, serde_json::json!({ "messages": messages }));
+        let kept = merged["messages"].as_array().unwrap();
+        assert_eq!(kept.len(), LOCAL_CHAT_HISTORY_LIMIT);
+        assert_eq!(kept.first().unwrap()["id"], "10");
+        assert_eq!(kept.last().unwrap()["id"], "59");
     }
 }

@@ -190,6 +190,10 @@ export interface LocalMatchSummary {
   state: LocalMatchStateValue;
   ratingBefore: number | null;
   ratingAfter: number | null;
+  kills: number | null;
+  deaths: number | null;
+  assists: number | null;
+  inventory: Array<string | null>;
   startedAt: string;
   finalizedAt: string | null;
 }

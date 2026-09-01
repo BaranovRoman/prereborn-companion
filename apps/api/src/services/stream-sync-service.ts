@@ -163,6 +163,10 @@ export interface MatchFinalizedPayload {
     localMatchId: string;
     matchId: string | null;
     heroId: number;
+    kills?: number | null;
+    deaths?: number | null;
+    assists?: number | null;
+    inventory?: Array<string | null>;
     result: MatchResult;
     isRanked: boolean | null;
     ratingBefore: number | null;
@@ -223,16 +227,16 @@ export const applyMatchFinalized = (
         const matchKey = `local:${payload.localMatchId}`;
         const inserted = await client.query<{ id: number }>(
             `INSERT INTO stream_matches
-               (stream_user_id, match_id, match_key, stream_session_id, hero_id, kills, deaths, assists,
+               (stream_user_id, match_id, match_key, stream_session_id, hero_id, kills, deaths, assists, inventory,
                 result, result_source, rating_before, rating_delta, rating_after,
                 detected_rating_delta, rating_delta_correction, rating_source, game_mode,
                 state, is_ranked, mode_source, outcome_source, confidence,
                 started_at, ended_at, finalized_at, finalize_reason, local_match_id)
-             VALUES ($1, $2, $3, $4, $5, 0, 0, 0,
-                     $6, 'gsi', $7, $8, $9,
-                     $8, 0, $10, $11,
-                     'finalized', $12, 'account_setting', 'win_team', $13,
-                     $14, $15, $15, 'companion_sync', $16)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb,
+                     $10, 'gsi', $11, $12, $13,
+                     $12, 0, $14, $15,
+                     'finalized', $16, 'account_setting', 'win_team', $17,
+                     $18, $19, $19, 'companion_sync', $20)
              RETURNING id`,
             [
                 streamUserId,
@@ -240,6 +244,10 @@ export const applyMatchFinalized = (
                 matchKey,
                 sessionId,
                 payload.heroId,
+                payload.kills ?? 0,
+                payload.deaths ?? 0,
+                payload.assists ?? 0,
+                JSON.stringify((payload.inventory ?? []).slice(0, 9)),
                 payload.result,
                 payload.ratingBefore,
                 payload.detectedRatingDelta,
