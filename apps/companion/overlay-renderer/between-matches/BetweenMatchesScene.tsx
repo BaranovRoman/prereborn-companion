@@ -7,6 +7,19 @@ import styles from "../../../web/src/components/pages/stream/queue/queue-scene.m
 
 const EMPTY_VALUE = "—";
 const INVENTORY_SLOTS = Array.from({ length: 9 }, (_, index) => index);
+const communityMedals = import.meta.glob("../assets/rank-medals/*.png", { eager: true, import: "default" }) as Record<string, string>;
+const donationRanks = [
+  { min: 5_620, tier: 8, name: "Immortal", stars: 0 },
+  ...[
+    { tier: 7, name: "Divine", thresholds: [4_620, 4_820, 5_020, 5_220, 5_420] },
+    { tier: 6, name: "Ancient", thresholds: [3_850, 4_004, 4_158, 4_312, 4_466] },
+    { tier: 5, name: "Legend", thresholds: [3_080, 3_234, 3_388, 3_542, 3_696] },
+    { tier: 4, name: "Archon", thresholds: [2_310, 2_464, 2_618, 2_772, 2_926] },
+    { tier: 3, name: "Crusader", thresholds: [1_540, 1_694, 1_848, 2_002, 2_156] },
+    { tier: 2, name: "Guardian", thresholds: [770, 924, 1_078, 1_232, 1_386] },
+    { tier: 1, name: "Herald", thresholds: [0, 154, 308, 462, 616] },
+  ].flatMap(({ tier, name, thresholds }) => thresholds.map((min, index) => ({ min, tier, name, stars: index + 1 }))),
+].sort((left, right) => right.min - left.min);
 
 const itemAsset = (name: string | null | undefined) => {
   if (!name?.startsWith("item_") || name === "item_empty") return null;
@@ -240,11 +253,23 @@ function RecentGames({ matches, title, limit }: { matches: LocalMatchSummary[]; 
   );
 }
 
-function CommunityArea({ links, title }: { links: QueueSettings["widgets"]["friends"]["socialLinks"]; title: string }) {
+function CommunityArea({ account, settings, title }: { account: OverlayStateSnapshot["account"]; settings: QueueSettings["widgets"]["friends"]; title: string }) {
+  const donors = account?.donationAlerts?.topDonors?.slice(0, 3) ?? [];
+  const followers = account?.twitch?.recentFollowers ?? [];
+  const subscribers = account?.twitch?.recentSubscribers ?? [];
+  const avatar = (id: string) => getHeroById((Array.from(id).reduce((sum, char) => sum + char.charCodeAt(0), 0) % 125) + 1)?.portraitUrl;
+  const donationRank = (amount: number) => {
+    const rank = donationRanks.find((candidate) => amount >= candidate.min)!;
+    const medalFile = rank.tier === 8 ? "immortal.png" : `${rank.name.toLowerCase()}-${rank.stars}.png`;
+    return { src: communityMedals[`../assets/rank-medals/${medalFile}`], label: rank.stars ? `${rank.name} ${"★".repeat(rank.stars)}` : rank.name };
+  };
   return (
       <Panel title={title} className={styles.donationPanel}>
         <div className={styles.friendsBody}>
-          <section className={styles.friendSection}><div className={styles.friendGrid}>{links.map((link) => <div className={styles.friendEntry} key={link.id}><i>{link.platform.slice(0, 2).toUpperCase()}</i><p><strong>{link.label}</strong><small>{link.url}</small></p></div>)}</div></section>
+          {settings.showDonaters && donors.length > 0 && <section className={styles.friendSection}><h3>Donaters</h3><div className={styles.friendGrid}>{donors.map((donor) => { const rank = donationRank(donor.amount); return <div className={styles.friendEntry} key={`${donor.username}-${donor.currency}`}><img src={rank.src} alt={`${rank.label} medal`} width={42} height={42} /><p><strong>{donor.username}</strong><small>{new Intl.NumberFormat("ru-RU").format(donor.amount)} {donor.currency}</small></p></div>; })}</div></section>}
+          {settings.showSubscribers && subscribers.length > 0 && <section className={styles.friendSection}><h3>Subscribers</h3><div className={styles.friendGrid}>{subscribers.map((person) => <div className={styles.friendEntry} key={person.id}><span className={styles.friendAvatarFrame}>{avatar(person.id) && <img className={styles.friendAvatar} src={avatar(person.id)} alt="" />}</span><p><strong>{person.name}</strong><small>Tier {person.tier.slice(0, 1)} subscriber</small></p></div>)}</div></section>}
+          {settings.showFollowers && followers.length > 0 && <section className={styles.friendSection}><h3>Recent followers</h3><div className={styles.friendGrid}>{followers.map((person) => <div className={styles.friendEntry} key={person.id}><span className={styles.friendAvatarFrame}>{avatar(person.id) && <img className={styles.friendAvatar} src={avatar(person.id)} alt="" />}</span><p><strong>{person.name}</strong><small>Followed the channel</small></p></div>)}</div></section>}
+          {settings.socialLinks.length > 0 && <section className={styles.friendSection}><h3>Socials</h3><div className={styles.friendGrid}>{settings.socialLinks.map((link) => <div className={styles.friendEntry} key={link.id}><i>{link.platform.slice(0, 2).toUpperCase()}</i><p><strong>{link.label}</strong><small>{link.url}</small></p></div>)}</div></section>}
         </div>
       </Panel>
   );
@@ -294,7 +319,7 @@ export function BetweenMatchesScene({ session, settings = null, account = null, 
           </div>
           <div className={styles.rightMain}>
             <TwitchChat chat={twitchChat} title="TWITCH CHAT" limit={settings?.widgets.chatMessagesLimit ?? 12} />
-            {(settings?.widgets.friends.socialLinks.length ?? 0) > 0 && <CommunityArea title="COMMUNITY" links={settings?.widgets.friends.socialLinks ?? []} />}
+            {settings && <CommunityArea title="COMMUNITY" account={account} settings={settings.widgets.friends} />}
           </div>
         </div>
       </div>

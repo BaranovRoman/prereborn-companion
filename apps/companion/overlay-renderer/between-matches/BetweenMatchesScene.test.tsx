@@ -83,6 +83,13 @@ describe("BetweenMatchesScene", () => {
     expect(screen.getByTitle("blink")).toBeTruthy();
   });
 
+  it("gracefully renders a legacy finalized match without invented KDA or items", () => {
+    render(<BetweenMatchesScene session={{ ...SESSION, recentMatches: [{ matchId: "legacy", heroId: 14, result: "loss", rankedMode: "ranked", state: "finalized", ratingBefore: 6025, ratingAfter: 6000, kills: null, deaths: null, assists: null, inventory: [], startedAt: "2026-08-20T12:00:00Z", finalizedAt: "2026-08-20T12:40:00Z" }] }} />);
+    expect(screen.getAllByText("DEFEAT").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/KDA \d/)).toBeNull();
+    expect(screen.queryByTitle("blink")).toBeNull();
+  });
+
   it("renders the existing normalized Twitch chat state", () => {
     render(<BetweenMatchesScene session={SESSION} settings={SETTINGS} twitchChat={{
       accountConnected: true, configured: true, displayName: "channel", connected: true, state: "connected",
@@ -115,5 +122,16 @@ describe("BetweenMatchesScene", () => {
     expect(screen.getByText("Ranked grind")).toBeTruthy();
     expect(screen.getByText("42 LIVE")).toBeTruthy();
     expect(screen.queryByText("LOCAL SESSION")).toBeNull();
+  });
+
+  it("binds existing Twitch followers and DonationAlerts donors to the legacy community block", () => {
+    render(<BetweenMatchesScene session={SESSION} settings={{ ...SETTINGS, widgets: { ...SETTINGS.widgets, friends: { ...SETTINGS.widgets.friends, showDonaters: true, showFollowers: true } } }} account={{
+      twitch: { connected: true, recentFollowers: [{ id: "f1", name: "NewFollower" }] },
+      donationAlerts: { connected: true, topDonors: [{ username: "TopDonor", amount: 1500, currency: "RUB" }] },
+    }} />);
+    expect(screen.getByText("Recent followers")).toBeTruthy();
+    expect(screen.getByText("NewFollower")).toBeTruthy();
+    expect(screen.getByText("Donaters")).toBeTruthy();
+    expect(screen.getByText("TopDonor")).toBeTruthy();
   });
 });

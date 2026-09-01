@@ -275,6 +275,17 @@ fn handle_request<R: Runtime>(app: &AppHandle<R>, request: tiny_http::Request) {
                 Err(_) => respond_not_found(request),
             }
         }
+        (tiny_http::Method::Get, "/overlay/assets/gameplay-reference") => {
+            match std::fs::read(storage::gameplay_reference_path(app)) {
+                Ok(bytes) => {
+                    let mime = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") { "image/png" }
+                        else if bytes.starts_with(&[0xff, 0xd8, 0xff]) { "image/jpeg" } else { "image/webp" };
+                    let header = tiny_http::Header::from_bytes(&b"Content-Type"[..], mime.as_bytes()).unwrap();
+                    let _ = request.respond(tiny_http::Response::from_data(bytes).with_header(header));
+                }
+                Err(_) => respond_not_found(request),
+            }
+        }
         (tiny_http::Method::Get, "/overlay") | (tiny_http::Method::Get, "/overlay/") => respond_html(request, RENDERER_HTML),
         _ => respond_not_found(request),
     }

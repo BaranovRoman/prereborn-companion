@@ -308,6 +308,33 @@ pub fn remove_queue_webcam_fallback(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+pub fn get_gameplay_reference(app: AppHandle) -> Option<String> {
+    storage::gameplay_reference_path(&app).exists().then(|| "http://127.0.0.1:3666/overlay/assets/gameplay-reference".to_string())
+}
+
+#[tauri::command]
+pub fn choose_gameplay_reference(app: AppHandle) -> Result<String, String> {
+    let picked = app.dialog().file().add_filter("Изображение", &["png", "jpg", "jpeg", "webp"]).blocking_pick_file();
+    let Some(picked) = picked else { return Err("Выбор изображения отменён.".to_string()); };
+    let source = picked.into_path().map_err(|error| format!("Некорректный путь к изображению: {error}"))?;
+    let bytes = std::fs::read(source).map_err(|error| format!("Не удалось прочитать изображение: {error}"))?;
+    if bytes.len() > 10 * 1024 * 1024 { return Err("Изображение должно быть меньше 10 МБ.".to_string()); }
+    let valid = bytes.starts_with(b"\x89PNG\r\n\x1a\n") || bytes.starts_with(&[0xff, 0xd8, 0xff]) || (bytes.len() > 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP");
+    if !valid { return Err("Поддерживаются только PNG, JPEG и WebP.".to_string()); }
+    let target = storage::gameplay_reference_path(&app);
+    if let Some(parent) = target.parent() { std::fs::create_dir_all(parent).map_err(|error| error.to_string())?; }
+    std::fs::write(target, bytes).map_err(|error| format!("Не удалось сохранить изображение: {error}"))?;
+    Ok(format!("http://127.0.0.1:3666/overlay/assets/gameplay-reference?v={}", chrono::Utc::now().timestamp_millis()))
+}
+
+#[tauri::command]
+pub fn remove_gameplay_reference(app: AppHandle) -> Result<(), String> {
+    let path = storage::gameplay_reference_path(&app);
+    if path.exists() { std::fs::remove_file(path).map_err(|error| format!("Не удалось удалить изображение: {error}"))?; }
+    Ok(())
+}
+
 
 // WK-78 - both `async` so the blocking, network-bound backend call inside
 // runs via `spawn_blocking` on Tauri's blocking pool instead of the main
