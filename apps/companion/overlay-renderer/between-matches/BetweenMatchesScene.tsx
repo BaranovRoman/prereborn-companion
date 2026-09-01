@@ -161,6 +161,8 @@ function FeaturedMatch({ match, title = "LAST MATCH" }: { match: LocalMatchSumma
   const hero = match ? getHeroById(match.heroId) : null;
   const delta = match ? ratingDelta(match) : null;
   const inventory = INVENTORY_SLOTS.map((slot) => itemAsset(match?.inventory[slot]));
+  const hasKda = Boolean(match && match.kills !== null && match.deaths !== null && match.assists !== null);
+  const hasInventory = inventory.some(Boolean);
   const renderItem = (item: ReturnType<typeof itemAsset>, slot: number) => (
     <span key={slot} className={`${styles.item} ${parity.item}`} data-empty={item ? undefined : "true"} title={item?.label}>
       {item && <img src={item.url} alt={item.label} />}
@@ -179,24 +181,33 @@ function FeaturedMatch({ match, title = "LAST MATCH" }: { match: LocalMatchSumma
           </div>
         )}
         <span className={styles.heroMist} />
-      </div>
-      <div className={styles.heroDetails}>
-        <div className={`${styles.heroNameRow} ${parity.heroNameRow}`}>
-          <strong>{hero?.localizedName ?? "No completed matches"}</strong>
-          <em data-result={match?.result ?? undefined}>{match ? resultLabel(match) : "NO DATA"}</em>
-        </div>
-        <span className={`${styles.matchMeta} ${parity.matchMeta}`}>{match ? `${match.rankedMode.toUpperCase()} • ${formatDate(match.finalizedAt)}` : "MATCH DATA // WAITING"}</span>
-        <div className={`${styles.matchStats} ${parity.matchStats}`}>
-          <div className={styles.statsPrimary}>
-            <span className={`${styles.statValue} ${parity.statValue}`}>{match && match.kills !== null && match.deaths !== null && match.assists !== null ? `${match.kills} / ${match.deaths} / ${match.assists}` : EMPTY_VALUE}</span>
-            <span className={`${styles.statValue} ${parity.statValue}`} data-tone={delta === null ? undefined : delta > 0 ? "positive" : delta < 0 ? "negative" : undefined}>{delta === null ? EMPTY_VALUE : `${formatDelta(delta)} MMR`}</span>
+        {match && hero && (
+          <div className={parity.heroIdentity} data-testid="last-match-identity">
+            <strong>{hero.localizedName}</strong>
+            {hasKda && <span>{match.kills} / {match.deaths} / {match.assists}</span>}
           </div>
-          <span className={`${styles.statsSecondary} ${parity.statsSecondary}`}>KDA {match && match.kills !== null && match.deaths !== null && match.assists !== null ? ((match.kills + match.assists) / Math.max(1, match.deaths)).toFixed(2) : EMPTY_VALUE}</span>
-        </div>
-        <div className={styles.inventory} aria-label="Last recorded inventory">
-          <div className={`${styles.items} ${parity.inventory}`}>{inventory.slice(0, 6).map(renderItem)}</div>
-          <div className={`${styles.backpackItems} ${parity.backpackItems}`}>{inventory.slice(6).map((item, index) => renderItem(item, index + 6))}</div>
-        </div>
+        )}
+        {delta !== null && delta !== 0 && (
+          <strong
+            className={parity.heroDelta}
+            data-testid="last-match-delta"
+            data-tone={delta > 0 ? "positive" : "negative"}
+          >
+            {formatDelta(delta)}
+          </strong>
+        )}
+        {match && hasInventory && (
+          <div className={parity.inventoryOverlay} aria-label="Last recorded inventory" data-testid="last-match-inventory">
+            <div className={`${styles.items} ${parity.inventory}`}>
+              {inventory.slice(0, 6).map(renderItem)}
+            </div>
+            {inventory.slice(6).some(Boolean) && (
+              <div className={`${styles.backpackItems} ${parity.backpackItems}`}>
+                {inventory.slice(6).map((item, index) => renderItem(item, index + 6))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </Panel>
   );
@@ -311,9 +322,11 @@ export function BetweenMatchesScene({ session, settings = null, account = null, 
           <PlayerProfile session={session} account={account} />
           <StreamProfile session={session} account={account} goal={settings?.channelGoal} />
           <div className={styles.leftMain} data-featured="true">
-            <FeaturedMatch match={session.recentMatches[0]} />
-            <div className={styles.sideStack} data-widget-count={3}>
+            <div className={parity.featuredStack}>
+              <FeaturedMatch match={session.recentMatches[0]} />
               <WebcamPanel title="LIVE CAPTURE" imageUrl={settings?.webcamImageUrl ?? null} />
+            </div>
+            <div className={`${styles.sideStack} ${parity.centerStack}`} data-widget-count={2}>
               <FavoriteHeroes title="FAVORITE HEROES" matches={session.recentMatches} heroIds={settings?.favoriteHeroIds ?? []} />
               <RecentGames title="RECENT GAMES" matches={session.recentMatches} limit={settings?.widgets.recentGamesLimit ?? 5} />
             </div>
