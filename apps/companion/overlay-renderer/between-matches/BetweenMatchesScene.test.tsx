@@ -78,10 +78,15 @@ describe("BetweenMatchesScene", () => {
       }],
     }} />);
     expect(screen.getAllByText(/PUDGE/i).length).toBeGreaterThan(0);
-    expect(screen.getByText("+25 MMR")).toBeTruthy();
+    expect(screen.getByTestId("last-match-delta").textContent).toBe("+25");
     expect(screen.getAllByText("VICTORY").length).toBeGreaterThan(0);
     expect(screen.getByText("12 / 4 / 18")).toBeTruthy();
     expect(screen.getByTitle("blink")).toBeTruthy();
+    const lastMatch = screen.getByLabelText("LAST MATCH");
+    expect(lastMatch.textContent).not.toContain("MMR");
+    expect(lastMatch.textContent).not.toContain("RANKED");
+    expect(lastMatch.textContent).not.toContain("KDA");
+    expect(lastMatch.textContent).not.toContain("VICTORY");
   });
 
   it("gracefully renders a legacy finalized match without invented KDA or items", () => {

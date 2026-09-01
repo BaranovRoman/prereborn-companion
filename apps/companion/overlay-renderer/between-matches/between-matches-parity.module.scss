@@ -13,24 +13,93 @@
 .liveBadge { font-size: 11px; }
 .goalMeta { font-size: 9px; }
 
-.featuredMatch { grid-template-rows: 34px minmax(0, 1fr) 242px; }
-.heroNameRow {
-  strong { font-size: 27px; }
-  em { font-size: 11px; }
+.featuredStack {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  align-items: stretch;
 }
-.matchMeta { font-size: 11px; }
-.matchStats {
-  gap: 4px;
-  margin-top: 13px;
-  padding-top: 10px;
+
+.featuredMatch {
+  height: clamp(350px, 38vh, 430px);
+  flex: 0 0 auto;
+  grid-template-rows: 34px minmax(0, 1fr);
 }
-.statValue { font-size: 15px; }
-.statsSecondary { font-size: 9px; }
+
+.heroIdentity {
+  position: absolute;
+  top: 20px;
+  left: 22px;
+  z-index: 5;
+  text-shadow: 0 2px 5px #000, 0 0 16px rgba(0, 0, 0, .9);
+
+  strong,
+  span { display: block; }
+
+  strong {
+    max-width: 300px;
+    color: #d5d1c9;
+    font-family: var(--font-title);
+    font-size: clamp(22px, 1.55vw, 30px);
+    font-weight: 400;
+    letter-spacing: .055em;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+
+  span {
+    margin-top: 7px;
+    color: #b9b7b0;
+    font-size: clamp(13px, .82vw, 16px);
+    letter-spacing: .12em;
+  }
+}
+
+.heroDelta {
+  position: absolute;
+  top: 17px;
+  right: 22px;
+  z-index: 5;
+  color: #9bbb76;
+  font-family: var(--font-title);
+  font-size: clamp(28px, 2vw, 40px);
+  font-weight: 400;
+  letter-spacing: .025em;
+  line-height: 1;
+  text-shadow: 0 2px 5px #000, 0 0 18px rgba(0, 0, 0, .9);
+}
+
+.heroDelta[data-tone="negative"] { color: #bd655e; }
+
+.inventoryOverlay {
+  position: absolute;
+  left: 20px;
+  bottom: 18px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 9px;
+}
+
+.inventory,
+.backpackItems {
+  display: inline-flex;
+  width: auto;
+  gap: 3px;
+}
+
 .inventory::before,
 .backpackItems::before { font-size: 8px; }
-.item { font-size: 9px; }
+.item { width: 42px; height: 31px; flex: 0 0 42px; font-size: 9px; }
+
+.centerStack > :first-child { flex: 0 0 auto; }
 
 .webcam small { font-size: 8px; }
+
+@media (max-height: 860px) {
+  .featuredMatch { height: clamp(310px, 42vh, 360px); }
+}
 
 .favorite b { font-size: 10px; }
 
