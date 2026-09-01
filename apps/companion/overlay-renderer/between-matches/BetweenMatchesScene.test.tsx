@@ -30,6 +30,7 @@ afterEach(() => cleanup());
 describe("BetweenMatchesScene", () => {
   it("renders authoritative current MMR and match-only session delta", () => {
     render(<BetweenMatchesScene session={SESSION} />);
+    expect(screen.getByTestId("between-matches-production").getAttribute("data-coordinate-system")).toBe("viewport");
     expect(screen.getByText("6,025")).toBeTruthy();
     expect(screen.getByText(/6000 → 6025 \(\+25\)/)).toBeTruthy();
     expect(screen.getByText("1–0")).toBeTruthy();
@@ -88,6 +89,13 @@ describe("BetweenMatchesScene", () => {
     expect(screen.getAllByText("DEFEAT").length).toBeGreaterThan(0);
     expect(screen.queryByText(/KDA \d/)).toBeNull();
     expect(screen.queryByTitle("blink")).toBeNull();
+  });
+
+  it("keeps Recent Games at production density without a literal KDA label", () => {
+    render(<BetweenMatchesScene session={{ ...SESSION, recentMatches: [{ matchId: "42", heroId: 14, result: "win", rankedMode: "ranked", state: "finalized", ratingBefore: 6000, ratingAfter: 6025, kills: 12, deaths: 4, assists: 18, inventory: [], startedAt: "2026-08-30T12:00:00Z", finalizedAt: "2026-08-30T12:40:00Z" }] }} settings={SETTINGS} />);
+    const recentGames = screen.getByLabelText("RECENT GAMES");
+    expect(recentGames.textContent).toContain("12/4/18");
+    expect(recentGames.textContent).not.toContain("KDA");
   });
 
   it("renders the existing normalized Twitch chat state", () => {

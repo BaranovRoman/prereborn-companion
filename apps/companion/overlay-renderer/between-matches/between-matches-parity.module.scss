@@ -1,0 +1,50 @@
+// Literal local overrides from the production Web queue scene before the
+// later WK-87/WK-90 broadcast readability bumps. Between Matches keeps the
+// original production density while reusing the current Web chrome/assets.
+.panelTitle { font-size: 11px; }
+
+.profileBrand small { font-size: clamp(9px, .55vw, 11px); }
+.profileStats {
+  span { font-size: 9px; }
+  b { font-size: 19px; }
+}
+
+.streamProfileBody small { font-size: 10px; }
+.liveBadge { font-size: 11px; }
+.goalMeta { font-size: 9px; }
+
+.featuredMatch { grid-template-rows: 34px minmax(0, 1fr) 242px; }
+.heroNameRow {
+  strong { font-size: 27px; }
+  em { font-size: 11px; }
+}
+.matchMeta { font-size: 11px; }
+.matchStats {
+  gap: 4px;
+  margin-top: 13px;
+  padding-top: 10px;
+}
+.statValue { font-size: 15px; }
+.statsSecondary { font-size: 9px; }
+.inventory::before,
+.backpackItems::before { font-size: 8px; }
+.item { font-size: 9px; }
+
+.webcam small { font-size: 8px; }
+
+.favorite b { font-size: 10px; }
+
+.gameRow {
+  flex-basis: 46px;
+  grid-template-columns: 52px minmax(110px, 1fr) 58px 48px 94px;
+
+  div { gap: 0; }
+  b { font-size: 11px; }
+  small { font-size: 9px; }
+  em { font-size: 10px; }
+  > strong { font-size: 10px; }
+  time { font-size: 9px; }
+}
+
+.gameMark { font-size: 10px; }
+.panelEmpty { font-size: 10px; }
