@@ -73,6 +73,11 @@ try {
     if (($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 28) -or -not (($sse -join "`n").Contains('"scene":"gameplay"'))) {
         throw "Fresh Browser Source SSE connection did not immediately receive the current Gameplay snapshot"
     }
+    # curl exits 28 because the SSE stream intentionally remains open until
+    # --max-time stops it. The frame assertion above proves that this is the
+    # expected successful path; clear the native exit code so Windows
+    # PowerShell does not report the otherwise-successful script as failed.
+    $global:LASTEXITCODE = 0
 
     Write-Host "Smoke test passed: packaged Companion serves GSI + canonical OBS overlay HTML/state/initial SSE; Draft and Gameplay states resolved"
 }
