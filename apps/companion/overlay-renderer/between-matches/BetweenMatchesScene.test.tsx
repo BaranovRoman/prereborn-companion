@@ -38,7 +38,7 @@ describe("BetweenMatchesScene", () => {
     expect(screen.getByLabelText("RECENT GAMES")).toBeTruthy();
     expect(screen.getByLabelText("LIVE CAPTURE")).toBeTruthy();
     expect(screen.getByText("FALLBACK NOT SET")).toBeTruthy();
-    expect(screen.queryByLabelText("TWITCH CHAT")).toBeNull();
+    expect(screen.getByLabelText("TWITCH CHAT")).toBeTruthy();
   });
 
   it("keeps a complete honest layout when recent matches are empty", () => {
@@ -68,6 +68,10 @@ describe("BetweenMatchesScene", () => {
         state: "finalized",
         ratingBefore: 6_000,
         ratingAfter: 6_025,
+        kills: 12,
+        deaths: 4,
+        assists: 18,
+        inventory: ["item_blink", null, null, null, null, null, "item_tpscroll", null, null],
         startedAt: "2026-08-30T12:00:00Z",
         finalizedAt: "2026-08-30T12:40:00Z",
       }],
@@ -75,6 +79,22 @@ describe("BetweenMatchesScene", () => {
     expect(screen.getAllByText(/PUDGE/i).length).toBeGreaterThan(0);
     expect(screen.getByText("+25 MMR")).toBeTruthy();
     expect(screen.getAllByText("VICTORY").length).toBeGreaterThan(0);
+    expect(screen.getByText("12 / 4 / 18")).toBeTruthy();
+    expect(screen.getByTitle("blink")).toBeTruthy();
+  });
+
+  it("renders the existing normalized Twitch chat state", () => {
+    render(<BetweenMatchesScene session={SESSION} settings={SETTINGS} twitchChat={{
+      accountConnected: true, configured: true, displayName: "channel", connected: true, state: "connected",
+      messages: [
+        { id: "1", author: "Alice", color: "#ff0000", text: "first", receivedAt: "2026-08-30T12:00:00Z" },
+        { id: "2", author: "Bob", color: null, text: "second", receivedAt: "2026-08-30T12:00:01Z" },
+      ],
+    }} />);
+    expect(screen.getByLabelText("TWITCH CHAT")).toBeTruthy();
+    expect(screen.getByText("Alice")).toBeTruthy();
+    expect(screen.getByText(/first/)).toBeTruthy();
+    expect(screen.getByText("Bob")).toBeTruthy();
   });
 
   it("updates authoritative SSE-driven values without remounting the scene", () => {

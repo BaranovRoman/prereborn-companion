@@ -215,16 +215,24 @@ fn row_to_match(row: &rusqlite::Row) -> rusqlite::Result<LocalMatch> {
         detected_rating_delta: row.get(10)?,
         state: LocalMatchState::from_db_str(&state_raw).expect("stored state is always valid"),
         rating_after: row.get(12)?,
-        started_at: row.get(13)?,
-        interrupted_at: row.get(14)?,
-        finalized_at: row.get(15)?,
+        kills: row.get(13)?,
+        deaths: row.get(14)?,
+        assists: row.get(15)?,
+        inventory: serde_json::from_str::<Vec<Option<String>>>(&row.get::<_, String>(16)?)
+            .unwrap_or_default()
+            .into_iter()
+            .take(9)
+            .collect(),
+        started_at: row.get(17)?,
+        interrupted_at: row.get(18)?,
+        finalized_at: row.get(19)?,
         sync_state: SyncState::Pending,
     })
 }
 
 const MATCH_COLUMNS: &str = "local_id, session_local_id, backend_id, match_id, match_key, hero_id, \
      player_team, result, ranked_mode, rating_before, detected_rating_delta, state, rating_after, \
-     started_at, interrupted_at, finalized_at";
+     kills, deaths, assists, inventory, started_at, interrupted_at, finalized_at";
 
 /// Mirrors `findActiveMatch` (stream-match-service.ts): the current match is
 /// always re-derived from durable storage, never an in-memory tracker - so
@@ -257,12 +265,44 @@ pub fn find_match(conn: &Connection, local_id: &str) -> rusqlite::Result<Option<
 /// first, including the currently in-progress match if any (the caller
 /// distinguishes by `state`) - mirrors `find_active_match`'s "always
 /// re-derive from durable storage" approach rather than an in-memory cache.
+#[allow(dead_code)]
 pub fn list_recent_matches(conn: &Connection, session_local_id: &str, limit: i64) -> rusqlite::Result<Vec<LocalMatch>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {MATCH_COLUMNS} FROM local_matches WHERE session_local_id = ?1 ORDER BY rowid DESC LIMIT ?2"
     ))?;
     let rows = stmt.query_map(params![session_local_id, limit], row_to_match)?;
     rows.collect()
+}
+
+/// Device-wide finalized history for Home and Between Matches. Session W/L
+/// remains scoped separately by `session_match_tally`; restarting Companion
+/// or starting a new stream must not hide durable completed matches.
+pub fn list_recent_finalized_matches(conn: &Connection, limit: i64) -> rusqlite::Result<Vec<LocalMatch>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {MATCH_COLUMNS} FROM local_matches WHERE state = 'finalized' ORDER BY rowid DESC LIMIT ?1"
+    ))?;
+    let rows = stmt.query_map(params![limit], row_to_match)?;
+    rows.collect()
+}
+
+pub fn update_match_telemetry(
+    conn: &Connection,
+    local_id: &str,
+    telemetry: &super::gsi::MatchTelemetry,
+) -> rusqlite::Result<()> {
+    let inventory = if telemetry.inventory.iter().any(Option::is_some) {
+        serde_json::to_string(&telemetry.inventory).unwrap_or_else(|_| "[]".to_string())
+    } else {
+        "[]".to_string()
+    };
+    conn.execute(
+        "UPDATE local_matches SET \
+             kills = COALESCE(?2, kills), deaths = COALESCE(?3, deaths), assists = COALESCE(?4, assists), \
+             inventory = CASE WHEN ?5 = '[]' THEN inventory ELSE ?5 END \
+         WHERE local_id = ?1 AND state != 'finalized'",
+        params![local_id, telemetry.kills, telemetry.deaths, telemetry.assists, inventory],
+    )?;
+    Ok(())
 }
 
 /// WK-114 - session-wide win/loss tally for the Home page, counted directly
@@ -400,10 +440,10 @@ pub fn finalize_match(
 
     // WK-113 - needed only to build the sync outbox payload below (match_id/
     // hero_id/started_at aren't otherwise touched by this function).
-    let (match_id, hero_id, started_at): (Option<String>, i64, String) = tx.query_row(
-        "SELECT match_id, hero_id, started_at FROM local_matches WHERE local_id = ?1",
+    let (match_id, hero_id, started_at, kills, deaths, assists, inventory): (Option<String>, i64, String, Option<i64>, Option<i64>, Option<i64>, String) = tx.query_row(
+        "SELECT match_id, hero_id, started_at, kills, deaths, assists, inventory FROM local_matches WHERE local_id = ?1",
         params![local_id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
     )?;
 
     let is_ranked = matches!(ranked_mode, RankedMode::Ranked);
@@ -472,6 +512,10 @@ pub fn finalize_match(
         "localMatchId": local_id,
         "matchId": match_id,
         "heroId": hero_id,
+        "kills": kills,
+        "deaths": deaths,
+        "assists": assists,
+        "inventory": serde_json::from_str::<serde_json::Value>(&inventory).unwrap_or_else(|_| serde_json::json!([])),
         "result": result.as_db_str(),
         "isRanked": is_ranked_field,
         "ratingBefore": rating_before,
@@ -845,5 +889,48 @@ mod tests {
 
         let (wins, losses) = session_match_tally(&conn, &session.local_id).unwrap();
         assert_eq!((wins, losses), (1, 1));
+    }
+
+    #[test]
+    fn recent_finalized_history_survives_a_new_session_boundary() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let first = ensure_active_session(&mut conn, now).unwrap();
+        create_match(&conn, &first.local_id, Some("historic"), 14, "radiant", RankedMode::Ranked, now).unwrap();
+        let active = find_active_match(&conn, &first.local_id).unwrap().unwrap();
+        finalize_match(&mut conn, &active.local_id, &first.local_id, RankedMode::Ranked, MatchResult::Win, "confirmed", now).unwrap();
+        finalize_session_end(&mut conn, &first.local_id, now).unwrap();
+        let second = ensure_active_session(&mut conn, now + chrono::Duration::minutes(1)).unwrap();
+
+        assert!(list_recent_matches(&conn, &second.local_id, 10).unwrap().is_empty());
+        let global = list_recent_finalized_matches(&conn, 10).unwrap();
+        assert_eq!(global.len(), 1);
+        assert_eq!(global[0].match_id.as_deref(), Some("historic"));
+        assert_eq!(session_match_tally(&conn, &second.local_id).unwrap(), (0, 0));
+    }
+
+    #[test]
+    fn recent_finalized_history_survives_database_reopen() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        {
+            let mut conn = Connection::open(temp.path()).unwrap();
+            schema::migrate(&conn).unwrap();
+            let now = Utc::now();
+            let session = ensure_active_session(&mut conn, now).unwrap();
+            create_match(&conn, &session.local_id, Some("persisted"), 14, "radiant", RankedMode::Ranked, now).unwrap();
+            let active = find_active_match(&conn, &session.local_id).unwrap().unwrap();
+            update_match_telemetry(&conn, &active.local_id, &super::super::gsi::MatchTelemetry {
+                kills: Some(9), deaths: Some(2), assists: Some(11),
+                inventory: vec![Some("item_blink".into()), None, None, None, None, None, Some("item_tpscroll".into()), None, None],
+            }).unwrap();
+            finalize_match(&mut conn, &active.local_id, &session.local_id, RankedMode::Ranked, MatchResult::Win, "confirmed", now).unwrap();
+        }
+        let conn = Connection::open(temp.path()).unwrap();
+        schema::migrate(&conn).unwrap();
+        let history = list_recent_finalized_matches(&conn, 10).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!((history[0].kills, history[0].deaths, history[0].assists), (Some(9), Some(2), Some(11)));
+        assert_eq!(history[0].inventory[0].as_deref(), Some("item_blink"));
+        assert_eq!(history[0].inventory[6].as_deref(), Some("item_tpscroll"));
     }
 }

@@ -161,6 +161,8 @@ pub fn handle_snapshot(
             return Ok(());
         };
 
+        store::update_match_telemetry(conn, &current.local_id, &snapshot.telemetry)?;
+
         if let (Some(observed), Some(tracked)) = (&snapshot.match_id, &current.match_id) {
             if observed != tracked {
                 return store::mark_needs_review(conn, &current.local_id);
@@ -209,7 +211,8 @@ pub fn handle_snapshot(
         active = store::find_active_match(conn, session_local_id)?;
     }
 
-    let Some(_active) = active else { return Ok(()) }; // creation raced away - next tick picks it up
+    let Some(active) = active else { return Ok(()) }; // creation raced away - next tick picks it up
+    store::update_match_telemetry(conn, &active.local_id, &snapshot.telemetry)?;
 
     Ok(())
 }
@@ -302,6 +305,7 @@ mod tests {
             win_team: win_team.map(str::to_string),
             hero_id: Some(hero_id),
             team_name: Some(team.to_string()),
+            telemetry: Default::default(),
         }
     }
 
@@ -349,6 +353,7 @@ mod tests {
             win_team: Some("radiant".to_string()),
             hero_id: None,
             team_name: None,
+            telemetry: Default::default(),
         };
         handle_snapshot(&mut conn, &session.local_id, RankedMode::Ranked, &final_tick, now).unwrap();
         handle_snapshot(&mut conn, &session.local_id, RankedMode::Ranked, &final_tick, now).unwrap();
@@ -391,6 +396,7 @@ mod tests {
             win_team: None,
             hero_id: None,
             team_name: None,
+            telemetry: Default::default(),
         };
         handle_snapshot(&mut conn, &session.local_id, RankedMode::Unknown, &menu_tick, now).unwrap();
         let (state,): (String,) =
@@ -441,6 +447,7 @@ mod tests {
             win_team: None,
             hero_id: None,
             team_name: None,
+            telemetry: Default::default(),
         };
         handle_snapshot(&mut conn, &session.local_id, RankedMode::Unknown, &menu_tick, now).unwrap();
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM local_matches", [], |row| row.get(0)).unwrap();

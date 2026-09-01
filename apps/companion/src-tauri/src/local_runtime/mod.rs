@@ -225,12 +225,16 @@ fn log_match_transition<R: Runtime>(
             crate::storage::append_rolling_log(
                 app,
                 &format!(
-                    "Local match terminal: session={session_local_id} match={} state={:?} result={:?} rating_delta={:?} rating_after={:?}",
+                    "Local match finalized: session={session_local_id} match={} hero={} state={:?} result={:?} rating_delta={:?} rating_after={:?} kda_present={} items_present={} persisted_successfully={}",
                     old.local_id,
+                    terminal.map(|value| value.hero_id).unwrap_or(old.hero_id),
                     terminal.map(|value| value.state).unwrap_or(old.state),
                     terminal.and_then(|value| value.result),
                     terminal.and_then(|value| value.detected_rating_delta),
                     terminal.and_then(|value| value.rating_after),
+                    terminal.is_some_and(|value| value.kills.is_some() && value.deaths.is_some() && value.assists.is_some()),
+                    terminal.is_some_and(|value| value.inventory.iter().any(Option::is_some)),
+                    terminal.is_some(),
                 ),
             );
         }
@@ -271,6 +275,7 @@ mod tests {
             win_team: None,
             hero_id: Some(hero_id),
             team_name: Some("radiant".to_string()),
+            telemetry: Default::default(),
         }
     }
 
@@ -485,6 +490,7 @@ mod tests {
             win_team: Some("radiant".to_string()),
             hero_id: Some(14),
             team_name: Some("radiant".to_string()),
+            telemetry: Default::default(),
         };
         detector::handle_snapshot(&mut conn, &session.local_id, model::RankedMode::Ranked, &post_game, now).unwrap();
         detector::handle_snapshot(&mut conn, &session.local_id, model::RankedMode::Ranked, &post_game, now).unwrap();

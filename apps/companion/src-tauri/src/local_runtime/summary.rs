@@ -12,6 +12,7 @@ use tauri::{AppHandle, Manager, Runtime};
 use super::model::{LocalMatch, LocalMatchState, MatchResult, RankedMode};
 use super::store;
 use super::LocalRuntimeState;
+use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -23,6 +24,10 @@ pub struct LocalMatchSummary {
     pub state: LocalMatchState,
     pub rating_before: Option<i64>,
     pub rating_after: Option<i64>,
+    pub kills: Option<i64>,
+    pub deaths: Option<i64>,
+    pub assists: Option<i64>,
+    pub inventory: Vec<Option<String>>,
     pub started_at: String,
     pub finalized_at: Option<String>,
 }
@@ -37,12 +42,17 @@ impl From<&LocalMatch> for LocalMatchSummary {
             state: value.state,
             rating_before: value.rating_before,
             rating_after: value.rating_after,
+            kills: value.kills,
+            deaths: value.deaths,
+            assists: value.assists,
+            inventory: value.inventory.clone(),
             started_at: value.started_at.clone(),
             finalized_at: value.finalized_at.clone(),
         }
     }
 }
 
+#[cfg(test)]
 const ACTIVE_STATES: &[LocalMatchState] = &[
     LocalMatchState::InProgress,
     LocalMatchState::PostGamePending,
@@ -69,6 +79,26 @@ pub struct LocalSessionSummary {
 const RECENT_MATCHES_LIMIT: i64 = 30;
 const RECENT_MATCHES_DISPLAY: usize = 10;
 
+fn log_history_load<R: Runtime>(app: &AppHandle<R>, count: usize, current_session: Option<&str>) {
+    let signature = format!("{count}:{current_session:?}");
+    let should_log = {
+        let state = app.state::<AppState>();
+        let mut inner = state.0.lock().unwrap();
+        if inner.last_history_log_signature.as_deref() == Some(&signature) {
+            false
+        } else {
+            inner.last_history_log_signature = Some(signature);
+            true
+        }
+    };
+    if should_log {
+        crate::storage::append_rolling_log(
+            app,
+            &format!("Local history loaded: matches={count} history_session_filter=none current_session={current_session:?}"),
+        );
+    }
+}
+
 /// Reads the currently open local session (if any) plus its recent match
 /// history - never creates or mutates anything (mirrors `lifecycle::status`'s
 /// read-only contract). Returns the empty/default summary if the local
@@ -88,9 +118,17 @@ pub fn get<R: Runtime>(app: &AppHandle<R>) -> LocalSessionSummary {
     let Some(conn) = guard.as_mut() else {
         return LocalSessionSummary::default();
     };
+    let recent_matches: Vec<_> = store::list_recent_finalized_matches(conn, RECENT_MATCHES_LIMIT)
+        .unwrap_or_default()
+        .iter()
+        .take(RECENT_MATCHES_DISPLAY)
+        .map(LocalMatchSummary::from)
+        .collect();
     let Some(session) = store::find_open_session(conn).ok().flatten() else {
+        log_history_load(app, recent_matches.len(), None);
         return LocalSessionSummary {
             rating_current: store::get_current_rating(conn).ok().flatten(),
+            recent_matches,
             ..LocalSessionSummary::default()
         };
     };
@@ -99,14 +137,8 @@ pub fn get<R: Runtime>(app: &AppHandle<R>) -> LocalSessionSummary {
         .ok()
         .flatten()
         .map(|m| LocalMatchSummary::from(&m));
-    let recent_matches = store::list_recent_matches(conn, &session.local_id, RECENT_MATCHES_LIMIT)
-        .unwrap_or_default()
-        .iter()
-        .filter(|m| !ACTIVE_STATES.contains(&m.state))
-        .take(RECENT_MATCHES_DISPLAY)
-        .map(LocalMatchSummary::from)
-        .collect();
     let (wins, losses) = store::session_match_tally(conn, &session.local_id).unwrap_or((0, 0));
+    log_history_load(app, recent_matches.len(), Some(&session.local_id));
 
     LocalSessionSummary {
         has_session: true,

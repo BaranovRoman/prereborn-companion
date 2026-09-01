@@ -45,6 +45,15 @@ pub struct GsiSnapshot {
     pub win_team: Option<String>,
     pub hero_id: Option<i64>,
     pub team_name: Option<String>,
+    pub telemetry: MatchTelemetry,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MatchTelemetry {
+    pub kills: Option<i64>,
+    pub deaths: Option<i64>,
+    pub assists: Option<i64>,
+    pub inventory: Vec<Option<String>>,
 }
 
 impl GsiSnapshot {
@@ -89,6 +98,19 @@ fn non_blank_string(value: Option<&str>) -> Option<String> {
     value.map(str::trim).filter(|value| !value.is_empty()).map(str::to_string)
 }
 
+fn extract_inventory(value: Option<&Value>) -> Vec<Option<String>> {
+    (0..9)
+        .map(|index| {
+            value
+                .and_then(|items| items.get(format!("slot{index}")))
+                .and_then(|slot| slot.get("name"))
+                .and_then(Value::as_str)
+                .filter(|name| name.starts_with("item_"))
+                .map(str::to_string)
+        })
+        .collect()
+}
+
 /// Parses one raw GSI payload into a `GsiSnapshot`, or `None` if it doesn't
 /// even have a `map.game_state` (nothing to act on this tick). Mirrors the
 /// `asRecord`/`asString`/`asNumber` extraction at the top of
@@ -103,6 +125,12 @@ pub fn parse(payload: &Value) -> Option<GsiSnapshot> {
         win_team: as_str(payload, "/map/win_team").map(str::to_string),
         hero_id: payload.pointer("/hero/id").and_then(Value::as_i64),
         team_name: as_str(payload, "/player/team_name").map(str::to_string),
+        telemetry: MatchTelemetry {
+            kills: payload.pointer("/player/kills").and_then(Value::as_i64),
+            deaths: payload.pointer("/player/deaths").and_then(Value::as_i64),
+            assists: payload.pointer("/player/assists").and_then(Value::as_i64),
+            inventory: extract_inventory(payload.get("items")),
+        },
     })
 }
 
@@ -123,8 +151,27 @@ mod tests {
         assert_eq!(snapshot.hero_id, Some(14));
         assert_eq!(snapshot.team_name.as_deref(), Some("radiant"));
         assert_eq!(snapshot.match_id.as_deref(), Some("12345"));
+        assert_eq!(snapshot.telemetry.inventory.len(), 9);
         assert!(snapshot.is_in_match());
         assert!(!snapshot.is_post_game());
+    }
+
+    #[test]
+    fn parses_kda_main_inventory_and_backpack_from_real_gsi_shape() {
+        let payload = json!({
+            "player": { "activity": "playing", "kills": 8, "deaths": 3, "assists": 14 },
+            "map": { "game_state": "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS" },
+            "items": {
+                "slot0": { "name": "item_blink" },
+                "slot6": { "name": "item_tpscroll" },
+                "slot8": { "name": "not_an_item" }
+            }
+        });
+        let snapshot = parse(&payload).unwrap();
+        assert_eq!((snapshot.telemetry.kills, snapshot.telemetry.deaths, snapshot.telemetry.assists), (Some(8), Some(3), Some(14)));
+        assert_eq!(snapshot.telemetry.inventory[0].as_deref(), Some("item_blink"));
+        assert_eq!(snapshot.telemetry.inventory[6].as_deref(), Some("item_tpscroll"));
+        assert_eq!(snapshot.telemetry.inventory[8], None);
     }
 
     #[test]

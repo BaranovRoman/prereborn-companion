@@ -212,7 +212,7 @@ export function OverlayApp() {
       )}
 
       {scene === "betweenMatches" && (
-        <BetweenMatchesScene session={session} settings={queueSettings} account={snapshot.account} />
+        <BetweenMatchesScene session={session} settings={queueSettings} account={snapshot.account} twitchChat={snapshot.twitchChat} />
       )}
 
       {scene === "postStream" && (

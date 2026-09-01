@@ -8,6 +8,17 @@ import styles from "../../../web/src/components/pages/stream/queue/queue-scene.m
 const EMPTY_VALUE = "—";
 const INVENTORY_SLOTS = Array.from({ length: 9 }, (_, index) => index);
 
+const itemAsset = (name: string | null | undefined) => {
+  if (!name?.startsWith("item_") || name === "item_empty") return null;
+  const assetName = name.slice("item_".length);
+  return {
+    label: assetName.split("_").join(" "),
+    url: assetName.startsWith("recipe_")
+      ? `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/items/${assetName}_lg.png`
+      : `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/${assetName}.png`,
+  };
+};
+
 const resultLabel = (match: LocalMatchSummary) => {
   if (match.result === "win") return "VICTORY";
   if (match.result === "loss") return "DEFEAT";
@@ -135,6 +146,12 @@ function StreamProfile({ session, account, title = "STREAM PROFILE", goal }: { s
 function FeaturedMatch({ match, title = "LAST MATCH" }: { match: LocalMatchSummary | undefined; title?: string }) {
   const hero = match ? getHeroById(match.heroId) : null;
   const delta = match ? ratingDelta(match) : null;
+  const inventory = INVENTORY_SLOTS.map((slot) => itemAsset(match?.inventory[slot]));
+  const renderItem = (item: ReturnType<typeof itemAsset>, slot: number) => (
+    <span key={slot} className={styles.item} data-empty={item ? undefined : "true"} title={item?.label}>
+      {item && <img src={item.url} alt={item.label} />}
+    </span>
+  );
   return (
     <Panel title={title} className={styles.featuredMatch}>
       <div className={styles.heroArt} data-empty={hero ? undefined : "true"}>
@@ -157,14 +174,14 @@ function FeaturedMatch({ match, title = "LAST MATCH" }: { match: LocalMatchSumma
         <span className={styles.matchMeta}>{match ? `${match.rankedMode.toUpperCase()} • ${formatDate(match.finalizedAt)}` : "MATCH DATA // WAITING"}</span>
         <div className={styles.matchStats}>
           <div className={styles.statsPrimary}>
-            <span className={styles.statValue}>KDA {EMPTY_VALUE}</span>
+            <span className={styles.statValue}>{match && match.kills !== null && match.deaths !== null && match.assists !== null ? `${match.kills} / ${match.deaths} / ${match.assists}` : EMPTY_VALUE}</span>
             <span className={styles.statValue} data-tone={delta === null ? undefined : delta > 0 ? "positive" : delta < 0 ? "negative" : undefined}>{delta === null ? EMPTY_VALUE : `${formatDelta(delta)} MMR`}</span>
           </div>
-          <span className={styles.statsSecondary}>FINALIZED LOCAL MATCH</span>
+          <span className={styles.statsSecondary}>KDA {match && match.kills !== null && match.deaths !== null && match.assists !== null ? ((match.kills + match.assists) / Math.max(1, match.deaths)).toFixed(2) : EMPTY_VALUE}</span>
         </div>
         <div className={styles.inventory} aria-label="Last recorded inventory">
-          <div className={styles.items}>{INVENTORY_SLOTS.slice(0, 6).map((slot) => <span key={slot} className={styles.item} data-empty="true" />)}</div>
-          <div className={styles.backpackItems}>{INVENTORY_SLOTS.slice(6).map((slot) => <span key={slot} className={styles.item} data-empty="true" />)}</div>
+          <div className={styles.items}>{inventory.slice(0, 6).map(renderItem)}</div>
+          <div className={styles.backpackItems}>{inventory.slice(6).map((item, index) => renderItem(item, index + 6))}</div>
         </div>
       </div>
     </Panel>
@@ -211,7 +228,7 @@ function RecentGames({ matches, title, limit }: { matches: LocalMatchSummary[]; 
           return (
             <div className={styles.gameRow} key={match.matchId ?? `${match.startedAt}-${index}`} data-session="current">
               {hero ? <img className={styles.gameHeroImage} src={hero.portraitUrl} alt="" /> : <span className={styles.gameMark}>?</span>}
-              <div><b>{hero?.localizedName.toUpperCase() ?? `HERO ${match.heroId}`}</b><small>FINALIZED</small></div>
+              <div><b>{hero?.localizedName.toUpperCase() ?? `HERO ${match.heroId}`}</b><small>{match.kills !== null && match.deaths !== null && match.assists !== null ? `KDA ${match.kills}/${match.deaths}/${match.assists}` : "FINALIZED"}</small></div>
               <em data-result={result}>{result}</em>
               <strong data-positive={delta !== null && delta > 0}>({formatDelta(delta)})</strong>
               <time>{formatDate(match.finalizedAt)}</time>
@@ -233,7 +250,28 @@ function CommunityArea({ links, title }: { links: QueueSettings["widgets"]["frie
   );
 }
 
-export function BetweenMatchesScene({ session, settings = null, account = null }: { session: LocalSessionSummary; settings?: QueueSettings | null; account?: OverlayStateSnapshot["account"] }) {
+function TwitchChat({ chat, title, limit }: { chat: OverlayStateSnapshot["twitchChat"]; title: string; limit: number }) {
+  const messages = chat?.messages.slice(-Math.max(1, limit)) ?? [];
+  return (
+    <Panel title={title} className={styles.chatPanel}>
+      <div className={styles.chatBody} aria-live="polite">
+        <div className={styles.chatStatus} data-connected={Boolean(chat?.connected)}>
+          <i />{chat?.connected ? "LIVE CHAT" : chat?.state === "reconnecting" ? "RECONNECTING" : "CONNECTING"}
+        </div>
+        <div className={styles.chatMessages}>
+          {messages.length ? messages.map((message) => (
+            <p key={message.id}>
+              <span style={message.color ? { color: message.color } : undefined}>{message.author}</span>
+              <b>:</b> {message.text}
+            </p>
+          )) : <div className={styles.chatWaiting}>Messages will appear here when chat becomes active</div>}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+export function BetweenMatchesScene({ session, settings = null, account = null, twitchChat = null }: { session: LocalSessionSummary; settings?: QueueSettings | null; account?: OverlayStateSnapshot["account"]; twitchChat?: OverlayStateSnapshot["twitchChat"] }) {
   const sceneStyle = {
     width: "100%",
     height: "100%",
@@ -254,7 +292,10 @@ export function BetweenMatchesScene({ session, settings = null, account = null }
               <RecentGames title="RECENT GAMES" matches={session.recentMatches} limit={settings?.widgets.recentGamesLimit ?? 5} />
             </div>
           </div>
-          {(settings?.widgets.friends.socialLinks.length ?? 0) > 0 && <div className={styles.rightMain}><CommunityArea title="COMMUNITY" links={settings?.widgets.friends.socialLinks ?? []} /></div>}
+          <div className={styles.rightMain}>
+            <TwitchChat chat={twitchChat} title="TWITCH CHAT" limit={settings?.widgets.chatMessagesLimit ?? 12} />
+            {(settings?.widgets.friends.socialLinks.length ?? 0) > 0 && <CommunityArea title="COMMUNITY" links={settings?.widgets.friends.socialLinks ?? []} />}
+          </div>
         </div>
       </div>
     </main>

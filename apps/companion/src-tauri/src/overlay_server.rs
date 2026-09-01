@@ -75,6 +75,7 @@ pub struct OverlayStateSnapshot {
     /// re-fetches only when this number moves.
     pub layout_version: u64,
     pub account: Option<serde_json::Value>,
+    pub twitch_chat: Option<serde_json::Value>,
 }
 
 /// Reads AppState (canonical resolver fields) plus the local runtime's
@@ -89,7 +90,7 @@ pub struct OverlayStateSnapshot {
 /// than only testing a hand-built stand-in. Every real call site keeps
 /// compiling unchanged (`R = Wry` by inference).
 pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
-    let (gsi_derived_source, session_ended, obs_manual_summary_override, layout_version, account) = {
+    let (gsi_derived_source, session_ended, obs_manual_summary_override, layout_version, account, twitch_chat) = {
         let state = app.state::<AppState>();
         let inner = state.0.lock().unwrap();
         (
@@ -98,6 +99,7 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
             inner.obs_manual_summary_override,
             inner.overlay_layout_version,
             inner.account_overlay_data.clone(),
+            inner.twitch_chat.clone(),
         )
     };
     let gsi_derived = gsi_derived_source.unwrap_or(BroadcastState::BetweenMatches);
@@ -108,6 +110,7 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
         session: summary::get(app),
         layout_version,
         account,
+        twitch_chat,
     }
 }
 
@@ -379,6 +382,18 @@ mod tests {
     }
 
     #[test]
+    fn current_includes_the_existing_companion_twitch_chat_cache() {
+        let app = test_app();
+        let chat = serde_json::json!({
+            "connected": true,
+            "state": "connected",
+            "messages": [{ "id": "m1", "author": "Viewer", "text": "hello", "receivedAt": "2026-01-01T00:00:00Z" }]
+        });
+        app.state::<AppState>().0.lock().unwrap().twitch_chat = Some(chat.clone());
+        assert_eq!(current(&app).twitch_chat, Some(chat));
+    }
+
+    #[test]
     fn session_ended_wins_over_the_latest_gsi_tick_in_the_served_state() {
         let app = test_app();
         {
@@ -511,8 +526,9 @@ mod tests {
                 "player": { "activity": "playing" },
                 "hero": { "id": 14 }
             }));
-            inner.account_overlay_data = Some(serde_json::json!({
-                "twitch": { "connected": true, "displayName": "Before" }
+            inner.twitch_chat = Some(serde_json::json!({
+                "connected": true,
+                "messages": [{ "id": "before", "author": "Viewer", "text": "Before", "receivedAt": "2026-01-01T00:00:00Z" }]
             }));
         }
         let port = start_test_server(app.clone());
@@ -522,17 +538,18 @@ mod tests {
         let mut reader = std::io::BufReader::new(stream);
         let first = read_one_sse_frame(&mut reader);
         assert!(first.contains("\"scene\":\"gameplay\""));
-        assert!(first.contains("\"displayName\":\"Before\""));
+        assert!(first.contains("\"text\":\"Before\""));
 
         {
             let state = app.state::<AppState>();
-            state.0.lock().unwrap().account_overlay_data = Some(serde_json::json!({
-                "twitch": { "connected": true, "displayName": "After" }
+            state.0.lock().unwrap().twitch_chat = Some(serde_json::json!({
+                "connected": true,
+                "messages": [{ "id": "after", "author": "Viewer", "text": "After", "receivedAt": "2026-01-01T00:00:01Z" }]
             }));
         }
         let second = read_one_sse_frame(&mut reader);
         assert!(second.contains("\"scene\":\"gameplay\""));
-        assert!(second.contains("\"displayName\":\"After\""), "same-scene data change must be pushed: {second}");
+        assert!(second.contains("\"text\":\"After\""), "same-scene chat data change must be pushed: {second}");
     }
 
     // WK-122 §19 - `null`, not an error, when nothing has been fetched yet
@@ -661,6 +678,7 @@ mod tests {
                 session: LocalSessionSummary::default(),
                 layout_version: 1,
                 account: None,
+                twitch_chat: None,
             };
             let json = serde_json::to_string(&snapshot).unwrap().to_lowercase();
             for forbidden in ["token", "secret", "password", "companion_token", "bearer"] {
@@ -669,11 +687,11 @@ mod tests {
         }
 
         #[test]
-        fn current_reads_only_the_two_appstate_fields_the_resolver_needs() {
+        fn current_exposes_only_the_typed_non_secret_snapshot() {
             // Type-level pin: `current`'s signature can only ever read from
             // `&AppHandle` (never a token/credential type directly), and its
-            // return type has no field beyond scene/updated_at - see the
-            // struct definition itself, the actual enforcement mechanism.
+            // return type is the explicit non-secret snapshot above - see
+            // the struct definition itself, the actual enforcement mechanism.
             fn _type_check(app: &AppHandle) -> OverlayStateSnapshot {
                 current(app)
             }

@@ -109,6 +109,7 @@ export function HomePage({
 
   const summaryActive = status?.obs_manual_summary_active ?? false;
   const hasSession = sessionSummary?.hasSession ?? false;
+  const hasRecentMatches = (sessionSummary?.recentMatches.length ?? 0) > 0;
   const sessionDelta = hasSession ? sessionSummary?.sessionDelta ?? null : null;
 
   return (
@@ -144,11 +145,11 @@ export function HomePage({
         <div className="home-grid__columns">
           <section className="matches-panel home-grid__col-main">
             <div className="section-heading"><div><span className="section-heading__eyebrow">Матчи сессии</span><h2>Текущий и недавние</h2></div></div>
-            {!hasSession && <p className="matches-panel__empty">Сессия ещё не началась.</p>}
-            {hasSession && !sessionSummary?.currentMatch && sessionSummary?.recentMatches.length === 0 && (
+            {!hasSession && !hasRecentMatches && <p className="matches-panel__empty">Сессия ещё не началась.</p>}
+            {hasSession && !sessionSummary?.currentMatch && !hasRecentMatches && (
               <p className="matches-panel__empty">Матчи появятся здесь, как только Dota начнёт передавать данные.</p>
             )}
-            {hasSession && (sessionSummary?.currentMatch || (sessionSummary?.recentMatches.length ?? 0) > 0) && (
+            {(sessionSummary?.currentMatch || hasRecentMatches) && (
               <ul className="match-list">
                 {sessionSummary?.currentMatch && <MatchRow match={sessionSummary.currentMatch} current />}
                 {sessionSummary?.recentMatches.map((match, index) => <MatchRow key={`${match.matchId ?? "m"}-${index}`} match={match} />)}

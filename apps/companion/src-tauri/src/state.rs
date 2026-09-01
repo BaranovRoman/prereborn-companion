@@ -213,6 +213,11 @@ pub struct InnerState {
     pub overlay_layout_version: u64,
     pub queue_settings: Option<serde_json::Value>,
     pub account_overlay_data: Option<serde_json::Value>,
+    /// Normalized bounded Twitch chat status returned to the existing Chat
+    /// UI. The localhost overlay reuses this cache; it never opens another
+    /// Twitch connection.
+    pub twitch_chat: Option<serde_json::Value>,
+    pub last_history_log_signature: Option<String>,
 }
 
 pub struct AppState(pub Mutex<InnerState>);

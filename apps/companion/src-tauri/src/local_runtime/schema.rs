@@ -120,6 +120,16 @@ const MIGRATIONS: &[&str] = &[
     r#"
     ALTER TABLE local_sessions ADD COLUMN rating_adjustment INTEGER NOT NULL DEFAULT 0;
     "#,
+    // v4 -> v5 - production Between Matches needs the same finalized-match
+    // KDA/main-inventory/backpack data the Web overlay already reads from
+    // GSI. Nullable KDA preserves "not observed" for existing rows; the
+    // nine-slot JSON array maps directly to Dota's slot0..slot8.
+    r#"
+    ALTER TABLE local_matches ADD COLUMN kills INTEGER;
+    ALTER TABLE local_matches ADD COLUMN deaths INTEGER;
+    ALTER TABLE local_matches ADD COLUMN assists INTEGER;
+    ALTER TABLE local_matches ADD COLUMN inventory TEXT NOT NULL DEFAULT '[]';
+    "#,
 ];
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -181,5 +191,24 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM local_sessions", [], |row| row.get(0))
             .unwrap();
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn existing_v4_database_adds_match_telemetry_without_losing_rows() {
+        let conn = Connection::open_in_memory().unwrap();
+        for migration in MIGRATIONS.iter().take(4) {
+            conn.execute_batch(migration).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 4).unwrap();
+        conn.execute("INSERT INTO local_sessions (local_id, started_at) VALUES ('s1', '2026-01-01T00:00:00Z')", []).unwrap();
+        conn.execute("INSERT INTO local_matches (local_id, session_local_id, match_key, hero_id, player_team, state, started_at) VALUES ('m1', 's1', 'gsi:1', 14, 'radiant', 'finalized', '2026-01-01T00:00:00Z')", []).unwrap();
+
+        migrate(&conn).unwrap();
+        let row: (Option<i64>, String) = conn.query_row(
+            "SELECT kills, inventory FROM local_matches WHERE local_id = 'm1'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(row, (None, "[]".to_string()));
     }
 }

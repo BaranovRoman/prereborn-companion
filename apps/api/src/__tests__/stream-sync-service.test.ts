@@ -147,6 +147,10 @@ describe("applyMatchFinalized", () => {
             localMatchId,
             matchId: "123456",
             heroId: 14,
+            kills: 12,
+            deaths: 4,
+            assists: 18,
+            inventory: ["item_blink", null, null, null, null, null, "item_tpscroll", null, null],
             result: "win",
             isRanked: true,
             ratingBefore: 6000,
@@ -158,12 +162,16 @@ describe("applyMatchFinalized", () => {
         });
 
         const match = await pool.query(
-            "SELECT result, is_ranked, rating_delta, detected_rating_delta, rating_delta_correction, rating_after, state FROM stream_matches WHERE stream_user_id = $1 AND local_match_id = $2",
+            "SELECT result, is_ranked, kills, deaths, assists, inventory, rating_delta, detected_rating_delta, rating_delta_correction, rating_after, state FROM stream_matches WHERE stream_user_id = $1 AND local_match_id = $2",
             [streamUserId, localMatchId]
         );
         expect(match.rows[0]).toMatchObject({
             result: "win",
             is_ranked: true,
+            kills: 12,
+            deaths: 4,
+            assists: 18,
+            inventory: ["item_blink", null, null, null, null, null, "item_tpscroll", null, null],
             rating_delta: 25,
             detected_rating_delta: 25,
             rating_delta_correction: 0,
