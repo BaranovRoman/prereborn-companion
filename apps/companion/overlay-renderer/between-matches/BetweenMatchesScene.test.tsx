@@ -58,7 +58,7 @@ describe("BetweenMatchesScene", () => {
     expect(screen.queryByLabelText("wrong")).toBeNull();
   });
 
-  it("shows a finalized recent match with its real hero, result and MMR delta", () => {
+  it("shows one match-specific rating-after and delta presentation in Last Match and Recent Games", () => {
     render(<BetweenMatchesScene session={{
       ...SESSION,
       recentMatches: [{
@@ -78,9 +78,10 @@ describe("BetweenMatchesScene", () => {
       }],
     }} />);
     expect(screen.getAllByText(/PUDGE/i).length).toBeGreaterThan(0);
-    expect(screen.getByTestId("last-match-delta").textContent).toBe("+25");
-    expect(screen.getAllByText("VICTORY").length).toBeGreaterThan(0);
-    expect(screen.getByText("12 / 4 / 18")).toBeTruthy();
+    expect(screen.getByTestId("last-match-delta").textContent).toBe("6025(+25)");
+    expect(screen.getAllByText("12 / 4 / 18").length).toBe(2);
+    expect(screen.getAllByText("6025").length).toBe(2);
+    expect(screen.getAllByText("(+25)").length).toBe(2);
     expect(screen.getByTitle("blink")).toBeTruthy();
     const lastMatch = screen.getByLabelText("LAST MATCH");
     expect(lastMatch.textContent).not.toContain("MMR");
@@ -91,16 +92,24 @@ describe("BetweenMatchesScene", () => {
 
   it("gracefully renders a legacy finalized match without invented KDA or items", () => {
     render(<BetweenMatchesScene session={{ ...SESSION, recentMatches: [{ matchId: "legacy", heroId: 14, result: "loss", rankedMode: "ranked", state: "finalized", ratingBefore: 6025, ratingAfter: 6000, kills: null, deaths: null, assists: null, inventory: [], startedAt: "2026-08-20T12:00:00Z", finalizedAt: "2026-08-20T12:40:00Z" }] }} />);
-    expect(screen.getAllByText("DEFEAT").length).toBeGreaterThan(0);
+    expect(screen.queryByText("DEFEAT")).toBeNull();
     expect(screen.queryByText(/KDA \d/)).toBeNull();
     expect(screen.queryByTitle("blink")).toBeNull();
+  });
+
+  it("does not invent a rating-after or delta for an incomplete historical match", () => {
+    render(<BetweenMatchesScene session={{ ...SESSION, recentMatches: [{ matchId: "incomplete", heroId: 14, result: "win", rankedMode: "ranked", state: "finalized", ratingBefore: 6000, ratingAfter: null, kills: null, deaths: null, assists: null, inventory: [], startedAt: "2026-08-20T12:00:00Z", finalizedAt: "2026-08-20T12:40:00Z" }] }} />);
+    expect(screen.queryByTestId("last-match-delta")).toBeNull();
+    expect(screen.getByLabelText("RECENT GAMES").textContent).not.toContain("6000");
   });
 
   it("keeps Recent Games at production density without a literal KDA label", () => {
     render(<BetweenMatchesScene session={{ ...SESSION, recentMatches: [{ matchId: "42", heroId: 14, result: "win", rankedMode: "ranked", state: "finalized", ratingBefore: 6000, ratingAfter: 6025, kills: 12, deaths: 4, assists: 18, inventory: [], startedAt: "2026-08-30T12:00:00Z", finalizedAt: "2026-08-30T12:40:00Z" }] }} settings={SETTINGS} />);
     const recentGames = screen.getByLabelText("RECENT GAMES");
-    expect(recentGames.textContent).toContain("12/4/18");
+    expect(recentGames.textContent).toContain("12 / 4 / 18");
     expect(recentGames.textContent).not.toContain("KDA");
+    expect(recentGames.textContent).not.toContain("VICTORY");
+    expect(recentGames.textContent).not.toContain("FINALIZED");
   });
 
   it("renders the existing normalized Twitch chat state", () => {
