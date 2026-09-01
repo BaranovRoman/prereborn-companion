@@ -49,7 +49,7 @@ jobs:
       - name: Build Tauri app (Windows installer)
         run: pnpm --filter @prereborn/companion exec tauri build --bundles nsis
 
-      - name: Smoke test (launch built binary, verify GSI server comes up)
+      - name: Smoke test (packaged GSI + localhost OBS overlay runtime)
         shell: powershell
         run: ./scripts/companion-smoke-test.ps1
 
@@ -181,7 +181,7 @@ jobs:
           path: tauri-build.log
           if-no-files-found: warn
 
-      - name: Smoke test (launch built binary, verify GSI server comes up)
+      - name: Smoke test (packaged GSI + localhost OBS overlay runtime)
         shell: powershell
         run: ./scripts/companion-smoke-test.ps1
 
