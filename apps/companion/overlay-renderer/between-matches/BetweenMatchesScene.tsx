@@ -33,13 +33,6 @@ const itemAsset = (name: string | null | undefined) => {
   };
 };
 
-const resultLabel = (match: LocalMatchSummary) => {
-  if (match.result === "win") return "VICTORY";
-  if (match.result === "loss") return "DEFEAT";
-  if (match.result === "abandon") return "ABANDON";
-  return "UNKNOWN";
-};
-
 const ratingDelta = (match: LocalMatchSummary) =>
   match.ratingBefore === null || match.ratingAfter === null
     ? null
@@ -48,17 +41,10 @@ const ratingDelta = (match: LocalMatchSummary) =>
 const formatDelta = (value: number | null) =>
   value === null ? EMPTY_VALUE : `${value > 0 ? "+" : ""}${value}`;
 
-const formatDate = (value: string | null) => {
-  if (!value) return EMPTY_VALUE;
-  const date = new Date(value);
-  if (Number.isNaN(date.valueOf())) return EMPTY_VALUE;
-  return new Intl.DateTimeFormat("ru-RU", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-};
+const matchRating = (match: LocalMatchSummary) => ({
+  after: match.ratingAfter,
+  delta: ratingDelta(match),
+});
 
 function Panel({ title, className = "", children }: {
   title: string;
@@ -159,7 +145,7 @@ function StreamProfile({ session, account, title = "STREAM PROFILE", goal }: { s
 
 function FeaturedMatch({ match, title = "LAST MATCH" }: { match: LocalMatchSummary | undefined; title?: string }) {
   const hero = match ? getHeroById(match.heroId) : null;
-  const delta = match ? ratingDelta(match) : null;
+  const rating = match ? matchRating(match) : null;
   const inventory = INVENTORY_SLOTS.map((slot) => itemAsset(match?.inventory[slot]));
   const hasKda = Boolean(match && match.kills !== null && match.deaths !== null && match.assists !== null);
   const hasInventory = inventory.some(Boolean);
@@ -187,13 +173,15 @@ function FeaturedMatch({ match, title = "LAST MATCH" }: { match: LocalMatchSumma
             {hasKda && <span>{match.kills} / {match.deaths} / {match.assists}</span>}
           </div>
         )}
-        {delta !== null && delta !== 0 && (
+        {rating?.after !== null && rating?.after !== undefined && (
           <strong
             className={parity.heroDelta}
             data-testid="last-match-delta"
-            data-tone={delta > 0 ? "positive" : "negative"}
           >
-            {formatDelta(delta)}
+            <span>{rating.after}</span>
+            {rating.delta !== null && rating.delta !== 0 && (
+              <small data-tone={rating.delta > 0 ? "positive" : "negative"}>({formatDelta(rating.delta)})</small>
+            )}
           </strong>
         )}
         {match && hasInventory && (
@@ -215,7 +203,7 @@ function FeaturedMatch({ match, title = "LAST MATCH" }: { match: LocalMatchSumma
 
 function WebcamPanel({ title, imageUrl }: { title: string; imageUrl: string | null }) {
   const resolvedUrl = imageUrl?.startsWith("/") ? `https://prereborn.ru${imageUrl}` : imageUrl;
-  return <Panel title={title} className={styles.webcamPanel}><div className={`${styles.webcam} ${parity.webcam}`} data-has-image={Boolean(resolvedUrl)}>{resolvedUrl ? <img src={resolvedUrl} alt="" /> : <><span>LIVE CAPTURE</span><small>FALLBACK NOT SET</small></>}</div></Panel>;
+  return <Panel title={title} className={`${styles.webcamPanel} ${parity.webcamPanel}`}><div className={`${styles.webcam} ${parity.webcam}`} data-has-image={Boolean(resolvedUrl)}>{resolvedUrl ? <img src={resolvedUrl} alt="" /> : <><span>LIVE CAPTURE</span><small>FALLBACK NOT SET</small></>}</div></Panel>;
 }
 
 function FavoriteHeroes({ matches, heroIds, title }: { matches: LocalMatchSummary[]; heroIds: number[]; title: string }) {
@@ -248,15 +236,21 @@ function RecentGames({ matches, title, limit }: { matches: LocalMatchSummary[]; 
       <div className={styles.gamesList}>
         {matches.length ? matches.slice(0, limit).map((match, index) => {
           const hero = getHeroById(match.heroId);
-          const result = resultLabel(match);
-          const delta = ratingDelta(match);
+          const rating = matchRating(match);
+          const hasKda = match.kills !== null && match.deaths !== null && match.assists !== null;
           return (
             <div className={`${styles.gameRow} ${parity.gameRow}`} key={match.matchId ?? `${match.startedAt}-${index}`} data-session="current">
               {hero ? <img className={styles.gameHeroImage} src={hero.portraitUrl} alt="" /> : <span className={`${styles.gameMark} ${parity.gameMark}`}>?</span>}
-              <div><b>{hero?.localizedName.toUpperCase() ?? `HERO ${match.heroId}`}</b><small>{match.kills !== null && match.deaths !== null && match.assists !== null ? `${match.kills}/${match.deaths}/${match.assists}` : "FINALIZED"}</small></div>
-              <em data-result={result}>{result}</em>
-              <strong data-positive={delta !== null && delta > 0}>({formatDelta(delta)})</strong>
-              <time>{formatDate(match.finalizedAt)}</time>
+              <b>{hero?.localizedName.toUpperCase() ?? `HERO ${match.heroId}`}</b>
+              {hasKda && <span className={parity.recentKda}>{match.kills} / {match.deaths} / {match.assists}</span>}
+              {rating.after !== null && (
+                <strong className={parity.recentRating}>
+                  <span>{rating.after}</span>
+                  {rating.delta !== null && rating.delta !== 0 && (
+                    <small data-tone={rating.delta > 0 ? "positive" : "negative"}>({formatDelta(rating.delta)})</small>
+                  )}
+                </strong>
+              )}
             </div>
           );
         }) : <div className={`${styles.panelEmpty} ${parity.panelEmpty}`}>No completed matches</div>}
@@ -318,10 +312,10 @@ export function BetweenMatchesScene({ session, settings = null, account = null, 
     <main className={styles.scene} data-testid="between-matches-production" data-coordinate-system="viewport" style={sceneStyle}>
       <Atmosphere />
       <div className={styles.interface}>
-        <div className={styles.dashboard} data-top-count={2}>
+        <div className={`${styles.dashboard} ${parity.dashboard}`} data-top-count={2}>
           <PlayerProfile session={session} account={account} />
           <StreamProfile session={session} account={account} goal={settings?.channelGoal} />
-          <div className={styles.leftMain} data-featured="true">
+          <div className={`${styles.leftMain} ${parity.leftMain}`} data-featured="true">
             <div className={parity.featuredStack}>
               <FeaturedMatch match={session.recentMatches[0]} />
               <WebcamPanel title="LIVE CAPTURE" imageUrl={settings?.webcamImageUrl ?? null} />
