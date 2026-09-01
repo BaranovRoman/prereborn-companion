@@ -8,6 +8,7 @@ import { SessionWidget } from "./widgets/SessionWidget";
 import { BetweenMatchesScene } from "./between-matches/BetweenMatchesScene";
 import type { OverlayLayout, OverlayStateSnapshot, QueueSettings } from "./types";
 import { resolveSceneDimensions } from "./sceneDimensions";
+import { DEFAULT_OVERLAY_LAYOUT } from "./defaultLayout";
 
 const SCENE_LABEL: Record<OverlayStateSnapshot["scene"], string> = {
   betweenMatches: "Между матчами",
@@ -90,7 +91,7 @@ function isEditorPreview() {
 export function OverlayApp() {
   const [snapshot, setSnapshot] = useState<OverlayStateSnapshot | null>(null);
   const [connected, setConnected] = useState(false);
-  const [layout, setLayout] = useState<OverlayLayout | null>(null);
+  const [layout, setLayout] = useState<OverlayLayout>(DEFAULT_OVERLAY_LAYOUT);
   const [queueSettings, setQueueSettings] = useState<QueueSettings | null>(null);
   const [selectedWidget, setSelectedWidget] = useState<string | null>("session");
   const [referenceBackground, setReferenceBackground] = useState<{ url: string; opacity: number } | null>(null);
@@ -139,7 +140,7 @@ export function OverlayApp() {
     let cancelled = false;
     fetch("/overlay/layout")
       .then((response) => response.json())
-      .then((data: OverlayLayout | null) => { if (!cancelled) setLayout(data); })
+      .then((data: OverlayLayout | null) => { if (!cancelled && data) setLayout(data); })
       .catch(() => {});
     fetch("/overlay/queue-settings")
       .then((response) => response.json())
@@ -148,6 +149,11 @@ export function OverlayApp() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [snapshot?.layoutVersion]);
+
+  useEffect(() => {
+    if (!snapshot) return;
+    void fetch(`/overlay/renderer-ready?scene=${encodeURIComponent(snapshot.scene)}`).catch(() => {});
+  }, [snapshot?.scene]);
 
   if (!snapshot) return <Scene><div className="ov-loading" /></Scene>;
 

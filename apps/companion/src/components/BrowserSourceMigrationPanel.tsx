@@ -11,13 +11,11 @@ type Phase = { kind: "idle" } | { kind: "checking" } | { kind: "result"; result:
 // migrate an EXISTING input, never create one from scratch).
 const LOCAL_OVERLAY_URL = "http://127.0.0.1:3666/overlay";
 
-// WK-121 §13 - OBS Browser Source migration. Manual, explicit action (never
-// automatic): the user clicks "Проверить", sees exactly one of the four
-// states the task asks for, and - only when a single unambiguous legacy
-// candidate is found - can migrate just that one input's URL. Never touches
-// webcam/game-capture/alerts/any other source (obs.rs's
-// migrate_browser_source is scoped to SetInputSettings on the one named
-// input, see its doc comment).
+// OBS Browser Source diagnostics and explicit recovery UI. The runtime now
+// also reconciles a single unambiguous legacy PreReborn source on startup;
+// this panel remains the visible status/manual retry path and is required
+// for missing or ambiguous configurations. Neither path touches webcam,
+// game-capture, alerts, or scene-item transforms.
 export function BrowserSourceMigrationPanel() {
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [migrating, setMigrating] = useState(false);

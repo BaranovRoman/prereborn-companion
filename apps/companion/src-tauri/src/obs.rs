@@ -183,6 +183,8 @@ pub fn init(app: AppHandle) {
         retry_pending(&app_for_recovery);
     });
 
+    start_browser_source_reconciler(app.clone());
+
     // WK-112 - independent of the retry_pending loop above (scene-switch
     // connectivity); see start_stream_state_watcher's doc comment for why
     // these two must stay separate.
@@ -537,7 +539,9 @@ pub fn test_connection(config: &ObsConfig) -> Result<Vec<String>, String> {
 // `GetInputSettings` per candidate to read its configured `url` - never
 // guesses from anything but the input's own settings. Classification is
 // purely string-based on the URL's shape:
-//   - already `http://127.0.0.1:3666/...` -> LocalConnected (nothing to do)
+//   - exactly `http://127.0.0.1:3666/overlay` -> LocalConnected
+//   - another route/origin on the local overlay port -> legacy/obsolete and
+//     eligible for correction
 //   - contains "/overlay/" but isn't localhost -> a legacy PreReborn overlay
 //     Browser Source (works for any environment's domain/scheme, not a
 //     hardcoded "prereborn.ru" string - matches how the URL is actually
@@ -562,9 +566,13 @@ pub enum BrowserSourceDetection {
 const LOCAL_OVERLAY_URL: &str = "http://127.0.0.1:3666/overlay";
 
 fn classify_browser_source_url(url: &str) -> Option<bool /* is_local */> {
-    if url.starts_with("http://127.0.0.1:3666") {
+    let normalized = url.trim();
+    if normalized == LOCAL_OVERLAY_URL || normalized == "http://127.0.0.1:3666/overlay/" {
         Some(true)
-    } else if url.contains("/overlay/") {
+    } else if normalized.starts_with("http://127.0.0.1:3666")
+        || normalized.starts_with("http://localhost:3666")
+        || normalized.contains("/overlay/")
+    {
         Some(false)
     } else {
         None
@@ -664,6 +672,73 @@ pub fn migrate_browser_source(config: &ObsConfig, input_name: &str) -> Result<()
         }),
     )?;
     Ok(())
+}
+
+/// Keeps the one unambiguous PreReborn Browser Source on the canonical
+/// localhost URL. Scene switching and Browser Source configuration are
+/// independent OBS paths: a healthy scene switch does not prove that the
+/// source inside that scene loads our renderer. Prior releases exposed the
+/// migration only as a manual Settings action and also accepted every
+/// `127.0.0.1:3666/*` route as healthy, so an installed app could switch all
+/// four scenes correctly while OBS kept loading a legacy URL or a local
+/// 404. This reconciler never guesses: it changes only the single candidate
+/// already classified as a PreReborn source, and leaves missing/ambiguous
+/// configurations for the Settings UI.
+fn start_browser_source_reconciler(app: AppHandle) {
+    std::thread::spawn(move || {
+        let mut last_observation: Option<String> = None;
+        loop {
+            let config = app.state::<AppState>().0.lock().unwrap().obs_config.clone();
+            let observation = match detect_browser_source(&config) {
+                Ok(BrowserSourceDetection::LocalConnected { input_name }) => {
+                    format!("local:{input_name}:{LOCAL_OVERLAY_URL}")
+                }
+                Ok(BrowserSourceDetection::LegacyDetected { input_name, current_url }) => {
+                    let result = migrate_browser_source(&config, &input_name);
+                    match result {
+                        Ok(()) => {
+                            format!("migrated:{input_name}:{current_url}->{LOCAL_OVERLAY_URL}")
+                        }
+                        Err(error) => {
+                            format!("migration-failed:{input_name}:{current_url}:{error}")
+                        }
+                    }
+                }
+                Ok(BrowserSourceDetection::Missing) => "missing".to_string(),
+                Ok(BrowserSourceDetection::Ambiguous { candidates }) => {
+                    format!("ambiguous:{}", candidates.join(","))
+                }
+                Err(error) => format!("unavailable:{error}"),
+            };
+
+            if last_observation.as_deref() != Some(observation.as_str()) {
+                let message = match observation.split_once(':') {
+                    Some(("local", rest)) => format!("OBS Browser Source verified: {rest}"),
+                    Some(("migrated", rest)) => {
+                        format!("OBS Browser Source automatically migrated: {rest}")
+                    }
+                    Some(("migration-failed", rest)) => {
+                        format!("OBS Browser Source automatic migration failed: {rest}")
+                    }
+                    Some(("ambiguous", rest)) => format!(
+                        "OBS Browser Source reconciliation is ambiguous; candidates: {rest}"
+                    ),
+                    Some(("unavailable", rest)) => {
+                        format!("OBS Browser Source reconciliation unavailable: {rest}")
+                    }
+                    _ => concat!(
+                        "OBS Browser Source not found; expected URL: ",
+                        "http://127.0.0.1:3666/overlay"
+                    )
+                    .to_string(),
+                };
+                storage::append_rolling_log(&app, &message);
+                last_observation = Some(observation);
+            }
+
+            std::thread::sleep(Duration::from_secs(30));
+        }
+    });
 }
 
 pub fn switch_scene(config: &ObsConfig, scene: BroadcastScene) -> Result<(), String> {
@@ -1147,6 +1222,17 @@ mod tests {
         #[test]
         fn classifies_a_localhost_url_as_local() {
             assert_eq!(classify_browser_source_url("http://127.0.0.1:3666/overlay"), Some(true));
+            assert_eq!(classify_browser_source_url("http://127.0.0.1:3666/overlay/"), Some(true));
+        }
+
+        #[test]
+        fn obsolete_localhost_routes_are_migrated_instead_of_reported_as_healthy() {
+            assert_eq!(
+                classify_browser_source_url("http://127.0.0.1:3666/overlay/old-token"),
+                Some(false)
+            );
+            assert_eq!(classify_browser_source_url("http://127.0.0.1:3666/preview"), Some(false));
+            assert_eq!(classify_browser_source_url("http://localhost:3666/overlay"), Some(false));
         }
 
         #[test]

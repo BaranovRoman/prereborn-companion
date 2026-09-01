@@ -28,6 +28,7 @@
 // field - see the `security` test module at the bottom.
 
 use std::io::Write;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -48,6 +49,14 @@ pub const OVERLAY_PORT: u16 = 3666;
 // own tick rate (~2/s) and the existing Companion-UI status hooks (3s
 // polls), not an aggressive busy-loop.
 const POLL_INTERVAL: Duration = Duration::from_millis(300);
+const DIAGNOSTIC_LOG_LIMIT: usize = 40;
+static DIAGNOSTIC_LOG_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+fn diagnostic_log<R: Runtime>(app: &AppHandle<R>, message: &str) {
+    if DIAGNOSTIC_LOG_COUNT.fetch_add(1, Ordering::Relaxed) < DIAGNOSTIC_LOG_LIMIT {
+        storage::append_rolling_log(app, message);
+    }
+}
 
 // WK-121 - production renderer widget data. Deliberately reuses
 // `local_runtime::summary::LocalSessionSummary` verbatim (the exact same
@@ -203,6 +212,7 @@ fn serve_sse<R: Runtime>(app: &AppHandle<R>, request: tiny_http::Request) {
     let header = tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/event-stream"[..]).unwrap();
     let response = tiny_http::Response::empty(tiny_http::StatusCode(200)).with_header(header);
     let mut stream = request.upgrade("sse", response);
+    diagnostic_log(app, "Local overlay SSE client connected.");
 
     let mut last_sent_snapshot: Option<OverlayStateSnapshot> = None;
     loop {
@@ -214,14 +224,28 @@ fn serve_sse<R: Runtime>(app: &AppHandle<R>, request: tiny_http::Request) {
         let mut comparable = snapshot.clone();
         comparable.updated_at.clear();
         if last_sent_snapshot.as_ref() != Some(&comparable) {
+            let initial = last_sent_snapshot.is_none();
             last_sent_snapshot = Some(comparable);
             let payload = serde_json::to_string(&snapshot).unwrap_or_default();
             if stream.write_all(format!("data: {payload}\n\n").as_bytes()).is_err() {
+                diagnostic_log(app, "Local overlay SSE client disconnected while sending state.");
                 return; // client disconnected
             }
             if stream.flush().is_err() {
+                diagnostic_log(app, "Local overlay SSE client disconnected while flushing state.");
                 return;
             }
+            diagnostic_log(
+                app,
+                &format!(
+                    "Local overlay {} snapshot sent: scene={:?}, session={}, matches={}, layoutVersion={}.",
+                    if initial { "initial" } else { "updated" },
+                    snapshot.scene,
+                    snapshot.session.has_session,
+                    snapshot.session.recent_matches.len(),
+                    snapshot.layout_version,
+                ),
+            );
             continue;
         }
         std::thread::sleep(POLL_INTERVAL);
@@ -240,9 +264,22 @@ fn scene_changed(last_sent_scene: Option<BroadcastState>, current_scene: Broadca
 }
 
 fn handle_request<R: Runtime>(app: &AppHandle<R>, request: tiny_http::Request) {
-    let path = request.url().split('?').next().unwrap_or("").to_string();
+    let request_url = request.url().to_string();
+    let path = request_url.split('?').next().unwrap_or("").to_string();
+    diagnostic_log(
+        app,
+        &format!(
+            "Local overlay HTTP request received: {} {path}.",
+            request.method()
+        ),
+    );
     match (request.method(), path.as_str()) {
         (tiny_http::Method::Get, "/overlay/health") => respond_json(request, &serde_json::json!({ "status": "ok" })),
+        (tiny_http::Method::Get, "/overlay/renderer-ready") => {
+            let scene = request_url.split_once("scene=").map(|(_, value)| value).unwrap_or("unknown");
+            diagnostic_log(app, &format!("Local overlay renderer mounted with scene={scene}."));
+            respond_json(request, &serde_json::json!({ "status": "ok" }));
+        }
         (tiny_http::Method::Get, "/overlay/state") => {
             let snapshot = current(app);
             respond_json(request, &snapshot);
@@ -286,7 +323,10 @@ fn handle_request<R: Runtime>(app: &AppHandle<R>, request: tiny_http::Request) {
                 Err(_) => respond_not_found(request),
             }
         }
-        (tiny_http::Method::Get, "/overlay") | (tiny_http::Method::Get, "/overlay/") => respond_html(request, RENDERER_HTML),
+        (tiny_http::Method::Get, "/overlay") | (tiny_http::Method::Get, "/overlay/") => {
+            diagnostic_log(app, "Local overlay renderer HTML served.");
+            respond_html(request, RENDERER_HTML)
+        }
         _ => respond_not_found(request),
     }
 }
@@ -495,6 +535,52 @@ mod tests {
 
         let second_frame = read_one_sse_frame(&mut reader);
         assert!(second_frame.contains("\"scene\":\"draft\""), "unexpected transition frame: {second_frame}");
+    }
+
+    #[test]
+    fn fresh_browser_source_gets_the_existing_gameplay_state_immediately() {
+        let app = test_app();
+        {
+            let state = app.state::<AppState>();
+            let mut inner = state.0.lock().unwrap();
+            inner.last_gsi_payload = Some(serde_json::json!({
+                "map": { "game_state": "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS" },
+                "player": { "activity": "playing" }
+            }));
+            inner.overlay_layout_version = 7;
+        }
+        let port = start_test_server(app);
+
+        let html = http_get(port, "/overlay");
+        assert!(
+            html.contains("id=\"root\""),
+            "Browser Source must receive the packaged renderer HTML"
+        );
+
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        stream
+            .write_all(
+                b"GET /overlay/events HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+            )
+            .unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut reader = std::io::BufReader::new(stream);
+        let first_frame = read_one_sse_frame(&mut reader);
+
+        assert!(
+            first_frame.contains("\"scene\":\"gameplay\""),
+            "must not wait for another GSI transition: {first_frame}"
+        );
+        assert!(
+            first_frame.contains("\"layoutVersion\":7"),
+            "initial state must include renderer configuration version: {first_frame}"
+        );
+        assert!(
+            first_frame.contains("\"session\":"),
+            "initial state must include widget data: {first_frame}"
+        );
     }
 
     // WK-122 §19 - the local renderer must keep updating live while the
