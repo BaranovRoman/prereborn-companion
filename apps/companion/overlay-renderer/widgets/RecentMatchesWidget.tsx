@@ -17,7 +17,7 @@ import styles from "./widget.module.scss";
 // too, out of scope for this fix. Renders nothing when there's no finalized
 // match yet, matching every other widget's "render nothing over rendering a
 // placeholder" convention here.
-export function RecentMatchesWidget({ matches, settings, anchor = "top-left", betweenMatches = false }: { matches: LocalMatchSummary[]; settings?: RecentMatchesSettings; anchor?: OverlayAnchor; betweenMatches?: boolean }) {
+export function RecentMatchesWidget({ matches, settings, anchor = "top-left", betweenMatches = false, showDetails = false }: { matches: LocalMatchSummary[]; settings?: RecentMatchesSettings; anchor?: OverlayAnchor; betweenMatches?: boolean; showDetails?: boolean }) {
   const finalized = matches.filter((match) => match.result !== null);
   if (finalized.length === 0) return null;
   const ordered = settings?.direction === "oldest-first" ? [...finalized].reverse() : finalized;
@@ -41,6 +41,14 @@ export function RecentMatchesWidget({ matches, settings, anchor = "top-left", be
           >
             {(betweenMatches || delta !== null) && <span className={styles.matchIndex}>{index + 1}</span>}
             {hero && <img className={styles.heroIconTiny} src={hero.iconUrl} alt={hero.localizedName} />}
+            {showDetails && (
+              <span className={styles.matchHeroData}>
+                <b>{hero?.localizedName ?? `Hero ${match.heroId}`}</b>
+                {match.kills !== null && match.deaths !== null && match.assists !== null && (
+                  <small>{match.kills} / {match.deaths} / {match.assists}</small>
+                )}
+              </span>
+            )}
             {betweenMatches
               ? <span className={styles.matchKda}>{delta === null ? "—" : `${delta >= 0 ? "+" : ""}${delta} MMR`}</span>
               : delta !== null && <span className={styles.matchKda}>{`${delta >= 0 ? "+" : ""}${delta}`}</span>}

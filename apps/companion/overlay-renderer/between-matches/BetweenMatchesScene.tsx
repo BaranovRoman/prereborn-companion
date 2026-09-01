@@ -233,7 +233,7 @@ function FavoriteHeroes({ matches, heroIds, title }: { matches: LocalMatchSummar
 function RecentGames({ matches, title, limit }: { matches: LocalMatchSummary[]; title: string; limit: number }) {
   return (
     <Panel title={title} className={styles.recentGames}>
-      <div className={styles.gamesList}>
+      <div className={`${styles.gamesList} ${parity.gamesList}`} data-short={matches.length < limit ? "true" : undefined}>
         {matches.length ? matches.slice(0, limit).map((match, index) => {
           const hero = getHeroById(match.heroId);
           const rating = matchRating(match);

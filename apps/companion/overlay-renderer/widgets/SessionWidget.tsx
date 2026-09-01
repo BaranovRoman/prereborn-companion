@@ -26,9 +26,9 @@ function medalFor(rating: number | null): { src: string; label: string } | null 
 
 // Gameplay SessionStats keeps the production Web markup and styling while
 // AnchoredBox applies the saved local layout shared by editor and OBS.
-export function SessionWidget({ session, betweenMatches = false }: { session: LocalSessionSummary; big?: boolean; betweenMatches?: boolean }) {
+export function SessionWidget({ session, betweenMatches = false, editorPreview = false }: { session: LocalSessionSummary; big?: boolean; betweenMatches?: boolean; editorPreview?: boolean }) {
   const reduced = useReducedMotion();
-  if (!session.hasSession) return null;
+  if (!session.hasSession && !editorPreview) return null;
   const delta = session.sessionDelta;
   const formattedDelta = delta === null || delta === 0 ? null : delta > 0 ? `+${delta}` : `${delta}`;
 
@@ -36,7 +36,9 @@ export function SessionWidget({ session, betweenMatches = false }: { session: Lo
     <div className={styles.card}>
       {medalFor(session.ratingCurrent) && <img className={styles.medal} src={medalFor(session.ratingCurrent)!.src} alt={`${medalFor(session.ratingCurrent)!.label} rank medal`} />}
       <div className={styles.stats}>
-        {session.ratingCurrent !== null && <AnimatePresence mode="wait"><motion.div key={`${session.ratingCurrent}-${delta}`} className={styles.rating} initial={{ opacity: reduced ? 1 : 0 }} animate={{ opacity: 1 }} exit={{ opacity: reduced ? 1 : 0 }} transition={{ duration: reduced ? 0 : 0.2 }}>{session.ratingCurrent} MMR{formattedDelta !== null && <span className={delta! > 0 ? styles.sessionDeltaPositive : styles.sessionDeltaNegative}>{betweenMatches ? ` (${formattedDelta})` : ` (${formattedDelta})`}</span>}</motion.div></AnimatePresence>}
+        {session.ratingCurrent !== null
+          ? <AnimatePresence mode="wait"><motion.div key={`${session.ratingCurrent}-${delta}`} className={styles.rating} initial={{ opacity: reduced ? 1 : 0 }} animate={{ opacity: 1 }} exit={{ opacity: reduced ? 1 : 0 }} transition={{ duration: reduced ? 0 : 0.2 }}>{session.ratingCurrent} MMR{formattedDelta !== null && <span className={delta! > 0 ? styles.sessionDeltaPositive : styles.sessionDeltaNegative}>{betweenMatches ? ` (${formattedDelta})` : ` (${formattedDelta})`}</span>}</motion.div></AnimatePresence>
+          : editorPreview && <div className={styles.rating}>— MMR</div>}
         <div className={styles.record}><span>{session.wins}W</span> / <span>{session.losses}L</span></div>
       </div>
     </div>

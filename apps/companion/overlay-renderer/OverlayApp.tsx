@@ -205,10 +205,10 @@ export function OverlayApp() {
         sceneWidgets ? (
           <>
             <AnchoredBox layout={sceneWidgets.session} sceneWidth={dimensions.width} sceneHeight={dimensions.height} editable={editor} selected={editor && selectedWidget === "session"} onSelect={() => setSelectedWidget("session")} onChange={(patch) => patchWidget("session", patch)}>
-              <SessionWidget session={session} />
+              <SessionWidget session={session} editorPreview={editor} />
             </AnchoredBox>
             <AnchoredBox layout={sceneWidgets.recentMatches} sceneWidth={dimensions.width} sceneHeight={dimensions.height} editable={editor} selected={editor && selectedWidget === "recentMatches"} onSelect={() => setSelectedWidget("recentMatches")} onChange={(patch) => patchWidget("recentMatches", patch)}>
-              <RecentMatchesWidget matches={session.recentMatches} settings={sceneWidgets.recentMatches.recentMatches} anchor={sceneWidgets.recentMatches.anchor} />
+              <RecentMatchesWidget matches={session.recentMatches} settings={sceneWidgets.recentMatches.recentMatches} anchor={sceneWidgets.recentMatches.anchor} showDetails />
             </AnchoredBox>
           </>
         ) : (
@@ -216,7 +216,7 @@ export function OverlayApp() {
           // WK-121 originally shipped, not a blank scene.
           <>
             <div className="ov-anchor ov-anchor--top-left">
-              <SessionWidget session={session} />
+              <SessionWidget session={session} editorPreview={editor} />
             </div>
           </>
         )

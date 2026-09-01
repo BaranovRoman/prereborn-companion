@@ -53,8 +53,17 @@ describe("RecentMatchesWidget", () => {
   });
 
   it("omits the delta for a match with no rating data, without crashing", () => {
-    render(<RecentMatchesWidget matches={[match({ ratingBefore: null, ratingAfter: null })]} />);
-    expect(screen.queryByText(/\d/)).toBeNull();
+    render(<RecentMatchesWidget matches={[match({ ratingBefore: null, ratingAfter: null })]} showDetails />);
+    expect(screen.queryByText(/[+-]\d+/)).toBeNull();
+    expect(screen.getByText("10 / 2 / 15")).toBeTruthy();
+  });
+
+  it("shows persisted K/D/A for enriched matches and omits it for legacy matches", () => {
+    const view = render(<RecentMatchesWidget matches={[match()]} showDetails />);
+    expect(screen.getByText("Pudge")).toBeTruthy();
+    expect(screen.getByText("10 / 2 / 15")).toBeTruthy();
+    view.rerender(<RecentMatchesWidget matches={[match({ kills: null, deaths: null, assists: null })]} showDetails />);
+    expect(screen.queryByText("10 / 2 / 15")).toBeNull();
   });
 
   it("renders one entry per finalized match, in the given order", () => {

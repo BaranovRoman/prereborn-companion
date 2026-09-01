@@ -25,6 +25,16 @@ describe("SessionWidget", () => {
     expect(container.firstChild).toBeNull();
   });
 
+  it("keeps the same MMR content renderer visible in the editor without an active session", () => {
+    render(<SessionWidget session={{ ...BASE, ratingCurrent: 5964 }} editorPreview />);
+    expect(screen.getByText("5964 MMR")).toBeTruthy();
+  });
+
+  it("keeps editable bounds meaningful when preview rating data is unavailable", () => {
+    render(<SessionWidget session={BASE} editorPreview />);
+    expect(screen.getByText("— MMR")).toBeTruthy();
+  });
+
   it("shows the win/loss record when a session is open", () => {
     render(<SessionWidget session={{ ...BASE, hasSession: true, wins: 4, losses: 2 }} />);
     expect(screen.getByText("4W")).toBeTruthy();

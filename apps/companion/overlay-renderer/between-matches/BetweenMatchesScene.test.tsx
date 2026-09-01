@@ -47,6 +47,7 @@ describe("BetweenMatchesScene", () => {
     expect(screen.getByText("Match history is empty")).toBeTruthy();
     expect(screen.getAllByText("No completed matches").length).toBeGreaterThan(0);
     expect(screen.queryByText("VICTORY")).toBeNull();
+    expect(screen.getByLabelText("RECENT GAMES").querySelector("[data-short='true']")).toBeTruthy();
   });
 
   it("keeps the fixed production blocks and computes a rating goal from its persisted start", () => {
@@ -82,6 +83,7 @@ describe("BetweenMatchesScene", () => {
     expect(screen.getAllByText("12 / 4 / 18").length).toBe(2);
     expect(screen.getAllByText("6025").length).toBe(2);
     expect(screen.getAllByText("(+25)").length).toBe(2);
+    expect(screen.getByLabelText("RECENT GAMES").querySelector("[data-short='true']")).toBeTruthy();
     expect(screen.getByTitle("blink")).toBeTruthy();
     const lastMatch = screen.getByLabelText("LAST MATCH");
     expect(lastMatch.textContent).not.toContain("MMR");
