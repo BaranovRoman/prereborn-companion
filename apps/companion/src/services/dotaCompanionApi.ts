@@ -60,6 +60,9 @@ export const getQueueSettings = () => invoke<QueueSettingsDoc>("get_queue_settin
 export const saveQueueSettings = (settings: QueueSettingsDoc) => invoke<QueueSettingsDoc>("save_queue_settings", { settings });
 export const chooseQueueWebcamFallback = () => invoke<string>("choose_queue_webcam_fallback");
 export const removeQueueWebcamFallback = () => invoke<void>("remove_queue_webcam_fallback");
+export const getGameplayReference = () => invoke<string | null>("get_gameplay_reference");
+export const chooseGameplayReference = () => invoke<string>("choose_gameplay_reference");
+export const removeGameplayReference = () => invoke<void>("remove_gameplay_reference");
 export const getTwitchChat = () => invoke<TwitchChatStatus>("get_twitch_chat");
 export const openTwitchSettings = () => invoke<void>("open_twitch_settings");
 

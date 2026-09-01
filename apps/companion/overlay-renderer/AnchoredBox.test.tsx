@@ -101,6 +101,13 @@ describe("AnchoredBox", () => {
     expect(screen.getByLabelText("Resize widget")).toBeTruthy();
   });
 
+  it("never leaks selected bounds or handles into the OBS renderer", () => {
+    const { container } = render(<AnchoredBox layout={BASE} sceneWidth={1920} sceneHeight={1080} selected><span>content</span></AnchoredBox>);
+    expect(container.querySelector('[data-editor-widget="true"]')).toBeNull();
+    expect(screen.queryByLabelText("Resize widget")).toBeNull();
+    expect((container.firstChild as HTMLElement).style.outline).toBe("");
+  });
+
   it("allows direct resize beyond the removed 2x UI ceiling", () => {
     const onChange = vi.fn();
     render(<div data-scene-root="true"><AnchoredBox layout={BASE} sceneWidth={1920} sceneHeight={1080} editable selected onChange={onChange} minimumScale={0.05} maximumScale={null}><span>content</span></AnchoredBox></div>);

@@ -10,6 +10,7 @@ import { getStreamUserGameMode } from "../../services/stream-user-service.js";
 import { getSteamLink } from "../../services/stream-user-service.js";
 import { getCachedSteamProfile } from "../../services/steam-profile-cache-service.js";
 import { getTwitchStatus } from "../../services/twitch-integration-service.js";
+import { getDonationAlertsStatus } from "../../services/donation-alerts-integration-service.js";
 import { getLatestSessionForUser } from "../../services/stream-session-service.js";
 import { logger } from "../../utils/logger.js";
 
@@ -133,11 +134,12 @@ export const getSyncCorrectionsController = async (req: Request, res: Response) 
 export const getCompanionAccountSettingsController = async (req: Request, res: Response) => {
     try {
         const streamUserId = req.streamUserId as string;
-        const [gameMode, latestSession, steamLink, twitch] = await Promise.all([
+        const [gameMode, latestSession, steamLink, twitch, donationAlerts] = await Promise.all([
             getStreamUserGameMode(streamUserId),
             getLatestSessionForUser(streamUserId),
             getSteamLink(streamUserId),
             getTwitchStatus(streamUserId),
+            getDonationAlertsStatus(streamUserId).catch(() => null),
         ]);
         const steamProfile = steamLink ? await getCachedSteamProfile(steamLink.dotaAccountId) : null;
         res.json({
@@ -151,8 +153,14 @@ export const getCompanionAccountSettingsController = async (req: Request, res: R
                     displayName: twitch.displayName,
                     profileImageUrl: twitch.profileImageUrl,
                     live: twitch.live,
+                    recentFollowers: twitch.recentFollowers,
+                    recentSubscribers: twitch.recentSubscribers,
                 } : {}),
             },
+            donationAlerts: donationAlerts ? {
+                connected: donationAlerts.connected,
+                topDonors: donationAlerts.topDonors,
+            } : null,
         });
     } catch (error) {
         logger.error("Companion account-settings fetch error", {

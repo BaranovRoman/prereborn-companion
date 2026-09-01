@@ -10,10 +10,13 @@ vi.mock("../services/dotaCompanionApi", () => ({
   getLocalSessionSummary: vi.fn().mockResolvedValue({ ratingCurrent: 6000 }),
   chooseQueueWebcamFallback: vi.fn(),
   removeQueueWebcamFallback: vi.fn(),
+  getGameplayReference: vi.fn().mockResolvedValue(null),
+  chooseGameplayReference: vi.fn(),
+  removeGameplayReference: vi.fn(),
 }));
 
 // eslint-disable-next-line import/order
-import { getOverlayLayout, getQueueSettings, saveOverlayLayout, saveQueueSettings } from "../services/dotaCompanionApi";
+import { chooseGameplayReference, getOverlayLayout, getQueueSettings, removeGameplayReference, saveOverlayLayout, saveQueueSettings } from "../services/dotaCompanionApi";
 // eslint-disable-next-line import/order
 import { DesignPage } from "./DesignPage";
 // eslint-disable-next-line import/order
@@ -23,6 +26,8 @@ const mockedGet = vi.mocked(getOverlayLayout);
 const mockedSave = vi.mocked(saveOverlayLayout);
 const mockedGetQueue = vi.mocked(getQueueSettings);
 const mockedSaveQueue = vi.mocked(saveQueueSettings);
+const mockedChooseReference = vi.mocked(chooseGameplayReference);
+const mockedRemoveReference = vi.mocked(removeGameplayReference);
 
 const recentMatches = {
   xVw: 3, yVh: 4, scale: 1, visible: true, anchor: "top-left" as const,
@@ -76,6 +81,18 @@ describe("DesignPage", () => {
     expect(screen.queryByText("Текущая игра")).toBeNull();
   });
 
+  it("uploads and removes the local editor-only Gameplay reference", async () => {
+    mockedGet.mockResolvedValue(buildLayout());
+    mockedChooseReference.mockResolvedValue("http://127.0.0.1:3666/overlay/assets/gameplay-reference?v=1");
+    mockedRemoveReference.mockResolvedValue();
+    render(<DesignPage />);
+    await openGameplayTab();
+    fireEvent.click(screen.getByRole("button", { name: "Загрузить" }));
+    await waitFor(() => expect(screen.getByAltText("Подложка Gameplay editor")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Удалить" }));
+    await waitFor(() => expect(screen.queryByAltText("Подложка Gameplay editor")).toBeNull());
+  });
+
   it("shows only supported Between Matches controls", async () => {
     mockedGet.mockResolvedValue(buildLayout());
     render(<DesignPage />);
@@ -84,7 +101,7 @@ describe("DesignPage", () => {
     expect(screen.getByText("Канал и контент")).toBeTruthy();
     expect(screen.queryByText("Заголовок канала")).toBeNull();
     expect(screen.queryByText("Twitch chat")).toBeNull();
-    expect(screen.getByText(/Twitch-профиль канала/)).toBeTruthy();
+    expect(screen.getByText(/Recent Followers и DonationAlerts/)).toBeTruthy();
   });
 
   it("keeps Draft limited to protection text editing without camera or scale controls", async () => {

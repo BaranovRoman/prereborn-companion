@@ -33,12 +33,19 @@ describe("SessionWidget", () => {
 
   it("shows a positive MMR delta with a + sign", () => {
     render(<SessionWidget session={{ ...BASE, hasSession: true, ratingStart: 4200, ratingCurrent: 4260, sessionDelta: 60 }} />);
-    expect(screen.getByText("+60 MMR")).toBeTruthy();
+    expect(screen.getByText("(+60)")).toBeTruthy();
   });
 
   it("shows a negative MMR delta without a double sign", () => {
     render(<SessionWidget session={{ ...BASE, hasSession: true, ratingStart: 4200, ratingCurrent: 4140, sessionDelta: -60 }} />);
-    expect(screen.getByText("-60 MMR")).toBeTruthy();
+    expect(screen.getByText("(-60)")).toBeTruthy();
+
+  });
+
+  it("does not render a redundant zero delta", () => {
+    render(<SessionWidget session={{ ...BASE, hasSession: true, ratingCurrent: 5964, sessionDelta: 0 }} />);
+    expect(screen.getByText("5964 MMR")).toBeTruthy();
+    expect(screen.queryByText(/±0|0 MMR/)).toBeNull();
   });
 
   it("omits the delta line entirely when rating data is unavailable", () => {

@@ -97,7 +97,7 @@ export function AnchoredBox({
   };
 
   const beginResize = (event: ReactPointerEvent<HTMLSpanElement>) => {
-    if (!onChange) return;
+    if (!editable || !onChange) return;
     event.preventDefault();
     event.stopPropagation();
     const startX = event.clientX;
@@ -121,13 +121,13 @@ export function AnchoredBox({
   return (
     <div
       data-editor-widget={editable ? "true" : undefined}
-      style={{ position: "absolute", left, top, width: scaledWidth, height: scaledHeight, outline: selected ? "3px solid #e5b45f" : undefined, cursor: editable ? "move" : undefined, touchAction: editable ? "none" : undefined }}
+      style={{ position: "absolute", left, top, width: scaledWidth, height: scaledHeight, outline: editable && selected ? "3px solid #e5b45f" : undefined, cursor: editable ? "move" : undefined, touchAction: editable ? "none" : undefined }}
       onPointerDown={beginDrag}
     >
       <div ref={contentRef} style={{ display: "inline-block", transform: `scale(${layout.scale})`, transformOrigin: "top left" }}>
         {children}
       </div>
-      {selected && <>
+      {editable && selected && <>
         <span aria-label="Resize widget" onPointerDown={beginResize} style={{ position: "absolute", width: 18, height: 18, right: -10, bottom: -10, border: "2px solid #21170d", background: "#e5b45f", cursor: "nwse-resize" }} />
         <span style={{ position: "absolute", width: 10, height: 10, left: -6, top: -6, background: "#e5b45f" }} />
         <span style={{ position: "absolute", width: 10, height: 10, right: -6, top: -6, background: "#e5b45f" }} />

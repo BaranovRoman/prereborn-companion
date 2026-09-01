@@ -46,7 +46,8 @@ export interface OverlayStateSnapshot {
   layoutVersion: number;
   account: {
     steam?: { connected: boolean; profile: { displayName: string; avatarUrl: string | null; profileUrl: string | null } | null };
-    twitch?: { connected: boolean; login?: string; displayName?: string; profileImageUrl?: string | null; live?: { title: string; viewerCount: number; gameName: string } | null };
+    twitch?: { connected: boolean; login?: string; displayName?: string; profileImageUrl?: string | null; live?: { title: string; viewerCount: number; gameName: string } | null; recentFollowers?: Array<{ id: string; name: string }>; recentSubscribers?: Array<{ id: string; name: string; tier: string }> };
+    donationAlerts?: { connected: boolean; topDonors?: Array<{ username: string; amount: number; currency: string }> } | null;
   } | null;
   twitchChat: {
     accountConnected: boolean;

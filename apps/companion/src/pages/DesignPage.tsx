@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Button, Checkbox, Input, Select, Slider, Tabs } from "../components/ui";
 import * as api from "../services/dotaCompanionApi";
 import type { MinimapCoverSettings, OverlayAnchor, OverlayLayoutDoc, OverlayWidgetLayout, QueueSettingsDoc } from "../types/status";
+import { useGameplayReferenceBackground } from "../hooks/useGameplayReferenceBackground";
 
 type DesignTab = "betweenMatches" | "draft" | "gameplay" | "postStream";
 
@@ -103,6 +104,7 @@ export function DesignPage() {
   const [savedFlash, setSavedFlash] = useState(false);
   const [queueSettings, setQueueSettings] = useState<QueueSettingsDoc | null>(null);
   const [currentMmr, setCurrentMmr] = useState<number | null>(null);
+  const referenceBackground = useGameplayReferenceBackground();
 
   useEffect(() => {
     let cancelled = false;
@@ -162,8 +164,8 @@ export function DesignPage() {
 
   useEffect(() => {
     const frame = document.querySelector<HTMLIFrameElement>(".design-page__preview");
-    frame?.contentWindow?.postMessage({ type: "prereborn-overlay-layout-preview", layout, queueSettings }, "*");
-  }, [layout, queueSettings, tab]);
+    frame?.contentWindow?.postMessage({ type: "prereborn-overlay-layout-preview", layout, queueSettings, referenceBackground: tab === "gameplay" && referenceBackground.imageUrl ? { url: referenceBackground.imageUrl, opacity: referenceBackground.opacity } : null }, "*");
+  }, [layout, queueSettings, tab, referenceBackground.imageUrl, referenceBackground.opacity]);
 
   const editableScene = tab === "gameplay" ? tab : null;
 
@@ -250,7 +252,7 @@ export function DesignPage() {
             key={tab}
             className="design-page__preview"
             src={`http://127.0.0.1:3666/overlay?previewScene=${tab}&editor=1`}
-            onLoad={(event) => event.currentTarget.contentWindow?.postMessage({ type: "prereborn-overlay-layout-preview", layout, queueSettings }, "*")}
+            onLoad={(event) => event.currentTarget.contentWindow?.postMessage({ type: "prereborn-overlay-layout-preview", layout, queueSettings, referenceBackground: tab === "gameplay" && referenceBackground.imageUrl ? { url: referenceBackground.imageUrl, opacity: referenceBackground.opacity } : null }, "*")}
             title="Предпросмотр локального оверлея"
           />
         </div>
@@ -260,6 +262,14 @@ export function DesignPage() {
 
           {!loading && tab === "gameplay" && layout && (
             <>
+              <div className="design-page__widget-settings">
+                <h3>Скриншот Dota</h3>
+                {referenceBackground.imageUrl && <img className="design-page__fallback-preview" src={referenceBackground.imageUrl} alt="Подложка Gameplay editor" />}
+                <div className="design-page__inline-actions"><Button onClick={() => void referenceBackground.upload()}>{referenceBackground.imageUrl ? "Заменить" : "Загрузить"}</Button>{referenceBackground.imageUrl && <Button onClick={() => void referenceBackground.remove()}>Удалить</Button>}</div>
+                {referenceBackground.imageUrl && <label className="design-page__field"><span>Прозрачность ({Math.round(referenceBackground.opacity * 100)}%)</span><Slider min={0.1} max={1} step={0.05} value={referenceBackground.opacity} onChange={(event) => referenceBackground.setOpacity(Number(event.target.value))} /></label>}
+                {referenceBackground.error && <p className="app__error">{referenceBackground.error}</p>}
+                <p className="design-page__hint">Локальная подложка только для редактора. В OBS она не отображается.</p>
+              </div>
               <WidgetSettings
                 title="Текущий MMR"
                 widget={layout.scenes.gameplay.widgets.session}
@@ -280,6 +290,7 @@ export function DesignPage() {
                 <h3>Камера в OBS</h3>
                 <Checkbox label="Показывать область в редакторе" checked={layout.scenes.gameplay.cameraZone.enabled} onChange={(event) => setLayout({ ...layout, scenes: { ...layout.scenes, gameplay: { ...layout.scenes.gameplay, cameraZone: { ...layout.scenes.gameplay.cameraZone, enabled: event.target.checked } } } })} />
                 <p className="design-page__hint">Перетащите рамку камеры или измените её размер за угол. Это направляющая редактора; Companion не меняет transform источника камеры в OBS.</p>
+                <Button onClick={() => setLayout({ ...layout, scenes: { ...layout.scenes, gameplay: { ...layout.scenes.gameplay, cameraZone: { enabled: true, anchor: "bottom-right", x: 1860, y: 1013, width: 400, height: 300 } } } })}>Сбросить положение</Button>
               </div>
               <div className="design-page__actions">
                 <Button variant="primary" onClick={() => void handleSave()} disabled={saving}>
@@ -320,7 +331,7 @@ export function DesignPage() {
                   <label className="design-page__field"><span>Целевой MMR</span><Input type="number" min={0} value={queueSettings.channelGoal.targetValue} onChange={(event) => setQueueSettings({ ...queueSettings, channelGoal: { ...queueSettings.channelGoal, targetValue: Number(event.target.value) } })} /></label>
                 </>}
                 <p className="design-page__hint">Избранные герои выбираются в разделе «Герои» (до трёх). Социальные ссылки сохраняются в существующих настройках аккаунта.</p>
-                <p className="design-page__hint">Отдельный Twitch Chat блок старого web overlay не переносится: локальный OBS renderer не получает публичную ленту сообщений. Twitch-профиль канала загружается из подключённого аккаунта.</p>
+                <p className="design-page__hint">Twitch Chat, Recent Followers и DonationAlerts используют подключённые интеграции аккаунта и обновляются в локальном OBS renderer.</p>
               </div>
               <div className="design-page__actions"><Button variant="primary" onClick={() => void handleSave()} disabled={saving}>{saving ? "Сохранение…" : "Сохранить"}</Button>{savedFlash && <span className="design-page__saved">Сохранено ✓</span>}</div>
             </>

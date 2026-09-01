@@ -93,6 +93,7 @@ export function OverlayApp() {
   const [layout, setLayout] = useState<OverlayLayout | null>(null);
   const [queueSettings, setQueueSettings] = useState<QueueSettings | null>(null);
   const [selectedWidget, setSelectedWidget] = useState<string | null>("session");
+  const [referenceBackground, setReferenceBackground] = useState<{ url: string; opacity: number } | null>(null);
 
   useEffect(() => {
     if (!isEditorPreview()) return;
@@ -100,6 +101,7 @@ export function OverlayApp() {
       if (event.source === window.parent && event.data?.type === "prereborn-overlay-layout-preview" && event.data.layout) {
         setLayout(event.data.layout as OverlayLayout);
         if (event.data.queueSettings) setQueueSettings(event.data.queueSettings as QueueSettings);
+        setReferenceBackground(event.data.referenceBackground ?? null);
       }
     };
     window.addEventListener("message", receive);
@@ -177,6 +179,7 @@ export function OverlayApp() {
   return (
     <Scene sceneWidth={dimensions.width} sceneHeight={dimensions.height}>
       <div className={`ov-background ov-background--${scene}`} />
+      {editor && scene === "gameplay" && referenceBackground && <img className="ov-editor-reference" src={referenceBackground.url} alt="" style={{ opacity: referenceBackground.opacity }} />}
 
       {scene === "gameplay" && <AntiSnipeLayer settings={sceneLayout?.minimapCover} />}
       {scene === "draft" && layout && <DraftProtectionLayer mode={layout.draftProtection.mode} text={layout.draftProtection.text} sceneWidth={dimensions.width} sceneHeight={dimensions.height} editable={isEditorPreview()} />}
@@ -184,10 +187,10 @@ export function OverlayApp() {
       {scene === "gameplay" && (
         sceneWidgets ? (
           <>
-            <AnchoredBox layout={sceneWidgets.session} sceneWidth={dimensions.width} sceneHeight={dimensions.height} editable={editor} selected={selectedWidget === "session"} onSelect={() => setSelectedWidget("session")} onChange={(patch) => patchWidget("session", patch)}>
+            <AnchoredBox layout={sceneWidgets.session} sceneWidth={dimensions.width} sceneHeight={dimensions.height} editable={editor} selected={editor && selectedWidget === "session"} onSelect={() => setSelectedWidget("session")} onChange={(patch) => patchWidget("session", patch)}>
               <SessionWidget session={session} />
             </AnchoredBox>
-            <AnchoredBox layout={sceneWidgets.recentMatches} sceneWidth={dimensions.width} sceneHeight={dimensions.height} editable={editor} selected={selectedWidget === "recentMatches"} onSelect={() => setSelectedWidget("recentMatches")} onChange={(patch) => patchWidget("recentMatches", patch)}>
+            <AnchoredBox layout={sceneWidgets.recentMatches} sceneWidth={dimensions.width} sceneHeight={dimensions.height} editable={editor} selected={editor && selectedWidget === "recentMatches"} onSelect={() => setSelectedWidget("recentMatches")} onChange={(patch) => patchWidget("recentMatches", patch)}>
               <RecentMatchesWidget matches={session.recentMatches} settings={sceneWidgets.recentMatches.recentMatches} anchor={sceneWidgets.recentMatches.anchor} />
             </AnchoredBox>
           </>
