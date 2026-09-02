@@ -130,6 +130,13 @@ pub struct LocalRuntimeHealth {
     pub gsi: HealthComponent,
     pub local_session: HealthComponent,
     pub sqlite: HealthComponent,
+    // WK-127 - the local runtime DB's own `PRAGMA user_version`, `None` iff
+    // `sqlite` above isn't healthy (no open connection to query it from).
+    // Cheap (one already-open-connection pragma read, no scan) and useful
+    // for support to know which schema an install is on without needing
+    // app.log - see the SQLite runtime audit doc for what was and wasn't
+    // added here.
+    pub sqlite_schema_version: Option<i64>,
     pub overlay_server: HealthComponent,
 }
 
@@ -228,13 +235,14 @@ fn local_runtime_health(
     session_state: LifecycleSessionState,
     session_started_at: Option<String>,
     local_runtime_open: bool,
+    sqlite_schema_version: Option<i64>,
 ) -> LocalRuntimeHealth {
     let gsi = gsi_component(gsi_state);
     let local_session = local_session_component(session_state, session_started_at);
     let sqlite = sqlite_component(local_runtime_open);
     let overlay_server = overlay_server_component();
     let status = aggregate(&[(&gsi, true), (&local_session, true), (&sqlite, true), (&overlay_server, true)]);
-    LocalRuntimeHealth { status, gsi, local_session, sqlite, overlay_server }
+    LocalRuntimeHealth { status, gsi, local_session, sqlite, sqlite_schema_version, overlay_server }
 }
 
 // --- INTEGRATIONS --------------------------------------------------------
@@ -456,8 +464,21 @@ pub fn compute(app: &AppHandle) -> RuntimeHealth {
     };
 
     let lifecycle = local_runtime::lifecycle::status(app);
-    let local_runtime_open = app.state::<LocalRuntimeState>().lock().is_some();
-    let local_runtime = local_runtime_health(snapshot.gsi_state, lifecycle.session_state, lifecycle.session_started_at, local_runtime_open);
+    let (local_runtime_open, sqlite_schema_version) = {
+        let local_runtime_state = app.state::<LocalRuntimeState>();
+        let guard = local_runtime_state.lock();
+        match guard.as_ref() {
+            Some(conn) => (true, conn.query_row("PRAGMA user_version", [], |row| row.get(0)).ok()),
+            None => (false, None),
+        }
+    };
+    let local_runtime = local_runtime_health(
+        snapshot.gsi_state,
+        lifecycle.session_state,
+        lifecycle.session_started_at,
+        local_runtime_open,
+        sqlite_schema_version,
+    );
 
     let tts_status = silero::status(app);
     let game_sounds_enabled = game_sounds::get_settings(app).enabled;
@@ -629,6 +650,23 @@ mod tests {
         assert_eq!(sqlite_component(false).status, HealthStatus::Unavailable);
     }
 
+    // WK-127 - schema_version is only ever meaningful when there's an open
+    // connection to have read it from; a failed-to-open runtime must report
+    // `None`, never a stale/fabricated number.
+    #[test]
+    fn sqlite_schema_version_is_none_when_the_local_runtime_failed_to_open() {
+        let health = local_runtime_health(ConnectionState::Waiting, LifecycleSessionState::None, None, false, None);
+        assert_eq!(health.sqlite_schema_version, None);
+        assert_eq!(health.sqlite.status, HealthStatus::Unavailable);
+    }
+
+    #[test]
+    fn sqlite_schema_version_is_reported_when_the_local_runtime_is_open() {
+        let health = local_runtime_health(ConnectionState::Waiting, LifecycleSessionState::None, None, true, Some(6));
+        assert_eq!(health.sqlite_schema_version, Some(6));
+        assert_eq!(health.sqlite.status, HealthStatus::Healthy);
+    }
+
     // --- D. OBS ------------------------------------------------------------
 
     #[test]
@@ -731,7 +769,7 @@ mod tests {
             schema_version: RUNTIME_REPORT_SCHEMA_VERSION,
             generated_at: "2026-01-01T00:00:00+00:00".to_string(),
             app: AppInfo { version: "0.5.69".to_string(), platform: "windows".to_string() },
-            local_runtime: local_runtime_health(ConnectionState::Connected, LifecycleSessionState::None, None, true),
+            local_runtime: local_runtime_health(ConnectionState::Connected, LifecycleSessionState::None, None, true, Some(6)),
             integrations: integrations_health(false, false, false, None, None, None, None, false, true, SileroEngineState::NotStarted, None, false),
             cloud: cloud_health(ConnectionState::Connected, Some("t".into()), None, &SyncOutboxStatus::default(), AccountMethod::None),
         };

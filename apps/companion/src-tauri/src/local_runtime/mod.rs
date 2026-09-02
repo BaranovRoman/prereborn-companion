@@ -93,10 +93,21 @@ pub fn init(app: &AppHandle) {
             return;
         }
     }
-    match Connection::open(&path).and_then(|conn| schema::migrate(&conn).map(|_| conn)) {
-        Ok(conn) => {
+    match Connection::open(&path).and_then(|conn| schema::migrate(&conn).map(|journal_mode| (conn, journal_mode))) {
+        Ok((conn, journal_mode)) => {
             if let Ok(summary) = store::log_summary(&conn) {
                 crate::storage::append_rolling_log(app, &format!("Local runtime: opened ({summary})"));
+            }
+            // WK-127 - WAL is the crash-safety property this whole module
+            // depends on (see schema::migrate's doc comment); this can only
+            // ever fire if the environment silently couldn't honor it (e.g.
+            // some network-redirected profile directories), never on a
+            // normal desktop install.
+            if !journal_mode.eq_ignore_ascii_case("wal") {
+                crate::storage::append_rolling_log(
+                    app,
+                    &format!("Local runtime: journal_mode is '{journal_mode}', not WAL - this environment may not support WAL (e.g. a network-redirected data directory); crash-safety guarantees are reduced."),
+                );
             }
             *app.state::<LocalRuntimeState>().0.lock().unwrap() = Some(conn);
         }

@@ -250,6 +250,9 @@ export interface LocalRuntimeHealth {
   gsi: HealthComponent;
   localSession: HealthComponent;
   sqlite: HealthComponent;
+  // WK-127 - the local runtime DB's own PRAGMA user_version; null iff
+  // `sqlite` above isn't healthy (no open connection to read it from).
+  sqliteSchemaVersion: number | null;
   overlayServer: HealthComponent;
 }
 
