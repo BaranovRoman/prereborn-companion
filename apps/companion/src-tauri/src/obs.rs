@@ -12,7 +12,7 @@ use crate::broadcast_state;
 use crate::state::AppState;
 use crate::storage;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ObsConfig {
     pub enabled: bool,
@@ -29,6 +29,28 @@ pub struct ObsConfig {
     // Companion just needs a real OBS scene name to switch to once the
     // stream session becomes `ended` - see BroadcastScene::PostStream.
     pub post_stream_scene: String,
+}
+
+// WK-125 - hand-written, not derived: `config.clone()` travels through many
+// call sites in this file and in commands.rs, and a derived `Debug` would
+// print the plaintext WebSocket password the moment anything formats one of
+// those clones with `{:?}`/`dbg!()` - straight into the rolling log, which
+// is bundled unconditionally into every diagnostics ZIP export. Redacting
+// here closes that off structurally instead of relying on every future call
+// site to remember not to do it.
+impl std::fmt::Debug for ObsConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ObsConfig")
+            .field("enabled", &self.enabled)
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("password", &"[REDACTED]")
+            .field("between_matches_scene", &self.between_matches_scene)
+            .field("draft_scene", &self.draft_scene)
+            .field("gameplay_scene", &self.gameplay_scene)
+            .field("post_stream_scene", &self.post_stream_scene)
+            .finish()
+    }
 }
 
 impl Default for ObsConfig {

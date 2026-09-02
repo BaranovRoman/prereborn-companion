@@ -46,6 +46,15 @@ jobs:
         env:
           CI: true
 
+      # WK-125 - the one place this repo's test suite touches a REAL OS
+      # credential store (every other secret-storage test uses an in-memory
+      # fake, see storage/mod.rs and secure_storage.rs's own comments on
+      # why). Proves the actual Windows Credential Manager backend links and
+      # round-trips on a real Windows runner, not just in the cross-platform
+      # unit suite. Uses a synthetic key/value only.
+      - name: Secure storage smoke test (real Windows Credential Manager)
+        run: cargo test --manifest-path apps/companion/src-tauri/Cargo.toml os_secret_store_round_trips_a_real_os_credential -- --ignored --exact
+
       - name: Build Tauri app (Windows installer)
         run: pnpm --filter @prereborn/companion exec tauri build --bundles nsis
 
@@ -131,6 +140,12 @@ jobs:
           # to the backend and into diagnostics exports - it must match the
           # tag/installer version too, not just the two JSON files above.
           sed -i '0,/^version = /s/^version = ".*"/version = "'"$version"'"/' apps/companion/src-tauri/Cargo.toml
+
+      # WK-125 - same real-Windows-Credential-Manager gate as build-windows
+      # above, run here too since this is the job that actually produces a
+      # production release.
+      - name: Secure storage smoke test (real Windows Credential Manager)
+        run: cargo test --manifest-path apps/companion/src-tauri/Cargo.toml os_secret_store_round_trips_a_real_os_credential -- --ignored --exact
 
       - name: Build Tauri app (Windows installer)
         shell: powershell

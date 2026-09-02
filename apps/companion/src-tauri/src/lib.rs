@@ -8,6 +8,7 @@ mod hotkeys;
 mod local_runtime;
 mod obs;
 mod overlay_server;
+mod secure_storage;
 mod server;
 mod silero;
 mod state;

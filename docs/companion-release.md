@@ -27,13 +27,17 @@ corrupted or was tampered with — do not run it; re-download instead.
 
 ## Why settings survive an update
 
-User data (companion token, OBS config, logs) lives under the OS app-data
-directory (`app_data_dir()`, see
-[`storage/mod.rs`](../apps/companion/src-tauri/src/storage/mod.rs)), which is
-separate from the NSIS install directory. Re-running the installer replaces
-the installed binary/assets only — it never touches app-data — so updates
-(and reinstalls) preserve the companion token, OBS settings, and logs
-without any extra migration step.
+Non-secret settings (OBS host/port/scene names, logs, overlay/queue
+settings) live under the OS app-data directory (`app_data_dir()`, see
+[`storage/mod.rs`](../apps/companion/src-tauri/src/storage/mod.rs)). The
+companion token, session refresh token, and OBS WebSocket password instead
+live in the OS credential store (Windows Credential Manager) — see
+[WK-125's audit](research/wk-125-desktop-secret-storage-audit.md) for why.
+Both locations are separate from the NSIS install directory and from each
+other: re-running the installer replaces the installed binary/assets only —
+it never touches app-data or the OS credential store — so updates (and
+reinstalls) preserve the login, OBS settings, and logs without any extra
+migration step.
 
 ## Incompatibility handling
 

@@ -71,6 +71,16 @@ tauri-plugin-window-state = "2.4.1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
 tauri-plugin-single-instance = "2"
+# WK-125 - OS-backed secure storage for real reusable credentials (PreReborn
+# refresh token, legacy companion token, OBS WebSocket password) instead of
+# plaintext JSON. Default `v1` feature is the classic Entry::new/set_password/
+# get_password/delete_credential API; it auto-selects the right native store
+# per target (Windows Credential Manager, macOS Keychain, Linux Secret
+# Service) via conditional deps in the crate itself, so no per-platform
+# feature wiring is needed here. Actively maintained (open-source-cooperative
+# org, regular releases through 2026), MIT/Apache-2.0 dual-licensed - see
+# docs/security/desktop-secret-storage-audit.md for the dependency review.
+keyring = "4"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
