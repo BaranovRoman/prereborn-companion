@@ -59,7 +59,7 @@ export function AppShell() {
   const gameSoundEngine = useGameSoundEngine();
   const sessionPrompt = useStreamSessionPrompt();
   const localLifecycle = useLocalLifecycle();
-  const sessionSummary = useLocalSessionSummary();
+  const { summary: sessionSummary, refresh: refreshSessionSummary } = useLocalSessionSummary();
   const { status: syncStatus, refresh: syncRefresh } = useSyncOutboxStatus();
   const favoriteHeroes = useFavoriteHeroes();
   const [section, setSection] = useState<Section>("home");
@@ -233,6 +233,7 @@ export function AppShell() {
             setAutomaticMode={setAutomaticMode}
             localLifecycle={localLifecycle}
             sessionSummary={sessionSummary}
+            refreshSessionSummary={refreshSessionSummary}
           />
         )}
         {section === "heroes" && (

@@ -201,6 +201,7 @@ fn row_to_match(row: &rusqlite::Row) -> rusqlite::Result<LocalMatch> {
     let state_raw: String = row.get(11)?;
     let result_raw: Option<String> = row.get(7)?;
     let ranked_raw: String = row.get(8)?;
+    let ranked_detected_raw: String = row.get(20)?;
     Ok(LocalMatch {
         local_id: row.get(0)?,
         session_local_id: row.get(1)?,
@@ -211,8 +212,10 @@ fn row_to_match(row: &rusqlite::Row) -> rusqlite::Result<LocalMatch> {
         player_team: row.get(6)?,
         result: result_raw.and_then(|value| MatchResult::from_db_str(&value)),
         ranked_mode: RankedMode::from_db_str(&ranked_raw),
+        ranked_mode_detected: RankedMode::from_db_str(&ranked_detected_raw),
         rating_before: row.get(9)?,
         detected_rating_delta: row.get(10)?,
+        rating_delta_correction: row.get(21)?,
         state: LocalMatchState::from_db_str(&state_raw).expect("stored state is always valid"),
         rating_after: row.get(12)?,
         kills: row.get(13)?,
@@ -232,7 +235,8 @@ fn row_to_match(row: &rusqlite::Row) -> rusqlite::Result<LocalMatch> {
 
 const MATCH_COLUMNS: &str = "local_id, session_local_id, backend_id, match_id, match_key, hero_id, \
      player_team, result, ranked_mode, rating_before, detected_rating_delta, state, rating_after, \
-     kills, deaths, assists, inventory, started_at, interrupted_at, finalized_at";
+     kills, deaths, assists, inventory, started_at, interrupted_at, finalized_at, \
+     ranked_mode_detected, rating_delta_correction";
 
 /// Mirrors `findActiveMatch` (stream-match-service.ts): the current match is
 /// always re-derived from durable storage, never an in-memory tracker - so
@@ -345,8 +349,9 @@ pub fn create_match(
     let local_id = Uuid::new_v4().to_string();
     conn.execute(
         "INSERT OR IGNORE INTO local_matches \
-            (local_id, session_local_id, match_id, match_key, hero_id, player_team, ranked_mode, state, started_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'in_progress', ?8)",
+            (local_id, session_local_id, match_id, match_key, hero_id, player_team, ranked_mode, \
+             ranked_mode_detected, state, started_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, 'in_progress', ?8)",
         params![
             local_id,
             session_local_id,
@@ -528,6 +533,170 @@ pub fn finalize_match(
     super::sync::enqueue(&tx, "match", local_id, "match_finalized", &payload, now)?;
 
     tx.commit()
+}
+
+/// WK-115 - recomputes `rating_before`/`rating_after` for every finalized
+/// match in a session, in play order, from the session's fixed
+/// `rating_start` anchor, then updates the session's `rating_current` (and
+/// the durable device-wide current-rating snapshot, but only when this is
+/// the currently open session - see below) to match. This is the local
+/// equivalent of the backend's tail-walk cascade in
+/// `stream-match-correction-service.ts`'s `correctStreamMatch`, except it
+/// recomputes the whole session chain from scratch each time rather than
+/// patching only the tail after one edited row - simpler to reason about
+/// and test, and cheap at the match-per-stream-session scale Companion
+/// deals with.
+///
+/// A match whose `ranked_mode` is not `Ranked` (Unranked, or Unknown with
+/// no detected delta) does not contribute and does not break the chain:
+/// the running total carries through it unchanged, and its own
+/// `rating_before`/`rating_after` are cleared - mirrors the backend's
+/// "null out rating_* on unranked tail rows".
+///
+/// Deliberately scoped to ONE session: correcting a match in an
+/// already-ended session reanchors that session's own chain correctly, but
+/// does not propagate into `rating_start`/`rating_current` of sessions
+/// created after it (those were fixed at creation time from that session's
+/// pre-correction `rating_current` - see `ensure_active_session`'s carried
+/// rating). Propagating further would mean recomputing every later
+/// session's own match chain too, recursively - a larger migration than
+/// this pass covers; see docs/research for the follow-up note. The
+/// `ended_at IS NULL` guard below is what keeps a correction against an old
+/// session from clobbering the live device-wide current-rating snapshot
+/// with a stale value.
+fn reanchor_session(tx: &rusqlite::Transaction, session_local_id: &str) -> rusqlite::Result<()> {
+    let (rating_start, rating_adjustment, is_open): (Option<i64>, i64, bool) = tx.query_row(
+        "SELECT rating_start, rating_adjustment, ended_at IS NULL FROM local_sessions WHERE local_id = ?1",
+        params![session_local_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )?;
+
+    let mut stmt = tx.prepare(
+        "SELECT local_id, ranked_mode, detected_rating_delta, rating_delta_correction \
+         FROM local_matches WHERE session_local_id = ?1 AND state = 'finalized' ORDER BY rowid ASC",
+    )?;
+    let rows: Vec<(String, String, Option<i64>, i64)> = stmt
+        .query_map(params![session_local_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    drop(stmt);
+
+    let mut running = rating_start;
+    for (match_local_id, ranked_raw, detected, correction) in rows {
+        let contributes = matches!(RankedMode::from_db_str(&ranked_raw), RankedMode::Ranked) && detected.is_some();
+        if contributes {
+            let effective = detected.expect("checked above") + correction;
+            let before = running;
+            let after = running.map(|value| value + effective);
+            tx.execute(
+                "UPDATE local_matches SET rating_before = ?2, rating_after = ?3 WHERE local_id = ?1",
+                params![match_local_id, before, after],
+            )?;
+            running = after;
+        } else {
+            tx.execute(
+                "UPDATE local_matches SET rating_before = NULL, rating_after = NULL WHERE local_id = ?1",
+                params![match_local_id],
+            )?;
+        }
+    }
+
+    let rating_current = running.map(|value| value + rating_adjustment);
+    tx.execute(
+        "UPDATE local_sessions SET rating_current = ?2 WHERE local_id = ?1",
+        params![session_local_id, rating_current],
+    )?;
+    if is_open {
+        if let Some(rating_current) = rating_current {
+            persist_current_rating(tx, rating_current)?;
+        }
+    }
+    Ok(())
+}
+
+/// WK-115 - applies a manual absolute *effective* delta correction to a
+/// single finalized ranked match (the Dashboard's "+25 -> ×2 -> +50"
+/// control). Never touches `detected_rating_delta` - the immutable observed
+/// value - only `rating_delta_correction`, the diff layered on top (same
+/// invariant as the backend's `correctStreamMatch`). `effective_delta =
+/// None` clears any existing correction, reverting the match to its
+/// detected delta. No-op (returns the match unchanged) for a match that
+/// isn't a finalized ranked match with a detected delta - there is nothing
+/// to correct. Reanchors the session afterward - see `reanchor_session`.
+pub fn correct_match_delta(
+    conn: &mut Connection,
+    local_id: &str,
+    effective_delta: Option<i64>,
+) -> rusqlite::Result<Option<LocalMatch>> {
+    let tx = conn.transaction()?;
+    let row: Option<(String, String, Option<i64>)> = tx
+        .query_row(
+            "SELECT session_local_id, ranked_mode, detected_rating_delta FROM local_matches \
+             WHERE local_id = ?1 AND state = 'finalized'",
+            params![local_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
+    let Some((session_local_id, ranked_raw, detected)) = row else {
+        tx.commit()?;
+        return Ok(None);
+    };
+    let Some(detected) = detected.filter(|_| matches!(RankedMode::from_db_str(&ranked_raw), RankedMode::Ranked)) else {
+        tx.commit()?;
+        return find_match(conn, local_id);
+    };
+
+    let correction = effective_delta.map(|value| value - detected).unwrap_or(0);
+    tx.execute(
+        "UPDATE local_matches SET rating_delta_correction = ?2 WHERE local_id = ?1",
+        params![local_id, correction],
+    )?;
+    reanchor_session(&tx, &session_local_id)?;
+    tx.commit()?;
+    find_match(conn, local_id)
+}
+
+/// WK-115 - corrects a finalized match's ranked/unranked classification
+/// after the fact (the Dashboard's Ranked -> Unranked action and its
+/// reverse), for the case GSI/the account's ranked-mode setting
+/// mis-classified a specific match. Never touches `ranked_mode_detected` -
+/// the immutable observed classification - only the authoritative
+/// `ranked_mode` column, mirroring `detected_rating_delta`/
+/// `rating_delta_correction`'s "observed vs corrected" split.
+/// `target = None` clears the override, restoring `ranked_mode_detected`
+/// verbatim (so an Unranked correction on a match that was actually
+/// detected as Unranked reverts to Unranked, never a hardcoded Ranked).
+/// Reanchors the session afterward: an Unranked match stops contributing
+/// (its own rating_before/after clear, later matches anchor straight
+/// through it); a match restored to Ranked resumes contributing its stored
+/// detected delta + whatever delta correction it already had.
+pub fn correct_match_ranked_mode(
+    conn: &mut Connection,
+    local_id: &str,
+    target: Option<RankedMode>,
+) -> rusqlite::Result<Option<LocalMatch>> {
+    let tx = conn.transaction()?;
+    let row: Option<(String, String)> = tx
+        .query_row(
+            "SELECT session_local_id, ranked_mode_detected FROM local_matches \
+             WHERE local_id = ?1 AND state = 'finalized'",
+            params![local_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+    let Some((session_local_id, detected_raw)) = row else {
+        tx.commit()?;
+        return Ok(None);
+    };
+    let resolved = target.unwrap_or_else(|| RankedMode::from_db_str(&detected_raw));
+    tx.execute(
+        "UPDATE local_matches SET ranked_mode = ?2 WHERE local_id = ?1",
+        params![local_id, resolved.as_db_str()],
+    )?;
+    reanchor_session(&tx, &session_local_id)?;
+    tx.commit()?;
+    find_match(conn, local_id)
 }
 
 /// A one-line, plain-text summary for the rolling app log (see
@@ -932,5 +1101,231 @@ mod tests {
         assert_eq!((history[0].kills, history[0].deaths, history[0].assists), (Some(9), Some(2), Some(11)));
         assert_eq!(history[0].inventory[0].as_deref(), Some("item_blink"));
         assert_eq!(history[0].inventory[6].as_deref(), Some("item_tpscroll"));
+    }
+
+    // WK-115 - Dashboard match correction + reanchor.
+
+    fn win_match(conn: &mut Connection, session_local_id: &str, match_id: &str, hero_id: i64, ranked: RankedMode) -> LocalMatch {
+        let now = Utc::now();
+        create_match(conn, session_local_id, Some(match_id), hero_id, "radiant", ranked, now).unwrap();
+        let active = find_active_match(conn, session_local_id).unwrap().unwrap();
+        finalize_match(conn, &active.local_id, session_local_id, ranked, MatchResult::Win, "confirmed", now).unwrap();
+        find_match(conn, &active.local_id).unwrap().unwrap()
+    }
+
+    fn lose_match(conn: &mut Connection, session_local_id: &str, match_id: &str, hero_id: i64, ranked: RankedMode) -> LocalMatch {
+        let now = Utc::now();
+        create_match(conn, session_local_id, Some(match_id), hero_id, "radiant", ranked, now).unwrap();
+        let active = find_active_match(conn, session_local_id).unwrap().unwrap();
+        finalize_match(conn, &active.local_id, session_local_id, ranked, MatchResult::Loss, "confirmed", now).unwrap();
+        find_match(conn, &active.local_id).unwrap().unwrap()
+    }
+
+    #[test]
+    fn x2_doubles_a_positive_detected_delta() {
+        let mut conn = test_conn();
+        let session = ensure_active_session(&mut conn, Utc::now()).unwrap();
+        set_current_rating(&mut conn, 6_000).unwrap();
+        let m = win_match(&mut conn, &session.local_id, "1", 14, RankedMode::Ranked);
+        assert_eq!(m.detected_rating_delta, Some(25));
+
+        let corrected = correct_match_delta(&mut conn, &m.local_id, Some(50)).unwrap().unwrap();
+        assert_eq!(corrected.detected_rating_delta, Some(25), "detected delta is immutable");
+        assert_eq!(corrected.rating_delta_correction, 25);
+        assert_eq!(corrected.rating_before, Some(6_000));
+        assert_eq!(corrected.rating_after, Some(6_050));
+    }
+
+    #[test]
+    fn x2_doubles_a_negative_detected_delta() {
+        let mut conn = test_conn();
+        let session = ensure_active_session(&mut conn, Utc::now()).unwrap();
+        set_current_rating(&mut conn, 6_000).unwrap();
+        let m = lose_match(&mut conn, &session.local_id, "1", 14, RankedMode::Ranked);
+        assert_eq!(m.detected_rating_delta, Some(-25));
+
+        let corrected = correct_match_delta(&mut conn, &m.local_id, Some(-50)).unwrap().unwrap();
+        assert_eq!(corrected.detected_rating_delta, Some(-25), "detected delta is immutable");
+        assert_eq!(corrected.rating_delta_correction, -25);
+        assert_eq!(corrected.rating_after, Some(5_950));
+    }
+
+    #[test]
+    fn x2_toggled_back_off_restores_the_detected_delta() {
+        let mut conn = test_conn();
+        let session = ensure_active_session(&mut conn, Utc::now()).unwrap();
+        set_current_rating(&mut conn, 6_000).unwrap();
+        let m = win_match(&mut conn, &session.local_id, "1", 14, RankedMode::Ranked);
+
+        correct_match_delta(&mut conn, &m.local_id, Some(50)).unwrap();
+        let reverted = correct_match_delta(&mut conn, &m.local_id, Some(25)).unwrap().unwrap();
+        assert_eq!(reverted.rating_delta_correction, 0);
+        assert_eq!(reverted.rating_after, Some(6_025));
+    }
+
+    #[test]
+    fn a_manual_delta_edit_after_x2_becomes_the_source_of_truth() {
+        let mut conn = test_conn();
+        let session = ensure_active_session(&mut conn, Utc::now()).unwrap();
+        set_current_rating(&mut conn, 6_000).unwrap();
+        let m = win_match(&mut conn, &session.local_id, "1", 14, RankedMode::Ranked);
+
+        correct_match_delta(&mut conn, &m.local_id, Some(50)).unwrap(); // x2
+        let edited = correct_match_delta(&mut conn, &m.local_id, Some(45)).unwrap().unwrap(); // manual override
+        assert_eq!(edited.detected_rating_delta, Some(25));
+        assert_eq!(edited.rating_delta_correction, 20);
+        assert_eq!(edited.rating_after, Some(6_045));
+    }
+
+    #[test]
+    fn correcting_an_older_match_reanchors_the_next_match_in_the_session() {
+        let mut conn = test_conn();
+        let session = ensure_active_session(&mut conn, Utc::now()).unwrap();
+        set_current_rating(&mut conn, 6_000).unwrap();
+        let match_a = win_match(&mut conn, &session.local_id, "a", 14, RankedMode::Ranked);
+        let match_b = win_match(&mut conn, &session.local_id, "b", 2, RankedMode::Ranked);
+        assert_eq!(match_a.rating_after, Some(6_025));
+        assert_eq!(match_b.rating_before, Some(6_025));
+        assert_eq!(match_b.rating_after, Some(6_050));
+
+        correct_match_delta(&mut conn, &match_a.local_id, Some(50)).unwrap(); // x2 on match A
+
+        let reanchored_b = find_match(&conn, &match_b.local_id).unwrap().unwrap();
+        assert_eq!(reanchored_b.rating_before, Some(6_050), "match B must anchor on match A's corrected rating_after");
+        assert_eq!(reanchored_b.rating_after, Some(6_075));
+    }
+
+    #[test]
+    fn marking_a_match_unranked_removes_its_mmr_contribution() {
+        let mut conn = test_conn();
+        let session = ensure_active_session(&mut conn, Utc::now()).unwrap();
+        set_current_rating(&mut conn, 6_000).unwrap();
+        let m = win_match(&mut conn, &session.local_id, "1", 14, RankedMode::Ranked);
+        assert_eq!(m.rating_after, Some(6_025));
+
+        let corrected = correct_match_ranked_mode(&mut conn, &m.local_id, Some(RankedMode::Unranked)).unwrap().unwrap();
+        assert_eq!(corrected.ranked_mode, RankedMode::Unranked);
+        assert_eq!(corrected.rating_before, None, "an unranked match no longer carries an absolute rating snapshot");
+        assert_eq!(corrected.rating_after, None);
+        assert_eq!(corrected.detected_rating_delta, Some(25), "detected delta on the observation itself is preserved");
+
+        let session_row = find_open_session(&conn).unwrap().unwrap();
+        assert_eq!(session_row.rating_current, Some(6_000), "the session must no longer credit an unranked match's delta");
+    }
+
+    #[test]
+    fn unranking_an_older_match_reanchors_the_next_match_through_it() {
+        let mut conn = test_conn();
+        let session = ensure_active_session(&mut conn, Utc::now()).unwrap();
+        set_current_rating(&mut conn, 6_000).unwrap();
+        let match_a = win_match(&mut conn, &session.local_id, "a", 14, RankedMode::Ranked);
+        let match_b = win_match(&mut conn, &session.local_id, "b", 2, RankedMode::Ranked);
+        assert_eq!(match_b.rating_after, Some(6_050));
+
+        correct_match_ranked_mode(&mut conn, &match_a.local_id, Some(RankedMode::Unranked)).unwrap();
+
+        let reanchored_b = find_match(&conn, &match_b.local_id).unwrap().unwrap();
+        assert_eq!(reanchored_b.rating_before, Some(6_000), "match B anchors straight through the now-unranked match A");
+        assert_eq!(reanchored_b.rating_after, Some(6_025));
+        let session_row = find_open_session(&conn).unwrap().unwrap();
+        assert_eq!(session_row.rating_current, Some(6_025));
+    }
+
+    #[test]
+    fn reverting_unranked_back_to_ranked_restores_its_contribution() {
+        let mut conn = test_conn();
+        let session = ensure_active_session(&mut conn, Utc::now()).unwrap();
+        set_current_rating(&mut conn, 6_000).unwrap();
+        let match_a = win_match(&mut conn, &session.local_id, "a", 14, RankedMode::Ranked);
+        let match_b = win_match(&mut conn, &session.local_id, "b", 2, RankedMode::Ranked);
+
+        correct_match_ranked_mode(&mut conn, &match_a.local_id, Some(RankedMode::Unranked)).unwrap();
+        let restored = correct_match_ranked_mode(&mut conn, &match_a.local_id, None).unwrap().unwrap();
+        assert_eq!(restored.ranked_mode, RankedMode::Ranked, "clearing the override restores the detected classification");
+        assert_eq!(restored.rating_after, Some(6_025));
+
+        let reanchored_b = find_match(&conn, &match_b.local_id).unwrap().unwrap();
+        assert_eq!(reanchored_b.rating_before, Some(6_025));
+        assert_eq!(reanchored_b.rating_after, Some(6_050));
+        let session_row = find_open_session(&conn).unwrap().unwrap();
+        assert_eq!(session_row.rating_current, Some(6_050));
+    }
+
+    #[test]
+    fn reverting_ranked_mode_on_a_match_originally_detected_unranked_goes_back_to_unranked_not_ranked() {
+        let mut conn = test_conn();
+        let session = ensure_active_session(&mut conn, Utc::now()).unwrap();
+        set_current_rating(&mut conn, 6_000).unwrap();
+        let m = win_match(&mut conn, &session.local_id, "1", 14, RankedMode::Unranked);
+
+        correct_match_ranked_mode(&mut conn, &m.local_id, Some(RankedMode::Ranked)).unwrap();
+        let reverted = correct_match_ranked_mode(&mut conn, &m.local_id, None).unwrap().unwrap();
+        assert_eq!(reverted.ranked_mode, RankedMode::Unranked, "must restore the real detected value, never a hardcoded Ranked");
+    }
+
+    #[test]
+    fn correcting_a_match_updates_the_devicewide_current_rating_snapshot() {
+        let mut conn = test_conn();
+        let session = ensure_active_session(&mut conn, Utc::now()).unwrap();
+        set_current_rating(&mut conn, 6_000).unwrap();
+        let m = win_match(&mut conn, &session.local_id, "1", 14, RankedMode::Ranked);
+
+        correct_match_delta(&mut conn, &m.local_id, Some(50)).unwrap();
+        assert_eq!(get_current_rating(&conn).unwrap(), Some(6_050));
+    }
+
+    #[test]
+    fn correcting_a_match_in_an_already_ended_session_does_not_clobber_the_live_current_rating() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let first = ensure_active_session(&mut conn, now).unwrap();
+        set_current_rating(&mut conn, 6_000).unwrap();
+        let m = win_match(&mut conn, &first.local_id, "1", 14, RankedMode::Ranked);
+        finalize_session_end(&mut conn, &first.local_id, now).unwrap();
+
+        let second = ensure_active_session(&mut conn, now + chrono::Duration::minutes(1)).unwrap();
+        set_current_rating(&mut conn, 6_100).unwrap();
+        assert_eq!(second.local_id.ne(&first.local_id), true);
+
+        correct_match_delta(&mut conn, &m.local_id, Some(50)).unwrap();
+
+        assert_eq!(get_current_rating(&conn).unwrap(), Some(6_100), "correcting an old, already-ended session must not overwrite the live open session's current rating");
+        let old_session_row = find_match(&conn, &m.local_id).unwrap().unwrap();
+        assert_eq!(old_session_row.rating_after, Some(6_050), "the old session's own chain is still correctly reanchored");
+    }
+
+    #[test]
+    fn delta_correction_is_a_noop_on_a_match_with_no_detected_delta() {
+        let mut conn = test_conn();
+        let session = ensure_active_session(&mut conn, Utc::now()).unwrap();
+        let m = win_match(&mut conn, &session.local_id, "1", 14, RankedMode::Unknown);
+        assert_eq!(m.detected_rating_delta, None);
+
+        let result = correct_match_delta(&mut conn, &m.local_id, Some(999)).unwrap().unwrap();
+        assert_eq!(result.rating_delta_correction, 0, "nothing to correct without a detected delta");
+        assert_eq!(result.rating_after, None);
+    }
+
+    #[test]
+    fn reanchor_skips_over_a_legacy_match_with_no_detected_delta_without_breaking_the_chain() {
+        // A match finalized while ranked_mode was Unknown (e.g. an old row
+        // from before the account setting was ever synced) has no detected
+        // delta and must neither contribute nor crash the reanchor walk for
+        // matches around it.
+        let mut conn = test_conn();
+        let session = ensure_active_session(&mut conn, Utc::now()).unwrap();
+        set_current_rating(&mut conn, 6_000).unwrap();
+        let match_a = win_match(&mut conn, &session.local_id, "a", 14, RankedMode::Ranked);
+        let legacy = win_match(&mut conn, &session.local_id, "legacy", 5, RankedMode::Unknown);
+        let match_c = win_match(&mut conn, &session.local_id, "c", 2, RankedMode::Ranked);
+        assert_eq!(legacy.rating_before, None);
+        assert_eq!(legacy.rating_after, None);
+        assert_eq!(match_c.rating_before, Some(6_025), "the legacy unknown-mode match must not break the chain");
+
+        correct_match_delta(&mut conn, &match_a.local_id, Some(50)).unwrap();
+
+        let reanchored_c = find_match(&conn, &match_c.local_id).unwrap().unwrap();
+        assert_eq!(reanchored_c.rating_before, Some(6_050));
+        assert_eq!(reanchored_c.rating_after, Some(6_075));
     }
 }

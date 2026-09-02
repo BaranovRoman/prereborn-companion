@@ -6,13 +6,17 @@ import type { LocalMatchSummary } from "../types";
 
 function match(overrides: Partial<LocalMatchSummary> = {}): LocalMatchSummary {
   return {
+    localId: "local-123",
     matchId: "123",
     heroId: 14, // Pudge
     result: "win",
     rankedMode: "ranked",
+    rankedModeDetected: "ranked",
     state: "finalized",
     ratingBefore: 4200,
     ratingAfter: 4225,
+    detectedRatingDelta: 25,
+    ratingDeltaCorrection: 0,
     kills: 10,
     deaths: 2,
     assists: 15,

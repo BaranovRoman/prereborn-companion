@@ -103,12 +103,10 @@ pub enum RankedMode {
 }
 
 impl RankedMode {
-    // No writer sets this to `Ranked`/`Unranked` yet (see this enum's doc
-    // comment above) - kept for read/write symmetry with `from_db_str` and
-    // reserved for the future ticket that sources the ranked/unranked
-    // toggle locally, rather than leaving that writer with an inconsistent
-    // one-way mapping to build against.
-    #[allow(dead_code)]
+    // WK-115 - now written by `store::create_match` (ranked_mode_detected)
+    // and `store::correct_match_ranked_mode` (the authoritative, correctable
+    // ranked_mode column) - see this enum's doc comment above for why a
+    // real Ranked/Unranked value was never fabricated before that ticket.
     pub fn as_db_str(self) -> &'static str {
         match self {
             Self::Unknown => "unknown",
@@ -169,8 +167,19 @@ pub struct LocalMatch {
     pub player_team: String,
     pub result: Option<MatchResult>,
     pub ranked_mode: RankedMode,
+    /// WK-115 - immutable snapshot of `ranked_mode` as it stood at match
+    /// creation (GSI/account-setting-derived, never a correction). Lets a
+    /// Ranked/Unranked dashboard correction on `ranked_mode` be reverted
+    /// back to what was actually detected, rather than a hardcoded guess.
+    pub ranked_mode_detected: RankedMode,
     pub rating_before: Option<i64>,
     pub detected_rating_delta: Option<i64>,
+    /// WK-115 - the diff a manual dashboard correction (×2, direct numeric
+    /// edit) layers ON TOP OF `detected_rating_delta`, never overwriting it.
+    /// `effective delta = detected_rating_delta + rating_delta_correction`.
+    /// Mirrors `stream_matches.rating_delta_correction` on the backend
+    /// (WK-105) - see `store::correct_match_delta`, the only writer.
+    pub rating_delta_correction: i64,
     pub rating_after: Option<i64>,
     pub kills: Option<i64>,
     pub deaths: Option<i64>,

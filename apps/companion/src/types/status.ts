@@ -183,13 +183,17 @@ export type LocalRankedModeValue = "unknown" | "ranked" | "unranked";
 export type LocalMatchStateValue = "in_progress" | "post_game_pending" | "finalized" | "needs_review" | "interrupted";
 
 export interface LocalMatchSummary {
+  localId: string;
   matchId: string | null;
   heroId: number;
   result: LocalMatchResultValue | null;
   rankedMode: LocalRankedModeValue;
+  rankedModeDetected: LocalRankedModeValue;
   state: LocalMatchStateValue;
   ratingBefore: number | null;
   ratingAfter: number | null;
+  detectedRatingDelta: number | null;
+  ratingDeltaCorrection: number;
   kills: number | null;
   deaths: number | null;
   assists: number | null;

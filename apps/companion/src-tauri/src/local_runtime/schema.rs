@@ -130,6 +130,21 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE local_matches ADD COLUMN assists INTEGER;
     ALTER TABLE local_matches ADD COLUMN inventory TEXT NOT NULL DEFAULT '[]';
     "#,
+    // v5 -> v6 (WK-115) - the Home dashboard's per-match Ranked/Unranked
+    // correction needs to remember what was actually detected (GSI/account
+    // setting, "unknown" by default per model::RankedMode's doc comment) so
+    // an Unranked correction is reversible back to the real original value,
+    // not hardcoded back to "ranked". Mirrors the
+    // detected_rating_delta/rating_delta_correction split already on this
+    // table: `ranked_mode` becomes the authoritative/correctable column,
+    // `ranked_mode_detected` never changes once written. Backfilled from
+    // the existing `ranked_mode` column - every pre-existing row's stored
+    // value IS what was detected, since no writer has ever corrected
+    // `ranked_mode` before this migration.
+    r#"
+    ALTER TABLE local_matches ADD COLUMN ranked_mode_detected TEXT NOT NULL DEFAULT 'unknown';
+    UPDATE local_matches SET ranked_mode_detected = ranked_mode;
+    "#,
 ];
 
 pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
@@ -210,5 +225,27 @@ mod tests {
             |row| Ok((row.get(0)?, row.get(1)?)),
         ).unwrap();
         assert_eq!(row, (None, "[]".to_string()));
+    }
+
+    #[test]
+    fn existing_v5_database_backfills_ranked_mode_detected_from_ranked_mode() {
+        let conn = Connection::open_in_memory().unwrap();
+        for migration in MIGRATIONS.iter().take(5) {
+            conn.execute_batch(migration).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 5).unwrap();
+        conn.execute("INSERT INTO local_sessions (local_id, started_at) VALUES ('s1', '2026-01-01T00:00:00Z')", []).unwrap();
+        conn.execute(
+            "INSERT INTO local_matches (local_id, session_local_id, match_key, hero_id, player_team, ranked_mode, state, started_at) \
+             VALUES ('m1', 's1', 'gsi:1', 14, 'radiant', 'ranked', 'finalized', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+        let detected: String = conn
+            .query_row("SELECT ranked_mode_detected FROM local_matches WHERE local_id = 'm1'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(detected, "ranked", "a pre-existing row's already-stored ranked_mode is what was actually detected");
     }
 }

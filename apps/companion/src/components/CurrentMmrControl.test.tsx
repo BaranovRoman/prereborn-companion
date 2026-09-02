@@ -40,4 +40,20 @@ describe("CurrentMmrControl", () => {
     expect(screen.getByText("+25 за сессию")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Изменить" })).toBeTruthy();
   });
+
+  it("nudges Current MMR up by 25 through the compact stepper", async () => {
+    setCurrentMmr.mockResolvedValue({ ratingCurrent: 6_150, sessionDelta: 50 });
+    render(<CurrentMmrControl currentMmr={6_125} sessionDelta={25} hasSession />);
+    fireEvent.click(screen.getByRole("button", { name: "Увеличить MMR на 25" }));
+    await waitFor(() => expect(setCurrentMmr).toHaveBeenCalledWith(6_150));
+    expect(await screen.findByText("6150")).toBeTruthy();
+  });
+
+  it("nudges Current MMR down by 25 through the compact stepper", async () => {
+    setCurrentMmr.mockResolvedValue({ ratingCurrent: 6_100, sessionDelta: 0 });
+    render(<CurrentMmrControl currentMmr={6_125} sessionDelta={25} hasSession />);
+    fireEvent.click(screen.getByRole("button", { name: "Уменьшить MMR на 25" }));
+    await waitFor(() => expect(setCurrentMmr).toHaveBeenCalledWith(6_100));
+    expect(await screen.findByText("6100")).toBeTruthy();
+  });
 });

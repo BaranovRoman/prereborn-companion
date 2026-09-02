@@ -8,13 +8,17 @@ export type BroadcastState = "betweenMatches" | "draft" | "gameplay" | "postStre
 export type MatchResult = "win" | "loss" | "abandon";
 
 export interface LocalMatchSummary {
+  localId: string;
   matchId: string | null;
   heroId: number;
   result: MatchResult | null;
   rankedMode: string;
+  rankedModeDetected: string;
   state: string;
   ratingBefore: number | null;
   ratingAfter: number | null;
+  detectedRatingDelta: number | null;
+  ratingDeltaCorrection: number;
   kills: number | null;
   deaths: number | null;
   assists: number | null;

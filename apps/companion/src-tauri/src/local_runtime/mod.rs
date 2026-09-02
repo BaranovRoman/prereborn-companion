@@ -13,9 +13,14 @@
 //   OBS-driven lifecycle) - `ensure_active_session` only ever lazily
 //   creates one if none is open yet, mirroring the backend's
 //   `getOrCreateActiveSession`, and nothing here ever closes one;
-// - it has no manual-correction workflow and no `CorrectionLedgerEntry` -
-//   see model.rs's `RankedMode::Unknown` comment for why MMR tracking stays
-//   inert until a future ticket sources the ranked/unranked toggle locally.
+// - the Home Dashboard's per-match correction commands (WK-115,
+//   `correct_match_delta`/`correct_match_ranked_mode` below) are the one
+//   exception to "shadow mirror only, no manual-correction workflow" above:
+//   they are pure local writes against this module's own SQLite mirror
+//   (never the backend), reanchoring only the affected local session's own
+//   chain - see `store::reanchor_session`'s doc comment for the session-only
+//   scope. `RankedMode::Unknown` (model.rs) is still never guessed - only
+//   ever set from an explicit correction or an already-known detected value.
 //
 // See detector.rs's `match_transition_never_depends_on_backend_state` for
 // the compiled-in regression test pinning the backend-independence
@@ -186,6 +191,60 @@ pub fn set_current_rating<R: Runtime>(app: &AppHandle<R>, rating: i64) -> Result
     crate::storage::append_rolling_log(
         app,
         &format!("Local current MMR corrected: previous={previous:?} current={rating}"),
+    );
+    Ok(summary::get(app))
+}
+
+/// WK-115 - Dashboard "+/- and ×2" correction for one finalized match's
+/// effective rating delta. `effective_delta = None` clears any existing
+/// correction. See `store::correct_match_delta` for the detected-delta
+/// immutability invariant and `store::reanchor_session` for how later
+/// matches in the same session pick up the change.
+pub fn correct_match_delta<R: Runtime>(
+    app: &AppHandle<R>,
+    local_id: &str,
+    effective_delta: Option<i64>,
+) -> Result<summary::LocalSessionSummary, String> {
+    if let Some(value) = effective_delta {
+        if !(-1_000..=1_000).contains(&value) {
+            return Err("Rating delta must be between -1000 and 1000".to_string());
+        }
+    }
+
+    let state = app.state::<LocalRuntimeState>();
+    let mut guard = state.lock();
+    let conn = guard.as_mut().ok_or_else(|| "Local runtime is unavailable".to_string())?;
+    let updated = store::correct_match_delta(conn, local_id, effective_delta).map_err(|error| error.to_string())?;
+    drop(guard);
+
+    crate::storage::append_rolling_log(
+        app,
+        &format!("Local match delta corrected: match={local_id} effective_delta={effective_delta:?} rating_after={:?}", updated.and_then(|m| m.rating_after)),
+    );
+    Ok(summary::get(app))
+}
+
+/// WK-115 - Dashboard "Ranked -> Unranked" correction (and its reverse) for
+/// one finalized match. `ranked = None` clears the override, restoring the
+/// match's detected classification (`ranked_mode_detected`) verbatim -
+/// never a hardcoded Ranked. `ranked = Some(true/false)` forces Ranked/
+/// Unranked. See `store::correct_match_ranked_mode`.
+pub fn correct_match_ranked_mode<R: Runtime>(
+    app: &AppHandle<R>,
+    local_id: &str,
+    ranked: Option<bool>,
+) -> Result<summary::LocalSessionSummary, String> {
+    let target = ranked.map(|value| if value { model::RankedMode::Ranked } else { model::RankedMode::Unranked });
+
+    let state = app.state::<LocalRuntimeState>();
+    let mut guard = state.lock();
+    let conn = guard.as_mut().ok_or_else(|| "Local runtime is unavailable".to_string())?;
+    let updated = store::correct_match_ranked_mode(conn, local_id, target).map_err(|error| error.to_string())?;
+    drop(guard);
+
+    crate::storage::append_rolling_log(
+        app,
+        &format!("Local match ranked mode corrected: match={local_id} target={ranked:?} ranked_mode={:?}", updated.map(|m| m.ranked_mode)),
     );
     Ok(summary::get(app))
 }

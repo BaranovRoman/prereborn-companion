@@ -17,13 +17,28 @@ use crate::state::AppState;
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalMatchSummary {
+    // WK-115 - the Dashboard's per-match correction commands
+    // (correct_local_match_delta/correct_local_match_ranked_mode) address a
+    // row by this id; nothing before WK-115 needed to name a specific match
+    // back to the backend.
+    pub local_id: String,
     pub match_id: Option<String>,
     pub hero_id: i64,
     pub result: Option<MatchResult>,
     pub ranked_mode: RankedMode,
+    // WK-115 - lets the Dashboard show "Unranked (corrected)"/offer a
+    // revert action only when `ranked_mode != ranked_mode_detected`,
+    // without a second frontend-only "was this corrected" flag.
+    pub ranked_mode_detected: RankedMode,
     pub state: LocalMatchState,
     pub rating_before: Option<i64>,
     pub rating_after: Option<i64>,
+    // WK-115 - immutable observed delta and the correction layered on top;
+    // exposed so the Dashboard can derive the ×2 button's active state
+    // (`detected_rating_delta != 0 && rating_delta_correction ==
+    // detected_rating_delta`) instead of tracking a separate boolean.
+    pub detected_rating_delta: Option<i64>,
+    pub rating_delta_correction: i64,
     pub kills: Option<i64>,
     pub deaths: Option<i64>,
     pub assists: Option<i64>,
@@ -35,13 +50,17 @@ pub struct LocalMatchSummary {
 impl From<&LocalMatch> for LocalMatchSummary {
     fn from(value: &LocalMatch) -> Self {
         Self {
+            local_id: value.local_id.clone(),
             match_id: value.match_id.clone(),
             hero_id: value.hero_id,
             result: value.result,
             ranked_mode: value.ranked_mode,
+            ranked_mode_detected: value.ranked_mode_detected,
             state: value.state,
             rating_before: value.rating_before,
             rating_after: value.rating_after,
+            detected_rating_delta: value.detected_rating_delta,
+            rating_delta_correction: value.rating_delta_correction,
             kills: value.kills,
             deaths: value.deaths,
             assists: value.assists,
