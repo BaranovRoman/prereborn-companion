@@ -26,10 +26,75 @@ const RESULT_LABEL: Record<NonNullable<LocalMatchSummary["result"]>, string> = {
   abandon: "Прервано",
 };
 
+function formatDelta(delta: number): string {
+  return delta >= 0 ? `+${delta}` : `${delta}`;
+}
+
 function matchDelta(match: LocalMatchSummary): string | null {
   if (match.ratingBefore == null || match.ratingAfter == null) return null;
-  const delta = match.ratingAfter - match.ratingBefore;
-  return delta >= 0 ? `+${delta}` : `${delta}`;
+  return formatDelta(match.ratingAfter - match.ratingBefore);
+}
+
+// WK-115 - the ×2 button's active state is DERIVED from
+// detected/effective delta, never a separate `isDoubleDown` boolean that
+// could drift from what the numbers actually say (see the task's "не
+// делать ×2 хрупким boolean" requirement): active exactly when the stored
+// correction equals the detected delta, i.e. effective = 2 × detected.
+function isDoubled(match: LocalMatchSummary): boolean {
+  return match.detectedRatingDelta != null && match.detectedRatingDelta !== 0 && match.ratingDeltaCorrection === match.detectedRatingDelta;
+}
+
+function effectiveDelta(match: LocalMatchSummary): number | null {
+  return match.detectedRatingDelta == null ? null : match.detectedRatingDelta + match.ratingDeltaCorrection;
+}
+
+const DELTA_STEP = 25;
+
+// WK-115 - compact, hover-revealed correction controls for one finalized
+// match: +/- and ×2 on the effective delta (never touches detected_rating_delta,
+// only rating_delta_correction - see local_runtime::store::correct_match_delta),
+// plus the Ranked<->Unranked toggle. Deliberately its own component (not
+// inline in MatchRow) so it can stay entirely absent from the DOM for the
+// in-progress match and for legacy matches with nothing to correct.
+function MatchCorrectionControls({
+  match,
+  onCorrectDelta,
+  onCorrectRanked,
+}: {
+  match: LocalMatchSummary;
+  onCorrectDelta: (localId: string, effectiveDelta: number | null) => void;
+  onCorrectRanked: (localId: string, ranked: boolean | null) => void;
+}) {
+  const detected = match.detectedRatingDelta;
+  const current = effectiveDelta(match);
+  const canCorrectDelta = match.rankedMode === "ranked" && detected != null;
+  const unranked = match.rankedMode === "unranked";
+  const correctedAway = match.rankedMode !== match.rankedModeDetected;
+  const rankedToggleLabel = unranked ? (correctedAway ? "Вернуть в Ranked" : "Отметить Ranked") : "Отметить Unranked";
+  const rankedToggleTarget = unranked ? (correctedAway ? null : true) : false;
+
+  return (
+    <span className="match-row__actions">
+      {canCorrectDelta && detected != null && (
+        <span className="match-row__delta-controls">
+          <button type="button" className="match-row__step" aria-label="Уменьшить дельту на 25" onClick={() => onCorrectDelta(match.localId, (current ?? 0) - DELTA_STEP)}>−</button>
+          <button
+            type="button"
+            className={`match-row__x2 ${isDoubled(match) ? "is-active" : ""}`}
+            aria-pressed={isDoubled(match)}
+            title="×2: удвоить эффективную дельту этого матча"
+            onClick={() => onCorrectDelta(match.localId, isDoubled(match) ? detected : detected * 2)}
+          >
+            ×2
+          </button>
+          <button type="button" className="match-row__step" aria-label="Увеличить дельту на 25" onClick={() => onCorrectDelta(match.localId, (current ?? 0) + DELTA_STEP)}>+</button>
+        </span>
+      )}
+      <button type="button" className="match-row__ranked-toggle" onClick={() => onCorrectRanked(match.localId, rankedToggleTarget)}>
+        {rankedToggleLabel}
+      </button>
+    </span>
+  );
 }
 
 // WK-116 - parity audit: match rows used to show a raw "Герой #{id}" -
@@ -39,21 +104,43 @@ function matchDelta(match: LocalMatchSummary): string | null {
 // this can resolve a real name/portrait using data that's now genuinely
 // local, no backend round trip. Falls back to the old "Герой #{id}" text
 // for the (very rare/pre-1.0-catalog-update) case a heroId isn't found.
-function MatchRow({ match, current }: { match: LocalMatchSummary; current?: boolean }) {
+//
+// WK-115 - now also shows K/D/A (when observed) and the match's rating-
+// after alongside its effective delta, and - for a finalized match only -
+// a hover-revealed correction toolbar (MatchCorrectionControls). An
+// Unranked match (whether detected that way or corrected to it) shows no
+// rating delta at all, matching the "absent, not zero" requirement.
+function MatchRow({
+  match,
+  current,
+  onCorrectDelta,
+  onCorrectRanked,
+}: {
+  match: LocalMatchSummary;
+  current?: boolean;
+  onCorrectDelta?: (localId: string, effectiveDelta: number | null) => void;
+  onCorrectRanked?: (localId: string, ranked: boolean | null) => void;
+}) {
   const delta = matchDelta(match);
   const hero = getHeroById(match.heroId);
+  const hasKda = match.kills != null && match.deaths != null && match.assists != null;
+  const correctable = match.state === "finalized" && onCorrectDelta && onCorrectRanked;
   return (
     <li className={`match-row ${current ? "match-row--current" : ""}`}>
       <span className="match-row__hero">
         {hero && <img className="match-row__hero-icon" src={hero.iconUrl} alt="" loading="lazy" />}
         {hero?.localizedName ?? `Герой #${match.heroId}`}
       </span>
+      {hasKda && <span className="match-row__kda">{match.kills} / {match.deaths} / {match.assists}</span>}
       <span className={`match-row__result match-row__result--${match.result ?? "pending"}`}>
         {current && match.state !== "finalized"
           ? match.state === "post_game_pending" ? "Подтверждаем результат…" : match.state === "interrupted" ? "Матч прерван" : "Матч идёт"
           : match.result ? RESULT_LABEL[match.result] : "—"}
       </span>
-      {delta && <span className="match-row__delta">{delta}</span>}
+      {match.state === "finalized" && match.rankedMode === "unranked" && <span className="match-row__unranked-tag">Unranked</span>}
+      {delta && match.rankedMode === "ranked" && <span className="match-row__delta">{delta}</span>}
+      {match.rankedMode === "ranked" && match.ratingAfter != null && <span className="match-row__rating-after">{match.ratingAfter}</span>}
+      {correctable && <MatchCorrectionControls match={match} onCorrectDelta={onCorrectDelta} onCorrectRanked={onCorrectRanked} />}
     </li>
   );
 }
@@ -73,6 +160,7 @@ interface Props {
   setAutomaticMode: (enabled: boolean) => void;
   localLifecycle: LocalLifecycleState;
   sessionSummary: LocalSessionSummary | null;
+  refreshSessionSummary: () => Promise<void>;
 }
 
 // WK-114 - Главная rebuilt around the local-first runtime: the local
@@ -85,7 +173,26 @@ interface Props {
 export function HomePage({
   status, busy, run, ready, backendStatus, hasGsiSignal,
   setupOpen, setSetupOpen, finishSetup, provisionGsi, checkObs, setAutomaticMode, localLifecycle, sessionSummary,
+  refreshSessionSummary,
 }: Props) {
+  // WK-115 - fire-and-forget correction handlers: these are quick, frequent
+  // inline dashboard actions (+/-, ×2, Ranked/Unranked toggle), not the
+  // page's `run()`-gated OBS/scene actions, so they don't take the whole
+  // page's shared `busy` lock. Each just re-reads the local session summary
+  // immediately afterward instead of waiting for the next 3s poll tick -
+  // every projection (current MMR, session delta, W/L, match list) comes
+  // from that one summary, so a single refresh keeps them all in sync.
+  const correctDelta = (localId: string, effectiveDelta: number | null) => {
+    void api.correctLocalMatchDelta(localId, effectiveDelta)
+      .then(() => refreshSessionSummary())
+      .catch((cause) => console.warn("correctLocalMatchDelta failed", cause));
+  };
+  const correctRanked = (localId: string, ranked: boolean | null) => {
+    void api.correctLocalMatchRankedMode(localId, ranked)
+      .then(() => refreshSessionSummary())
+      .catch((cause) => console.warn("correctLocalMatchRankedMode failed", cause));
+  };
+
   if (setupOpen) {
     return (
       <>
@@ -152,7 +259,14 @@ export function HomePage({
             {(sessionSummary?.currentMatch || hasRecentMatches) && (
               <ul className="match-list">
                 {sessionSummary?.currentMatch && <MatchRow match={sessionSummary.currentMatch} current />}
-                {sessionSummary?.recentMatches.map((match, index) => <MatchRow key={`${match.matchId ?? "m"}-${index}`} match={match} />)}
+                {sessionSummary?.recentMatches.map((match, index) => (
+                  <MatchRow
+                    key={`${match.matchId ?? "m"}-${index}`}
+                    match={match}
+                    onCorrectDelta={correctDelta}
+                    onCorrectRanked={correctRanked}
+                  />
+                ))}
               </ul>
             )}
           </section>

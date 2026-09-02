@@ -73,7 +73,12 @@
   gap: 7px;
   color: #d5d1c9;
   font-family: var(--font-title);
-  font-size: clamp(20px, 1.35vw, 27px);
+  // 0.5.63 final polish - this ratingAfter+delta readout is HUD metadata
+  // riding on top of the hero art, not a headline: shrunk from
+  // clamp(20px, 1.35vw, 27px) down a size step while keeping rating and
+  // delta at the same font-size as each other (no change to semantic
+  // helper - see ratingDelta/formatDelta above).
+  font-size: clamp(15px, .95vw, 19px);
   font-weight: 400;
   letter-spacing: .025em;
   line-height: 1;
@@ -128,6 +133,14 @@
 
 .favorite b { font-size: 10px; }
 
+// 0.5.63 final polish - Favorite Heroes portraits read as visually
+// cramped at the base 210px card height; a little more vertical room lets
+// the hero art breathe. `.centerStack > :first-child` (this file, above)
+// already sizes the Favorite Heroes panel to its content (flex: 0 0 auto)
+// and lets Recent Games take the rest, so this alone is what pushes
+// Recent Games to start slightly lower - no structural/column-width change.
+.favoritePortrait { height: 236px; }
+
 .gameRow {
   flex-basis: 46px;
   grid-template-columns: 52px minmax(0, 1fr) minmax(84px, auto) minmax(108px, auto);
@@ -143,7 +156,11 @@
 .recentKda {
   grid-column: 3;
   color: #b9b7b0;
-  font-size: 10px;
+  // 0.5.63 final polish - K/D/A is a key per-match stat, was reading as an
+  // afterthought next to the hero name; bumped up to be more noticeable
+  // than the rating metadata beside it. No "KDA" label, no ratio - still
+  // the raw K / D / A triple.
+  font-size: 13px;
   letter-spacing: .04em;
   white-space: nowrap;
 }

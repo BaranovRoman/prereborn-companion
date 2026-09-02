@@ -141,7 +141,7 @@ vi.mock("../hooks/useLocalLifecycle", () => ({
   useLocalLifecycle: () => ({ status: { session_state: "open", session_started_at: null, pending_end_at: null, obs_streaming: true }, busy: false, error: null, onContinue: vi.fn(), onEnd: vi.fn() }),
 }));
 vi.mock("../hooks/useLocalSessionSummary", () => ({
-  useLocalSessionSummary: () => null,
+  useLocalSessionSummary: () => ({ summary: null, refresh: vi.fn() }),
 }));
 let syncStatusFixture: Record<string, unknown> | null = null;
 vi.mock("../hooks/useSyncOutboxStatus", () => ({

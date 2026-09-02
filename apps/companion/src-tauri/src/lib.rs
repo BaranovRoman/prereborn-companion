@@ -221,6 +221,8 @@ pub fn run() {
             commands::local_lifecycle_stale_end,
             commands::get_local_session_summary,
             commands::set_current_mmr,
+            commands::correct_local_match_delta,
+            commands::correct_local_match_ranked_mode,
             commands::get_sync_outbox_status,
             commands::trigger_sync_drain,
             commands::find_dota,

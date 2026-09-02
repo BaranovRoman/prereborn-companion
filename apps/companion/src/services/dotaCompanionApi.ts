@@ -91,6 +91,16 @@ export const getLocalSessionSummary = () => invoke<LocalSessionSummary>("get_loc
 export const setCurrentMmr = (rating: number) =>
   invoke<LocalSessionSummary>("set_current_mmr", { rating });
 
+// WK-115 - Dashboard per-match correction. `effectiveDelta: null` clears an
+// existing correction, reverting to the match's detected delta.
+export const correctLocalMatchDelta = (localId: string, effectiveDelta: number | null) =>
+  invoke<LocalSessionSummary>("correct_local_match_delta", { localId, effectiveDelta });
+
+// WK-115 - Dashboard Ranked <-> Unranked correction. `ranked: null` clears
+// the override, restoring the match's detected classification.
+export const correctLocalMatchRankedMode = (localId: string, ranked: boolean | null) =>
+  invoke<LocalSessionSummary>("correct_local_match_ranked_mode", { localId, ranked });
+
 // WK-119 - read-only sync_outbox visibility (pending/dead-lettered counts).
 export const getSyncOutboxStatus = () => invoke<SyncOutboxStatus>("get_sync_outbox_status");
 // Диагностика "Повторить сейчас" - runs the existing sync worker's own drain

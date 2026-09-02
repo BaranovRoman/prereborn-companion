@@ -8,6 +8,8 @@ interface Props {
   hasSession: boolean;
 }
 
+const STEP = 25;
+
 export function CurrentMmrControl({ currentMmr, sessionDelta, hasSession }: Props) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(currentMmr?.toString() ?? "");
@@ -31,9 +33,7 @@ export function CurrentMmrControl({ currentMmr, sessionDelta, hasSession }: Prop
     setEditing(true);
   };
 
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    const rating = Number(draft);
+  const commit = async (rating: number) => {
     if (!Number.isInteger(rating) || rating < 0 || rating > 30_000) {
       setError("Введите целое число от 0 до 30000.");
       return;
@@ -53,12 +53,41 @@ export function CurrentMmrControl({ currentMmr, sessionDelta, hasSession }: Prop
     }
   };
 
+  const save = (event: FormEvent) => {
+    event.preventDefault();
+    void commit(Number(draft));
+  };
+
+  const nudge = (direction: 1 | -1) => {
+    void commit((savedMmr ?? 0) + direction * STEP);
+  };
+
   return (
     <div className="mmr-panel__stat mmr-panel__stat--current">
       <span className="section-heading__eyebrow">Текущий MMR</span>
       {!editing ? (
         <>
-          <strong>{savedMmr ?? "—"}</strong>
+          <div className="mmr-panel__stepper">
+            <button
+              type="button"
+              className="mmr-panel__step"
+              aria-label="Уменьшить MMR на 25"
+              disabled={saving || savedMmr == null}
+              onClick={() => nudge(-1)}
+            >
+              −
+            </button>
+            <strong>{savedMmr ?? "—"}</strong>
+            <button
+              type="button"
+              className="mmr-panel__step"
+              aria-label="Увеличить MMR на 25"
+              disabled={saving || savedMmr == null}
+              onClick={() => nudge(1)}
+            >
+              +
+            </button>
+          </div>
           {savedDelta != null && (
             <span className={`mmr-panel__delta ${savedDelta >= 0 ? "is-positive" : "is-negative"}`}>
               {savedDelta >= 0 ? `+${savedDelta}` : savedDelta} за сессию
@@ -72,6 +101,7 @@ export function CurrentMmrControl({ currentMmr, sessionDelta, hasSession }: Prop
             {savedMmr == null ? "Указать MMR" : "Изменить"}
           </button>
           {!hasSession && <small className="mmr-panel__hint">Будет стартовым MMR следующей сессии.</small>}
+          {error && <span className="mmr-panel__error" role="alert">{error}</span>}
         </>
       ) : (
         <form className="mmr-panel__form" onSubmit={(event) => void save(event)}>

@@ -62,6 +62,30 @@ pub fn set_current_mmr(
     crate::local_runtime::set_current_rating(&app, rating)
 }
 
+// WK-115 - Dashboard per-match correction. `effective_delta: None` clears
+// an existing correction (reverts to the detected delta) - see
+// local_runtime::correct_match_delta.
+#[tauri::command]
+pub fn correct_local_match_delta(
+    app: AppHandle,
+    local_id: String,
+    effective_delta: Option<i64>,
+) -> Result<crate::local_runtime::summary::LocalSessionSummary, String> {
+    crate::local_runtime::correct_match_delta(&app, &local_id, effective_delta)
+}
+
+// WK-115 - Dashboard Ranked <-> Unranked correction for one finalized
+// match. `ranked: None` clears the override, restoring the match's
+// detected classification - see local_runtime::correct_match_ranked_mode.
+#[tauri::command]
+pub fn correct_local_match_ranked_mode(
+    app: AppHandle,
+    local_id: String,
+    ranked: Option<bool>,
+) -> Result<crate::local_runtime::summary::LocalSessionSummary, String> {
+    crate::local_runtime::correct_match_ranked_mode(&app, &local_id, ranked)
+}
+
 // WK-119 - sync_outbox (WK-113) had zero UI surface until now: pending/
 // dead-lettered counts for ProblemBar's pending/dead-letter states and
 // Диагностика's detail view. Read-only, same "inert if local runtime failed
