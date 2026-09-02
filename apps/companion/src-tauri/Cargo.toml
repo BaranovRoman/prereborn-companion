@@ -71,19 +71,28 @@ tauri-plugin-window-state = "2.4.1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
 tauri-plugin-single-instance = "2"
-# WK-125 - OS-backed secure storage for real reusable credentials (PreReborn
-# refresh token, legacy companion token, OBS WebSocket password) instead of
-# plaintext JSON. Default `v1` feature is the classic Entry::new/set_password/
-# get_password/delete_credential API; it auto-selects the right native store
-# per target (Windows Credential Manager, macOS Keychain, Linux Secret
-# Service) via conditional deps in the crate itself, so no per-platform
-# feature wiring is needed here. Actively maintained (open-source-cooperative
-# org, regular releases through 2026), MIT/Apache-2.0 dual-licensed - see
-# docs/security/desktop-secret-storage-audit.md for the dependency review.
-keyring = "4"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+# WK-125 - OS-backed secure storage for real reusable credentials (PreReborn
+# refresh token, legacy companion token, OBS WebSocket password) instead of
+# plaintext JSON, backed by Windows Credential Manager here. `keyring` 4.x
+# (the current default on crates.io) was tried first but its
+# windows-native-keyring-store backend (windows-sys 0.61.2) crashes on
+# startup with STATUS_ENTRYPOINT_NOT_FOUND on the actual windows-latest CI
+# runner - a real, reproduced failure (see this ticket's Windows CI smoke
+# run), not a theoretical concern. keyring 3.6.x's windows-native backend
+# (windows-sys 0.60, already used elsewhere in this dependency tree via
+# tauri/webview2-com) has years of production Windows track record and the
+# identical Entry::new/set_password/get_password/delete_credential API, so
+# no application code differs between the two - only this dependency
+# declaration does. MIT/Apache-2.0, same org, still maintained (see
+# docs/research/wk-125-desktop-secret-storage-audit.md).
+keyring = { version = "3", default-features = false, features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Same as above, for local dev on macOS - backed by Keychain Services.
+keyring = { version = "3", default-features = false, features = ["apple-native"] }
 
 [dev-dependencies]
 tempfile = "3"

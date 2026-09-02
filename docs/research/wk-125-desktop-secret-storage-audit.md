@@ -78,16 +78,20 @@ holds an encryption key at all.
 
 ## 4. Secure storage mechanism chosen
 
-**`keyring` crate (v4.x)**, added as a normal Cargo dependency — no Tauri plugin needed, since
-credential reads/writes already happen entirely in Rust command handlers, never in JS.
+**`keyring` crate (v3.6.x)**, added as a normal Cargo dependency — no Tauri plugin needed, since
+credential reads/writes already happen entirely in Rust command handlers, never in JS. (v4.x was
+tried first and rejected after the Windows CI gate caught a real startup crash on Windows — see the
+dependency-footprint note below for the full story.)
 
-- Windows: backed by Windows Credential Manager (DPAPI-protected) via `windows-native-keyring-store`.
-- macOS (dev machine): backed by Keychain Services via `apple-native-keyring-store`.
-- Linux: backed by Secret Service, only relevant for local dev, not the Windows production target.
+- Windows: backed by Windows Credential Manager via the `windows-native` feature.
+- macOS (dev machine): backed by Keychain Services via the `apple-native` feature.
+- Linux: not wired up (no `linux-native`/secret-service feature enabled) — not the production
+  target and not used for local dev on this project; `cargo check`/`test` on Linux would need that
+  feature added if that ever changes.
 
-All three are selected automatically by the crate's own conditional (per-target) dependencies under
-its default `v1` feature — no per-platform feature flags were hand-picked in this repo's `Cargo.toml`,
-which avoids a class of "works on my machine, not on the build I actually ship" mistake.
+Each target's feature is enabled only under its own `[target.'cfg(...)'.dependencies]` section in
+`Cargo.toml`, mirroring the existing `winreg` (Windows-only) pattern already in that file — no
+unused backend gets compiled in for a target that doesn't need it.
 
 Why this over the alternatives:
 - **Maintenance**: actively developed under the `open-source-cooperative` GitHub org, with regular
@@ -103,13 +107,33 @@ Why this over the alternatives:
   is exactly the "encryption key next to the ciphertext" anti-pattern the ticket explicitly warned
   against, and buys nothing an OS-backed store doesn't already provide correctly.
 
-Transitive footprint (checked, not exhaustively audited beyond this one new dependency per the
-ticket's scope limit): `keyring` → `keyring-core` + one native store crate per target
-(`windows-native-keyring-store` / `apple-native-keyring-store`), which on Windows pulls in the
-`windows` crate's Credential Manager bindings — no C/FFI toolchain requirement beyond what's already
-needed, consistent with this project's existing "no extra native build deps on Windows CI"
-constraint (see the `reqwest`/`rustls-tls-native-roots` and `rusqlite`/`bundled` comments already in
-`Cargo.toml`).
+**Version actually shipped: `keyring` 3.6.x, not 4.x — found by the Windows CI gate itself, not
+speculation.** `keyring` 4.2.0 (the current default on crates.io, and this ticket's first choice) was
+tried first and compiled cleanly on macOS, but its Windows backend
+(`windows-native-keyring-store`, pinned to `windows-sys 0.61.2`) crashed the packaged Windows test
+binary on startup with `STATUS_ENTRYPOINT_NOT_FOUND` (0xC0000139) on the real `windows-latest`
+GitHub Actions runner — reproduced by this ticket's own new CI gate (§18/19) before merge, exactly
+the kind of thing that gate exists to catch. Root cause not fully isolated (no interactive Windows
+session available to inspect the OS-level "which DLL export" dialog), but `keyring` 3.6.x's
+`windows-native` backend uses `windows-sys 0.60` — a major version already present elsewhere in this
+dependency tree via `tauri`/`webview2-com` — instead of the brand-new `0.61.2` only `keyring` 4.x's
+rewritten store crates pull in, and it has years of production Windows usage under the older,
+single-crate architecture. Switching produced an identical `Entry::new`/`set_password`/
+`get_password`/`delete_credential` API — **zero application code changed**, only the `Cargo.toml`
+dependency declaration — and the real-credential-store smoke test (both the local macOS run and the
+Windows CI gate, see §18) passes cleanly against it. This is recorded here as the actual finding it
+was, not smoothed over: the newer major version looked like the right call by every static
+signal (maintenance activity, release cadence, license) and still turned out to be the wrong one in
+practice, which is exactly why §18's real Windows smoke gate — not just `cargo check` — was a
+requirement of this ticket and not optional.
+
+Transitive footprint of what's actually shipped: `keyring` 3.6.x with `default-features = false` and
+only the one backend feature each target needs (`windows-native` on Windows, `apple-native` on
+macOS) — no `keyring-core`, no unrelated store crates, no networking stack. On Windows this pulls in
+`windows-sys`/`byteorder`/`zeroize`; on macOS, `security-framework`/`core-foundation`. No C/FFI
+toolchain requirement beyond what's already needed, consistent with this project's existing "no
+extra native build deps on Windows CI" constraint (see the `reqwest`/`rustls-tls-native-roots` and
+`rusqlite`/`bundled` comments already in `Cargo.toml`).
 
 ## 5. Config separation after remediation
 

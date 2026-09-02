@@ -51,9 +51,18 @@ jobs:
       # fake, see storage/mod.rs and secure_storage.rs's own comments on
       # why). Proves the actual Windows Credential Manager backend links and
       # round-trips on a real Windows runner, not just in the cross-platform
-      # unit suite. Uses a synthetic key/value only.
+      # unit suite. Uses a synthetic key/value only. `--exact` against a
+      # fully-qualified test name silently matches zero tests (and exits 0)
+      # if it's ever misspelled/renamed, so the output is grepped to confirm
+      # the one expected test actually ran, not just that the command exited
+      # cleanly - a lesson learned while wiring this gate up in the first
+      # place (see the PR).
       - name: Secure storage smoke test (real Windows Credential Manager)
-        run: cargo test --manifest-path apps/companion/src-tauri/Cargo.toml os_secret_store_round_trips_a_real_os_credential -- --ignored --exact
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --manifest-path apps/companion/src-tauri/Cargo.toml secure_storage::real_store_smoke::os_secret_store_round_trips_a_real_os_credential -- --ignored --exact | tee smoke-test-output.txt
+          grep -q "1 passed" smoke-test-output.txt || { echo "::error::Expected exactly 1 test to run and pass - the filter matched none (renamed/misspelled test name?)"; exit 1; }
 
       - name: Build Tauri app (Windows installer)
         run: pnpm --filter @prereborn/companion exec tauri build --bundles nsis
@@ -145,7 +154,7 @@ jobs:
       # above, run here too since this is the job that actually produces a
       # production release.
       - name: Secure storage smoke test (real Windows Credential Manager)
-        run: cargo test --manifest-path apps/companion/src-tauri/Cargo.toml os_secret_store_round_trips_a_real_os_credential -- --ignored --exact
+        run: cargo test --manifest-path apps/companion/src-tauri/Cargo.toml secure_storage::real_store_smoke::os_secret_store_round_trips_a_real_os_credential -- --ignored --exact
 
       - name: Build Tauri app (Windows installer)
         shell: powershell
