@@ -107,25 +107,32 @@ Why this over the alternatives:
   is exactly the "encryption key next to the ciphertext" anti-pattern the ticket explicitly warned
   against, and buys nothing an OS-backed store doesn't already provide correctly.
 
-**Version actually shipped: `keyring` 3.6.x, not 4.x — found by the Windows CI gate itself, not
-speculation.** `keyring` 4.2.0 (the current default on crates.io, and this ticket's first choice) was
-tried first and compiled cleanly on macOS, but its Windows backend
-(`windows-native-keyring-store`, pinned to `windows-sys 0.61.2`) crashed the packaged Windows test
-binary on startup with `STATUS_ENTRYPOINT_NOT_FOUND` (0xC0000139) on the real `windows-latest`
-GitHub Actions runner — reproduced by this ticket's own new CI gate (§18/19) before merge, exactly
-the kind of thing that gate exists to catch. Root cause not fully isolated (no interactive Windows
-session available to inspect the OS-level "which DLL export" dialog), but `keyring` 3.6.x's
-`windows-native` backend uses `windows-sys 0.60` — a major version already present elsewhere in this
-dependency tree via `tauri`/`webview2-com` — instead of the brand-new `0.61.2` only `keyring` 4.x's
-rewritten store crates pull in, and it has years of production Windows usage under the older,
-single-crate architecture. Switching produced an identical `Entry::new`/`set_password`/
-`get_password`/`delete_credential` API — **zero application code changed**, only the `Cargo.toml`
-dependency declaration — and the real-credential-store smoke test (both the local macOS run and the
-Windows CI gate, see §18) passes cleanly against it. This is recorded here as the actual finding it
-was, not smoothed over: the newer major version looked like the right call by every static
-signal (maintenance activity, release cadence, license) and still turned out to be the wrong one in
-practice, which is exactly why §18's real Windows smoke gate — not just `cargo check` — was a
-requirement of this ticket and not optional.
+**Version actually shipped: `keyring` 3.6.x, not 4.x — and verified via a standalone example, not
+`cargo test` — both found by the Windows CI gate itself, not speculation.** `keyring` 4.2.0 (the
+current default on crates.io, and this ticket's first choice) compiled cleanly on macOS, but its
+Windows-backed unit test crashed the `cargo test` binary on startup with `STATUS_ENTRYPOINT_NOT_FOUND`
+(0xC0000139) on the real `windows-latest` GitHub Actions runner — caught by this ticket's own new CI
+gate before merge, exactly what that gate exists for. Switching to `keyring` 3.6.x (older, more
+widely deployed on Windows, `windows-sys 0.60` instead of 4.x's `0.61.2`) hit the *identical* crash,
+which ruled out the dependency version as the cause. Isolating further: a standalone
+`examples/keyring_smoke.rs` binary — same `keyring` 3.6.x dependency, same real Credential Manager
+round trip, but without the test-only dependencies (`tempfile`, `tauri`'s `test`/`MockRuntime`
+feature) that `cargo test --lib` also links in — ran cleanly on the same runner. So the crash was
+never in `keyring`'s Windows backend; it was specific to combining it with this crate's `cargo test`
+harness binary on that runner (root cause not further isolated — plausible but unconfirmed: an
+import-table conflict from `tauri`'s test/MockRuntime feature pulling its own Windows-facing
+dependencies alongside `keyring`'s). The fix that matters is procedural, not code: this ticket's
+Windows secure-storage CI gate (§18) runs `examples/keyring_smoke.rs` as its own binary rather than
+an `#[ignore]`d `cargo test`, and that binary is exactly what's exercised at runtime (`storage/mod.rs`
+calls the same `keyring::Entry` API either way) — an `#[ignore]`d unit test proving the identical
+round trip is kept in `secure_storage.rs` for manual local verification, with a comment explaining
+why CI doesn't run it. Application code never changed between `keyring` 4.x and 3.6.x — only the
+`Cargo.toml` dependency declaration and how the Windows gate invokes the check. This is recorded
+here as the actual finding it was: the newer major version looked right by every static signal
+(maintenance activity, release cadence, license) and the eventual fix wasn't even about picking the
+right version, it was about how the real-Windows check itself was invoked — which is exactly why
+§18's real Windows smoke gate, not `cargo check` or a same-OS `cargo test`, was a requirement of
+this ticket and not optional.
 
 Transitive footprint of what's actually shipped: `keyring` 3.6.x with `default-features = false` and
 only the one backend feature each target needs (`windows-native` on Windows, `apple-native` on
@@ -263,5 +270,8 @@ is not an error, config serialization never contains a migrated secret, and Debu
 contains a redacted field. Existing coverage already proves the overlay SSE payload and the
 diagnostics ZIP entry list carry no secrets (§11, §12) — not duplicated here.
 
-Real OS-backed storage (actual Windows Credential Manager) is verified by manual/CI packaged smoke,
-not by an automated `cargo test` — see the PR/release notes for that run's result.
+Real OS-backed storage (actual Windows Credential Manager) is verified in Windows CI by
+`apps/companion/src-tauri/examples/keyring_smoke.rs`, run as its own binary (`cargo run --example
+keyring_smoke`) rather than a `cargo test` — see §4 for why an `#[ignore]`d unit test doing the exact
+same round trip crashes in that specific test-harness binary on the CI runner while this standalone
+example does not. See the PR/release notes for that run's result.

@@ -60,20 +60,24 @@ pub fn os_store() -> OsSecretStore {
 
 // WK-125 - deliberately NOT part of the default `cargo test` run: this is
 // the one place this crate's test suite is allowed to touch a real OS
-// credential store, and only because it's `#[ignore]`d by default. Run
-// explicitly (`cargo test os_secret_store_round_trips_a_real_os_credential
-// -- --ignored --exact`) as the Windows CI smoke gate for this ticket (see
-// windows-release.yml) - proves the actual `windows-native-keyring-store`
-// backend links and works end-to-end on a real Windows Credential Manager,
-// not just against the in-memory fakes every other test in this crate uses.
-// Uses a synthetic key/value so nothing resembling a real credential is
-// ever written under this service name or printed to CI logs.
+// credential store, and only because it's `#[ignore]`d by default. Kept for
+// manual local verification (passes on macOS) - NOT what CI actually runs:
+// this same round trip, inside the full `cargo test --lib` binary, crashes
+// with STATUS_ENTRYPOINT_NOT_FOUND on GitHub Actions' `windows-latest`
+// runner before any test code runs, for reasons isolated to that combined
+// test-harness binary (see examples/keyring_smoke.rs's doc comment for the
+// full story) - not to `keyring`'s Windows backend itself, which the
+// standalone example in examples/keyring_smoke.rs proves works correctly
+// on that same runner, and which is what windows-release.yml actually
+// invokes as its Windows secure-storage CI gate. Uses a synthetic key/value
+// so nothing resembling a real credential is ever written under this
+// service name or printed to logs.
 #[cfg(test)]
 mod real_store_smoke {
     use super::*;
 
     #[test]
-    #[ignore = "touches the real OS credential store - run explicitly in CI's Windows smoke step"]
+    #[ignore = "touches the real OS credential store - run manually, not from CI (see examples/keyring_smoke.rs for what CI runs instead)"]
     fn os_secret_store_round_trips_a_real_os_credential() {
         let store = OsSecretStore;
         let key = "wk-125-ci-smoke-test-key";

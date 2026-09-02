@@ -46,31 +46,20 @@ jobs:
         env:
           CI: true
 
-      # WK-125 TEMP DIAGNOSTIC - isolates whether STATUS_ENTRYPOINT_NOT_FOUND
-      # (seen from the `cargo test` binary below on this exact runner) comes
-      # from `keyring`'s Windows backend itself or from something specific
-      # to the combined test-harness binary (tempfile/tauri "test" feature).
-      # Remove once root-caused.
-      - name: DIAGNOSTIC - isolated keyring example
-        run: cargo run --manifest-path apps/companion/src-tauri/Cargo.toml --example keyring_smoke
-
-      # WK-125 - the one place this repo's test suite touches a REAL OS
-      # credential store (every other secret-storage test uses an in-memory
-      # fake, see storage/mod.rs and secure_storage.rs's own comments on
-      # why). Proves the actual Windows Credential Manager backend links and
+      # WK-125 - the one place this repo's build touches a REAL OS credential
+      # store (every secret-storage unit test uses an in-memory fake, see
+      # storage/mod.rs and secure_storage.rs). Proves the `keyring`
+      # dependency's Windows Credential Manager backend actually links and
       # round-trips on a real Windows runner, not just in the cross-platform
-      # unit suite. Uses a synthetic key/value only. `--exact` against a
-      # fully-qualified test name silently matches zero tests (and exits 0)
-      # if it's ever misspelled/renamed, so the output is grepped to confirm
-      # the one expected test actually ran, not just that the command exited
-      # cleanly - a lesson learned while wiring this gate up in the first
-      # place (see the PR).
+      # unit suite. Runs as a standalone `examples/` binary rather than a
+      # `cargo test` - the same round trip run as an `#[ignore]`d unit test
+      # inside the full `cargo test --lib` binary crashes on this runner
+      # with STATUS_ENTRYPOINT_NOT_FOUND for reasons isolated to that
+      # combined test-harness binary, not to `keyring` itself (see
+      # examples/keyring_smoke.rs's doc comment). Uses a synthetic key/value
+      # only.
       - name: Secure storage smoke test (real Windows Credential Manager)
-        shell: bash
-        run: |
-          set -o pipefail
-          cargo test --manifest-path apps/companion/src-tauri/Cargo.toml secure_storage::real_store_smoke::os_secret_store_round_trips_a_real_os_credential -- --ignored --exact | tee smoke-test-output.txt
-          grep -q "1 passed" smoke-test-output.txt || { echo "::error::Expected exactly 1 test to run and pass - the filter matched none (renamed/misspelled test name?)"; exit 1; }
+        run: cargo run --manifest-path apps/companion/src-tauri/Cargo.toml --example keyring_smoke
 
       - name: Build Tauri app (Windows installer)
         run: pnpm --filter @prereborn/companion exec tauri build --bundles nsis
@@ -159,10 +148,11 @@ jobs:
           sed -i '0,/^version = /s/^version = ".*"/version = "'"$version"'"/' apps/companion/src-tauri/Cargo.toml
 
       # WK-125 - same real-Windows-Credential-Manager gate as build-windows
-      # above, run here too since this is the job that actually produces a
-      # production release.
+      # above (see its comment for why this runs as a standalone example
+      # rather than a `cargo test`), run here too since this is the job that
+      # actually produces a production release.
       - name: Secure storage smoke test (real Windows Credential Manager)
-        run: cargo test --manifest-path apps/companion/src-tauri/Cargo.toml secure_storage::real_store_smoke::os_secret_store_round_trips_a_real_os_credential -- --ignored --exact
+        run: cargo run --manifest-path apps/companion/src-tauri/Cargo.toml --example keyring_smoke
 
       - name: Build Tauri app (Windows installer)
         shell: powershell
