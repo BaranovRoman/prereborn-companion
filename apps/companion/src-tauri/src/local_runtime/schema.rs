@@ -147,26 +147,88 @@ const MIGRATIONS: &[&str] = &[
     "#,
 ];
 
-pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
-    // WAL mode - the whole reason SQLite was chosen over JSON in
-    // docs/research/wk-110-local-first-audit.md §9: a crash mid-write must
-    // never leave a torn/half-written row. WAL also lets a future read-only
-    // diagnostics/debug helper (see WK-111's "no new UI" constraint - use
-    // diagnostics/log/test helpers instead) query the file while the GSI
-    // thread holds the write connection open.
-    conn.pragma_update(None, "journal_mode", "WAL")?;
+/// WK-127 - applies one migration's DDL/DML and its `user_version` bump as a
+/// single atomic unit: `BEGIN` up front, `COMMIT` only if both the migration
+/// body and the version bump succeed, `ROLLBACK` (best-effort - the
+/// connection is about to be treated as failed either way, see `migrate`'s
+/// caller) on any error in between. Before this, `migrate` ran a migration's
+/// `execute_batch` and its separate `pragma_update(user_version)` call as two
+/// independent statements with no enclosing transaction - a crash/power-loss
+/// between them (or mid-batch, since `execute_batch` alone does not wrap
+/// multiple DDL statements in a transaction) could leave the schema
+/// partially applied while `user_version` still read the OLD value, so the
+/// next startup would replay the same migration SQL against an
+/// already-partially-migrated schema and hit "table already exists"/
+/// "duplicate column" - bricking the local runtime on restart instead of
+/// safely retrying. SQLite supports fully transactional DDL (unlike some
+/// other engines), and `PRAGMA user_version` is just an ordinary write to
+/// the database header, so wrapping both in one transaction is enough - no
+/// second bookkeeping table needed.
+fn apply_migration(conn: &Connection, sql: &str, next_version: i64) -> rusqlite::Result<()> {
+    conn.execute_batch("BEGIN;")?;
+    let applied = conn.execute_batch(sql).and_then(|_| conn.execute_batch(&format!("PRAGMA user_version = {next_version};")));
+    match applied {
+        Ok(()) => conn.execute_batch("COMMIT;"),
+        Err(error) => {
+            let _ = conn.execute_batch("ROLLBACK;");
+            Err(error)
+        }
+    }
+}
+
+/// Returns the journal mode SQLite actually engaged (normally `"wal"`) so
+/// the caller can log/surface it if the environment silently couldn't honor
+/// WAL (e.g. some network-redirected profile directories don't support the
+/// shared-memory file WAL needs, and SQLite falls back to a rollback journal
+/// without erroring) - see this module's own top comment for why WAL is the
+/// crash-safety property the local runtime depends on. Plain `pragma_update`
+/// (used for every other pragma here) discards PRAGMA's own returned row, so
+/// a silent fallback would previously have gone completely unnoticed.
+pub fn migrate(conn: &Connection) -> rusqlite::Result<String> {
+    let journal_mode: String = conn.pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get(0))?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
+    // WK-127 - native SQLite bound on how long a call waits for the
+    // connection's lock instead of failing immediately with SQLITE_BUSY.
+    // Not currently load-bearing (there is exactly one `rusqlite::Connection`
+    // per process - see `LocalRuntimeState` - and `tauri_plugin_single_instance`
+    // is registered before anything opens SQLite, so no second process ever
+    // reaches this file either), but it's a zero-cost, SQLite-native
+    // safeguard against a future second connection (e.g. a manual read-only
+    // diagnostics tool) hitting an immediate hard failure instead of a
+    // bounded wait - see the ticket's explicit preference for the built-in
+    // mechanism over an application-level retry loop.
+    conn.busy_timeout(std::time::Duration::from_secs(5))?;
 
     let current_version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     let current_version = current_version.max(0) as usize;
 
-    for (index, migration) in MIGRATIONS.iter().enumerate().skip(current_version) {
-        conn.execute_batch(migration)?;
-        let next_version = (index + 1) as i64;
-        conn.pragma_update(None, "user_version", next_version)?;
+    // WK-127 - a `user_version` newer than this binary's own migration list
+    // means the file was last written by a newer Companion build (or
+    // corrupted/tampered into claiming one). Silently proceeding used to
+    // mean `.skip(current_version)` simply skipped every migration and
+    // returned `Ok(())`, leaving an old binary reading/writing a schema it
+    // does not understand - exactly what the ticket calls out as
+    // unacceptable. Refusing here routes into the SAME "open/migrate
+    // failed" error path `local_runtime::init` already has for a corrupt
+    // file (log once, leave the connection `None`, rest of Companion keeps
+    // working) - no new failure mode, just a new reason to take the
+    // existing one.
+    if current_version > MIGRATIONS.len() {
+        return Err(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_SCHEMA),
+            Some(format!(
+                "local-runtime.sqlite3 schema version {current_version} is newer than this Companion build understands (supports up to {}) - refusing to open it",
+                MIGRATIONS.len()
+            )),
+        ));
     }
 
-    Ok(())
+    for (index, migration) in MIGRATIONS.iter().enumerate().skip(current_version) {
+        let next_version = (index + 1) as i64;
+        apply_migration(conn, migration, next_version)?;
+    }
+
+    Ok(journal_mode)
 }
 
 #[cfg(test)]
@@ -247,5 +309,103 @@ mod tests {
             .query_row("SELECT ranked_mode_detected FROM local_matches WHERE local_id = 'm1'", [], |row| row.get(0))
             .unwrap();
         assert_eq!(detected, "ranked", "a pre-existing row's already-stored ranked_mode is what was actually detected");
+    }
+
+    // WK-127 - `migrate` reports the journal mode SQLite actually engaged so
+    // a silent WAL fallback (e.g. an environment that can't honor it) is
+    // detectable instead of assumed. On every normal desktop filesystem this
+    // is "wal".
+    #[test]
+    fn migrate_reports_wal_as_the_actually_applied_journal_mode() {
+        // WAL needs a real file on disk (SQLite can't honor it for an
+        // in-memory database - an in-memory `Connection::open_in_memory()`
+        // reports back "memory" regardless, which is `migrate`'s WAL-
+        // verification working correctly, not a bug in it).
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let conn = Connection::open(temp.path()).unwrap();
+        let journal_mode = migrate(&conn).unwrap();
+        assert_eq!(journal_mode.to_lowercase(), "wal");
+    }
+
+    #[test]
+    fn migrate_sets_a_nonzero_busy_timeout() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        let timeout_ms: i64 = conn.query_row("PRAGMA busy_timeout", [], |row| row.get(0)).unwrap();
+        assert!(timeout_ms > 0, "busy_timeout must be set to a nonzero value, got {timeout_ms}");
+    }
+
+    // WK-127 P1 - a `user_version` newer than this binary's migration list
+    // must be rejected outright, not silently skipped past (see `migrate`'s
+    // own doc comment for the risk of an old binary using an unknown schema).
+    #[test]
+    fn a_future_schema_version_is_rejected_not_silently_skipped() {
+        let conn = Connection::open_in_memory().unwrap();
+        migrate(&conn).unwrap();
+        conn.pragma_update(None, "user_version", (MIGRATIONS.len() + 1) as i64).unwrap();
+
+        let result = migrate(&conn);
+        assert!(result.is_err(), "opening a DB with a newer-than-understood schema version must fail, not silently proceed");
+    }
+
+    // WK-127 P1 - `apply_migration` is what makes each migration step
+    // atomic: its DDL/DML and the `user_version` bump either both land or
+    // neither does. A malformed migration body must leave `user_version`
+    // exactly where it was, so a retry on next startup replays the SAME
+    // migration from a clean slate instead of hitting "table already
+    // exists" against a half-applied schema.
+    #[test]
+    fn apply_migration_leaves_user_version_untouched_when_the_migration_body_fails() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "user_version", 0).unwrap();
+
+        let result = apply_migration(&conn, "CREATE TABLE this_is_not_valid_sql_!!!", 1);
+        assert!(result.is_err());
+
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        assert_eq!(version, 0, "a failed migration body must not advance user_version");
+    }
+
+    #[test]
+    fn apply_migration_leaves_no_partial_ddl_behind_when_the_migration_body_fails_partway() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "user_version", 0).unwrap();
+
+        // First statement succeeds, second is malformed - if `apply_migration`
+        // weren't transactional, `survives` would exist despite the overall
+        // migration having "failed".
+        let result = apply_migration(&conn, "CREATE TABLE survives (id INTEGER); THIS IS NOT SQL;", 1);
+        assert!(result.is_err());
+
+        let table_exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'survives'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(table_exists, 0, "a failed migration must roll back every statement it already applied, not just skip the version bump");
+
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        assert_eq!(version, 0);
+    }
+
+    #[test]
+    fn apply_migration_commits_both_the_ddl_and_the_version_bump_together() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "user_version", 0).unwrap();
+
+        apply_migration(&conn, "CREATE TABLE both_or_nothing (id INTEGER);", 1).unwrap();
+
+        let table_exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'both_or_nothing'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(table_exists, 1);
+        let version: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0)).unwrap();
+        assert_eq!(version, 1);
     }
 }

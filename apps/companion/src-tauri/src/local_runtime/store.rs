@@ -1687,4 +1687,168 @@ mod tests {
         let session_delta = b_row.rating_current.unwrap() - b_row.rating_start.unwrap() - b_row.rating_adjustment;
         assert_eq!(session_delta, 0);
     }
+
+    // WK-127 P1 - failure-injection regression test for the SQLite runtime
+    // audit's crash-consistency requirement (§17): `cascade_reanchor` (run
+    // from within `correct_match_delta`'s own transaction, see that
+    // function) must be genuinely all-or-nothing, not just "looks atomic
+    // because nothing has ever failed mid-cascade in practice". A SQL
+    // trigger forces a REAL SQLite-level abort partway through the cascade
+    // (on the second match of the session the correction cascades INTO) -
+    // not a mocked/simulated failure - and this asserts every earlier write
+    // already made in that same transaction (the correction itself, and the
+    // first match of the later session the cascade had already reanchored
+    // before hitting the failing row) was rolled back too, not left
+    // half-applied. This exercises `rusqlite::Transaction`'s own
+    // roll-back-on-drop-unless-committed behavior, which is what actually
+    // provides this guarantee - not anything WK-127 added.
+    #[test]
+    fn a_failure_partway_through_cascade_reanchor_rolls_back_the_entire_correction() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+
+        let session_a = ensure_active_session(&mut conn, now).unwrap();
+        set_current_rating(&mut conn, 6_000).unwrap();
+        let match_a = win_match(&mut conn, &session_a.local_id, "a1", 14, RankedMode::Ranked);
+        finalize_session_end(&mut conn, &session_a.local_id, now).unwrap();
+
+        let session_b = ensure_active_session(&mut conn, now + chrono::Duration::minutes(1)).unwrap();
+        let match_b1 = win_match(&mut conn, &session_b.local_id, "b1", 14, RankedMode::Ranked);
+        let match_b2 = win_match(&mut conn, &session_b.local_id, "b2", 14, RankedMode::Ranked);
+
+        let original_a_correction = match_a.rating_delta_correction;
+        let original_b1_before = match_b1.rating_before;
+        let original_b1_after = match_b1.rating_after;
+        let original_b_start = session_b.rating_start;
+
+        // Fires only for match_b2's own row, on the exact UPDATE
+        // `reanchor_session` issues while walking session B's matches -
+        // by the time it reaches match_b2, match_b1's own reanchor UPDATE
+        // has already run (uncommitted) in this same transaction.
+        conn.execute_batch(&format!(
+            "CREATE TRIGGER wk127_inject_failure BEFORE UPDATE OF rating_before ON local_matches \
+             WHEN NEW.local_id = '{}' BEGIN SELECT RAISE(ABORT, 'WK-127 injected failure'); END;",
+            match_b2.local_id
+        ))
+        .unwrap();
+
+        let result = correct_match_delta(&mut conn, &match_a.local_id, Some(50));
+        assert!(result.is_err(), "the injected trigger failure must surface as an error, not be silently swallowed");
+
+        conn.execute_batch("DROP TRIGGER wk127_inject_failure;").unwrap();
+
+        let a_after = find_match(&conn, &match_a.local_id).unwrap().unwrap();
+        assert_eq!(a_after.rating_delta_correction, original_a_correction, "the correction itself must roll back");
+
+        let b1_after = find_match(&conn, &match_b1.local_id).unwrap().unwrap();
+        assert_eq!(b1_after.rating_before, original_b1_before, "an earlier write in the same cascade transaction must also roll back, not just the row that failed");
+        assert_eq!(b1_after.rating_after, original_b1_after);
+
+        let session_b_after = find_open_session(&conn).unwrap().unwrap();
+        assert_eq!(session_b_after.rating_start, original_b_start, "session B's rating_start must not have been partially carried over");
+    }
+
+    // WK-127 §24/§25 - long-lived synthetic DB: a structural longevity +
+    // performance-sanity check, not a benchmark. Seeds 1,250 matches (well
+    // past the ticket's "1,000 matches" checkpoint) across 50 sessions
+    // through the real store APIs (never raw SQL for the domain data),
+    // closes the connection, reopens the same on-disk file (the real
+    // startup path - `Connection::open` + `schema::migrate`), and then
+    // exercises the three operations most likely to regress into an
+    // accidental full-table-scan on a larger DB: recent-matches lookup, a
+    // correction that cascades through the ENTIRE forward history (the
+    // worst case for `cascade_reanchor`), and the reopen/migration check
+    // itself. The generous timing thresholds exist only to catch an
+    // accidental O(n^2)/missing-index regression, not to benchmark - see
+    // the audit doc's §24 conclusion for the actual local measurements.
+    #[test]
+    fn a_long_lived_database_with_thousands_of_matches_stays_correct_and_fast_after_reopen() {
+        const SESSIONS: usize = 50;
+        const MATCHES_PER_SESSION: usize = 25; // 1,250 matches total
+
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let base = Utc::now();
+
+        let write_started = std::time::Instant::now();
+        {
+            let mut conn = Connection::open(temp.path()).unwrap();
+            schema::migrate(&conn).unwrap();
+            set_current_rating(&mut conn, 5_000).unwrap();
+            for s in 0..SESSIONS {
+                let session_start = base + chrono::Duration::hours(s as i64);
+                let session = ensure_active_session(&mut conn, session_start).unwrap();
+                for m in 0..MATCHES_PER_SESSION {
+                    let match_id = format!("s{s}m{m}");
+                    let ranked = if m % 5 == 0 { RankedMode::Unranked } else { RankedMode::Ranked };
+                    if m % 2 == 0 {
+                        win_match(&mut conn, &session.local_id, &match_id, 14, ranked);
+                    } else {
+                        lose_match(&mut conn, &session.local_id, &match_id, 14, ranked);
+                    }
+                }
+                // Every session but the last one ends normally - the last
+                // stays open, so the reopened DB has a real "currently
+                // streaming" session for the cascade assertion below to
+                // reach, matching how a real long-lived install looks.
+                if s + 1 < SESSIONS {
+                    finalize_session_end(&mut conn, &session.local_id, session_start + chrono::Duration::minutes(30)).unwrap();
+                }
+            }
+        }
+        let write_elapsed = write_started.elapsed();
+
+        // Reopen - the real Companion-restart path.
+        let reopen_started = std::time::Instant::now();
+        let mut conn = Connection::open(temp.path()).unwrap();
+        schema::migrate(&conn).unwrap();
+        let reopen_elapsed = reopen_started.elapsed();
+
+        let total_matches: i64 = conn.query_row("SELECT COUNT(*) FROM local_matches", [], |row| row.get(0)).unwrap();
+        assert_eq!(total_matches as usize, SESSIONS * MATCHES_PER_SESSION, "every seeded match must survive close/reopen");
+        let total_sessions: i64 = conn.query_row("SELECT COUNT(*) FROM local_sessions", [], |row| row.get(0)).unwrap();
+        assert_eq!(total_sessions as usize, SESSIONS);
+
+        let recent_started = std::time::Instant::now();
+        let recent = list_recent_finalized_matches(&conn, 30).unwrap();
+        let recent_elapsed = recent_started.elapsed();
+        assert_eq!(recent.len(), 30);
+        assert_eq!(recent[0].match_id.as_deref(), Some(format!("s{}m{}", SESSIONS - 1, MATCHES_PER_SESSION - 1)).as_deref(), "must be newest-first");
+
+        // Correction on the FIRST session's first ranked match - cascades
+        // through all 49 later sessions, the worst case this DB can produce.
+        // (m=0 is seeded Unranked - see the seeding loop above - so the
+        // first RANKED match is m=1, a loss: detected_rating_delta = -25.)
+        let first_session_id: String = conn
+            .query_row("SELECT local_id FROM local_sessions ORDER BY rowid ASC LIMIT 1", [], |row| row.get(0))
+            .unwrap();
+        let (first_ranked_match_id, detected_delta): (String, Option<i64>) = conn
+            .query_row(
+                "SELECT local_id, detected_rating_delta FROM local_matches WHERE session_local_id = ?1 AND ranked_mode = 'ranked' ORDER BY rowid ASC LIMIT 1",
+                params![first_session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        let reanchor_started = std::time::Instant::now();
+        let corrected = correct_match_delta(&mut conn, &first_ranked_match_id, Some(1_000)).unwrap();
+        let reanchor_elapsed = reanchor_started.elapsed();
+        assert_eq!(
+            corrected.unwrap().rating_delta_correction,
+            1_000 - detected_delta.unwrap(),
+            "the correction itself must still apply correctly on a long-lived DB"
+        );
+
+        // The correction must have actually cascaded all the way forward to
+        // the currently open (last) session, not stopped partway.
+        let last_session_after = find_open_session(&conn).unwrap().unwrap();
+        assert!(last_session_after.rating_current.is_some(), "cascade must reach the currently open session");
+
+        assert!(
+            write_elapsed.as_secs() < 30,
+            "seeding {} matches took {write_elapsed:?}, expected well under 30s",
+            SESSIONS * MATCHES_PER_SESSION
+        );
+        assert!(reopen_elapsed.as_millis() < 2_000, "reopening a {}-match DB took {reopen_elapsed:?}", SESSIONS * MATCHES_PER_SESSION);
+        assert!(recent_elapsed.as_millis() < 500, "recent-matches lookup took {recent_elapsed:?}");
+        assert!(reanchor_elapsed.as_millis() < 2_000, "a full-history cascade reanchor took {reanchor_elapsed:?}");
+    }
 }
