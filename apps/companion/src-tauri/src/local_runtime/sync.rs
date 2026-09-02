@@ -171,13 +171,25 @@ fn is_eligible(conn: &Connection, row: &OutboxRow, cutover_at: DateTime<Utc>) ->
 /// message) and would otherwise permanently show as a false "failed to
 /// sync" warning on every install that upgraded through the WK-111/112
 /// shadow-mirror stage.
+///
+/// `retrying_count`/`last_delivered_at`/`last_error_at` added for the
+/// Диагностика "Синхронизация" block (tech-debt observability task): a
+/// subset of `pending_count` (rows that have already failed at least once
+/// and are waiting out a backoff, vs. rows still on their first attempt),
+/// and the outbox's own last-success/last-failure timestamps - distinct
+/// from `AppState`'s `backend_last_sent_at`/`backend_last_error`, which
+/// track the separate legacy full-state-snapshot heartbeat, not session/
+/// match sync.
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncOutboxStatus {
     pub pending_count: i64,
+    pub retrying_count: i64,
     pub failed_count: i64,
     pub oldest_pending_at: Option<String>,
+    pub last_delivered_at: Option<String>,
     pub last_error: Option<String>,
+    pub last_error_at: Option<String>,
 }
 
 const SHADOW_DEAD_LETTER_ERROR: &str = "pre-cutover shadow data, never synced";
@@ -188,9 +200,21 @@ pub fn outbox_status(conn: &Connection) -> rusqlite::Result<SyncOutboxStatus> {
         [],
         |row| row.get(0),
     )?;
+    let retrying_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM sync_outbox WHERE delivered_at IS NULL AND failed_at IS NULL AND attempts > 0",
+        [],
+        |row| row.get(0),
+    )?;
     let oldest_pending_at: Option<String> = conn
         .query_row(
             "SELECT created_at FROM sync_outbox WHERE delivered_at IS NULL AND failed_at IS NULL ORDER BY rowid ASC LIMIT 1",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let last_delivered_at: Option<String> = conn
+        .query_row(
+            "SELECT delivered_at FROM sync_outbox WHERE delivered_at IS NOT NULL ORDER BY delivered_at DESC LIMIT 1",
             [],
             |row| row.get(0),
         )
@@ -200,19 +224,26 @@ pub fn outbox_status(conn: &Connection) -> rusqlite::Result<SyncOutboxStatus> {
         params![SHADOW_DEAD_LETTER_ERROR],
         |row| row.get(0),
     )?;
-    let last_error: Option<String> = conn
+    let last_error_row: Option<(String, String)> = conn
         .query_row(
-            "SELECT last_error FROM sync_outbox WHERE failed_at IS NOT NULL AND last_error IS NOT ?1 ORDER BY failed_at DESC LIMIT 1",
+            "SELECT last_error, failed_at FROM sync_outbox WHERE failed_at IS NOT NULL AND last_error IS NOT ?1 ORDER BY failed_at DESC LIMIT 1",
             params![SHADOW_DEAD_LETTER_ERROR],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .optional()?;
+    let (last_error, last_error_at) = match last_error_row {
+        Some((error, at)) => (Some(error), Some(at)),
+        None => (None, None),
+    };
 
     Ok(SyncOutboxStatus {
         pending_count,
+        retrying_count,
         failed_count,
         oldest_pending_at,
+        last_delivered_at,
         last_error,
+        last_error_at,
     })
 }
 
@@ -309,7 +340,14 @@ fn send_event(token: &str, event_id: &str, event_type: &str, payload_json: &str)
 // see below), never once per DRAIN_INTERVAL tick.
 static NO_TOKEN_WARNED: AtomicBool = AtomicBool::new(false);
 
-fn drain_outbox(app: &AppHandle) {
+/// `pub(crate)` (rather than private) so the Диагностика "Повторить сейчас"
+/// command (commands::trigger_sync_drain) can invoke exactly this function on
+/// demand - not a second retry mechanism, just an out-of-schedule call to the
+/// same drain the background worker already runs every `DRAIN_INTERVAL` tick.
+/// Dead-lettered rows (`failed_at IS NOT NULL`) are excluded from
+/// `next_pending`'s query by construction, so this can never resurrect a
+/// permanently-rejected (4xx) event, on-schedule or on-demand alike.
+pub(crate) fn drain_outbox(app: &AppHandle) {
     let token = { app.state::<AppState>().0.lock().unwrap().companion_token.clone() };
     let Some(token) = token else {
         if !NO_TOKEN_WARNED.swap(true, Ordering::Relaxed) {
@@ -1013,6 +1051,45 @@ mod tests {
         assert_eq!(status.pending_count, 0);
         assert_eq!(status.failed_count, 1);
         assert_eq!(status.last_error.as_deref(), Some("422 invalid payload"));
+        assert_eq!(status.last_error_at.as_deref(), Some(now.to_rfc3339().as_str()));
+    }
+
+    // Диагностика "Синхронизация" block - `retrying_count` must only count
+    // pending rows that have already failed at least once (attempts > 0), not
+    // every pending row - otherwise a healthy, never-yet-attempted queue would
+    // misleadingly read as "retrying".
+    #[test]
+    fn outbox_status_retrying_count_excludes_rows_on_their_first_attempt() {
+        let conn = test_conn();
+        let now = Utc::now();
+        let tx = conn.unchecked_transaction().unwrap();
+        enqueue(&tx, "session", "s1", "session_started", &serde_json::json!({}), now).unwrap();
+        enqueue(&tx, "match", "m1", "match_finalized", &serde_json::json!({}), now).unwrap();
+        tx.commit().unwrap();
+
+        // s1 fails once transiently and goes back to pending with attempts=1;
+        // m1 is untouched, still on attempts=0.
+        let first = next_pending(&conn, now).unwrap().unwrap();
+        mark_retry(&conn, &first.id, "network error", first.attempts, now).unwrap();
+
+        let status = outbox_status(&conn).unwrap();
+        assert_eq!(status.pending_count, 2, "both rows are still pending (neither delivered nor dead-lettered)");
+        assert_eq!(status.retrying_count, 1, "only the row that has already failed once counts as retrying");
+    }
+
+    #[test]
+    fn outbox_status_reports_the_most_recent_successful_delivery() {
+        let conn = test_conn();
+        let now = Utc::now();
+        let tx = conn.unchecked_transaction().unwrap();
+        enqueue(&tx, "session", "s1", "session_started", &serde_json::json!({}), now).unwrap();
+        tx.commit().unwrap();
+        let row = next_pending(&conn, now).unwrap().unwrap();
+        let delivered_at = now + Duration::seconds(5);
+        mark_delivered(&conn, &row.id, delivered_at).unwrap();
+
+        let status = outbox_status(&conn).unwrap();
+        assert_eq!(status.last_delivered_at.as_deref(), Some(delivered_at.to_rfc3339().as_str()));
     }
 
     // WK-119 - a shadow-mirror row dead-lettered purely for predating cutover
