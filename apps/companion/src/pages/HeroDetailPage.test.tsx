@@ -36,23 +36,29 @@ const SETTINGS: GameSoundSettings = {
   assets: [],
 };
 
+function renderPage(overrides: Partial<Parameters<typeof HeroDetailPage>[0]> = {}) {
+  return render(
+    <HeroDetailPage
+      heroId={14}
+      favorites={buildFavorites()}
+      trackedHero={PUDGE_TRACKED}
+      settings={SETTINGS}
+      onBack={vi.fn()}
+      onChooseFile={vi.fn()}
+      onPreview={vi.fn()}
+      onRemove={vi.fn()}
+      stopPreview={vi.fn()}
+      {...overrides}
+    />
+  );
+}
+
 afterEach(() => cleanup());
 
 describe("HeroDetailPage", () => {
   it("renders the hero name, attribute badge, and a back link", () => {
     const onBack = vi.fn();
-    render(
-      <HeroDetailPage
-        heroId={14}
-        favorites={buildFavorites()}
-        trackedHero={PUDGE_TRACKED}
-        settings={SETTINGS}
-        onBack={onBack}
-        onChooseFile={vi.fn()}
-        onPreview={vi.fn()}
-        onRemove={vi.fn()}
-      />
-    );
+    renderPage({ onBack });
     expect(screen.getByText("Pudge")).toBeTruthy();
     expect(screen.getByText("Сила")).toBeTruthy();
     fireEvent.click(screen.getByText("← Герои"));
@@ -61,74 +67,190 @@ describe("HeroDetailPage", () => {
 
   it("toggling favorite calls favorites.toggle with the hero's numeric id", () => {
     const favorites = buildFavorites();
-    render(
-      <HeroDetailPage
-        heroId={14}
-        favorites={favorites}
-        trackedHero={PUDGE_TRACKED}
-        settings={SETTINGS}
-        onBack={vi.fn()}
-        onChooseFile={vi.fn()}
-        onPreview={vi.fn()}
-        onRemove={vi.fn()}
-      />
-    );
+    renderPage({ favorites });
     fireEvent.click(screen.getByLabelText("Добавить в избранное"));
     expect(favorites.toggle).toHaveBeenCalledWith(14);
   });
 
-  it("shows the ability bar; unsupported abilities are disabled", () => {
-    render(
-      <HeroDetailPage
-        heroId={14}
-        favorites={buildFavorites()}
-        trackedHero={PUDGE_TRACKED}
-        settings={SETTINGS}
-        onBack={vi.fn()}
-        onChooseFile={vi.fn()}
-        onPreview={vi.fn()}
-        onRemove={vi.fn()}
-      />
-    );
-    expect(screen.getByText("Meat Hook")).toBeTruthy();
-    const rot = screen.getByTitle(/Rot:/) as HTMLButtonElement;
+  // WK-133 - abilities are icon buttons now (no permanent name/status text
+  // on screen); the accessible name carries what a tooltip shows visually.
+  it("shows the ability strip as icon buttons; unsupported abilities are disabled", () => {
+    renderPage();
+    const meatHook = screen.getByRole("button", { name: /^Meat Hook\./ }) as HTMLButtonElement;
+    expect(meatHook.disabled).toBe(false);
+    const rot = screen.getByRole("button", { name: /^Rot\./ }) as HTMLButtonElement;
     expect(rot.disabled).toBe(true);
+    expect(rot.className).toContain("hero-ability-icon--unsupported");
   });
 
-  it("clicking a supported ability opens the inline sound-binding panel (not a modal)", () => {
+  it("the tooltip conveys name, support state, and sound-assignment state", () => {
+    renderPage();
+    const meatHook = screen.getByRole("button", { name: /^Meat Hook\./ });
+    expect(meatHook.getAttribute("aria-label")).toContain("Звук не назначен");
+    const rot = screen.getByRole("button", { name: /^Rot\./ });
+    expect(rot.getAttribute("aria-label")).toContain("Недоступно");
+  });
+
+  it("clicking a supported ability expands ONE inline sound-control panel below the strip (not a modal)", () => {
     const onChooseFile = vi.fn().mockResolvedValue(undefined);
-    render(
-      <HeroDetailPage
-        heroId={14}
-        favorites={buildFavorites()}
-        trackedHero={PUDGE_TRACKED}
-        settings={SETTINGS}
-        onBack={vi.fn()}
-        onChooseFile={onChooseFile}
-        onPreview={vi.fn()}
-        onRemove={vi.fn()}
-      />
-    );
+    renderPage({ onChooseFile });
     expect(screen.queryByRole("dialog")).toBeNull();
-    fireEvent.click(screen.getByTitle("Meat Hook"));
+    expect(screen.queryByRole("button", { name: "Выбрать файл" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Meat Hook\./ }));
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getAllByText("Meat Hook").length).toBeGreaterThan(0); // expanded panel's own name label
     fireEvent.click(screen.getByRole("button", { name: "Выбрать файл" }));
     expect(onChooseFile).toHaveBeenCalledWith("pudge_meat_hook", "abilityCast");
   });
 
-  it("renders a loading state while the sound catalog hasn't loaded yet", () => {
-    render(
-      <HeroDetailPage
-        heroId={14}
-        favorites={buildFavorites()}
-        trackedHero={null}
-        settings={null}
-        onBack={vi.fn()}
-        onChooseFile={vi.fn()}
-        onPreview={vi.fn()}
-        onRemove={vi.fn()}
-      />
-    );
-    expect(screen.getByText(/Загрузка каталога/)).toBeTruthy();
+  it("selecting a different ability swaps the expanded panel instead of stacking a second one", () => {
+    const trackedHero: TrackedHero = {
+      ...PUDGE_TRACKED,
+      abilities: [
+        ...PUDGE_TRACKED.abilities,
+        { id: "pudge_dismember", displayName: "Dismember", iconUrl: "x", status: "supported", signal: "cooldown", toggleActiveAlias: null, reason: null },
+      ],
+    };
+    renderPage({ trackedHero });
+    fireEvent.click(screen.getByRole("button", { name: /^Meat Hook\./ }));
+    expect(screen.getAllByText("Meat Hook")).toHaveLength(2); // tooltip line + expanded panel label
+    fireEvent.click(screen.getByRole("button", { name: /^Dismember\./ }));
+    expect(screen.getAllByText("Meat Hook")).toHaveLength(1); // only the tooltip line remains
+    expect(screen.getAllByText("Dismember")).toHaveLength(2);
+  });
+
+  it("clicking the selected ability again collapses the panel", () => {
+    renderPage();
+    const meatHook = screen.getByRole("button", { name: /^Meat Hook\./ });
+    fireEvent.click(meatHook);
+    expect(screen.getAllByText("Meat Hook")).toHaveLength(2);
+    fireEvent.click(meatHook);
+    expect(screen.getAllByText("Meat Hook")).toHaveLength(1);
+  });
+
+  it("Escape collapses the expanded panel", () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /^Meat Hook\./ }));
+    expect(screen.getAllByText("Meat Hook")).toHaveLength(2);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getAllByText("Meat Hook")).toHaveLength(1);
+  });
+
+  it("renders a loading placeholder in place of the ability strip while the sound catalog hasn't loaded yet, but the hero name still shows", () => {
+    renderPage({ trackedHero: null, settings: null });
+    expect(screen.getByText("Pudge")).toBeTruthy();
+    expect(screen.getByText(/Загрузка способностей/)).toBeTruthy();
+  });
+
+  // WK-133 §13 - subtle inline line, not the old detached full-width banner.
+  it("shows a compact hint when custom sounds are globally disabled, and the ability strip stays usable", () => {
+    renderPage({ settings: { ...SETTINGS, enabled: false } });
+    expect(screen.getByText("Звуковые реакции выключены")).toBeTruthy();
+    const meatHook = screen.getByRole("button", { name: /^Meat Hook\./ }) as HTMLButtonElement;
+    expect(meatHook.disabled).toBe(false);
+  });
+
+  it("does not show the disabled hint when custom sounds are enabled", () => {
+    renderPage();
+    expect(screen.queryByText("Звуковые реакции выключены")).toBeNull();
+  });
+
+  // WK-132 §17/§20 - a preview started on this page must not keep playing
+  // once the user navigates away, whether via the back button or by
+  // switching to another section entirely (both just unmount this page).
+  it("stops any in-flight preview when the page unmounts", () => {
+    const stopPreview = vi.fn();
+    const { unmount } = renderPage({ stopPreview });
+    expect(stopPreview).not.toHaveBeenCalled();
+    unmount();
+    expect(stopPreview).toHaveBeenCalledTimes(1);
+  });
+
+  // WK-132 §24 - real production Techies data from the generated GSI
+  // catalog (apps/companion/src-tauri/.../generated_hero_catalog.json):
+  // Blast Off (techies_suicide) and 4 other abilities are supported,
+  // M.A.D. is unsupported (no cast moment), Minefield Sign and Detonate
+  // M.A.D. are experimental. This must keep rendering correctly - this
+  // hero specifically motivated the tri-state model.
+  const TECHIES_TRACKED: TrackedHero = {
+    id: "npc_dota_hero_techies",
+    displayName: "Techies",
+    iconUrl: "https://example.com/techies.png",
+    abilities: [
+      { id: "techies_sticky_bomb", displayName: "Sticky Bomb", iconUrl: "x", status: "supported", signal: "cooldown", toggleActiveAlias: null, reason: null },
+      { id: "techies_reactive_tazer", displayName: "Reactive Tazer", iconUrl: "x", status: "supported", signal: "toggleActivateRename", toggleActiveAlias: "techies_reactive_tazer_stop", reason: null },
+      { id: "techies_suicide", displayName: "Blast Off!", iconUrl: "x", status: "supported", signal: "cooldown", toggleActiveAlias: null, reason: null },
+      { id: "techies_mutually_assured_destruction", displayName: "M.A.D.", iconUrl: "x", status: "unsupported", signal: null, toggleActiveAlias: null, reason: "Пассивная способность." },
+      { id: "techies_minefield_sign", displayName: "Minefield Sign", iconUrl: "x", status: "experimental", signal: "cooldown", toggleActiveAlias: null, reason: "GSI-поведение не подтверждено." },
+      { id: "techies_land_mines", displayName: "Proximity Mines", iconUrl: "x", status: "supported", signal: "charges", toggleActiveAlias: null, reason: null },
+      { id: "techies_focused_detonate", displayName: "Detonate M.A.D.", iconUrl: "x", status: "experimental", signal: "cooldown", toggleActiveAlias: null, reason: "GSI-поведение не подтверждено." },
+    ],
+  };
+
+  it("Techies: all 7 abilities render as icons with the correct tri-state (5 supported, 1 unsupported, 2 experimental)", () => {
+    renderPage({ heroId: 105, trackedHero: TECHIES_TRACKED });
+    for (const ability of TECHIES_TRACKED.abilities) {
+      expect(screen.getByText(ability.displayName)).toBeTruthy();
+    }
+    const mad = screen.getByRole("button", { name: /^M\.A\.D\.\./ }) as HTMLButtonElement;
+    expect(mad.disabled).toBe(true);
+    expect(mad.className).toContain("hero-ability-icon--unsupported");
+
+    const blastOff = screen.getByRole("button", { name: /^Blast Off!\./ }) as HTMLButtonElement;
+    expect(blastOff.disabled).toBe(false);
+    expect(blastOff.className).toContain("hero-ability-icon--supported");
+
+    for (const name of [/^Minefield Sign\./, /^Detonate M\.A\.D\.\./]) {
+      const el = screen.getByRole("button", { name }) as HTMLButtonElement;
+      expect(el.disabled).toBe(false);
+      expect(el.className).toContain("hero-ability-icon--experimental");
+    }
+  });
+
+  // WK-134 §3 - never the browser's native broken-image glyph.
+  it("falls back to a quiet neutral placeholder when an ability icon image fails to load, without touching the tri-state class", () => {
+    renderPage();
+    const meatHook = screen.getByRole("button", { name: /^Meat Hook\./ });
+    const img = meatHook.querySelector("img") as HTMLImageElement;
+    expect(img).toBeTruthy();
+    expect(meatHook.querySelector(".hero-ability-icon__img-fallback")).toBeNull();
+    fireEvent.error(img);
+    expect(meatHook.querySelector("img")).toBeNull();
+    expect(meatHook.querySelector(".hero-ability-icon__img-fallback")).toBeTruthy();
+    expect(meatHook.className).toContain("hero-ability-icon--supported");
+  });
+
+  // WK-134 §2 - viewport-edge collision: an ability near the left edge
+  // opens its tooltip rightward (data-tooltip-align="start"), near the
+  // right edge opens it leftward ("end"), otherwise no override (centered).
+  it("flips the tooltip alignment near the left/right viewport edges on hover", () => {
+    const trackedHero: TrackedHero = {
+      ...PUDGE_TRACKED,
+      abilities: [
+        ...PUDGE_TRACKED.abilities,
+        { id: "pudge_dismember", displayName: "Dismember", iconUrl: "x", status: "supported", signal: "cooldown", toggleActiveAlias: null, reason: null },
+      ],
+    };
+    renderPage({ trackedHero });
+    const original = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { value: 800, configurable: true });
+
+    const firstIcon = screen.getByRole("button", { name: /^Meat Hook\./ });
+    vi.spyOn(firstIcon, "getBoundingClientRect").mockReturnValue({ left: 10, right: 66 } as DOMRect);
+    fireEvent.mouseEnter(firstIcon);
+    expect(firstIcon.dataset.tooltipAlign).toBe("start");
+
+    const lastIcon = screen.getByRole("button", { name: /^Dismember\./ });
+    vi.spyOn(lastIcon, "getBoundingClientRect").mockReturnValue({ left: 734, right: 790 } as DOMRect);
+    fireEvent.mouseEnter(lastIcon);
+    expect(lastIcon.dataset.tooltipAlign).toBe("end");
+
+    const middleIcon = screen.getByRole("button", { name: /^Rot\./ });
+    vi.spyOn(middleIcon, "getBoundingClientRect").mockReturnValue({ left: 400, right: 456 } as DOMRect);
+    fireEvent.mouseEnter(middleIcon);
+    expect(middleIcon.dataset.tooltipAlign).toBeUndefined();
+
+    Object.defineProperty(window, "innerWidth", { value: original, configurable: true });
   });
 });

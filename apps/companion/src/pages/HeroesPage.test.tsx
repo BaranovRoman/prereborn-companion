@@ -62,13 +62,18 @@ describe("HeroesPage", () => {
     expect(screen.queryByRole("textbox")).toBeNull();
   });
 
-  it("typing anywhere filters the grid (RU alias support) and shows a transient indicator", () => {
+  // WK-132 - matches apps/web's settled search behavior: unmatched heroes
+  // stay mounted (dimmed via data-search-match="false"), not removed from
+  // the DOM - the grid must never reflow while typing.
+  it("typing anywhere dims non-matching tiles in place (RU alias support) without unmounting them", () => {
     render(
       <HeroesPage favorites={buildFavorites()} soundSettings={null} trackedHeroes={[]} onSelectHero={vi.fn()} />
     );
     typeIntoHeroSearch("пудж");
-    expect(screen.getByTitle("Pudge")).toBeTruthy();
-    expect(screen.queryByTitle("Anti-Mage")).toBeNull();
+    const pudge = screen.getByTitle("Pudge");
+    const antiMage = screen.getByTitle("Anti-Mage");
+    expect(pudge.getAttribute("data-search-match")).toBe("true");
+    expect(antiMage.getAttribute("data-search-match")).toBe("false");
     expect(screen.getByText("ПУДЖ")).toBeTruthy();
   });
 
@@ -77,20 +82,22 @@ describe("HeroesPage", () => {
       <HeroesPage favorites={buildFavorites()} soundSettings={null} trackedHeroes={[]} onSelectHero={vi.fn()} />
     );
     typeIntoHeroSearch("pudgex");
-    expect(screen.queryByTitle("Pudge")).toBeNull(); // "pudgex" matches nothing
+    expect(screen.getByTitle("Pudge").getAttribute("data-search-match")).toBe("false"); // "pudgex" matches nothing
     fireEvent.keyDown(window, { key: "Backspace" });
-    expect(screen.getByTitle("Pudge")).toBeTruthy(); // back to "pudge"
+    expect(screen.getByTitle("Pudge").getAttribute("data-search-match")).toBe("true"); // back to "pudge"
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByText("PUDGE")).toBeNull();
-    expect(screen.getByTitle("Anti-Mage")).toBeTruthy(); // full grid is back
+    expect(screen.getByTitle("Anti-Mage").getAttribute("data-search-match")).toBe("true"); // full grid, no dimming
   });
 
-  it("shows 'not found' for a query matching nothing", () => {
+  it("shows a 'not found' hint without hiding the grid for a query matching nothing", () => {
     render(
       <HeroesPage favorites={buildFavorites()} soundSettings={null} trackedHeroes={[]} onSelectHero={vi.fn()} />
     );
     typeIntoHeroSearch("zzznotahero");
-    expect(screen.getByText("Герой не найден.")).toBeTruthy();
+    expect(screen.getByText(/герой не найден/i)).toBeTruthy();
+    // the grid itself stays fully mounted, just entirely dimmed
+    expect(screen.getByTitle("Pudge").getAttribute("data-search-match")).toBe("false");
   });
 
   it("clicking a hero tile calls onSelectHero with its numeric id", () => {
