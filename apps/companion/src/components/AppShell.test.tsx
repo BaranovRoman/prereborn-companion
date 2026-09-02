@@ -77,6 +77,7 @@ function buildStatusFixture(overrides: Record<string, unknown> = {}) {
     obs_last_error: null,
     obs_streaming: true,
     obs_manual_summary_active: false,
+    overlay_visible: true,
     companion_version: "0.5.26",
     ...overrides,
   };

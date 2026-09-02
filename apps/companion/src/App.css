@@ -882,6 +882,12 @@ h1, h2, p { margin-top: 0; }
 .poststream-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
 .poststream-actions small { color: var(--ui-text-soft); }
 
+/* WK-124 - global overlay visibility toggle, same layout/spacing as
+   .poststream-actions immediately above it (a two-state swap button + hint
+   text), not a separate visual language. */
+.overlay-visibility-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+.overlay-visibility-actions small { color: var(--ui-text-soft); }
+
 .control-panel { margin-bottom: 16px; padding: 20px; border: 1px solid var(--border); border-radius: var(--radius); background: linear-gradient(180deg, var(--ui-panel), var(--ui-well)); }
 .section-heading, .scene-summary { display: flex; align-items: center; justify-content: space-between; }
 .section-heading { margin-bottom: 16px; }

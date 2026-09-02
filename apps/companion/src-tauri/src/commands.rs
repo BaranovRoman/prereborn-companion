@@ -631,6 +631,36 @@ pub fn resume_live_scene(state: State<AppState>) -> StatusSnapshot {
     state.snapshot()
 }
 
+// WK-124 - global runtime visibility override for the local overlay
+// renderer, NOT a BroadcastState/lifecycle action: flips
+// InnerState::overlay_visible only. BroadcastState keeps resolving
+// normally (GSI, LocalSession, match detection/finalization, MMR, OBS
+// scene automation, sync, the local HTTP/SSE server itself) - only the
+// renderer's own final visibility gate (see overlay-renderer/OverlayApp.tsx)
+// reads this field, via the same OverlayStateSnapshot the SSE stream already
+// diffs and pushes on every change (overlay_server.rs's `current`).
+// Toggle-only (no explicit on/off argument) so a future single-keypress
+// hotkey (see this ticket's "не реализовывать сейчас" hotkey UI note) can
+// call this exact command without first reading current state itself - the
+// Home page button and the future hotkey are both just callers of this one
+// semantic action.
+#[tauri::command]
+pub fn toggle_overlay_visible(app: AppHandle, state: State<AppState>) -> StatusSnapshot {
+    let mut inner = state.0.lock().unwrap();
+    inner.overlay_visible = !inner.overlay_visible;
+    let now_visible = inner.overlay_visible;
+    drop(inner);
+    storage::append_rolling_log(
+        &app,
+        if now_visible {
+            "Overlay visibility: OFF -> ON."
+        } else {
+            "Overlay visibility: ON -> OFF."
+        },
+    );
+    state.snapshot()
+}
+
 // Diagnostic-mode GSI capture - see src-tauri/src/diagnostics/mod.rs. Off by
 // default, purely additive: none of these touch AppState, the GSI config,
 // or anything the regular (non-diagnostic) UI reads.

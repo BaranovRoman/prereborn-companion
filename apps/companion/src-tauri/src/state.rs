@@ -86,6 +86,14 @@ pub struct StatusSnapshot {
     // `manual_summary_override`). Purely a display concern here - the pin
     // itself lives in `InnerState`/`resolve_desired_scene`.
     pub obs_manual_summary_active: bool,
+    // WK-124 - global runtime visibility override for the local overlay
+    // renderer (see overlay_server.rs's OverlayStateSnapshot). Purely a
+    // display concern here, same shape as obs_manual_summary_active above -
+    // the authoritative bool lives in InnerState/toggle_overlay_visible.
+    // This is NOT BroadcastState: BroadcastState keeps resolving normally
+    // while this is false, only the renderer's final visibility gate reads
+    // it (see overlay-renderer/OverlayApp.tsx).
+    pub overlay_visible: bool,
     pub companion_version: String,
 }
 
@@ -225,13 +233,30 @@ pub struct InnerState {
     /// Twitch connection.
     pub twitch_chat: Option<serde_json::Value>,
     pub last_history_log_signature: Option<String>,
+    // WK-124 - global runtime visibility override for the local overlay
+    // renderer: OFF makes the final renderer output fully transparent
+    // without touching BroadcastState, the local overlay server, SSE, GSI,
+    // LocalSession, OBS scene automation, or any other runtime subsystem -
+    // see overlay_server.rs's OverlayStateSnapshot and
+    // commands::toggle_overlay_visible. Deliberately in-memory only (not
+    // persisted to SQLite/config/localStorage): a fresh Companion process
+    // always starts with the overlay visible, so a streamer can never begin
+    // a new stream with an unexpectedly hidden Browser Source just because
+    // they forgot to turn it back on last time. `#[derive(Default)]` above
+    // gives this `false`; `AppState::new()` below explicitly forces it to
+    // `true` immediately after construction so the derive's per-field
+    // default never has to special-case one bool among many.
+    pub overlay_visible: bool,
 }
 
 pub struct AppState(pub Mutex<InnerState>);
 
 impl AppState {
     pub fn new() -> Self {
-        AppState(Mutex::new(InnerState::default()))
+        AppState(Mutex::new(InnerState {
+            overlay_visible: true,
+            ..InnerState::default()
+        }))
     }
 
     pub fn snapshot(&self) -> StatusSnapshot {
@@ -301,6 +326,7 @@ impl AppState {
             obs_streaming: inner.obs_streaming,
             obs_streaming_confirmed_at: inner.obs_streaming_confirmed_at.clone(),
             obs_manual_summary_active: inner.obs_manual_summary_override,
+            overlay_visible: inner.overlay_visible,
             companion_version: COMPANION_VERSION.to_string(),
         }
     }
@@ -314,6 +340,16 @@ mod tests {
     fn backend_state_is_waiting_before_first_attempt() {
         let state = AppState::new();
         assert_eq!(state.snapshot().backend_state, ConnectionState::Waiting);
+    }
+
+    // WK-124 - fresh AppState (a real Companion process start) must always
+    // show the overlay - see InnerState::overlay_visible's doc comment for
+    // why this is forced explicitly rather than relying on Default.
+    #[test]
+    fn overlay_is_visible_by_default_on_a_fresh_app_state() {
+        let state = AppState::new();
+        assert!(state.0.lock().unwrap().overlay_visible);
+        assert!(state.snapshot().overlay_visible);
     }
 
     #[test]

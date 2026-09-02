@@ -85,6 +85,17 @@ pub struct OverlayStateSnapshot {
     pub layout_version: u64,
     pub account: Option<serde_json::Value>,
     pub twitch_chat: Option<serde_json::Value>,
+    /// WK-124 - global runtime visibility override (see
+    /// commands::toggle_overlay_visible and InnerState::overlay_visible's
+    /// doc comment). This is NOT `scene`/BroadcastState: `scene` keeps
+    /// resolving normally regardless of this value - the renderer's own
+    /// final visibility gate (overlay-renderer/OverlayApp.tsx) is the only
+    /// place that reads it, rendering fully transparent output whenever
+    /// this is `false` and the page is not the "Оформление" editor preview.
+    /// Participates in `serve_sse`'s whole-snapshot diff like every other
+    /// field here, so a toggle is pushed to an already-open Browser Source
+    /// immediately, without a reload.
+    pub overlay_visible: bool,
 }
 
 /// Reads AppState (canonical resolver fields) plus the local runtime's
@@ -99,7 +110,7 @@ pub struct OverlayStateSnapshot {
 /// than only testing a hand-built stand-in. Every real call site keeps
 /// compiling unchanged (`R = Wry` by inference).
 pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
-    let (gsi_derived_source, session_ended, obs_manual_summary_override, layout_version, account, twitch_chat) = {
+    let (gsi_derived_source, session_ended, obs_manual_summary_override, layout_version, account, twitch_chat, overlay_visible) = {
         let state = app.state::<AppState>();
         let inner = state.0.lock().unwrap();
         (
@@ -109,9 +120,15 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
             inner.overlay_layout_version,
             inner.account_overlay_data.clone(),
             inner.twitch_chat.clone(),
+            inner.overlay_visible,
         )
     };
     let gsi_derived = gsi_derived_source.unwrap_or(BroadcastState::BetweenMatches);
+    // WK-124 - `overlay_visible` is deliberately NOT an input to `resolve`:
+    // it is a rendering-only override, not a BroadcastState fact. `scene`
+    // below keeps reflecting the real GSI/session-derived state even while
+    // the overlay is hidden, so turning it back on shows the current state,
+    // not whatever was showing right before it was turned off.
     let scene = broadcast_state::resolve(gsi_derived, session_ended, obs_manual_summary_override);
     OverlayStateSnapshot {
         scene,
@@ -120,6 +137,7 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
         layout_version,
         account,
         twitch_chat,
+        overlay_visible,
     }
 }
 
@@ -444,6 +462,77 @@ mod tests {
         assert_eq!(current(&app).twitch_chat, Some(chat));
     }
 
+    // WK-124 - fresh AppState (mirrors state.rs's own pin of the same fact)
+    // must be visible by default, and `current()` must surface it.
+    #[test]
+    fn overlay_visible_defaults_to_true_in_the_served_snapshot() {
+        let app = test_app();
+        assert!(current(&app).overlay_visible);
+    }
+
+    // WK-124 - toggling visibility must never move `scene`: it is a
+    // rendering-only override, not a BroadcastState input (see `current`'s
+    // doc comment on why `resolve` never receives it).
+    #[test]
+    fn overlay_visible_toggle_does_not_change_the_resolved_scene() {
+        let app = test_app();
+        {
+            let state = app.state::<AppState>();
+            let mut inner = state.0.lock().unwrap();
+            inner.last_gsi_payload = Some(serde_json::json!({
+                "map": { "game_state": "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS" },
+                "player": { "activity": "playing" }
+            }));
+        }
+        let before = current(&app);
+        assert_eq!(before.scene, BroadcastState::Gameplay);
+
+        app.state::<AppState>().0.lock().unwrap().overlay_visible = false;
+        let after = current(&app);
+        assert_eq!(after.scene, BroadcastState::Gameplay, "hiding the overlay must not touch the resolved scene");
+        assert!(!after.overlay_visible);
+    }
+
+    // WK-124 - BroadcastState must keep transitioning while the overlay is
+    // hidden (turning OFF must not freeze the served scene), and turning it
+    // back ON must show whatever the state moved to in the meantime, not
+    // whatever was showing at the moment of OFF.
+    #[test]
+    fn broadcast_state_keeps_changing_while_overlay_is_off_and_on_shows_the_current_state() {
+        let app = test_app();
+        {
+            let state = app.state::<AppState>();
+            let mut inner = state.0.lock().unwrap();
+            inner.last_gsi_payload = Some(serde_json::json!({
+                "map": { "game_state": "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS" },
+                "player": { "activity": "playing" }
+            }));
+            inner.overlay_visible = false;
+        }
+        assert_eq!(current(&app).scene, BroadcastState::Gameplay);
+
+        // Gameplay -> PostStream (session ends) while still OFF.
+        app.state::<AppState>().0.lock().unwrap().session_ended = true;
+        assert_eq!(current(&app).scene, BroadcastState::PostStream);
+        assert!(!current(&app).overlay_visible, "still OFF");
+
+        // PostStream -> BetweenMatches (GSI signal clears) while still OFF.
+        {
+            let state = app.state::<AppState>();
+            let mut inner = state.0.lock().unwrap();
+            inner.session_ended = false;
+            inner.last_gsi_payload = None;
+        }
+        assert_eq!(current(&app).scene, BroadcastState::BetweenMatches);
+
+        // Turning back ON must reflect the current state (BetweenMatches),
+        // not the Gameplay scene that was showing when it was turned off.
+        app.state::<AppState>().0.lock().unwrap().overlay_visible = true;
+        let restored = current(&app);
+        assert!(restored.overlay_visible);
+        assert_eq!(restored.scene, BroadcastState::BetweenMatches);
+    }
+
     #[test]
     fn session_ended_wins_over_the_latest_gsi_tick_in_the_served_state() {
         let app = test_app();
@@ -581,6 +670,42 @@ mod tests {
             first_frame.contains("\"session\":"),
             "initial state must include widget data: {first_frame}"
         );
+    }
+
+    // WK-124 - the initial `/overlay/state` fetch (used before the SSE
+    // connection opens) must already reflect an OFF override, so a Browser
+    // Source that (re)loads while the overlay is hidden renders transparent
+    // from the very first paint, not just after the first SSE frame.
+    #[test]
+    fn state_endpoint_reflects_overlay_hidden_on_initial_load() {
+        let app = test_app();
+        app.state::<AppState>().0.lock().unwrap().overlay_visible = false;
+        let port = start_test_server(app);
+        let body = http_get(port, "/overlay/state");
+        assert!(body.contains("\"overlayVisible\":false"), "unexpected body: {body}");
+    }
+
+    // WK-124 - a visibility toggle alone (no scene/session/layout change)
+    // must still be pushed to an already-open Browser Source immediately,
+    // the same "live update without reload" guarantee layout_version has.
+    #[test]
+    fn sse_stream_pushes_a_frame_when_only_overlay_visibility_changes() {
+        let app = test_app();
+        let port = start_test_server(app.clone());
+
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connect");
+        stream.write_all(b"GET /overlay/events HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n").unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut reader = std::io::BufReader::new(stream);
+
+        let first_frame = read_one_sse_frame(&mut reader);
+        assert!(first_frame.contains("\"overlayVisible\":true"), "unexpected initial frame: {first_frame}");
+
+        app.state::<AppState>().0.lock().unwrap().overlay_visible = false;
+
+        let second_frame = read_one_sse_frame(&mut reader);
+        assert!(second_frame.contains("\"scene\":\"betweenMatches\""), "scene must not have changed: {second_frame}");
+        assert!(second_frame.contains("\"overlayVisible\":false"), "visibility toggle alone must still push a frame: {second_frame}");
     }
 
     // WK-122 §19 - the local renderer must keep updating live while the
@@ -776,6 +901,7 @@ mod tests {
                 layout_version: 1,
                 account: None,
                 twitch_chat: None,
+                overlay_visible: true,
             };
             let json = serde_json::to_string(&snapshot).unwrap().to_lowercase();
             for forbidden in ["token", "secret", "password", "companion_token", "bearer"] {
