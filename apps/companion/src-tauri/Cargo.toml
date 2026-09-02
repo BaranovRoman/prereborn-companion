@@ -70,6 +70,7 @@ tauri-plugin-window-state = "2.4.1"
 # above (see their comments).
 rusqlite = { version = "0.31", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
+tauri-plugin-single-instance = "2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

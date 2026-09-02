@@ -405,8 +405,22 @@ pub(crate) fn drain_outbox(app: &AppHandle) {
                     &format!("Sync: {} for {}={} acknowledged by backend", row.event_type, row.entity_type, row.entity_local_id),
                 );
                 let _ = mark_delivered(conn, &row.id, Utc::now());
+                // Reliability pass - this drain tick runs every DRAIN_INTERVAL
+                // whenever the outbox is non-empty, independent of whether
+                // Dota/GSI is even running, making it (like the command/
+                // overlay polls in backend.rs) a connectivity probe the
+                // legacy gsi-state heartbeat alone never provided - see
+                // backend::record_connectivity's doc comment for the bug
+                // this closes.
+                crate::backend::record_connectivity(app, "sync-outbox", crate::backend::ConnectivitySignal::Success);
             }
             SendOutcome::Rejected(error) => {
+                // Deliberately NOT fed into record_connectivity - a
+                // permanently-rejected (4xx) event is a data/validation
+                // problem with THIS payload, not evidence the backend is
+                // unreachable (see the report's "backend connectivity vs
+                // permanent rejection" split; ProblemBar's dead-letter item
+                // already surfaces this separately).
                 crate::storage::append_rolling_log(app, &format!("Sync: event {} dead-lettered ({error})", row.id));
                 let _ = mark_failed(conn, &row.id, &error, Utc::now());
             }
@@ -415,6 +429,7 @@ pub(crate) fn drain_outbox(app: &AppHandle) {
                     app,
                     &format!("Sync: {} for {}={} retrying ({error})", row.event_type, row.entity_type, row.entity_local_id),
                 );
+                crate::backend::record_connectivity(app, "sync-outbox", crate::backend::ConnectivitySignal::Transient(error.clone()));
                 let _ = mark_retry(conn, &row.id, &error, row.attempts, Utc::now());
                 return; // stop draining - preserves order, retries this same row next tick
             }
@@ -465,13 +480,18 @@ fn refresh_game_mode(app: &AppHandle) {
         Ok(client) => client,
         Err(_) => return,
     };
-    let Ok(response) = client
+    let response = match client
         .get(format!("{DEFAULT_BACKEND_URL}/stream/companion/account-settings"))
         .bearer_auth(token)
         .send()
-    else {
-        return; // best-effort - keep whatever was cached before
+    {
+        Ok(response) => response,
+        Err(error) => {
+            crate::backend::record_connectivity(app, "game-mode-poll", crate::backend::ConnectivitySignal::Transient(error.to_string()));
+            return; // best-effort - keep whatever was cached before
+        }
     };
+    crate::backend::record_connectivity(app, "game-mode-poll", crate::backend::classify_status(response.status()));
     let Ok(json) = response.json::<Value>() else { return };
     let state = app.state::<LocalRuntimeState>();
     let mut guard = state.lock();
@@ -551,14 +571,19 @@ fn pull_corrections(app: &AppHandle) {
         Ok(client) => client,
         Err(_) => return,
     };
-    let Ok(response) = client
+    let response = match client
         .get(format!("{DEFAULT_BACKEND_URL}/stream/companion/sync/corrections"))
         .query(&[("since", since.as_str())])
         .bearer_auth(token)
         .send()
-    else {
-        return; // best-effort, try again next cycle
+    {
+        Ok(response) => response,
+        Err(error) => {
+            crate::backend::record_connectivity(app, "corrections-pull", crate::backend::ConnectivitySignal::Transient(error.to_string()));
+            return; // best-effort, try again next cycle
+        }
     };
+    crate::backend::record_connectivity(app, "corrections-pull", crate::backend::classify_status(response.status()));
     let Ok(json) = response.json::<Value>() else { return };
     let Some(corrections) = json.get("corrections").and_then(Value::as_array) else { return };
     if corrections.is_empty() {

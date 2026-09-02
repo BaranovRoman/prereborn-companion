@@ -125,6 +125,13 @@ pub struct InnerState {
     pub backend_consecutive_failures: u32,
     pub backend_last_sent_at: Option<String>,
     pub backend_last_error: Option<String>,
+    // Reliability pass - set the moment `backend_consecutive_failures` goes
+    // from 0 to 1 (see backend::record_connectivity), cleared on the next
+    // success. Lets a recovery log line report how long the backend was
+    // actually degraded, instead of just that it recovered - see the
+    // connectivity report for why `backend_state` needed a connectivity
+    // signal from more than just the legacy gsi-state heartbeat.
+    pub backend_degraded_since: Option<Instant>,
     // Последнее распарсенное (valid JSON) GSI-состояние - независимо от
     // того, было ли оно уже отправлено. `dirty` отличает "есть новое,
     // ещё не отправленное состояние" (используется фоновым троттлингом раз

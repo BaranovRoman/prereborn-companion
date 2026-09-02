@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::state::{AppState, COMPANION_VERSION, DEFAULT_BACKEND_URL};
 use crate::storage;
@@ -49,6 +49,105 @@ enum SendOutcome {
     Sent,
     Skipped,
     Failed,
+}
+
+/// Reliability pass - the shared connectivity signal every real backend
+/// call in this file (and local_runtime::sync's worker) can feed into
+/// `AppState.backend_state`, not just the legacy gsi-state heartbeat below.
+///
+/// Root cause this exists to fix: before this, `backend_state` (surfaced to
+/// the user as "PreReborn недоступен") was driven EXCLUSIVELY by
+/// `try_send_pending`, which only ever runs when a fresh GSI payload is
+/// `dirty` - i.e. only while Dota is actively running and posting updates.
+/// A run of failures there (e.g. a few seconds of real network trouble
+/// during a match) could tip `backend_consecutive_failures` to
+/// `MAX_RETRY_ATTEMPT` right as the match ended; with no further GSI
+/// packets to mark the state dirty again, nothing ever re-attempted a send,
+/// so `backend_state` stayed stuck on `Unavailable` - and the UI kept
+/// showing "PreReborn недоступен" - for the rest of the stream, even though
+/// the backend had recovered in seconds and everything else (sync_outbox,
+/// the command/overlay polls below) was working fine.
+///
+/// Every one of this app's OWN existing periodic background calls (the
+/// 15s command poll, the 60s overlay/queue/account-settings polls, the 2s
+/// sync-outbox drain, the 60s corrections/game-mode pulls, the 30m session
+/// refresh) already doubles as a connectivity probe once wired through
+/// here - no new request/ping was added anywhere for this.
+pub enum ConnectivitySignal {
+    Success,
+    Transient(String),
+}
+
+/// Any actual HTTP response - even a 4xx - proves the request reached the
+/// backend and got answered, which is itself confirmation of connectivity;
+/// only a 5xx (the server failing to handle it), 408, or 429 reads as the
+/// backend itself struggling. This is what keeps an auth failure (401/403)
+/// or a permanent rejection (422/400) from ever being misread as "backend
+/// unavailable" - see the report's "backend connectivity vs auth failure
+/// vs permanent rejection" split.
+pub(crate) fn classify_status(status: reqwest::StatusCode) -> ConnectivitySignal {
+    if status.is_server_error()
+        || status == reqwest::StatusCode::REQUEST_TIMEOUT
+        || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+    {
+        ConnectivitySignal::Transient(format!("HTTP {status}"))
+    } else {
+        ConnectivitySignal::Success
+    }
+}
+
+/// Updates the shared connectivity counters (`backend_attempted`,
+/// `backend_consecutive_failures`, `backend_last_error`) that
+/// `AppState::snapshot` derives `backend_state` from, and logs ONLY the
+/// meaningful transitions (first failure of a run, the run crossing into
+/// `Unavailable`, and the recovery back to healthy) rather than every tick -
+/// the previous gsi-state-only path used to log a line on every single
+/// send, which at ~1 send/s during a live match could crowd real signal out
+/// of the bounded rolling log (see the report's logging section).
+// Generic over `R: Runtime` (same "no-op unless active" shape reasoning as
+// local_runtime::handle_gsi, see its own doc comment) purely so the tests
+// below can drive this with `tauri::test::mock_app()` end to end instead of
+// only exercising `AppState::snapshot`'s threshold math in isolation - every
+// real call site keeps compiling unchanged (`R = Wry` by inference).
+pub(crate) fn record_connectivity<R: Runtime>(app: &AppHandle<R>, operation: &str, signal: ConnectivitySignal) {
+    let state = app.state::<AppState>();
+    let mut inner = state.0.lock().unwrap();
+    inner.backend_attempted = true;
+    match signal {
+        ConnectivitySignal::Success => {
+            let was_degraded = inner.backend_consecutive_failures > 0;
+            let degraded_since = inner.backend_degraded_since.take();
+            inner.backend_consecutive_failures = 0;
+            inner.backend_last_error = None;
+            drop(inner);
+            if was_degraded {
+                let degraded_secs = degraded_since.map(|since| since.elapsed().as_secs()).unwrap_or(0);
+                storage::append_rolling_log(
+                    app,
+                    &format!("Backend: recovered ({operation}); was degraded for {degraded_secs}s"),
+                );
+            }
+        }
+        ConnectivitySignal::Transient(error) => {
+            let first_failure_in_run = inner.backend_consecutive_failures == 0;
+            if first_failure_in_run {
+                inner.backend_degraded_since = Some(Instant::now());
+            }
+            inner.backend_consecutive_failures = inner.backend_consecutive_failures.saturating_add(1);
+            let attempt = inner.backend_consecutive_failures;
+            inner.backend_last_error = Some(error.clone());
+            drop(inner);
+            if first_failure_in_run {
+                storage::append_rolling_log(app, &format!("Backend: degraded ({operation}) — {error}"));
+            } else if attempt == MAX_RETRY_ATTEMPT {
+                storage::append_rolling_log(
+                    app,
+                    &format!("Backend: unavailable ({operation}) after {attempt} consecutive failures — {error}"),
+                );
+            }
+        }
+    }
+    let _ = app.emit("backend-status", app.state::<AppState>().snapshot());
 }
 
 #[derive(serde::Deserialize)]
@@ -154,8 +253,12 @@ fn poll_obs_command(app: &AppHandle) {
         .send()
     {
         Ok(response) => response,
-        Err(_) => return,
+        Err(error) => {
+            record_connectivity(app, "commands-poll", ConnectivitySignal::Transient(error.to_string()));
+            return;
+        }
     };
+    record_connectivity(app, "commands-poll", classify_status(response.status()));
     if response.status() == reqwest::StatusCode::NO_CONTENT {
         return;
     }
@@ -620,8 +723,15 @@ fn refresh_session_access_token(app: &AppHandle) -> Result<(), String> {
             let state = app.state::<AppState>();
             let mut inner = state.0.lock().unwrap();
             inner.companion_token = Some(refreshed.access_token);
+            drop(inner);
+            record_connectivity(app, "session-refresh", ConnectivitySignal::Success);
             Ok(())
         }
+        // Deliberately NOT fed into `record_connectivity` - an expired/
+        // rotated refresh token is a credential problem, not evidence the
+        // backend is unreachable (see the report's "auth failure vs backend
+        // connectivity" split). The backend clearly responded (with a 401),
+        // which if anything confirms connectivity.
         Err(RefreshError::Revoked) => {
             let _ = storage::clear_session(app);
             let state = app.state::<AppState>();
@@ -629,7 +739,10 @@ fn refresh_session_access_token(app: &AppHandle) -> Result<(), String> {
             inner.companion_token = None;
             Err("Сессия недействительна — нужно войти заново.".to_string())
         }
-        Err(RefreshError::Transient(message)) => Err(message),
+        Err(RefreshError::Transient(message)) => {
+            record_connectivity(app, "session-refresh", ConnectivitySignal::Transient(message.clone()));
+            Err(message)
+        }
     }
 }
 
@@ -665,22 +778,36 @@ pub async fn refresh_overlay_layout(app: &AppHandle) -> Result<serde_json::Value
         .companion_token
         .clone()
         .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())?;
-    let layout = tauri::async_runtime::spawn_blocking(move || fetch_overlay_layout(&token))
+    let app_for_fetch = app.clone();
+    let layout = tauri::async_runtime::spawn_blocking(move || fetch_overlay_layout(&app_for_fetch, &token))
         .await
         .map_err(|e| format!("Internal error: {e}"))??;
     apply_overlay_layout(app, layout.clone());
     Ok(layout)
 }
 
-fn fetch_overlay_layout(token: &str) -> Result<serde_json::Value, String> {
-    let response = reqwest::blocking::Client::builder()
+/// Runs both on the 60s background poll (see `init`'s loop) and on-demand
+/// when the Оформление editor opens - either way, a real result here is a
+/// connectivity probe just as good as the gsi-state heartbeat's, and (unlike
+/// that heartbeat) fires on a fixed cadence independent of whether Dota is
+/// even running - see `record_connectivity`'s doc comment for why that
+/// matters.
+fn fetch_overlay_layout(app: &AppHandle, token: &str) -> Result<serde_json::Value, String> {
+    let response = match reqwest::blocking::Client::builder()
         .timeout(REQUEST_TIMEOUT)
         .build()
         .map_err(|error| format!("HTTP client error: {error}"))?
         .get(format!("{DEFAULT_BACKEND_URL}/stream/companion/overlay-layout"))
         .bearer_auth(token)
         .send()
-        .map_err(|error| format!("Оформление недоступно: {error}"))?;
+    {
+        Ok(response) => response,
+        Err(error) => {
+            record_connectivity(app, "overlay-layout-poll", ConnectivitySignal::Transient(error.to_string()));
+            return Err(format!("Оформление недоступно: {error}"));
+        }
+    };
+    record_connectivity(app, "overlay-layout-poll", classify_status(response.status()));
     if !response.status().is_success() {
         return Err(format!("Backend ответил {}", response.status()));
     }
@@ -745,7 +872,8 @@ fn apply_overlay_layout(app: &AppHandle, layout: serde_json::Value) {
 pub async fn refresh_queue_settings(app: &AppHandle) -> Result<serde_json::Value, String> {
     let token = app.state::<AppState>().0.lock().unwrap().companion_token.clone()
         .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())?;
-    let settings = tauri::async_runtime::spawn_blocking(move || request_queue_settings(&token, None))
+    let app_for_fetch = app.clone();
+    let settings = tauri::async_runtime::spawn_blocking(move || request_queue_settings(&app_for_fetch, &token, None))
         .await.map_err(|e| format!("Internal error: {e}"))??;
     apply_queue_settings(app, settings.clone());
     Ok(settings)
@@ -754,17 +882,27 @@ pub async fn refresh_queue_settings(app: &AppHandle) -> Result<serde_json::Value
 pub async fn save_queue_settings(app: &AppHandle, settings: serde_json::Value) -> Result<serde_json::Value, String> {
     let token = app.state::<AppState>().0.lock().unwrap().companion_token.clone()
         .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())?;
-    let saved = tauri::async_runtime::spawn_blocking(move || request_queue_settings(&token, Some(settings)))
+    let app_for_fetch = app.clone();
+    let saved = tauri::async_runtime::spawn_blocking(move || request_queue_settings(&app_for_fetch, &token, Some(settings)))
         .await.map_err(|e| format!("Internal error: {e}"))??;
     apply_queue_settings(app, saved.clone());
     Ok(saved)
 }
 
-fn request_queue_settings(token: &str, body: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
+/// Runs on the 60s background poll (see `init`'s loop) and on-demand from
+/// the Between Matches settings save - same "any real result is a
+/// connectivity probe" reasoning as `fetch_overlay_layout` above.
+fn request_queue_settings(app: &AppHandle, token: &str, body: Option<serde_json::Value>) -> Result<serde_json::Value, String> {
     let client = reqwest::blocking::Client::builder().timeout(REQUEST_TIMEOUT).build().map_err(|e| e.to_string())?;
     let url = format!("{DEFAULT_BACKEND_URL}/stream/companion/queue-settings");
-    let response = match body { Some(value) => client.put(url).bearer_auth(token).json(&value).send(), None => client.get(url).bearer_auth(token).send() }
-        .map_err(|e| format!("Настройки Between Matches недоступны: {e}"))?;
+    let response = match match body { Some(value) => client.put(url).bearer_auth(token).json(&value).send(), None => client.get(url).bearer_auth(token).send() } {
+        Ok(response) => response,
+        Err(error) => {
+            record_connectivity(app, "queue-settings-poll", ConnectivitySignal::Transient(error.to_string()));
+            return Err(format!("Настройки Between Matches недоступны: {error}"));
+        }
+    };
+    record_connectivity(app, "queue-settings-poll", classify_status(response.status()));
     if !response.status().is_success() { return Err(format!("Backend ответил {}", response.status())); }
     response.json().map_err(|e| format!("Неверный ответ настроек: {e}"))
 }
@@ -785,11 +923,19 @@ fn apply_queue_settings(app: &AppHandle, settings: serde_json::Value) {
 pub async fn refresh_account_overlay_data(app: &AppHandle) -> Result<serde_json::Value, String> {
     let token = app.state::<AppState>().0.lock().unwrap().companion_token.clone()
         .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())?;
+    let app_for_fetch = app.clone();
     let data = tauri::async_runtime::spawn_blocking(move || {
-        let response = reqwest::blocking::Client::builder().timeout(REQUEST_TIMEOUT).build()
+        let response = match reqwest::blocking::Client::builder().timeout(REQUEST_TIMEOUT).build()
             .map_err(|error| error.to_string())?
             .get(format!("{DEFAULT_BACKEND_URL}/stream/companion/account-settings"))
-            .bearer_auth(token).send().map_err(|error| error.to_string())?;
+            .bearer_auth(token).send() {
+            Ok(response) => response,
+            Err(error) => {
+                record_connectivity(&app_for_fetch, "account-overlay-poll", ConnectivitySignal::Transient(error.to_string()));
+                return Err(error.to_string());
+            }
+        };
+        record_connectivity(&app_for_fetch, "account-overlay-poll", classify_status(response.status()));
         if !response.status().is_success() { return Err(format!("Backend ответил {}", response.status())); }
         response.json::<serde_json::Value>().map_err(|error| error.to_string())
     }).await.map_err(|error| format!("Internal error: {error}"))??;
@@ -956,34 +1102,134 @@ fn send_state(token: &str, payload: &serde_json::Value) -> Result<(), String> {
 }
 
 fn apply_result(app: &AppHandle, result: &Result<(), String>) {
-    let state = app.state::<AppState>();
-    let mut inner = state.0.lock().unwrap();
-    inner.backend_attempted = true;
-    match result {
-        Ok(()) => {
-            inner.backend_consecutive_failures = 0;
-            inner.backend_last_sent_at = Some(chrono::Local::now().to_rfc3339());
-            inner.backend_last_error = None;
-        }
-        Err(e) => {
-            // A single failure (and a run of them under MAX_RETRY_ATTEMPT)
-            // is surfaced by `snapshot()` as Recovering, not Unavailable -
-            // WK-78's backoff is already retrying, so this isn't a final
-            // "disconnected" state yet (see state.rs::AppState::snapshot).
-            inner.backend_consecutive_failures = inner.backend_consecutive_failures.saturating_add(1);
-            inner.backend_last_error = Some(e.clone());
+    if result.is_ok() {
+        let state = app.state::<AppState>();
+        let mut inner = state.0.lock().unwrap();
+        inner.backend_last_sent_at = Some(chrono::Local::now().to_rfc3339());
+    }
+    let signal = match result {
+        Ok(()) => ConnectivitySignal::Success,
+        // A single failure (and a run of them under MAX_RETRY_ATTEMPT) is
+        // surfaced by `snapshot()` as Recovering, not Unavailable - WK-78's
+        // backoff is already retrying, so this isn't a final "disconnected"
+        // state yet (see state.rs::AppState::snapshot). This path doesn't
+        // distinguish transport/5xx from a permanent rejection the way
+        // `classify_status` does elsewhere in this file (see
+        // `record_connectivity`'s doc comment) - `send_state`'s own 4xx
+        // handling (e.g. UPGRADE_REQUIRED) already turns into a distinct,
+        // specific error message before it ever reaches here, so treating
+        // whatever remains as a connectivity blip matches this hot path's
+        // pre-existing behavior.
+        Err(e) => ConnectivitySignal::Transient(e.clone()),
+    };
+    record_connectivity(app, "gsi-state", signal);
+}
+
+// Reliability pass - the shared connectivity signal (record_connectivity/
+// classify_status) is what fixes the reported "PreReborn недоступен" bug:
+// see this module's doc comment on `ConnectivitySignal` for the root cause.
+// These tests exercise the REAL function, not just AppState::snapshot's
+// threshold math (already covered by state.rs's own backend_state_* tests) -
+// the bug was in how few call sites ever fed that math a fresh result, not
+// in the math itself.
+#[cfg(test)]
+mod connectivity_tests {
+    use super::*;
+    use crate::state::ConnectionState;
+
+    fn mock_handle() -> tauri::AppHandle<tauri::test::MockRuntime> {
+        let app = tauri::test::mock_app();
+        app.manage(AppState::new());
+        app.handle().clone()
+    }
+
+    #[test]
+    fn classify_status_treats_5xx_408_429_as_transient() {
+        for status in [
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            reqwest::StatusCode::BAD_GATEWAY,
+            reqwest::StatusCode::SERVICE_UNAVAILABLE,
+            reqwest::StatusCode::GATEWAY_TIMEOUT,
+            reqwest::StatusCode::REQUEST_TIMEOUT,
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+        ] {
+            assert!(
+                matches!(classify_status(status), ConnectivitySignal::Transient(_)),
+                "{status} must read as a connectivity problem"
+            );
         }
     }
-    drop(inner);
 
-    storage::append_rolling_log(
-        app,
-        &match result {
-            Ok(()) => "Backend: состояние отправлено".to_string(),
-            Err(e) => format!("Backend: ошибка отправки — {e}"),
-        },
-    );
-    let _ = app.emit("backend-status", app.state::<AppState>().snapshot());
+    // WK reliability pass - item 3/5 of the connectivity audit: auth
+    // failure and permanent (validation) rejection must never read as
+    // "backend unavailable". Any actual HTTP response, even an error one,
+    // proves the request reached the backend and got answered.
+    #[test]
+    fn classify_status_treats_auth_and_validation_4xx_as_connectivity_success() {
+        for status in [
+            reqwest::StatusCode::OK,
+            reqwest::StatusCode::UNAUTHORIZED,
+            reqwest::StatusCode::FORBIDDEN,
+            reqwest::StatusCode::BAD_REQUEST,
+            reqwest::StatusCode::UNPROCESSABLE_ENTITY,
+        ] {
+            assert!(
+                matches!(classify_status(status), ConnectivitySignal::Success),
+                "{status} must never be misread as a backend outage"
+            );
+        }
+    }
+
+    #[test]
+    fn a_single_transient_failure_reads_as_recovering_not_a_persistent_outage() {
+        let handle = mock_handle();
+        record_connectivity(&handle, "test-op", ConnectivitySignal::Transient("blip".into()));
+        let snapshot = handle.state::<AppState>().snapshot();
+        assert_eq!(snapshot.backend_state, ConnectionState::Recovering);
+        assert_eq!(snapshot.backend_last_error.as_deref(), Some("blip"));
+    }
+
+    #[test]
+    fn reaching_max_retry_attempt_marks_the_backend_unavailable() {
+        let handle = mock_handle();
+        for _ in 0..MAX_RETRY_ATTEMPT {
+            record_connectivity(&handle, "test-op", ConnectivitySignal::Transient("down".into()));
+        }
+        assert_eq!(handle.state::<AppState>().snapshot().backend_state, ConnectionState::Unavailable);
+    }
+
+    #[test]
+    fn a_success_after_a_run_of_failures_recovers_to_connected_and_clears_the_error() {
+        let handle = mock_handle();
+        for _ in 0..MAX_RETRY_ATTEMPT {
+            record_connectivity(&handle, "test-op", ConnectivitySignal::Transient("down".into()));
+        }
+        assert_eq!(handle.state::<AppState>().snapshot().backend_state, ConnectionState::Unavailable);
+        record_connectivity(&handle, "test-op", ConnectivitySignal::Success);
+        let snapshot = handle.state::<AppState>().snapshot();
+        assert_eq!(snapshot.backend_state, ConnectionState::Connected);
+        assert_eq!(snapshot.backend_last_error, None);
+    }
+
+    // Regression guard for the actual reported bug: before this reliability
+    // pass, ONLY the gsi-state heartbeat (try_send_pending, gated on a fresh
+    // GSI packet) ever called into this state, so a run of failures right as
+    // a match ended left `backend_state` stuck on Unavailable for the rest
+    // of the stream - nothing else ever attempted a new send to recover it.
+    // A success from any OTHER instrumented background path (the command
+    // poll, the overlay/queue/account polls, the sync-outbox drain - see
+    // their call sites in this file and in local_runtime::sync) must be
+    // able to recover it just as well.
+    #[test]
+    fn a_success_from_a_different_operation_than_the_one_that_failed_still_recovers_backend_state() {
+        let handle = mock_handle();
+        for _ in 0..MAX_RETRY_ATTEMPT {
+            record_connectivity(&handle, "gsi-state", ConnectivitySignal::Transient("match ended mid-blip".into()));
+        }
+        assert_eq!(handle.state::<AppState>().snapshot().backend_state, ConnectionState::Unavailable);
+        record_connectivity(&handle, "commands-poll", ConnectivitySignal::Success);
+        assert_eq!(handle.state::<AppState>().snapshot().backend_state, ConnectionState::Connected);
+    }
 }
 
 #[cfg(test)]
