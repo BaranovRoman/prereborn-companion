@@ -56,6 +56,12 @@ export interface StatusSnapshot {
   // `resolve_desired_scene`). Purely a display concern for the shell's
   // "Вернуться к трансляции" affordance.
   obs_manual_summary_active: boolean;
+  // WK-124 - global runtime visibility override for the local overlay
+  // renderer (see src-tauri/src/commands.rs's toggle_overlay_visible). This
+  // is NOT BroadcastState - it only controls whether the Browser Source's
+  // final rendered output is transparent; scene resolution keeps running
+  // unaffected. In-memory only: always `true` on a fresh Companion process.
+  overlay_visible: boolean;
   companion_version: string;
 }
 

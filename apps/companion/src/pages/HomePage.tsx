@@ -215,6 +215,10 @@ export function HomePage({
   }
 
   const summaryActive = status?.obs_manual_summary_active ?? false;
+  // WK-124 - defaults to `true` when status hasn't loaded yet, matching the
+  // real AppState default (a fresh Companion process is always ON) so the
+  // control never flashes an "OFF" state before the first status fetch.
+  const overlayVisible = status?.overlay_visible ?? true;
   const hasSession = sessionSummary?.hasSession ?? false;
   const hasRecentMatches = (sessionSummary?.recentMatches.length ?? 0) > 0;
   const sessionDelta = hasSession ? sessionSummary?.sessionDelta ?? null : null;
@@ -301,6 +305,30 @@ export function HomePage({
                     Вернуться к трансляции
                   </button>
                   <small>OBS показывает Post Stream. Стрим и сессия продолжаются — это не завершение эфира.</small>
+                </>
+              )}
+            </div>
+            {/* WK-124 - global runtime visibility override for the local
+                overlay renderer (Browser Source at 127.0.0.1:3666/overlay).
+                Purely a rendering toggle: GSI, LocalSession, match
+                detection/finalization, MMR, OBS scene automation, Twitch/
+                chat, TTS/Game Sounds, sync and the local HTTP/SSE server all
+                keep running unaffected - see toggle_overlay_visible's doc
+                comment. Mirrors poststream-actions' own swap-button
+                pattern immediately above, deliberately not a big SaaS-style
+                pill switch, so OFF reads as an intentional streamer action,
+                not an error state. */}
+            <div className="overlay-visibility-actions">
+              {overlayVisible ? (
+                <button className="button" disabled={busy} onClick={() => void run(api.toggleOverlayVisible)}>
+                  Скрыть оверлей
+                </button>
+              ) : (
+                <>
+                  <button className="button button--primary" disabled={busy} onClick={() => void run(api.toggleOverlayVisible)}>
+                    Показать оверлей
+                  </button>
+                  <small>PreReborn Overlay скрыт в OBS Browser Source. Всё остальное — GSI, сессия, MMR, OBS — продолжает работать как обычно.</small>
                 </>
               )}
             </div>

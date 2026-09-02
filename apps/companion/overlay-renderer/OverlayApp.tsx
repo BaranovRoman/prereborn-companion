@@ -157,12 +157,25 @@ export function OverlayApp() {
 
   if (!snapshot) return <Scene><div className="ov-loading" /></Scene>;
 
+  const editor = isEditorPreview();
+
+  // WK-124 - the ONE final visibility gate: applied here, at the broadcast
+  // host's top level, before any scene branching below - not repeated
+  // inside Between/Draft/Gameplay/PostStream individually, so future scenes
+  // automatically respect it too. Editor preview (`?editor=1`, DesignPage.tsx's
+  // iframe) is explicitly exempt - a streamer must still be able to edit
+  // Оформление while the live overlay is hidden; the override only ever
+  // applies to the real broadcast output a Browser Source loads. Rendering
+  // nothing (not a styled empty state) keeps the whole page transparent -
+  // body/html already have no background (overlay-renderer.css), so an
+  // empty React tree paints zero pixels, not a black/opaque layer.
+  if (!editor && !snapshot.overlayVisible) return null;
+
   const { session } = snapshot;
   const scene = readPreviewScene() ?? snapshot.scene;
   const sceneLayout = scene === "draft" || scene === "gameplay" ? layout?.scenes[scene] : undefined;
   const sceneWidgets = sceneLayout?.widgets;
   const dimensions = resolveSceneDimensions(layout);
-  const editor = isEditorPreview();
   const patchWidget = (key: "session" | "recentMatches", patch: Record<string, unknown>) => {
     if (!layout || (scene !== "draft" && scene !== "gameplay")) return;
     const next = {

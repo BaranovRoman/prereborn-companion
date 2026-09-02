@@ -291,6 +291,7 @@ pub fn run() {
             commands::migrate_obs_browser_source,
             commands::show_stream_summary_scene,
             commands::resume_live_scene,
+            commands::toggle_overlay_visible,
             commands::diagnostics_get_status,
             commands::diagnostics_start,
             commands::diagnostics_stop,

@@ -177,6 +177,14 @@ export const migrateObsBrowserSource = (inputName: string) =>
 export const showStreamSummaryScene = () => invoke<StatusSnapshot>("show_stream_summary_scene");
 export const resumeLiveScene = () => invoke<StatusSnapshot>("resume_live_scene");
 
+// WK-124 - global runtime visibility override for the local overlay
+// renderer (see src-tauri/src/commands.rs's toggle_overlay_visible). Purely
+// a rendering override: does not touch BroadcastState, OBS, GSI,
+// LocalSession, MMR, sync, or the local HTTP/SSE server itself. Toggle-only
+// so this same command can later be bound to a hotkey without the caller
+// needing to first read current state.
+export const toggleOverlayVisible = () => invoke<StatusSnapshot>("toggle_overlay_visible");
+
 // Global "skip current TTS" hotkey (WK-83 - see src-tauri/src/hotkeys.rs).
 // The hotkey press itself arrives as a "hotkeys://skip-tts" event (listened
 // for in useTwitchChatSession.ts), not through these commands - these only

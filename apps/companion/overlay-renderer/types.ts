@@ -61,6 +61,12 @@ export interface OverlayStateSnapshot {
     state: "connected" | "reconnecting" | "reauth_required" | "unavailable";
     messages: Array<{ id: string; author: string; color: string | null; text: string; receivedAt: string }>;
   } | null;
+  // WK-124 - global runtime visibility override, NOT part of BroadcastState.
+  // `scene` above keeps resolving normally regardless of this value; only
+  // OverlayApp.tsx's own final gate reads it, rendering nothing at all
+  // (fully transparent) when this is `false` and the page is not the
+  // "Оформление" editor preview (`?editor=1`).
+  overlayVisible: boolean;
 }
 
 // WK-122 §19 - mirrors apps/api's stream-overlay-layout-service.ts (the
