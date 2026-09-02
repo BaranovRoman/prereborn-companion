@@ -1025,6 +1025,12 @@ pub fn start_stream_state_watcher(app: AppHandle) {
         loop {
             let config = app.state::<AppState>().0.lock().unwrap().obs_config.clone();
             if let Err(error) = run_stream_state_watcher_once(&app, &config, WATCHER_READ_TIMEOUT) {
+                {
+                    let state = app.state::<AppState>();
+                    let mut inner = state.0.lock().unwrap();
+                    inner.obs_watcher_connected = false;
+                    inner.obs_watcher_last_error = Some(error.clone());
+                }
                 if last_logged_error.as_deref() != Some(error.as_str()) {
                     storage::append_rolling_log(&app, &format!("OBS stream-state watcher: {error}"));
                     last_logged_error = Some(error);
@@ -1130,6 +1136,15 @@ fn watch_stream_state_once<F: FnMut(bool, StreamingObservationSource)>(
 /// multi-hour stream spamming app.log every `read_timeout` seconds.
 fn run_stream_state_watcher_once(app: &AppHandle, config: &ObsConfig, read_timeout: Duration) -> Result<(), String> {
     watch_stream_state_once(config, read_timeout, |streaming, source| {
+        // WK-126 - every observation (Initial/Event/Heartbeat) proves this
+        // socket is currently connected and getting real answers from OBS -
+        // see the field doc on state.rs's obs_watcher_connected.
+        {
+            let state = app.state::<crate::state::AppState>();
+            let mut inner = state.0.lock().unwrap();
+            inner.obs_watcher_connected = true;
+            inner.obs_watcher_last_error = None;
+        }
         if source == StreamingObservationSource::Heartbeat {
             let previous = app.state::<crate::state::AppState>().0.lock().unwrap().obs_streaming;
             if previous.is_some() && previous != Some(streaming) {

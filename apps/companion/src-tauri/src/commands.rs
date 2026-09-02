@@ -25,6 +25,17 @@ pub fn get_status(state: State<AppState>) -> StatusSnapshot {
     state.snapshot()
 }
 
+// WK-126 - Diagnostics v2. One canonical, read-only projection of Local
+// Runtime/Integrations/Cloud health, normalizing state every one of the
+// commands above already exposes separately - see runtime_health.rs's own
+// doc comment. Diagnostics UI (and anything else that needs "is Companion
+// healthy right now") reads this instead of re-deriving its own
+// interpretation of gsi_state/obs_state/SyncOutboxStatus/etc.
+#[tauri::command]
+pub fn get_runtime_health(app: AppHandle) -> crate::runtime_health::RuntimeHealth {
+    crate::runtime_health::compute(&app)
+}
+
 // WK-112 - OBS-driven local stream lifecycle. Read-only status plus the two
 // stale-session manual-recovery actions (see local_runtime::lifecycle) -
 // deliberately no "start"/"end" commands here: normal lifecycle is fully

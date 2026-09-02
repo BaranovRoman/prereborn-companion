@@ -24,10 +24,12 @@ export interface TwitchChatStatus {
   messages: TwitchChatMessage[];
 }
 import { invoke } from "@tauri-apps/api/core";
-import type { AccountStatus, DiagnosticsStatusSnapshot, LifecycleStatus, LocalSessionSummary, ObsConfig, OverlayLayoutDoc, QueueSettingsDoc, StatusSnapshot, SyncOutboxStatus } from "../types/status";
+import type { AccountStatus, DiagnosticsStatusSnapshot, LifecycleStatus, LocalSessionSummary, ObsConfig, OverlayLayoutDoc, QueueSettingsDoc, RuntimeHealth, StatusSnapshot, SyncOutboxStatus } from "../types/status";
 import type { StreamSessionSummary } from "../session/session-prompt";
 
 export const getStatus = () => invoke<StatusSnapshot>("get_status");
+// WK-126 - Diagnostics v2 canonical health projection (see types/status.ts).
+export const getRuntimeHealth = () => invoke<RuntimeHealth>("get_runtime_health");
 export const findDota = () => invoke<StatusSnapshot>("find_dota");
 export const pickDotaFolder = () => invoke<StatusSnapshot>("pick_dota_folder");
 export const installGsi = () => invoke<StatusSnapshot>("install_gsi");

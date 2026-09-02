@@ -8,6 +8,7 @@ mod hotkeys;
 mod local_runtime;
 mod obs;
 mod overlay_server;
+mod runtime_health;
 mod secure_storage;
 mod server;
 mod silero;
@@ -310,6 +311,7 @@ pub fn run() {
             commands::end_stream_session,
             commands::get_favorite_heroes,
             commands::save_favorite_heroes,
+            commands::get_runtime_health,
             commands::get_game_sound_catalog,
             commands::get_game_sound_settings,
             commands::update_game_sound_master,

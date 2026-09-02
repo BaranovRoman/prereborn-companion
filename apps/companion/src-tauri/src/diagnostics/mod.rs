@@ -320,7 +320,16 @@ pub fn export(app: &AppHandle, output_path: PathBuf) -> Result<String, String> {
     };
 
     let app_log = storage::read_rolling_log(app);
-    export::export_zip(&session_dir, &fields, &manifest, &generated_at, &app_log, &output_path)?;
+    // WK-126 - defense in depth on top of RuntimeHealth's own construction
+    // (it never reads secure storage/credentials at all): pass the report
+    // through the same secret-key redaction the GSI snapshots already use
+    // before it ever reaches disk.
+    let runtime_report = {
+        let health = crate::runtime_health::compute(app);
+        let value = serde_json::to_value(&health).unwrap_or_default();
+        serde_json::to_vec_pretty(&redact::redact(&value)).unwrap_or_default()
+    };
+    export::export_zip(&session_dir, &fields, &manifest, &generated_at, &app_log, &runtime_report, &output_path)?;
     drop(inner);
 
     storage::append_rolling_log(

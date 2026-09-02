@@ -231,6 +231,53 @@ export interface SyncOutboxStatus {
   lastErrorAt: string | null;
 }
 
+// WK-126 - Diagnostics v2: RuntimeHealth, the one canonical read-only
+// projection of Local Runtime/Integrations/Cloud health. Mirrors
+// src-tauri/src/runtime_health.rs field-for-field - see that module's doc
+// comment for the full status semantics (healthy/degraded/unavailable/
+// disabled/unknown) and aggregation rules.
+export type HealthStatusValue = "healthy" | "degraded" | "unavailable" | "disabled" | "unknown";
+
+export interface HealthComponent {
+  status: HealthStatusValue;
+  reason: string | null;
+  lastSuccessAt: string | null;
+  lastErrorAt: string | null;
+}
+
+export interface LocalRuntimeHealth {
+  status: HealthStatusValue;
+  gsi: HealthComponent;
+  localSession: HealthComponent;
+  sqlite: HealthComponent;
+  overlayServer: HealthComponent;
+}
+
+export interface IntegrationsHealth {
+  status: HealthStatusValue;
+  obs: HealthComponent;
+  obsSceneAutomation: HealthComponent;
+  twitch: HealthComponent;
+  tts: HealthComponent;
+  gameSounds: HealthComponent;
+}
+
+export interface CloudHealth {
+  status: HealthStatusValue;
+  backend: HealthComponent;
+  sync: HealthComponent;
+  account: HealthComponent;
+}
+
+export interface RuntimeHealth {
+  schemaVersion: number;
+  generatedAt: string;
+  app: { version: string; platform: string };
+  localRuntime: LocalRuntimeHealth;
+  integrations: IntegrationsHealth;
+  cloud: CloudHealth;
+}
+
 export interface ObsConfig {
   enabled: boolean;
   host: string;

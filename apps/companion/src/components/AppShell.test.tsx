@@ -148,6 +148,12 @@ let syncStatusFixture: Record<string, unknown> | null = null;
 vi.mock("../hooks/useSyncOutboxStatus", () => ({
   useSyncOutboxStatus: () => ({ status: syncStatusFixture, refresh: vi.fn().mockResolvedValue(undefined) }),
 }));
+// WK-126 - Diagnostics v2 canonical health projection, only actually read by
+// DiagnosticsPage - mocked to a no-op here like every other polling hook in
+// this file, so unrelated tests never make a real invoke("get_runtime_health") call.
+vi.mock("../hooks/useRuntimeHealth", () => ({
+  useRuntimeHealth: () => ({ health: null, refresh: vi.fn().mockResolvedValue(undefined) }),
+}));
 vi.mock("../chat/useTwitchChatSession", () => ({
   useTwitchChatSession: () => ({
     skipHotkeyStatus: { enabled: false, shortcut: "CommandOrControl+Alt+F10", registered: false, lastError: null },
