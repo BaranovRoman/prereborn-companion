@@ -115,9 +115,46 @@ fn try_auto_provision(app: &tauri::AppHandle) {
     }
 }
 
+/// Reliability pass - focuses the existing window on a second launch (see
+/// `run()`'s single-instance plugin registration below). A real webview
+/// window can't be constructed outside a running app, so this has no unit
+/// test - it's covered by the packaged Windows double-launch smoke check
+/// instead (see the report).
+fn focus_existing_window(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else { return };
+    let _ = window.unminimize();
+    let _ = window.show();
+    let _ = window.set_focus();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // Reliability pass - single instance guard. MUST be the first
+        // plugin registered (see this plugin's own README/docs): Tauri
+        // runs each plugin's `setup()` in registration order, then the
+        // app's own `.setup()` closure last - this plugin's `setup()`
+        // calls `std::process::exit(0)` synchronously on a second launch
+        // (confirmed by reading tauri-plugin-single-instance's own
+        // platform_impl source), so registering it first guarantees a
+        // second instance never reaches ANY other plugin's setup or this
+        // app's own `.setup()` below - i.e. never opens SQLite, never binds
+        // :3665/:3666, never touches OBS/Twitch/the sync worker. See the
+        // report for the startup-ordering audit this closes.
+        //
+        // The callback runs in the FIRST (already-running) instance's
+        // process, receiving the second launch's argv/cwd - this app has no
+        // deep-link scheme or meaningful CLI args to route (login is
+        // email/password over HTTP, not an OAuth callback - see the
+        // report), so all it needs to do is bring the existing window
+        // forward. Verified via tauri's own app.rs that the updater's
+        // relaunch-after-update (`request_restart`) releases this plugin's
+        // mutex/window (its `on_event(RunEvent::Exit)` hook) strictly
+        // before spawning the new process, so the restarted instance never
+        // mistakes itself for a duplicate of the instance it's replacing.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            focus_existing_window(app);
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())

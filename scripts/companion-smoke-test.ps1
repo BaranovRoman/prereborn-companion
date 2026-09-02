@@ -79,7 +79,55 @@ try {
     # PowerShell does not report the otherwise-successful script as failed.
     $global:LASTEXITCODE = 0
 
-    Write-Host "Smoke test passed: packaged Companion serves GSI + canonical OBS overlay HTML/state/initial SSE; Draft and Gameplay states resolved"
+    # Reliability pass - single-instance guard (tauri-plugin-single-instance,
+    # registered first in lib.rs's run()). This is the one real-Windows check
+    # for it this repo runs anywhere: PRs never build the Tauri app at all
+    # (ci.yml is Node/Ubuntu-only, and windows-release.yml only triggers on
+    # push to main/tags - see the report), so this smoke test is the only
+    # place a genuine double-launch on the actual target OS is exercised.
+    # Not a substitute for the manual window-focus verification the report
+    # calls for (this CI runner has no interactive desktop session to
+    # observe a window actually coming to the foreground on) - it proves the
+    # part that IS machine-checkable: a second launch must not become a
+    # second running runtime and must not disturb the first instance's
+    # already-bound ports.
+    $secondProc = Start-Process -FilePath $exePath -PassThru
+    $secondInstanceExited = $false
+    for ($i = 0; $i -lt 10; $i++) {
+        Start-Sleep -Milliseconds 500
+        $secondProc.Refresh()
+        if ($secondProc.HasExited) {
+            $secondInstanceExited = $true
+            break
+        }
+    }
+    if (-not $secondInstanceExited) {
+        Stop-Process -Id $secondProc.Id -Force -ErrorAction SilentlyContinue
+        throw "Second Companion launch did not exit - single-instance guard did not take effect (or took too long)"
+    }
+    if ($secondProc.ExitCode -ne 0) {
+        throw "Second Companion launch exited with code $($secondProc.ExitCode) instead of a clean single-instance handoff (expected 0)"
+    }
+
+    $runningCount = (Get-Process -Name "dota-companion" -ErrorAction SilentlyContinue | Measure-Object).Count
+    if ($runningCount -ne 1) {
+        throw "Expected exactly 1 running dota-companion.exe process after the second launch handed off, found $runningCount"
+    }
+
+    $proc.Refresh()
+    if ($proc.HasExited) {
+        throw "First Companion instance exited as a side effect of the second launch attempt"
+    }
+    $conn = Test-NetConnection -ComputerName 127.0.0.1 -Port 3665 -WarningAction SilentlyContinue
+    if (-not $conn.TcpTestSucceeded) {
+        throw "First instance's GSI server on 127.0.0.1:3665 stopped responding after the second launch attempt"
+    }
+    $health = Invoke-RestMethod -Uri "$overlayBase/health" -TimeoutSec 5
+    if ($health.status -ne "ok") {
+        throw "First instance's overlay server stopped responding after the second launch attempt"
+    }
+
+    Write-Host "Smoke test passed: packaged Companion serves GSI + canonical OBS overlay HTML/state/initial SSE; Draft and Gameplay states resolved; a second launch exits cleanly and the first instance's runtime is undisturbed"
 }
 finally {
     if (-not $proc.HasExited) {
