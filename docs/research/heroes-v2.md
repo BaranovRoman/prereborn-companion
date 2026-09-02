@@ -128,9 +128,119 @@ environment. Saved under `docs/qa-screenshots/` (gitignored, local review only):
 Hero portrait/video images are Steam CDN URLs; some screenshots show them unloaded (sandboxed
 environment network access) — this is a capture-environment artifact, not a code issue.
 
-## Scope not touched
+## Scope not touched (WK-132)
 
 Detector/Rust ability-classification logic, item sound assignment, global audio settings UI,
-hero/ability catalog generation, navigation architecture (still local React state, no router),
-hero visual/video composition, and the existing HUD ability-row/sound-binding-row visual
-language — all were already in line with the task's stated direction and are left as-is.
+hero/ability catalog generation, navigation architecture (still local React state, no router).
+
+---
+
+# WK-133 — Hero Detail visual/product revision
+
+First-round Hero Detail screenshots (WK-132) went to visual review. Verdict: search dim-in-place
+approved and locked (no further changes); Hero Detail rejected — the vertical ability-row list
+(icon + name + status text, one `SoundBindingRow` per click) still read as a settings form, and
+the hero visual was too small/timid. Revised direction: a Dota hero-pick-screen composition —
+large hero visual as the scene's own background, name + a horizontal ability **icon** strip
+anchored top-left, no permanent per-ability text, tooltip on hover/focus, one expanded
+sound-control panel below the strip on click.
+
+## What changed
+
+`HeroDetailPage.tsx` rebuilt (`App.css`'s `.hero-detail*`/`.hero-ability-row*` block replaced by
+`.hero-detail__scene`/`.hero-ability-icon*`/`.hero-ability-expanded*`):
+
+1. **Hero visual** — a large (`min(72vh, 820px)` square) radial-masked background biased to the
+   right of the scene, feathered into the app's existing ambient fog/ember layer (no visible
+   rectangular container). Kept **square**, matching the source video's actual aspect (the old
+   code's own comment: "production hero-idle-loop capture is always 1:1") — an earlier pass tried
+   stretching it to `inset:0` on the wide scene rectangle, which forced a much heavier crop than
+   the video's framing was designed for and produced an unrecognizable close-up on a more dynamic
+   loop (Pudge's hook swing). Same failure mode would hit any hero whose idle loop isn't a
+   static-ish pose like Techies'.
+2. **Identity** — hero name + favorite + attribute badge moved to the content block's top-left,
+   anchored above the ability strip (no longer floating top-right).
+3. **Abilities** — `AbilityStrip` replaces `AbilityList`: each ability is a 56×56 icon button
+   only (no name/status text at rest), `flex-wrap`ped, tri-state conveyed via
+   opacity/grayscale/dashed-outline/a small "?" corner marker + a gold bound-dot — not a card
+   background. Verified on Invoker (14 abilities, all experimental) that it wraps onto 2 rows
+   correctly with no special-cased layout.
+4. **Tooltip** — name/status/assigned-filename on hover/focus, reusing the existing
+   `.ui-tooltip__bubble` CSS recipe directly on the ability button (not `Tooltip.tsx`'s wrapper
+   span) so a dense kit doesn't get a second empty tab stop per ability. Bubble opens **downward**
+   (`.hero-ability-icon .ui-tooltip__bubble { top: ...; bottom: auto; }`) — opening upward (the
+   shared default) collided with the hero name directly above the strip.
+5. **Expanded control** — clicking a bindable ability shows one `.hero-ability-expanded` panel
+   below the strip with the ability name + the same `SoundBindingRow` (stripped of its own
+   border/background so it doesn't nest a card inside a card); selecting another ability swaps it,
+   clicking the same one again or pressing Escape collapses it. Still exactly one at a time — same
+   underlying `selectedAbilityId` state as before, just relocated.
+6. **Globally-disabled hint** — now a single muted line near the strip ("Звуковые реакции
+   выключены"), not the earlier detached full-width bordered box.
+7. **Media failure** — if the video errors, falls back to the portrait image; if that also
+   errors, the visual container just doesn't render (name/abilities stay anchored normally, no
+   empty bordered rectangle).
+
+A real accessibility bug surfaced and got fixed while wiring this up: the ability buttons had
+`role="listitem"` (copied from `HeroesPage`'s portrait-tile pattern), which overrides a
+`<button>`'s implicit `button` role — breaking `getByRole("button")` queries and, for real screen
+readers, the announced control type. Dropped the list/listitem roles on the strip; these are
+plain buttons, not a semantic list.
+
+## Not changed / explicitly out of scope for WK-133
+
+Search/roster (approved, locked per instruction), sound assignment storage/validation/preview
+architecture, detector semantics, item sounds, OpenDota/statistics integration (the composition
+leaves the scene's right side open for a future stats block, per instruction, but nothing is
+implemented or stubbed there).
+
+## Screenshots (round 3, final — WK-133)
+
+Same mocked-Tauri dev-server approach as WK-132, extended with real Invoker ability data (14
+abilities, all `experimental`, from `generated_hero_catalog.json`). Saved under
+`docs/qa-screenshots/wk133-*.png`. Two issues surfaced and were fixed across three capture
+passes (the earlier `.hero-detail__visual-bg`'s `inset:0`/biased-crop version and the two rounds
+before this are superseded — history kept here for the record, not as separate artifacts):
+
+1. **Video-crop bug (round 1)** — the visual was stretched via `object-fit: cover` +
+   `inset: 0` + a biased `object-position` across the whole (non-square) scene rectangle. The
+   source hero-idle-loop videos are square (1:1, per the pre-WK-133 code's own comment); this
+   forced a much heavier crop than the video was framed for, producing an unrecognizable
+   close-up on a more dynamic loop (Pudge's hook swing). **Fix**: kept `.hero-detail__visual-bg`
+   itself square (`min(72vh, 820px)`, biased to the scene's right edge) so `object-fit: cover`
+   stays centered with minimal cropping while still reading as large. Confirmed via a headless
+   DOM probe that the video paints correctly once given time to reach a real frame
+   (`readyState: 4`, no `video.error`).
+2. **Header disappearing at 1024×720 (rounds 1–2)** — root cause: `.hero-detail__scene`'s
+   `min-height: min(74vh, 760px)` was tall enough, combined with page chrome, to exceed a
+   720px-tall viewport; `.main`'s `flex: 1; overflow-y: auto` doesn't actually constrain itself
+   without `min-height: 0` (a real, pre-existing latent bug in the shared shell CSS, not
+   introduced by this slice — fixed as a small, universally-safe addition), but that alone
+   wasn't sufficient because `.app-shell` itself only sets `min-height: 100vh` (a floor, not a
+   fixed height), so `.main`'s flex-basis calculation still isn't hard-capped at the viewport.
+   Rather than touch the shared shell's height architecture (out of this slice's scope, and
+   risky across every `.main`-hosted page), added a **height-based** breakpoint
+   (`@media (max-height: 820px)`) that shrinks the scene enough to fit short windows regardless
+   of width — the existing `@media (max-width: 900px)` breakpoint alone didn't catch this case
+   since 1024px is wider than that threshold. Verified via a headless DOM probe post-fix:
+   `header.getBoundingClientRect().top === 0`, `document.body.scrollHeight === window.innerHeight`
+   (720px, no page-level overflow at all) at 1024×720.
+
+- `wk133-01/03/05-*-resting.png` — Techies/Pudge/Invoker, nothing expanded. Large, well-framed
+  full-body hero art; Invoker's 14 abilities wrap onto 2 rows (10 + 4) with no vertical-list
+  fallback.
+- `wk133-02-techies-expanded.png` / `wk133-04-pudge-assigned-expanded.png` — Sticky Bomb (no
+  sound) and Meat Hook (`hook-scream.wav`) expanded panels below the strip; tooltip bubble opens
+  downward, doesn't overlap the hero name.
+- `wk133-07-sounds-disabled.png` — compact inline hint, strip stays interactive.
+- `wk133-08-small-window.png` — 1024×720, header stays pinned, no page-level scroll, hero scales
+  down via the height breakpoint.
+- `wk133-09-media-unavailable.png` — Techies media requests blocked (`page.route` abort in the
+  capture script); name/strip stay anchored, no empty bordered box. Note: there's no visible
+  "media unavailable" messaging for the user in this state (it just quietly omits the visual) —
+  matches the task's own instruction ("не превращать каждый edge case в modal") but is worth a
+  product opinion on whether a small unobtrusive fallback treatment (vs. nothing) reads better.
+
+All three rounds' screenshots were reviewed for regressions via fresh-context subagents (to work
+around a same-session image-read budget limit encountered mid-review) in addition to direct DOM
+verification for the two fixes above.

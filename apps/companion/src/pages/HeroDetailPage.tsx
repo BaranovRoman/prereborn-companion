@@ -24,110 +24,77 @@ const ATTRIBUTE_LABEL: Record<string, string> = {
   universal: "Универсальный",
 };
 
-// WK-125 - past this many abilities a single vertical column starts running
-// noticeably taller than the hero visual next to it (Invoker's 14 is the
-// production example) - the list switches to a compact 2-column grid. A
-// plain count threshold, not a hero id: any current or future hero with
-// this many abilities gets the same treatment, and an ordinary hero (4-8
-// abilities - Techies, Largo) always stays a single column, per this
-// slice's "не Invoker-specific CSS" requirement.
-const DENSE_ABILITY_LIST_THRESHOLD = 8;
-
-function statusLabel(ability: TrackedAbility): string {
-  if (ability.status === "unsupported") return `${ability.displayName}: ${ability.reason}`;
-  if (ability.status === "experimental") return `${ability.displayName} (экспериментально): ${ability.reason}`;
-  return ability.displayName;
+function tooltipLines(ability: TrackedAbility, binding: boolean, assetName: string | undefined): string[] {
+  const lines = [ability.displayName];
+  if (ability.status === "unsupported") lines.push(`Недоступно${ability.reason ? `: ${ability.reason}` : ""}`);
+  else if (ability.status === "experimental") lines.push(`Экспериментально${ability.reason ? `: ${ability.reason}` : ""}`);
+  if (binding) lines.push(assetName ? `Звук: ${assetName}` : "Звук назначен");
+  else if (ability.status !== "unsupported") lines.push("Звук не назначен");
+  return lines;
 }
 
-interface AbilityListProps {
+interface AbilityStripProps {
   abilities: TrackedAbility[];
   settings: GameSoundSettings;
   selectedAbilityId: string | null;
   onSelect: (id: string | null) => void;
-  onChooseFile: Props["onChooseFile"];
-  onPreview: Props["onPreview"];
-  onRemove: Props["onRemove"];
 }
 
-// Each row surfaces the full assignment state up front (icon, name, support
-// state, bound file) - only the three action buttons (Выбрать/Прослушать/
-// Удалить) stay behind a single click, via the same inline SoundBindingRow
-// HeroDetailPage always used (no modal).
-function AbilityList({ abilities, settings, selectedAbilityId, onSelect, onChooseFile, onPreview, onRemove }: AbilityListProps) {
-  const dense = abilities.length > DENSE_ABILITY_LIST_THRESHOLD;
+// WK-133 - the resting Hero Detail screen must read as a Dota ability bar,
+// not a settings form: every ability is just its icon (no name/status text
+// permanently on screen, no per-ability card background) with tri-state
+// conveyed through opacity/outline/a small corner marker, and full detail
+// only on hover/focus via the tooltip. Reuses the existing `.ui-tooltip`/
+// `.ui-tooltip__bubble` recipe directly on the button itself (rather than
+// Tooltip.tsx's extra wrapping span) so a dense kit like Invoker's doesn't
+// get a second empty tab stop per ability - `:focus-within` already matches
+// an element that is itself focused, so this needs no JS.
+function AbilityStrip({ abilities, settings, selectedAbilityId, onSelect }: AbilityStripProps) {
   return (
-    <div className={`hero-ability-list ${dense ? "hero-ability-list--dense" : ""}`}>
+    <div className="hero-ability-strip">
       {abilities.map((ability) => {
         const binding = settings.bindings.find((b) => b.eventId === ability.id && b.kind === "abilityCast");
         const asset = binding ? settings.assets.find((a) => a.id === binding.assetId) : undefined;
         const disabled = ability.status === "unsupported";
         const isSelected = ability.id === selectedAbilityId;
-
-        let stateLabel: string;
-        if (ability.status === "unsupported") stateLabel = "Недоступно";
-        else if (binding) stateLabel = asset ? asset.originalName : "Звук назначен";
-        else if (ability.status === "experimental") stateLabel = "Экспериментально";
-        else stateLabel = "Звук не назначен";
+        const lines = tooltipLines(ability, !!binding, asset?.originalName);
 
         return (
-          <div key={ability.id} className="hero-ability-item">
-            <button
-              type="button"
-              className={[
-                "hero-ability-row",
-                `hero-ability-row--${ability.status}`,
-                binding ? "hero-ability-row--bound" : "",
-                isSelected ? "hero-ability-row--selected" : "",
-              ].filter(Boolean).join(" ")}
-              disabled={disabled}
-              title={statusLabel(ability)}
-              onClick={() => onSelect(isSelected ? null : ability.id)}
-            >
-              <img className="hero-ability-row__icon" src={ability.iconUrl} alt="" width={40} height={40} />
-              <span className="hero-ability-row__meta">
-                <span className="hero-ability-row__name">{ability.displayName}</span>
-                <span className="hero-ability-row__state">{stateLabel}</span>
-              </span>
-              {ability.status === "experimental" && <span className="hero-ability-row__flag" aria-hidden="true">?</span>}
-              {binding && <span className="hero-ability-row__bound-dot" aria-hidden="true" />}
-            </button>
-            {isSelected && (
-              <SoundBindingRow
-                eventId={ability.id}
-                kind="abilityCast"
-                masterVolume={settings.masterVolume}
-                binding={binding}
-                assets={settings.assets}
-                onChooseFile={onChooseFile}
-                onPreview={onPreview}
-                onRemove={onRemove}
-              />
-            )}
-          </div>
+          <button
+            key={ability.id}
+            type="button"
+            className={[
+              "hero-ability-icon",
+              "ui-tooltip",
+              `hero-ability-icon--${ability.status}`,
+              binding ? "hero-ability-icon--bound" : "",
+              isSelected ? "hero-ability-icon--selected" : "",
+            ].filter(Boolean).join(" ")}
+            disabled={disabled}
+            aria-label={lines.join(". ")}
+            onClick={() => onSelect(isSelected ? null : ability.id)}
+          >
+            <img src={ability.iconUrl} alt="" width={56} height={56} />
+            {ability.status === "experimental" && <span className="hero-ability-icon__flag" aria-hidden="true">?</span>}
+            {binding && <span className="hero-ability-icon__bound-dot" aria-hidden="true" />}
+            <span className="ui-tooltip__bubble" role="tooltip">
+              {lines.map((line, i) => (
+                <span key={i} className={i === 0 ? "hero-ability-icon__tooltip-name" : "hero-ability-icon__tooltip-line"}>
+                  {line}
+                </span>
+              ))}
+            </span>
+          </button>
         );
       })}
     </div>
   );
 }
 
-// WK-125 - production visual review of WK-123's three-column layout
-// ([left abilities] [hero] [right abilities], spanning the full workspace
-// width) found abilities reading as two independent columns pinned to the
-// window's edges, with the hero visual stranded alone in a wide gap between
-// them - especially on ordinary 4-ability heroes, where each side column
-// only had 2 rows to show. Rebuilt as ONE compact composition instead:
-// [hero visual] [ability list], centered together as a single flex group
-// (`.hero-detail__workspace`'s `justify-content: center` centers the PAIR,
-// not each side independently) - since the ability list only ever extends
-// to the visual's right, the hero itself reads as sitting slightly left of
-// the workspace's true center, which is the effect this slice asked for
-// without any extra offset math. The ability list is one ordered array
-// again (no more artificial left/right split of a single hero's abilities)
-// and only grows into a 2-column grid past DENSE_ABILITY_LIST_THRESHOLD -
-// see AbilityList above.
 export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBack, onChooseFile, onPreview, onRemove, stopPreview }: Props) {
   const [selectedAbilityId, setSelectedAbilityId] = useState<string | null>(null);
   const [videoFailed, setVideoFailed] = useState(false);
+  const [visualUnavailable, setVisualUnavailable] = useState(false);
 
   // WK-132 - a preview started here must not keep playing after the user
   // navigates away, whether via the back button or by switching to another
@@ -135,6 +102,17 @@ export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBac
   // "leaving" event besides that). onChooseFile already stops a *running*
   // preview before importing a new file; this covers plain navigation.
   useEffect(() => stopPreview, [stopPreview]);
+
+  // WK-133 - Escape collapses the expanded sound control, mirroring the
+  // same "Escape closes the transient thing" idiom HeroesPage's search uses.
+  useEffect(() => {
+    if (!selectedAbilityId) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSelectedAbilityId(null);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedAbilityId]);
 
   const hero = getHeroById(heroId);
   if (!hero) {
@@ -148,43 +126,25 @@ export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBac
 
   const isFavorite = favorites.heroIds.includes(hero.id);
   const abilities = trackedHero?.abilities ?? [];
+  const selectedAbility = abilities.find((a) => a.id === selectedAbilityId) ?? null;
+  const selectedBinding = selectedAbility && settings
+    ? settings.bindings.find((b) => b.eventId === selectedAbility.id && b.kind === "abilityCast")
+    : undefined;
 
   return (
     <div className="hero-detail">
-      <div className="hero-detail__topbar">
-        <button className="ui-button ui-button--ghost hero-detail__back" onClick={onBack}>← Герои</button>
-        <div className="hero-detail__identity">
-          <h2>{hero.localizedName}</h2>
-          <button
-            type="button"
-            className={`hero-detail__favorite ${isFavorite ? "is-active" : ""}`}
-            aria-label={isFavorite ? "Убрать из избранного" : "Добавить в избранное"}
-            disabled={favorites.busyId === hero.id}
-            onClick={() => void favorites.toggle(hero.id)}
-          >
-            ★
-          </button>
-          <Badge tone="gold">{ATTRIBUTE_LABEL[hero.attribute]}</Badge>
-        </div>
-      </div>
+      <button className="ui-button ui-button--ghost hero-detail__back" onClick={onBack}>← Герои</button>
       {favorites.error && <p className="app__error">Ошибка: {favorites.error}</p>}
 
-      <h3 className="ui-settings-group__title">Способности</h3>
-      {settings && !settings.enabled && (
-        // WK-132 §27 - the page stays fully usable (assign/preview/remove
-        // all still work, see SoundBindingRow) - this is just an honest
-        // heads-up that live in-match playback is currently muted globally,
-        // not a blocking banner and not a second toggle (the real one lives
-        // in Sounds → Звуки).
-        <p className="hero-detail__sounds-disabled-hint">
-          Звуковые реакции выключены глобально — способности всё ещё можно назначать и прослушивать здесь, но во время матча они звучать не будут, пока их не включат в «Звуки».
-        </p>
-      )}
-      {!trackedHero || !settings ? (
-        <p className="heroes-grid__empty">Загрузка каталога звуков…</p>
-      ) : (
-        <div className="hero-detail__workspace">
-          <div className="hero-detail__visual">
+      {/* WK-133 - the hero visual is now the scene's own large background
+          (radial-masked, feathered into the app's ambient fog/ember layer
+          behind it - see App.css), not a bounded video card - foreground
+          content (name, ability strip, expanded control) is anchored to the
+          top-left over it, deliberately leaving the right side open for a
+          future statistics block instead of stretching content full-width. */}
+      <div className="hero-detail__scene">
+        {!visualUnavailable && (
+          <div className="hero-detail__visual-bg" aria-hidden="true">
             {!videoFailed ? (
               <video
                 key={hero.videoUrl}
@@ -197,21 +157,63 @@ export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBac
                 onError={() => setVideoFailed(true)}
               />
             ) : (
-              <img src={hero.portraitUrl} alt="" />
+              <img src={hero.portraitUrl} alt="" onError={() => setVisualUnavailable(true)} />
             )}
           </div>
+        )}
 
-          <AbilityList
-            abilities={abilities}
-            settings={settings}
-            selectedAbilityId={selectedAbilityId}
-            onSelect={setSelectedAbilityId}
-            onChooseFile={onChooseFile}
-            onPreview={onPreview}
-            onRemove={onRemove}
-          />
+        <div className="hero-detail__content">
+          <div className="hero-detail__identity">
+            <h2>{hero.localizedName}</h2>
+            <button
+              type="button"
+              className={`hero-detail__favorite ${isFavorite ? "is-active" : ""}`}
+              aria-label={isFavorite ? "Убрать из избранного" : "Добавить в избранное"}
+              disabled={favorites.busyId === hero.id}
+              onClick={() => void favorites.toggle(hero.id)}
+            >
+              ★
+            </button>
+            <Badge tone="gold">{ATTRIBUTE_LABEL[hero.attribute]}</Badge>
+          </div>
+
+          {!trackedHero || !settings ? (
+            <p className="hero-detail__loading">Загрузка способностей…</p>
+          ) : (
+            <>
+              <AbilityStrip
+                abilities={abilities}
+                settings={settings}
+                selectedAbilityId={selectedAbilityId}
+                onSelect={setSelectedAbilityId}
+              />
+
+              {selectedAbility && (
+                <div className="hero-ability-expanded">
+                  <span className="hero-ability-expanded__name">{selectedAbility.displayName}</span>
+                  <SoundBindingRow
+                    eventId={selectedAbility.id}
+                    kind="abilityCast"
+                    masterVolume={settings.masterVolume}
+                    binding={selectedBinding}
+                    assets={settings.assets}
+                    onChooseFile={onChooseFile}
+                    onPreview={onPreview}
+                    onRemove={onRemove}
+                  />
+                </div>
+              )}
+
+              {!settings.enabled && (
+                // WK-133 §13 - a subtle inline line near the strip, not the
+                // previous detached full-width banner - assignment/preview
+                // stay fully usable, this is informational only.
+                <p className="hero-detail__sounds-disabled-hint">Звуковые реакции выключены</p>
+              )}
+            </>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
