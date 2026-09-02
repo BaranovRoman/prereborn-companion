@@ -244,3 +244,67 @@ before this are superseded — history kept here for the record, not as separate
 All three rounds' screenshots were reviewed for regressions via fresh-context subagents (to work
 around a same-session image-read budget limit encountered mid-review) in addition to direct DOM
 verification for the two fixes above.
+
+---
+
+# WK-134 — Hero Detail narrow polish pass
+
+WK-133's composition was approved in principle. This is a narrow, non-redesign polish pass on
+four specific items — the ability strip's spacing/icon size/layout/wrapping/composition was
+explicitly frozen and not touched.
+
+## What changed
+
+1. **Hero name typography** — `.hero-detail__identity h2` now uses the project's existing
+   "Reaver" title font (`--font-title`). Companion didn't have this font wired in before (only
+   `apps/web`'s `globals.css` declared it); added the identical `@font-face` (same family name,
+   same Dota CDN URLs, same two weights) to `App.css` — not a new font asset, just extending the
+   existing brand font to an app that doesn't share a stylesheet with `apps/web`. `font-weight`
+   set to `600` (the real SemiBold face) instead of a synthesized `700`.
+2. **Tooltip viewport-edge collision** — `AbilityStrip`'s icons gained an `onMouseEnter`/`onFocus`
+   handler (`positionTooltip` in `HeroDetailPage.tsx`) that measures `getBoundingClientRect()`
+   and sets `data-tooltip-align="start"|"end"` when the icon is within 132px of the left/right
+   viewport edge; CSS reads that attribute to anchor the bubble's left or right edge to the icon
+   instead of centering it. Pure CSS couldn't do this — `flex-wrap` means which icons actually sit
+   near an edge isn't knowable ahead of time. Verified via a unit test with a mocked
+   `getBoundingClientRect` (three cases: near-left, near-right, and centered/no override) and via
+   screenshots at real edge positions.
+   - **Bug found and fixed along the way**: a first-row icon's downward-opening tooltip on a
+     *wrapped* strip (Invoker: 2 rows) rendered behind the second row of icons — later DOM
+     siblings at the same stacking level paint on top regardless of the bubble's own `z-index`,
+     since that only resolves *within* the hovered icon's own stacking context. Fixed by
+     promoting the hovered/focused icon's own `z-index` above its siblings
+     (`.hero-ability-icon:hover, .hero-ability-icon:focus-within { z-index: 2; }`) — applies to
+     every row, not just the first.
+3. **Ability icon image failure** — `AbilityIconImage` (new small subcomponent, one `useState`
+   per icon so each can fail independently) swaps to `.hero-ability-icon__img-fallback` on
+   `onError`: a quiet radial-gradient tile with a small centered dot, same dimensions, no text,
+   no browser broken-image glyph. The tri-state styling (opacity/grayscale/dashed border) lives
+   entirely on the parent `<button>`, so it's unaffected by whether the icon image itself loaded.
+4. **Sound editor "belongs to the selected ability"** — smallest possible touch:
+   `.hero-ability-expanded` got a 2px gold top border matching the selected icon's own gold ring
+   color, instead of any positional caret/arrow (which would need per-icon JS position tracking
+   across a wrapping strip — judged not necessary given the panel already appears immediately
+   below the strip with the ability's own name as its header line).
+
+## Not changed (explicitly frozen this pass)
+
+Ability strip spacing/icon size/layout/wrapping/composition, hero visual size/positioning/
+masking, sounds-globally-disabled treatment, search/roster behavior, sound assignment
+architecture, detector semantics.
+
+## Verification
+
+366/366 tests pass (3 new: image-fallback rendering, tooltip start/end/center alignment via
+mocked `getBoundingClientRect`), typecheck/build clean, `git diff --check` clean. Screenshots
+(`docs/qa-screenshots/wk134-*.png`) covering all 11 requested scenarios plus two supplementary
+captures (`10b`/`11b`) added specifically to visually confirm the z-index fix on Invoker's
+wrapped strip and a genuine right-edge tooltip case (the originally-requested 1680px-wide
+"last ability" capture never actually reached the true window edge, since content is
+deliberately anchored top-left with the right side left open — `11b` uses a narrower window
+purely to force a real edge case; the unit test is the actual correctness proof, independent of
+window width). Reviewed via fresh-context subagents against a checklist per item (font
+distinctness vs. surrounding UI text, no clipped/hidden tooltip text, no broken-image glyph, no
+empty bordered box on hero-media failure, header/no-scroll regression at 1024×720) — all
+confirmed, two real bugs found and fixed (tooltip z-index stacking; the alignment threshold
+itself was correct on the first attempt).

@@ -207,4 +207,50 @@ describe("HeroDetailPage", () => {
       expect(el.className).toContain("hero-ability-icon--experimental");
     }
   });
+
+  // WK-134 §3 - never the browser's native broken-image glyph.
+  it("falls back to a quiet neutral placeholder when an ability icon image fails to load, without touching the tri-state class", () => {
+    renderPage();
+    const meatHook = screen.getByRole("button", { name: /^Meat Hook\./ });
+    const img = meatHook.querySelector("img") as HTMLImageElement;
+    expect(img).toBeTruthy();
+    expect(meatHook.querySelector(".hero-ability-icon__img-fallback")).toBeNull();
+    fireEvent.error(img);
+    expect(meatHook.querySelector("img")).toBeNull();
+    expect(meatHook.querySelector(".hero-ability-icon__img-fallback")).toBeTruthy();
+    expect(meatHook.className).toContain("hero-ability-icon--supported");
+  });
+
+  // WK-134 §2 - viewport-edge collision: an ability near the left edge
+  // opens its tooltip rightward (data-tooltip-align="start"), near the
+  // right edge opens it leftward ("end"), otherwise no override (centered).
+  it("flips the tooltip alignment near the left/right viewport edges on hover", () => {
+    const trackedHero: TrackedHero = {
+      ...PUDGE_TRACKED,
+      abilities: [
+        ...PUDGE_TRACKED.abilities,
+        { id: "pudge_dismember", displayName: "Dismember", iconUrl: "x", status: "supported", signal: "cooldown", toggleActiveAlias: null, reason: null },
+      ],
+    };
+    renderPage({ trackedHero });
+    const original = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { value: 800, configurable: true });
+
+    const firstIcon = screen.getByRole("button", { name: /^Meat Hook\./ });
+    vi.spyOn(firstIcon, "getBoundingClientRect").mockReturnValue({ left: 10, right: 66 } as DOMRect);
+    fireEvent.mouseEnter(firstIcon);
+    expect(firstIcon.dataset.tooltipAlign).toBe("start");
+
+    const lastIcon = screen.getByRole("button", { name: /^Dismember\./ });
+    vi.spyOn(lastIcon, "getBoundingClientRect").mockReturnValue({ left: 734, right: 790 } as DOMRect);
+    fireEvent.mouseEnter(lastIcon);
+    expect(lastIcon.dataset.tooltipAlign).toBe("end");
+
+    const middleIcon = screen.getByRole("button", { name: /^Rot\./ });
+    vi.spyOn(middleIcon, "getBoundingClientRect").mockReturnValue({ left: 400, right: 456 } as DOMRect);
+    fireEvent.mouseEnter(middleIcon);
+    expect(middleIcon.dataset.tooltipAlign).toBeUndefined();
+
+    Object.defineProperty(window, "innerWidth", { value: original, configurable: true });
+  });
 });

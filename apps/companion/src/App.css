@@ -1,5 +1,25 @@
+/* WK-134 - same "Reaver" @font-face apps/web's globals.css already declares
+   (identical family name, same Dota CDN URL, same weights) - not a new font
+   asset, just wiring the existing brand title font into Companion, which
+   doesn't share a stylesheet with apps/web. */
+@font-face {
+  font-family: "Reaver";
+  src: url("https://cdn.cloudflare.steamstatic.com/apps/dota2/fonts/Reaver-Regular.woff") format("woff");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 400;
+}
+@font-face {
+  font-family: "Reaver";
+  src: url("https://cdn.cloudflare.steamstatic.com/apps/dota2/fonts/Reaver-SemiBold.woff") format("woff");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 600;
+}
+
 :root {
   font-family: Inter, "Segoe UI", sans-serif;
+  --font-title: "Reaver", "Forum", "Times New Roman", serif;
   font-size: 15px;
   line-height: 1.5;
   color: #c8c4bd;
@@ -1485,7 +1505,10 @@ h1, h2, p { margin-top: 0; }
   padding-top: 6px;
 }
 .hero-detail__identity { display: flex; align-items: center; gap: 12px; }
-.hero-detail__identity h2 { margin: 0; font-size: 1.9rem; color: var(--ui-text); font-weight: 700; text-shadow: 0 2px 16px rgba(0, 0, 0, .9), 0 1px 3px #000; }
+/* WK-134 - Reaver, same title font apps/web already uses for hero/profile
+   names (queue-scene.module.scss's --font-title) - font-weight 600 is the
+   actual SemiBold face declared above, not a synthesized bold. */
+.hero-detail__identity h2 { margin: 0; font-family: var(--font-title); font-size: 1.9rem; font-weight: 600; color: var(--ui-text); text-shadow: 0 2px 16px rgba(0, 0, 0, .9), 0 1px 3px #000; }
 .hero-detail__favorite {
   border: 1px solid var(--border); border-radius: var(--radius);
   width: 30px; height: 30px; display: grid; place-items: center;
@@ -1604,11 +1627,37 @@ h1, h2, p { margin-top: 0; }
   transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease, opacity 140ms ease, filter 140ms ease;
 }
 .hero-ability-icon img { display: block; width: 100%; height: 100%; object-fit: cover; border-radius: calc(var(--radius) - 2px); }
+/* WK-134 - quiet neutral fallback for a broken ability-icon image (never the
+   browser's native broken-image glyph): same box, no text/glyph, just a
+   soft inset dot - the tri-state treatment above (opacity/grayscale/dashed
+   border) still applies since that's all on the parent button, unaffected
+   by whether the icon image itself loaded. */
+.hero-ability-icon__img-fallback {
+  display: block;
+  width: 100%; height: 100%;
+  position: relative;
+  background: radial-gradient(circle, var(--ui-raised) 0%, var(--ui-well) 72%);
+  border-radius: calc(var(--radius) - 2px);
+}
+.hero-ability-icon__img-fallback::after {
+  content: "";
+  position: absolute; inset: 0; margin: auto;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--ui-edge-soft);
+}
 .hero-ability-icon:hover:not(:disabled), .hero-ability-icon:focus-visible:not(:disabled) {
   border-color: #190a0a; box-shadow: inset 0 0 0 1px var(--ui-red-hover), 0 3px 10px rgba(0, 0, 0, .4);
   transform: translateY(-2px);
   outline: none;
 }
+/* WK-134 - a wrapped strip (Invoker: 2 rows) otherwise hides a first-row
+   icon's downward-opening tooltip behind the second row: siblings later in
+   DOM order paint on top at the same stacking level regardless of the
+   bubble's own z-index, since that z-index only resolves within the
+   hovered icon's own stacking context. Promoting the icon itself above its
+   siblings on hover/focus fixes it for every row, not just the first. */
+.hero-ability-icon:hover, .hero-ability-icon:focus-within { z-index: 2; }
 .hero-ability-icon--selected { border-color: #190a0a; box-shadow: inset 0 0 0 2px var(--ui-gold), 0 3px 10px rgba(0, 0, 0, .4); }
 .hero-ability-icon--unsupported { filter: grayscale(1); opacity: .38; cursor: not-allowed; }
 .hero-ability-icon--experimental { box-shadow: inset 0 0 0 1px var(--ui-edge-soft); border-style: dashed; border-color: var(--ui-text-muted); }
@@ -1628,6 +1677,14 @@ h1, h2, p { margin-top: 0; }
    the first row, so this flips the bubble to open downward instead, where
    the large hero visual leaves plenty of room. */
 .hero-ability-icon.ui-tooltip .ui-tooltip__bubble { top: calc(100% + 8px); bottom: auto; }
+/* WK-134 - viewport-edge collision: near the left edge, open the bubble
+   flush with the icon's left side (extends rightward) instead of centering
+   it, which would clip off-screen; mirrored for the right edge. Alignment
+   is computed on hover/focus (see AbilityStrip's positionTooltip in
+   HeroDetailPage.tsx) since flex-wrap means which icons actually sit near
+   an edge isn't knowable from CSS alone. */
+.hero-ability-icon[data-tooltip-align="start"] .ui-tooltip__bubble { left: 0; transform: none; }
+.hero-ability-icon[data-tooltip-align="end"] .ui-tooltip__bubble { left: auto; right: 0; transform: none; }
 .hero-ability-icon__tooltip-name { display: block; font-weight: 700; color: var(--ui-text); margin-bottom: 2px; }
 .hero-ability-icon__tooltip-line { display: block; color: var(--ui-text-soft); }
 .hero-ability-icon__tooltip-line:not(:last-child) { margin-bottom: 1px; }
@@ -1643,6 +1700,7 @@ h1, h2, p { margin-top: 0; }
   max-width: 420px;
   padding: 10px 12px;
   border: 1px solid var(--border);
+  border-top: 2px solid var(--ui-gold);
   border-radius: var(--radius);
   background: rgba(9, 12, 13, .82);
   box-shadow: inset 0 0 0 1px var(--ui-edge-soft), 0 10px 24px rgba(0, 0, 0, .5);

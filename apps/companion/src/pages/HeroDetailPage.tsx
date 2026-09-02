@@ -40,6 +40,28 @@ interface AbilityStripProps {
   onSelect: (id: string | null) => void;
 }
 
+// WK-134 - never the browser's native broken-image glyph: swap to a quiet
+// neutral fallback (no text, same box) if the icon URL 404s/fails to load.
+function AbilityIconImage({ src }: { src: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <span className="hero-ability-icon__img-fallback" aria-hidden="true" />;
+  return <img src={src} alt="" width={56} height={56} onError={() => setFailed(true)} />;
+}
+
+// WK-134 - viewport-edge collision: the tooltip bubble normally centers
+// under its icon, which clips off-screen for icons near the left/right
+// edge. Flex-wrap means row membership (and so which icons are actually
+// edge-adjacent) isn't knowable from CSS alone, so this measures on
+// hover/focus and flips the bubble's anchor via a data attribute the CSS
+// reads (see `.hero-ability-icon[data-tooltip-align]` in App.css).
+const TOOLTIP_EDGE_MARGIN = 132;
+function positionTooltip(event: { currentTarget: HTMLButtonElement }) {
+  const el = event.currentTarget;
+  if (el.getBoundingClientRect().left < TOOLTIP_EDGE_MARGIN) el.dataset.tooltipAlign = "start";
+  else if (window.innerWidth - el.getBoundingClientRect().right < TOOLTIP_EDGE_MARGIN) el.dataset.tooltipAlign = "end";
+  else delete el.dataset.tooltipAlign;
+}
+
 // WK-133 - the resting Hero Detail screen must read as a Dota ability bar,
 // not a settings form: every ability is just its icon (no name/status text
 // permanently on screen, no per-ability card background) with tri-state
@@ -73,8 +95,10 @@ function AbilityStrip({ abilities, settings, selectedAbilityId, onSelect }: Abil
             disabled={disabled}
             aria-label={lines.join(". ")}
             onClick={() => onSelect(isSelected ? null : ability.id)}
+            onMouseEnter={positionTooltip}
+            onFocus={positionTooltip}
           >
-            <img src={ability.iconUrl} alt="" width={56} height={56} />
+            <AbilityIconImage src={ability.iconUrl} />
             {ability.status === "experimental" && <span className="hero-ability-icon__flag" aria-hidden="true">?</span>}
             {binding && <span className="hero-ability-icon__bound-dot" aria-hidden="true" />}
             <span className="ui-tooltip__bubble" role="tooltip">
