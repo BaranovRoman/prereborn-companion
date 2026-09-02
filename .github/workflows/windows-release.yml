@@ -46,6 +46,14 @@ jobs:
         env:
           CI: true
 
+      # WK-125 TEMP DIAGNOSTIC - isolates whether STATUS_ENTRYPOINT_NOT_FOUND
+      # (seen from the `cargo test` binary below on this exact runner) comes
+      # from `keyring`'s Windows backend itself or from something specific
+      # to the combined test-harness binary (tempfile/tauri "test" feature).
+      # Remove once root-caused.
+      - name: DIAGNOSTIC - isolated keyring example
+        run: cargo run --manifest-path apps/companion/src-tauri/Cargo.toml --example keyring_smoke
+
       # WK-125 - the one place this repo's test suite touches a REAL OS
       # credential store (every other secret-storage test uses an in-memory
       # fake, see storage/mod.rs and secure_storage.rs's own comments on
