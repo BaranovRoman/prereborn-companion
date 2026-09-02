@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { SoundBindingRow } from "../components/sounds/SoundBindingRow";
 import { Badge } from "../components/ui";
 import type { useFavoriteHeroes } from "../hooks/useFavoriteHeroes";
@@ -14,6 +14,7 @@ interface Props {
   onChooseFile: (eventId: string, kind: GameSoundEventKind) => Promise<void>;
   onPreview: (assetId: string) => Promise<void>;
   onRemove: (eventId: string) => Promise<void>;
+  stopPreview: () => void;
 }
 
 const ATTRIBUTE_LABEL: Record<string, string> = {
@@ -124,9 +125,16 @@ function AbilityList({ abilities, settings, selectedAbilityId, onSelect, onChoos
 // again (no more artificial left/right split of a single hero's abilities)
 // and only grows into a 2-column grid past DENSE_ABILITY_LIST_THRESHOLD -
 // see AbilityList above.
-export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBack, onChooseFile, onPreview, onRemove }: Props) {
+export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBack, onChooseFile, onPreview, onRemove, stopPreview }: Props) {
   const [selectedAbilityId, setSelectedAbilityId] = useState<string | null>(null);
   const [videoFailed, setVideoFailed] = useState(false);
+
+  // WK-132 - a preview started here must not keep playing after the user
+  // navigates away, whether via the back button or by switching to another
+  // section entirely (both just unmount this component - there's no shared
+  // "leaving" event besides that). onChooseFile already stops a *running*
+  // preview before importing a new file; this covers plain navigation.
+  useEffect(() => stopPreview, [stopPreview]);
 
   const hero = getHeroById(heroId);
   if (!hero) {
@@ -162,6 +170,16 @@ export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBac
       {favorites.error && <p className="app__error">Ошибка: {favorites.error}</p>}
 
       <h3 className="ui-settings-group__title">Способности</h3>
+      {settings && !settings.enabled && (
+        // WK-132 §27 - the page stays fully usable (assign/preview/remove
+        // all still work, see SoundBindingRow) - this is just an honest
+        // heads-up that live in-match playback is currently muted globally,
+        // not a blocking banner and not a second toggle (the real one lives
+        // in Sounds → Звуки).
+        <p className="hero-detail__sounds-disabled-hint">
+          Звуковые реакции выключены глобально — способности всё ещё можно назначать и прослушивать здесь, но во время матча они звучать не будут, пока их не включат в «Звуки».
+        </p>
+      )}
       {!trackedHero || !settings ? (
         <p className="heroes-grid__empty">Загрузка каталога звуков…</p>
       ) : (

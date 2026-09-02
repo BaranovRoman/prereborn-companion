@@ -46,9 +46,17 @@ const QUERY_IDLE_CLEAR_MS = 3_000;
 // `searchHeroes` Sounds → Heroes already used), a transient indicator shows
 // the typed query, Backspace edits it, Escape or 3s of inactivity clears it
 // - ported from the same UX apps/web's favorite-heroes picker already
-// shipped (queue-widgets-panel.tsx's heroQuery/heroSearchOverlay), adapted
-// to filter the grid (this screen's own established behavior) rather than
-// dim/highlight tiles in place.
+// shipped (queue-widgets-panel.tsx's heroQuery/heroSearchOverlay).
+//
+// WK-132 (Heroes v2 audit) - WK-122 originally had this filter the grid
+// (unmatched heroes removed from the DOM, columns reflowing/disappearing).
+// Tracing apps/web's queue-widgets-panel.tsx git history further back shows
+// that filtering was actually web's ORIGINAL behavior, deliberately
+// replaced by a later commit ("keep heroes visible during search") once it
+// was found that heroes vanishing/reflowing while typing was bad UX - the
+// SETTLED web behavior dims unmatched tiles in place instead and never
+// unmounts anything. This file now matches that settled behavior: the full
+// grid always renders, only opacity/filter/border toggle per tile.
 export function HeroesPage({ favorites, soundSettings, trackedHeroes, onSelectHero }: Props) {
   const [query, setQuery] = useState("");
   const idleTimer = useRef<number | undefined>(undefined);
@@ -86,20 +94,23 @@ export function HeroesPage({ favorites, soundSettings, trackedHeroes, onSelectHe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
-  const filtered = useMemo(() => searchHeroes(query), [query]);
+  const matchedIds = useMemo(() => new Set(searchHeroes(query).map((h) => h.id)), [query]);
   const favoriteHeroes = useMemo(
     () => favorites.heroIds.map((id) => DOTA_HEROES.find((h) => h.id === id)).filter((h): h is HeroCatalogEntry => !!h),
     [favorites.heroIds]
   );
 
+  // WK-132 - always grouped from the full roster (not a filtered subset) so
+  // the grid never reflows/loses columns while searching; see doc comment
+  // above `matchedIds` drives per-tile dim/highlight instead.
   const grouped = useMemo(() => {
     const groups = new Map<DotaHeroAttribute, HeroCatalogEntry[]>(ATTRIBUTES.map((a) => [a.id, []]));
-    for (const hero of filtered) groups.get(hero.attribute)?.push(hero);
+    for (const hero of DOTA_HEROES) groups.get(hero.attribute)?.push(hero);
     for (const heroes of groups.values()) {
       heroes.sort((a, b) => a.localizedName.localeCompare(b.localizedName, "ru"));
     }
     return groups;
-  }, [filtered]);
+  }, []);
 
   return (
     <div className="heroes-page">
@@ -133,58 +144,56 @@ export function HeroesPage({ favorites, soundSettings, trackedHeroes, onSelectHe
       {query && (
         <div className="hero-search-indicator" aria-live="polite">
           {query.toLocaleUpperCase()}
+          {matchedIds.size === 0 && <span className="hero-search-indicator__hint"> — герой не найден</span>}
         </div>
       )}
 
-      {filtered.length === 0 ? (
-        <p className="heroes-grid__empty">Герой не найден.</p>
-      ) : (
-        <div className="attribute-grid">
-          {ATTRIBUTES.map((attribute) => {
-            const attributeHeroes = grouped.get(attribute.id) ?? [];
-            if (attributeHeroes.length === 0) return null;
-            return (
-              <section key={attribute.id} className="attribute-column">
-                <h3><img src={attribute.iconUrl} alt="" aria-hidden="true" />{attribute.label}</h3>
-                <div className="hero-portrait-grid" role="list">
-                  {attributeHeroes.map((hero) => {
-                    const count = configuredCount(hero, trackedHeroes, soundSettings);
-                    const isFavorite = favorites.heroIds.includes(hero.id);
-                    return (
-                      <button
-                        key={hero.id}
-                        type="button"
-                        role="listitem"
-                        className={`hero-portrait-tile ${count > 0 ? "hero-portrait-tile--configured" : ""}`}
-                        title={hero.localizedName}
-                        onClick={() => onSelectHero(hero.id)}
+      <div className="attribute-grid">
+        {ATTRIBUTES.map((attribute) => {
+          const attributeHeroes = grouped.get(attribute.id) ?? [];
+          return (
+            <section key={attribute.id} className="attribute-column">
+              <h3><img src={attribute.iconUrl} alt="" aria-hidden="true" />{attribute.label}</h3>
+              <div className="hero-portrait-grid" role="list" data-searching={query ? "true" : "false"}>
+                {attributeHeroes.map((hero) => {
+                  const count = configuredCount(hero, trackedHeroes, soundSettings);
+                  const isFavorite = favorites.heroIds.includes(hero.id);
+                  const isMatch = !query || matchedIds.has(hero.id);
+                  return (
+                    <button
+                      key={hero.id}
+                      type="button"
+                      role="listitem"
+                      className={`hero-portrait-tile ${count > 0 ? "hero-portrait-tile--configured" : ""}`}
+                      data-search-match={isMatch ? "true" : "false"}
+                      title={hero.localizedName}
+                      onClick={() => onSelectHero(hero.id)}
+                    >
+                      <img className="hero-portrait-tile__image" src={hero.iconUrl} alt="" loading="lazy" />
+                      <span
+                        className={`hero-portrait-tile__favorite ${isFavorite ? "is-active" : ""}`}
+                        role="button"
+                        tabIndex={-1}
+                        aria-label={isFavorite ? "Убрать из избранного" : "Добавить в избранное"}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void favorites.toggle(hero.id);
+                        }}
                       >
-                        <img className="hero-portrait-tile__image" src={hero.iconUrl} alt="" loading="lazy" />
-                        <span
-                          className={`hero-portrait-tile__favorite ${isFavorite ? "is-active" : ""}`}
-                          role="button"
-                          tabIndex={-1}
-                          aria-label={isFavorite ? "Убрать из избранного" : "Добавить в избранное"}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void favorites.toggle(hero.id);
-                          }}
-                        >
-                          ★
-                        </span>
-                        <span className="hero-portrait-tile__name">{hero.localizedName}</span>
-                        {count > 0 && (
-                          <b className="hero-portrait-tile__badge" aria-hidden="true">{count}</b>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-            );
-          })}
-        </div>
-      )}
+                        ★
+                      </span>
+                      <span className="hero-portrait-tile__name">{hero.localizedName}</span>
+                      {count > 0 && (
+                        <b className="hero-portrait-tile__badge" aria-hidden="true">{count}</b>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          );
+        })}
+      </div>
       {favorites.error && <p className="app__error">Ошибка: {favorites.error}</p>}
     </div>
   );
