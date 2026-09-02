@@ -213,9 +213,12 @@ export interface LocalSessionSummary {
 
 export interface SyncOutboxStatus {
   pendingCount: number;
+  retryingCount: number;
   failedCount: number;
   oldestPendingAt: string | null;
+  lastDeliveredAt: string | null;
   lastError: string | null;
+  lastErrorAt: string | null;
 }
 
 export interface ObsConfig {

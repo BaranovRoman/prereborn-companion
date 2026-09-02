@@ -71,6 +71,22 @@ pub fn get_sync_outbox_status(app: AppHandle) -> crate::local_runtime::sync::Syn
     crate::local_runtime::sync::status(&app)
 }
 
+// Диагностика "Повторить сейчас" - runs the exact same drain_outbox the
+// background sync worker already runs every DRAIN_INTERVAL tick (see
+// local_runtime::sync), just on demand instead of waiting for the next tick.
+// Not a second retry path, and never resurrects dead-lettered events - see
+// drain_outbox's own doc comment. `async` + spawn_blocking per the WK-78
+// pattern below (drain_outbox makes blocking HTTP calls).
+#[tauri::command]
+pub async fn trigger_sync_drain(app: AppHandle) -> crate::local_runtime::sync::SyncOutboxStatus {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::local_runtime::sync::drain_outbox(&app);
+        crate::local_runtime::sync::status(&app)
+    })
+    .await
+    .unwrap_or_default()
+}
+
 #[tauri::command]
 pub fn find_dota(app: AppHandle, state: State<AppState>) -> StatusSnapshot {
     if let Some(path) = finder::find_dota_auto() {

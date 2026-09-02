@@ -20,6 +20,7 @@ interface Props {
   diagnosticsRefresh: () => Promise<DiagnosticsStatusSnapshot | void>;
   sessionPrompt: StreamSessionPromptState;
   syncStatus: SyncOutboxStatus | null;
+  syncRefresh: () => Promise<void>;
 }
 
 // Companion UI 2.0 / WK-114 - "Диагностика": technical/troubleshooting tools
@@ -32,7 +33,7 @@ interface Props {
 // recovery/debug tool, not a day-to-day control - Диагностика is exactly
 // that surface.
 export function DiagnosticsPage({
-  status, busy, run, history, latestEvent, diagnosticsStatus, diagnosticsRefresh, sessionPrompt, syncStatus,
+  status, busy, run, history, latestEvent, diagnosticsStatus, diagnosticsRefresh, sessionPrompt, syncStatus, syncRefresh,
 }: Props) {
   return (
     <div className="diagnostics-view">
@@ -52,7 +53,7 @@ export function DiagnosticsPage({
       <div className="diagnostic-card"><ActionButtons busy={busy} canOpenDotaFolder={!!status?.dota_found} legacyCleanupInProgress={!!status?.legacy_cleanup_in_progress} onInstallGsi={() => void run(api.installGsi)} onPickFolder={() => void run(api.pickDotaFolder)} onOpenDotaFolder={() => void run(api.openDotaFolder)} onOpenLogs={() => void run(api.openLogsFolder)} onClearLog={() => void run(api.clearLog)} onRefresh={() => void run(api.getStatus)} /></div>
       <div className="diagnostic-card"><LastEventPanel event={latestEvent} requestCount={status?.request_count ?? 0} /></div>
       <EventHistoryList events={history} />
-      <BackendStatusPanel status={status} busy={busy} onResend={() => void run(api.resendCurrentState)} syncStatus={syncStatus} />
+      <BackendStatusPanel status={status} busy={busy} onResend={() => void run(api.resendCurrentState)} syncStatus={syncStatus} syncRefresh={syncRefresh} />
       <DiagnosticsPanel status={diagnosticsStatus} refresh={diagnosticsRefresh} />
       <DeviceCredentialPanel />
       {status?.log_dir && <p className="app__log-dir">Логи: {status.log_dir}</p>}

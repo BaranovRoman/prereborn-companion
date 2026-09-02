@@ -60,7 +60,7 @@ export function AppShell() {
   const sessionPrompt = useStreamSessionPrompt();
   const localLifecycle = useLocalLifecycle();
   const sessionSummary = useLocalSessionSummary();
-  const syncStatus = useSyncOutboxStatus();
+  const { status: syncStatus, refresh: syncRefresh } = useSyncOutboxStatus();
   const favoriteHeroes = useFavoriteHeroes();
   const [section, setSection] = useState<Section>("home");
   const [selectedHeroId, setSelectedHeroId] = useState<number | null>(null);
@@ -277,6 +277,7 @@ export function AppShell() {
             diagnosticsRefresh={diagnostics.refresh}
             sessionPrompt={sessionPrompt}
             syncStatus={syncStatus}
+            syncRefresh={syncRefresh}
           />
         )}
       </main>

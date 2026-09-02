@@ -222,6 +222,7 @@ pub fn run() {
             commands::get_local_session_summary,
             commands::set_current_mmr,
             commands::get_sync_outbox_status,
+            commands::trigger_sync_drain,
             commands::find_dota,
             commands::pick_dota_folder,
             commands::install_gsi,

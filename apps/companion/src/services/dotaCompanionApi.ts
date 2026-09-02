@@ -93,6 +93,11 @@ export const setCurrentMmr = (rating: number) =>
 
 // WK-119 - read-only sync_outbox visibility (pending/dead-lettered counts).
 export const getSyncOutboxStatus = () => invoke<SyncOutboxStatus>("get_sync_outbox_status");
+// Диагностика "Повторить сейчас" - runs the existing sync worker's own drain
+// on demand (see local_runtime::sync::drain_outbox). Returns the fresh
+// status so the caller can update immediately, without waiting for the next
+// poll tick.
+export const triggerSyncDrain = () => invoke<SyncOutboxStatus>("trigger_sync_drain");
 
 // WK-81 - local Silero TTS sidecar, the primary (and, since WK-80 removed
 // Piper, only local) synthesis engine - system speechSynthesis is the

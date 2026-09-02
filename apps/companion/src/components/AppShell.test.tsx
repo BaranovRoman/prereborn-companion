@@ -145,7 +145,7 @@ vi.mock("../hooks/useLocalSessionSummary", () => ({
 }));
 let syncStatusFixture: Record<string, unknown> | null = null;
 vi.mock("../hooks/useSyncOutboxStatus", () => ({
-  useSyncOutboxStatus: () => syncStatusFixture,
+  useSyncOutboxStatus: () => ({ status: syncStatusFixture, refresh: vi.fn().mockResolvedValue(undefined) }),
 }));
 vi.mock("../chat/useTwitchChatSession", () => ({
   useTwitchChatSession: () => ({
@@ -471,5 +471,42 @@ describe("Диагностика sync outbox detail (WK-119)", () => {
     clickNav("Диагностика");
     expect(screen.queryByText(/Ожидают отправки/)).toBeNull();
     expect(screen.queryByText(/Не удалось синхронизировать/)).toBeNull();
+  });
+
+  // Tech-debt observability task - the tri-state "Статус" summary line and
+  // manual retry gating.
+  it("reads 'Синхронизировано' and hides the retry button when the outbox is empty", () => {
+    syncStatusFixture = { pendingCount: 0, retryingCount: 0, failedCount: 0, oldestPendingAt: null, lastDeliveredAt: null, lastError: null, lastErrorAt: null };
+    render(<AppShell />);
+    clickNav("Диагностика");
+    expect(screen.getByText(/Статус: Синхронизировано/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Повторить синхронизацию" })).toBeNull();
+  });
+
+  it("reads 'Есть очередь' and shows the retry button while events are pending", () => {
+    syncStatusFixture = { pendingCount: 2, retryingCount: 1, failedCount: 0, oldestPendingAt: new Date().toISOString(), lastDeliveredAt: null, lastError: null, lastErrorAt: null };
+    render(<AppShell />);
+    clickNav("Диагностика");
+    expect(screen.getByText(/Статус: Есть очередь/)).toBeTruthy();
+    expect(screen.getByText(/из них повторная попытка: 1/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Повторить синхронизацию" })).toBeTruthy();
+  });
+
+  it("reads 'Ошибка синхронизации' once a dead letter exists, even with nothing pending", () => {
+    syncStatusFixture = { pendingCount: 0, retryingCount: 0, failedCount: 1, oldestPendingAt: null, lastDeliveredAt: null, lastError: "422 invalid", lastErrorAt: new Date().toISOString() };
+    render(<AppShell />);
+    clickNav("Диагностика");
+    expect(screen.getByText(/Статус: Ошибка синхронизации/)).toBeTruthy();
+    // No pending events left to retry, so the button must not be offered.
+    expect(screen.queryByRole("button", { name: "Повторить синхронизацию" })).toBeNull();
+  });
+
+  it("shows the last successful sync timestamp once the outbox has ever delivered", () => {
+    const deliveredAt = new Date().toISOString();
+    syncStatusFixture = { pendingCount: 0, retryingCount: 0, failedCount: 0, oldestPendingAt: null, lastDeliveredAt: deliveredAt, lastError: null, lastErrorAt: null };
+    render(<AppShell />);
+    clickNav("Диагностика");
+    expect(screen.getByText(/Последняя успешная синхронизация:/)).toBeTruthy();
+    expect(screen.queryByText(/Последняя успешная синхронизация:\s*ещё не было/)).toBeNull();
   });
 });
