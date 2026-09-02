@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use chrono::Local;
 use tauri::{AppHandle, Manager, Runtime};
 use crate::obs::ObsConfig;
+use crate::secure_storage::{self, SecretStore};
 
 const ROLLING_LOG_NAME: &str = "app.log";
 const ROLLING_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
@@ -99,46 +100,79 @@ pub fn load_account_overlay_data(app: &AppHandle) -> Option<serde_json::Value> {
 // resolves to in the real Application Support / AppData for whoever runs
 // the tests). Routing through a `Path` instead keeps every test hermetic.
 
-// Companion token - лежит локально в открытом виде (как любой API-ключ CLI-
-// инструмента, например ~/.aws/credentials) - это единственный секрет,
-// который companion предъявляет backend'у, храниться он обязан где-то на
-// диске, иначе токен пришлось бы вставлять заново при каждом запуске.
-// Никогда не пишется в rolling log/файлы payload'ов (см. commands.rs).
+// WK-125 - real, reusable secrets (the legacy companion token, the session
+// refresh token, the OBS WebSocket password) now live in the OS-backed
+// credential store (see secure_storage.rs) rather than plaintext JSON.
+// companion-config.json / obs-config.json still hold everything that isn't a
+// secret (account email, OBS host/port/scene names) plus, only as a
+// failure-safe fallback, a credential the secure store itself refused to
+// accept. Migration is: on read, if the secure store already has the value
+// use it (and delete any plaintext leftover); otherwise if a legacy
+// plaintext value exists, try to write it to the secure store, verify the
+// write by reading it back, and only then strip the plaintext copy - a
+// failed or unverified write leaves the plaintext value exactly as it was,
+// so a locked/unavailable keychain never costs the user their login. This
+// makes every migration idempotent (nothing left to migrate once the
+// plaintext copy is gone) and restart-safe (the secure store is always
+// re-checked first, never assumed).
+const KEY_COMPANION_TOKEN: &str = "companion_token";
+const KEY_REFRESH_TOKEN: &str = "refresh_token";
+const KEY_OBS_PASSWORD: &str = "obs_password";
+
 pub fn save_companion_token(app: &AppHandle, token: &str) -> std::io::Result<()> {
-    save_companion_token_at(&companion_config_path(app), token)
+    save_companion_token_at(&companion_config_path(app), token, &secure_storage::os_store())
 }
 
 pub fn load_companion_token(app: &AppHandle) -> Option<String> {
-    load_companion_token_at(&companion_config_path(app))
+    load_companion_token_at(&companion_config_path(app), &secure_storage::os_store())
+}
+
+/// Removes the legacy companion token from both the secure store and any
+/// plaintext leftover. Called from `backend::logout` alongside
+/// `clear_session` - WK-125 fix: logout previously only ever cleared the
+/// session, silently leaving a legacy-method account's token on disk to be
+/// reloaded on the next launch (see the audit report).
+pub fn clear_companion_token(app: &AppHandle) -> std::io::Result<()> {
+    clear_companion_token_at(&companion_config_path(app), &secure_storage::os_store())
 }
 
 // WK-122 §7 - the desktop-auth session (email/password login, see
-// backend::login), stored alongside the legacy companion_token in the same
-// file/trust model (plain JSON on disk, same as any CLI tool's credentials
-// file - see save_companion_token's doc comment above). Only the refresh
-// token is a real secret here; the short-lived access token it mints is
-// kept purely in memory (AppState.companion_token) and never written to
-// disk - see backend::refresh_session_access_token. Reading/writing merges
-// with whatever else already lives in companion-config.json (the legacy
-// token key) rather than overwriting the whole file, so logging in via the
-// new flow doesn't silently destroy a working legacy token before the new
-// session has proven itself, and vice versa.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+// backend::login). `email` is an account identifier, not a secret, and stays
+// in companion-config.json; `refresh_token` is the one real secret here and
+// is migrated to/read from the secure store the same way as the legacy
+// token above. The short-lived access token this session mints is kept
+// purely in memory (AppState.companion_token) and never written to disk at
+// all - see backend::refresh_session_access_token.
+//
+// Debug is implemented by hand (not derived) so a stray `{:?}`/`dbg!()` on a
+// session value - e.g. a future debugging line dropped into the refresh/
+// login path - can never print the refresh token into the rolling log,
+// which is bundled unconditionally into every diagnostics ZIP export.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct CompanionSession {
     pub email: String,
     pub refresh_token: String,
 }
 
+impl std::fmt::Debug for CompanionSession {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CompanionSession")
+            .field("email", &self.email)
+            .field("refresh_token", &"[REDACTED]")
+            .finish()
+    }
+}
+
 pub fn save_session(app: &AppHandle, session: &CompanionSession) -> std::io::Result<()> {
-    save_session_at(&companion_config_path(app), session)
+    save_session_at(&companion_config_path(app), session, &secure_storage::os_store())
 }
 
 pub fn load_session(app: &AppHandle) -> Option<CompanionSession> {
-    load_session_at(&companion_config_path(app))
+    load_session_at(&companion_config_path(app), &secure_storage::os_store())
 }
 
 pub fn clear_session(app: &AppHandle) -> std::io::Result<()> {
-    clear_session_at(&companion_config_path(app))
+    clear_session_at(&companion_config_path(app), &secure_storage::os_store())
 }
 
 fn read_companion_config_at(path: &Path) -> serde_json::Value {
@@ -155,31 +189,104 @@ fn write_companion_config_at(path: &Path, value: &serde_json::Value) -> std::io:
     fs::write(path, serde_json::to_string_pretty(value)?)
 }
 
-fn save_companion_token_at(path: &Path, token: &str) -> std::io::Result<()> {
+/// `true` only if the secure store now demonstrably holds `value` under
+/// `key` - a `set` call can report success on some backends even when the
+/// write didn't actually stick, so every migration path verifies with a
+/// read-back before ever touching the plaintext copy it migrated from.
+fn secure_write_verified(store: &dyn SecretStore, key: &str, value: &str) -> bool {
+    store.set(key, value).is_ok() && matches!(store.get(key), Ok(Some(stored)) if stored == value)
+}
+
+fn save_companion_token_at(path: &Path, token: &str, store: &dyn SecretStore) -> std::io::Result<()> {
     let mut config = read_companion_config_at(path);
-    config["companion_token"] = serde_json::Value::String(token.to_string());
+    if secure_write_verified(store, KEY_COMPANION_TOKEN, token) {
+        if let Some(map) = config.as_object_mut() {
+            map.remove("companion_token");
+        }
+    } else {
+        // Secure store unavailable/unwritable right now - fall back to the
+        // old plaintext behavior rather than lose the token outright.
+        config["companion_token"] = serde_json::Value::String(token.to_string());
+    }
     write_companion_config_at(path, &config)
 }
 
-fn load_companion_token_at(path: &Path) -> Option<String> {
-    read_companion_config_at(path)
-        .get("companion_token")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-}
+fn load_companion_token_at(path: &Path, store: &dyn SecretStore) -> Option<String> {
+    if let Ok(Some(token)) = store.get(KEY_COMPANION_TOKEN) {
+        strip_plaintext_key_if_present(path, "companion_token");
+        return Some(token);
+    }
 
-fn save_session_at(path: &Path, session: &CompanionSession) -> std::io::Result<()> {
-    let mut config = read_companion_config_at(path);
-    config["session"] = serde_json::to_value(session).expect("CompanionSession always serializes");
-    write_companion_config_at(path, &config)
-}
-
-fn load_session_at(path: &Path) -> Option<CompanionSession> {
     let config = read_companion_config_at(path);
-    serde_json::from_value(config.get("session")?.clone()).ok()
+    let legacy = config.get("companion_token").and_then(|v| v.as_str()).map(str::to_string)?;
+    if secure_write_verified(store, KEY_COMPANION_TOKEN, &legacy) {
+        strip_plaintext_key_if_present(path, "companion_token");
+    }
+    Some(legacy)
 }
 
-fn clear_session_at(path: &Path) -> std::io::Result<()> {
+fn clear_companion_token_at(path: &Path, store: &dyn SecretStore) -> std::io::Result<()> {
+    let _ = store.delete(KEY_COMPANION_TOKEN);
+    let mut config = read_companion_config_at(path);
+    if let Some(map) = config.as_object_mut() {
+        map.remove("companion_token");
+    }
+    write_companion_config_at(path, &config)
+}
+
+fn strip_plaintext_key_if_present(path: &Path, key: &str) {
+    let mut config = read_companion_config_at(path);
+    if let Some(map) = config.as_object_mut() {
+        if map.remove(key).is_some() {
+            let _ = write_companion_config_at(path, &config);
+        }
+    }
+}
+
+fn save_session_at(path: &Path, session: &CompanionSession, store: &dyn SecretStore) -> std::io::Result<()> {
+    let mut config = read_companion_config_at(path);
+    let mut session_json = serde_json::json!({ "email": session.email });
+    if !secure_write_verified(store, KEY_REFRESH_TOKEN, &session.refresh_token) {
+        // Same failure-safe fallback as the companion token above.
+        session_json["refresh_token"] = serde_json::Value::String(session.refresh_token.clone());
+    }
+    config["session"] = session_json;
+    write_companion_config_at(path, &config)
+}
+
+fn load_session_at(path: &Path, store: &dyn SecretStore) -> Option<CompanionSession> {
+    let config = read_companion_config_at(path);
+    let session_json = config.get("session")?;
+    let email = session_json.get("email")?.as_str()?.to_string();
+    let legacy_refresh_token = session_json.get("refresh_token").and_then(|v| v.as_str()).map(str::to_string);
+
+    let refresh_token = if let Ok(Some(token)) = store.get(KEY_REFRESH_TOKEN) {
+        if legacy_refresh_token.is_some() {
+            strip_session_refresh_token_field(path);
+        }
+        token
+    } else {
+        let legacy = legacy_refresh_token?;
+        if secure_write_verified(store, KEY_REFRESH_TOKEN, &legacy) {
+            strip_session_refresh_token_field(path);
+        }
+        legacy
+    };
+
+    Some(CompanionSession { email, refresh_token })
+}
+
+fn strip_session_refresh_token_field(path: &Path) {
+    let mut config = read_companion_config_at(path);
+    if let Some(session) = config.get_mut("session").and_then(|v| v.as_object_mut()) {
+        if session.remove("refresh_token").is_some() {
+            let _ = write_companion_config_at(path, &config);
+        }
+    }
+}
+
+fn clear_session_at(path: &Path, store: &dyn SecretStore) -> std::io::Result<()> {
+    let _ = store.delete(KEY_REFRESH_TOKEN);
     let mut config = read_companion_config_at(path);
     if let Some(map) = config.as_object_mut() {
         map.remove("session");
@@ -195,18 +302,50 @@ fn obs_config_path(app: &AppHandle) -> PathBuf {
 }
 
 pub fn save_obs_config(app: &AppHandle, config: &ObsConfig) -> std::io::Result<()> {
-    let path = obs_config_path(app);
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    fs::write(path, serde_json::to_string_pretty(config)?)
+    save_obs_config_at(&obs_config_path(app), config, &secure_storage::os_store())
 }
 
 pub fn load_obs_config(app: &AppHandle) -> ObsConfig {
-    fs::read_to_string(obs_config_path(app))
+    load_obs_config_at(&obs_config_path(app), &secure_storage::os_store())
+}
+
+fn save_obs_config_at(path: &Path, config: &ObsConfig, store: &dyn SecretStore) -> std::io::Result<()> {
+    let mut to_write = config.clone();
+    if config.password.is_empty() {
+        // commands::save_obs_config already resolves "keep the existing
+        // password" before calling this - an empty password here means
+        // there genuinely isn't one yet, not "erase it".
+    } else if secure_write_verified(store, KEY_OBS_PASSWORD, &config.password) {
+        to_write.password = String::new();
+    }
+    // else: secure store unavailable - fall back to plaintext rather than
+    // lose a working OBS connection.
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    fs::write(path, serde_json::to_string_pretty(&to_write)?)
+}
+
+fn load_obs_config_at(path: &Path, store: &dyn SecretStore) -> ObsConfig {
+    let mut config: ObsConfig = fs::read_to_string(path)
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+
+    if !config.password.is_empty() {
+        // Legacy plaintext password from before this migration.
+        let legacy = std::mem::take(&mut config.password);
+        if secure_write_verified(store, KEY_OBS_PASSWORD, &legacy) {
+            let _ = fs::write(path, serde_json::to_string_pretty(&config).unwrap_or_default());
+        }
+        config.password = legacy;
+        return config;
+    }
+
+    if let Ok(Some(password)) = store.get(KEY_OBS_PASSWORD) {
+        config.password = password;
+    }
+    config
 }
 
 pub fn init(app: &AppHandle) -> std::io::Result<()> {
@@ -532,18 +671,19 @@ mod tests {
         assert!(collect_legacy_cleanup_targets(logs_root.path()).is_empty());
     }
 
-    // WK-122 §7 - drives the REAL `_at` entry points the AppHandle-facing
-    // save_session/load_session/clear_session/save_companion_token/
-    // load_companion_token wrappers delegate to (see this section's own
-    // doc comment on why `_at(path)` rather than a mocked AppHandle - the
-    // latter would resolve to a real, unsandboxed path on the host and
-    // race across parallel test runs). Each test gets its own `tempfile`
-    // directory, so these are fully hermetic. The whole point of these
-    // functions is that the new session and the legacy token share one
-    // file without clobbering each other - only exercising the real
-    // merge/read/write logic can catch a regression in that guarantee.
+    // WK-122 §7 / WK-125 - drives the REAL `_at` entry points the
+    // AppHandle-facing save_session/load_session/clear_session/
+    // save_companion_token/load_companion_token wrappers delegate to (see
+    // this section's own doc comment on why `_at(path)` rather than a
+    // mocked AppHandle - the latter would resolve to a real, unsandboxed
+    // path on the host and race across parallel test runs). Each test gets
+    // its own `tempfile` directory and its own `FakeSecretStore` (WK-125),
+    // so these are fully hermetic and never touch a real OS keychain -
+    // exactly the "unit-test through a fake secret store, not a real
+    // Windows Credential Manager" split the task calls for.
     mod session_storage {
         use super::*;
+        use crate::secure_storage::test_support::{FailingSecretStore, FakeSecretStore};
 
         fn config_path(dir: &tempfile::TempDir) -> PathBuf {
             dir.path().join("companion-config.json")
@@ -553,37 +693,53 @@ mod tests {
         fn save_then_load_session_round_trips() {
             let dir = tempfile::tempdir().unwrap();
             let path = config_path(&dir);
+            let store = FakeSecretStore::default();
             let session = CompanionSession { email: "roma@example.com".into(), refresh_token: "rt-1".into() };
 
-            assert!(load_session_at(&path).is_none());
-            save_session_at(&path, &session).unwrap();
-            let loaded = load_session_at(&path).unwrap();
+            assert!(load_session_at(&path, &store).is_none());
+            save_session_at(&path, &session, &store).unwrap();
+            let loaded = load_session_at(&path, &store).unwrap();
             assert_eq!(loaded.email, session.email);
             assert_eq!(loaded.refresh_token, session.refresh_token);
+        }
+
+        #[test]
+        fn saving_a_session_never_writes_the_refresh_token_to_plaintext_config() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = config_path(&dir);
+            let store = FakeSecretStore::default();
+
+            save_session_at(&path, &CompanionSession { email: "roma@example.com".into(), refresh_token: "rt-secret".into() }, &store).unwrap();
+
+            let raw = fs::read_to_string(&path).unwrap();
+            assert!(!raw.contains("rt-secret"), "refresh token leaked into plaintext config: {raw}");
+            assert!(raw.contains("roma@example.com"), "email (not a secret) should still be readable in config");
         }
 
         #[test]
         fn logging_in_via_session_does_not_erase_an_existing_legacy_companion_token() {
             let dir = tempfile::tempdir().unwrap();
             let path = config_path(&dir);
+            let store = FakeSecretStore::default();
 
-            save_companion_token_at(&path, "legacy-secret-token").unwrap();
-            save_session_at(&path, &CompanionSession { email: "roma@example.com".into(), refresh_token: "rt-1".into() }).unwrap();
+            save_companion_token_at(&path, "legacy-secret-token", &store).unwrap();
+            save_session_at(&path, &CompanionSession { email: "roma@example.com".into(), refresh_token: "rt-1".into() }, &store).unwrap();
 
-            assert_eq!(load_companion_token_at(&path).as_deref(), Some("legacy-secret-token"));
-            assert!(load_session_at(&path).is_some());
+            assert_eq!(load_companion_token_at(&path, &store).as_deref(), Some("legacy-secret-token"));
+            assert!(load_session_at(&path, &store).is_some());
         }
 
         #[test]
         fn saving_a_legacy_token_does_not_erase_an_existing_session() {
             let dir = tempfile::tempdir().unwrap();
             let path = config_path(&dir);
+            let store = FakeSecretStore::default();
 
-            save_session_at(&path, &CompanionSession { email: "roma@example.com".into(), refresh_token: "rt-1".into() }).unwrap();
-            save_companion_token_at(&path, "legacy-secret-token").unwrap();
+            save_session_at(&path, &CompanionSession { email: "roma@example.com".into(), refresh_token: "rt-1".into() }, &store).unwrap();
+            save_companion_token_at(&path, "legacy-secret-token", &store).unwrap();
 
-            assert!(load_session_at(&path).is_some());
-            assert_eq!(load_companion_token_at(&path).as_deref(), Some("legacy-secret-token"));
+            assert!(load_session_at(&path, &store).is_some());
+            assert_eq!(load_companion_token_at(&path, &store).as_deref(), Some("legacy-secret-token"));
         }
 
         #[test]
@@ -595,26 +751,197 @@ mod tests {
             // field-by-field.
             let dir = tempfile::tempdir().unwrap();
             let path = config_path(&dir);
+            let store = FakeSecretStore::default();
 
-            save_session_at(&path, &CompanionSession { email: "roma@example.com".into(), refresh_token: "rt-1".into() }).unwrap();
-            save_session_at(&path, &CompanionSession { email: "roma@example.com".into(), refresh_token: "rt-2-rotated".into() }).unwrap();
+            save_session_at(&path, &CompanionSession { email: "roma@example.com".into(), refresh_token: "rt-1".into() }, &store).unwrap();
+            save_session_at(&path, &CompanionSession { email: "roma@example.com".into(), refresh_token: "rt-2-rotated".into() }, &store).unwrap();
 
-            let loaded = load_session_at(&path).unwrap();
+            let loaded = load_session_at(&path, &store).unwrap();
             assert_eq!(loaded.refresh_token, "rt-2-rotated");
         }
 
+        // WK-125 - fixes a real gap the audit found: logout previously only
+        // ever cleared the session, leaving a legacy-method account's token
+        // reloaded on every future launch. Logout now clears both, since a
+        // single "Выйти" button covers both connection methods and neither
+        // should survive it.
         #[test]
-        fn logout_clears_the_session_but_leaves_a_legacy_token_untouched() {
+        fn logout_clears_both_the_session_and_any_legacy_token() {
             let dir = tempfile::tempdir().unwrap();
             let path = config_path(&dir);
+            let store = FakeSecretStore::default();
 
-            save_companion_token_at(&path, "legacy-secret-token").unwrap();
-            save_session_at(&path, &CompanionSession { email: "roma@example.com".into(), refresh_token: "rt-1".into() }).unwrap();
+            save_companion_token_at(&path, "legacy-secret-token", &store).unwrap();
+            save_session_at(&path, &CompanionSession { email: "roma@example.com".into(), refresh_token: "rt-1".into() }, &store).unwrap();
 
-            clear_session_at(&path).unwrap();
+            clear_session_at(&path, &store).unwrap();
+            clear_companion_token_at(&path, &store).unwrap();
 
-            assert!(load_session_at(&path).is_none());
-            assert_eq!(load_companion_token_at(&path).as_deref(), Some("legacy-secret-token"));
+            assert!(load_session_at(&path, &store).is_none());
+            assert!(load_companion_token_at(&path, &store).is_none());
+            assert!(store.get(KEY_REFRESH_TOKEN).unwrap().is_none());
+            assert!(store.get(KEY_COMPANION_TOKEN).unwrap().is_none());
+        }
+
+        #[test]
+        fn clearing_a_credential_that_was_never_set_is_not_an_error() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = config_path(&dir);
+            let store = FakeSecretStore::default();
+
+            assert!(clear_session_at(&path, &store).is_ok());
+            assert!(clear_companion_token_at(&path, &store).is_ok());
+        }
+
+        // --- WK-125 migration semantics -------------------------------
+
+        #[test]
+        fn a_legacy_plaintext_companion_token_migrates_to_the_secure_store_on_read() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = config_path(&dir);
+            // Simulate a pre-WK-125 install: token written straight into the
+            // JSON file, bypassing the secure store entirely.
+            write_companion_config_at(&path, &serde_json::json!({ "companion_token": "legacy-secret-token" })).unwrap();
+            let store = FakeSecretStore::default();
+
+            let loaded = load_companion_token_at(&path, &store);
+
+            assert_eq!(loaded.as_deref(), Some("legacy-secret-token"));
+            assert_eq!(store.get(KEY_COMPANION_TOKEN).unwrap().as_deref(), Some("legacy-secret-token"));
+            let raw = fs::read_to_string(&path).unwrap();
+            assert!(!raw.contains("legacy-secret-token"), "plaintext token should have been removed after a verified secure write: {raw}");
+        }
+
+        #[test]
+        fn a_legacy_plaintext_refresh_token_migrates_to_the_secure_store_on_read() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = config_path(&dir);
+            write_companion_config_at(
+                &path,
+                &serde_json::json!({ "session": { "email": "roma@example.com", "refresh_token": "legacy-rt" } }),
+            )
+            .unwrap();
+            let store = FakeSecretStore::default();
+
+            let loaded = load_session_at(&path, &store).unwrap();
+
+            assert_eq!(loaded.refresh_token, "legacy-rt");
+            assert_eq!(store.get(KEY_REFRESH_TOKEN).unwrap().as_deref(), Some("legacy-rt"));
+            let raw = fs::read_to_string(&path).unwrap();
+            assert!(!raw.contains("legacy-rt"), "plaintext refresh token should have been removed after migration: {raw}");
+            assert!(raw.contains("roma@example.com"), "email is not a secret and should remain readable");
+        }
+
+        #[test]
+        fn migration_does_not_remove_the_plaintext_copy_until_the_secure_write_is_verified() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = config_path(&dir);
+            write_companion_config_at(&path, &serde_json::json!({ "companion_token": "legacy-secret-token" })).unwrap();
+            let store = FailingSecretStore;
+
+            let loaded = load_companion_token_at(&path, &store);
+
+            // The app keeps working this session off the plaintext value...
+            assert_eq!(loaded.as_deref(), Some("legacy-secret-token"));
+            // ...and the ONLY copy of the credential is not deleted just
+            // because the secure store couldn't take it.
+            let raw = fs::read_to_string(&path).unwrap();
+            assert!(raw.contains("legacy-secret-token"), "plaintext token must survive a failed secure write: {raw}");
+        }
+
+        #[test]
+        fn a_failed_secure_write_on_save_falls_back_to_plaintext_instead_of_losing_the_token() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = config_path(&dir);
+            let store = FailingSecretStore;
+
+            save_companion_token_at(&path, "brand-new-token", &store).unwrap();
+
+            assert_eq!(load_companion_token_at(&path, &store).as_deref(), Some("brand-new-token"));
+        }
+
+        #[test]
+        fn migration_is_idempotent_across_repeated_reads_restart_safe() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = config_path(&dir);
+            write_companion_config_at(&path, &serde_json::json!({ "companion_token": "legacy-secret-token" })).unwrap();
+            let store = FakeSecretStore::default();
+
+            // First read migrates; every subsequent read (simulating
+            // subsequent app restarts against the same on-disk state) must
+            // keep returning the same value without erroring or re-writing
+            // anything that would break on a second pass.
+            for _ in 0..3 {
+                assert_eq!(load_companion_token_at(&path, &store).as_deref(), Some("legacy-secret-token"));
+            }
+            let raw = fs::read_to_string(&path).unwrap();
+            assert!(!raw.contains("legacy-secret-token"));
+        }
+
+        #[test]
+        fn obs_password_migrates_from_plaintext_and_a_change_updates_the_secure_secret() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("obs-config.json");
+            let store = FakeSecretStore::default();
+            let legacy_config = ObsConfig { password: "old-password".into(), ..ObsConfig::default() };
+            fs::write(&path, serde_json::to_string_pretty(&legacy_config).unwrap()).unwrap();
+
+            // Migrates on first load.
+            let loaded = load_obs_config_at(&path, &store);
+            assert_eq!(loaded.password, "old-password");
+            assert_eq!(store.get(KEY_OBS_PASSWORD).unwrap().as_deref(), Some("old-password"));
+            let raw = fs::read_to_string(&path).unwrap();
+            assert!(!raw.contains("old-password"), "OBS password should be stripped from plaintext after migration: {raw}");
+
+            // Changing the password updates the secure secret, not the file.
+            let new_config = ObsConfig { password: "new-password".into(), ..loaded };
+            save_obs_config_at(&path, &new_config, &store).unwrap();
+            let reloaded = load_obs_config_at(&path, &store);
+            assert_eq!(reloaded.password, "new-password");
+            let raw = fs::read_to_string(&path).unwrap();
+            assert!(!raw.contains("new-password"));
+        }
+
+        #[test]
+        fn obs_config_serialization_never_contains_a_password_once_migrated() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("obs-config.json");
+            let store = FakeSecretStore::default();
+
+            save_obs_config_at(&path, &ObsConfig { password: "s3cret".into(), ..ObsConfig::default() }, &store).unwrap();
+
+            let raw = fs::read_to_string(&path).unwrap();
+            assert!(!raw.contains("s3cret"), "OBS password must not be serialized to plaintext config: {raw}");
+        }
+
+        #[test]
+        fn fresh_install_has_no_credentials_anywhere() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = config_path(&dir);
+            let store = FakeSecretStore::default();
+
+            assert!(load_companion_token_at(&path, &store).is_none());
+            assert!(load_session_at(&path, &store).is_none());
+            assert_eq!(load_obs_config_at(&dir.path().join("obs-config.json"), &store).password, "");
+        }
+    }
+
+    mod debug_redaction {
+        use super::*;
+
+        #[test]
+        fn companion_session_debug_output_never_contains_the_refresh_token() {
+            let session = CompanionSession { email: "roma@example.com".into(), refresh_token: "super-secret-rt".into() };
+            let debug = format!("{session:?}");
+            assert!(!debug.contains("super-secret-rt"), "Debug output leaked the refresh token: {debug}");
+            assert!(debug.contains("roma@example.com"), "email is not a secret and is fine to show in Debug output");
+        }
+
+        #[test]
+        fn obs_config_debug_output_never_contains_the_password() {
+            let config = ObsConfig { password: "hunter2".into(), ..ObsConfig::default() };
+            let debug = format!("{config:?}");
+            assert!(!debug.contains("hunter2"), "Debug output leaked the OBS password: {debug}");
         }
     }
 }

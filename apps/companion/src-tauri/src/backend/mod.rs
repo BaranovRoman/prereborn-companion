@@ -634,7 +634,12 @@ fn post_login(email: &str, password: &str) -> Result<LoginResponse, String> {
     response.json().map_err(|error| format!("Неверный ответ входа: {error}"))
 }
 
-/// "Выйти" in Settings → Аккаунт.
+/// "Выйти" in Settings → Аккаунт. WK-125 fix: this single button covers both
+/// connection methods (email/password session AND a legacy pasted-in
+/// companion token, see `AccountMethod`), so it must clear whichever secret
+/// is actually in play - previously it only ever cleared the session,
+/// silently leaving a legacy token to be reloaded on the next launch (see
+/// docs/security/desktop-secret-storage-audit.md).
 pub async fn logout(app: &AppHandle) -> Result<AccountStatus, String> {
     if let Some(session) = storage::load_session(app) {
         // Best-effort revoke - a failed/offline logout must never trap the
@@ -643,6 +648,7 @@ pub async fn logout(app: &AppHandle) -> Result<AccountStatus, String> {
         let _ = tauri::async_runtime::spawn_blocking(move || post_logout(&session.refresh_token)).await;
     }
     storage::clear_session(app).map_err(|e| e.to_string())?;
+    storage::clear_companion_token(app).map_err(|e| e.to_string())?;
     {
         let state = app.state::<AppState>();
         let mut inner = state.0.lock().unwrap();
