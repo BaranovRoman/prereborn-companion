@@ -146,6 +146,13 @@ Contents:
                          numbered to match the snapshot it belongs to.
   errors.json                Requests that failed to parse as a JSON object
                          (raw content is never stored here, only length/time).
+  runtime-report.json      A single snapshot of Companion's own read-only
+                         RuntimeHealth projection (Local Runtime/Integrations/
+                         Cloud, each component healthy/degraded/unavailable/
+                         disabled/unknown) taken at export time - independent
+                         of whether diagnostics-mode capture was ever started.
+                         Contains no tokens/passwords/secrets by construction
+                         (it never reads secure storage or credentials).
   tts-trace.json           TTS pipeline timing, present only if TTS was used
                          during this session. One record per (messageId,
                          source) pair - `source` is "frontend" (queue/
@@ -208,6 +215,7 @@ pub fn export_zip(
     manifest: &Manifest,
     generated_at: &str,
     app_log: &[u8],
+    runtime_report: &[u8],
     output_path: &Path,
 ) -> Result<(), String> {
     let file = fs::File::create(output_path).map_err(|e| format!("could not create {}: {e}", output_path.display()))?;
@@ -291,6 +299,12 @@ pub fn export_zip(
     // problem even if diagnostics-mode capture was never explicitly started.
     write_entry(&mut zip, "app.log", app_log)?;
 
+    // WK-126 - a compact, already-redacted snapshot of RuntimeHealth (see
+    // runtime_health.rs) at export time - unconditional and independent of
+    // any diagnostics session, same as app.log above, so a bug report always
+    // includes "what did Companion think its own health was right now".
+    write_entry(&mut zip, "runtime-report.json", runtime_report)?;
+
     zip.finish().map_err(|e| format!("finalizing zip: {e}"))?;
     Ok(())
 }
@@ -339,7 +353,7 @@ mod tests {
         };
 
         let output = dir.path().join("out.zip");
-        export_zip(&session_dir, &fields, &manifest, "2026-07-25T11:00:00+07:00", b"[log] line one\n", &output).expect("export should succeed");
+        export_zip(&session_dir, &fields, &manifest, "2026-07-25T11:00:00+07:00", b"[log] line one\n", b"{}", &output).expect("export should succeed");
 
         let file = fs::File::open(&output).unwrap();
         let mut archive = zip::ZipArchive::new(file).unwrap();
@@ -359,6 +373,7 @@ mod tests {
             "snapshots/0001-initial.json",
             "README.txt",
             "app.log",
+            "runtime-report.json",
         ] {
             assert!(names.contains(&expected.to_string()), "missing {expected} in {names:?}");
         }
@@ -366,6 +381,10 @@ mod tests {
         let mut app_log_content = String::new();
         archive.by_name("app.log").unwrap().read_to_string(&mut app_log_content).unwrap();
         assert_eq!(app_log_content, "[log] line one\n");
+
+        let mut runtime_report_content = String::new();
+        archive.by_name("runtime-report.json").unwrap().read_to_string(&mut runtime_report_content).unwrap();
+        let _: Value = serde_json::from_str(&runtime_report_content).expect("runtime-report.json must be valid JSON");
 
         let mut content = String::new();
         archive.by_name("manifest.json").unwrap().read_to_string(&mut content).unwrap();
@@ -422,7 +441,7 @@ mod tests {
             size_limit_reached: false,
         };
         let output = dir.path().join("with-tts.zip");
-        export_zip(&session_dir, &[], &manifest, "2026-08-19T10:05:00+03:00", b"", &output).unwrap();
+        export_zip(&session_dir, &[], &manifest, "2026-08-19T10:05:00+03:00", b"", b"{}", &output).unwrap();
 
         let file = fs::File::open(&output).unwrap();
         let mut archive = zip::ZipArchive::new(file).unwrap();
@@ -438,11 +457,67 @@ mod tests {
         fs::write(session_dir_no_tts.join("timeline.jsonl"), "").unwrap();
         fs::write(session_dir_no_tts.join("errors.jsonl"), "").unwrap();
         let output2 = dir.path().join("without-tts.zip");
-        export_zip(&session_dir_no_tts, &[], &manifest, "2026-08-19T10:05:00+03:00", b"", &output2).unwrap();
+        export_zip(&session_dir_no_tts, &[], &manifest, "2026-08-19T10:05:00+03:00", b"", b"{}", &output2).unwrap();
         let file2 = fs::File::open(&output2).unwrap();
         let mut archive2 = zip::ZipArchive::new(file2).unwrap();
         let names2: Vec<String> = (0..archive2.len()).map(|i| archive2.by_index(i).unwrap().name().to_string()).collect();
         assert!(!names2.contains(&"tts-trace.json".to_string()));
+    }
+
+    // WK-126 depends on WK-125 (OS-backed secure storage) - this pins the
+    // actual boundary `runtime-report.json` sits behind: `diagnostics::export`
+    // always redacts the report (see redact::redact) before handing bytes to
+    // `export_zip`. Even if a future RuntimeHealth field accidentally carried
+    // a raw secret under an obviously-named key, this proves that value never
+    // reaches the ZIP on disk. Synthetic markers only - never real
+    // credentials, per the report's own test-matrix requirement.
+    #[test]
+    fn runtime_report_never_leaks_synthetic_secrets_even_if_a_field_accidentally_carried_one() {
+        let leaking_report = json!({
+            "schemaVersion": 1,
+            "cloud": {
+                "backend": { "status": "healthy" },
+                "account": { "status": "healthy", "companionToken": "PRE_REBORN_TEST_SECRET_abc123" }
+            },
+            "integrations": {
+                "obs": { "status": "unavailable", "password": "OBS_TEST_PASSWORD_xyz789" }
+            }
+        });
+        let redacted = crate::diagnostics::redact::redact(&leaking_report);
+        let runtime_report_bytes = serde_json::to_vec_pretty(&redacted).unwrap();
+
+        let dir = tempdir().unwrap();
+        let session_dir = dir.path().join("session-security");
+        fs::create_dir_all(session_dir.join("snapshots")).unwrap();
+        fs::create_dir_all(session_dir.join("diffs")).unwrap();
+        fs::write(session_dir.join("timeline.jsonl"), "").unwrap();
+        fs::write(session_dir.join("errors.jsonl"), "").unwrap();
+        let manifest = Manifest {
+            companion_version: "0.5.69".into(),
+            diagnostics_schema_version: SCHEMA_VERSION.into(),
+            session_id: "security".into(),
+            started_at: "2026-09-02T10:00:00+03:00".into(),
+            ended_at: None,
+            gsi_request_count: 0,
+            snapshot_count: 0,
+            error_count: 0,
+            observed_game_states: vec![],
+            observed_match_ids: vec![],
+            os: "windows".into(),
+            size_bytes_used: 0,
+            size_limit_bytes: super::super::session::SIZE_LIMIT_BYTES,
+            size_limit_reached: false,
+        };
+        let output = dir.path().join("security.zip");
+        export_zip(&session_dir, &[], &manifest, "2026-09-02T10:05:00+03:00", b"", &runtime_report_bytes, &output).unwrap();
+
+        let file = fs::File::open(&output).unwrap();
+        let mut archive = zip::ZipArchive::new(file).unwrap();
+        let mut content = String::new();
+        archive.by_name("runtime-report.json").unwrap().read_to_string(&mut content).unwrap();
+        assert!(!content.contains("PRE_REBORN_TEST_SECRET"), "synthetic PreReborn secret leaked into runtime-report.json: {content}");
+        assert!(!content.contains("OBS_TEST_PASSWORD"), "synthetic OBS password leaked into runtime-report.json: {content}");
+        assert!(content.contains("[REDACTED]"), "expected the secret-bearing keys to be replaced with a redaction marker");
     }
 
     #[test]
@@ -467,7 +542,7 @@ mod tests {
             size_limit_reached: false,
         };
         let output = dir.path().join("empty.zip");
-        export_zip(&session_dir, &[], &manifest, "2026-07-25T10:00:01+07:00", b"", &output)
+        export_zip(&session_dir, &[], &manifest, "2026-07-25T10:00:01+07:00", b"", b"{}", &output)
             .expect("export of an empty session should still succeed");
         assert!(output.exists());
     }
@@ -511,7 +586,7 @@ mod tests {
             size_limit_reached: false,
         };
         let output = dir.path().join("out2.zip");
-        export_zip(&session_dir, &fields, &manifest, "2026-07-25T11:00:00+07:00", b"", &output).unwrap();
+        export_zip(&session_dir, &fields, &manifest, "2026-07-25T11:00:00+07:00", b"", b"{}", &output).unwrap();
 
         let file = fs::File::open(&output).unwrap();
         let mut archive = zip::ZipArchive::new(file).unwrap();

@@ -13,6 +13,7 @@ import { useFavoriteHeroes } from "../hooks/useFavoriteHeroes";
 import { useGsiEvents } from "../hooks/useGsiEvents";
 import { useLocalLifecycle } from "../hooks/useLocalLifecycle";
 import { useLocalSessionSummary } from "../hooks/useLocalSessionSummary";
+import { useRuntimeHealth } from "../hooks/useRuntimeHealth";
 import { useStatus } from "../hooks/useStatus";
 import { useSyncOutboxStatus } from "../hooks/useSyncOutboxStatus";
 import { useStreamSessionPrompt } from "../hooks/useStreamSessionPrompt";
@@ -61,6 +62,7 @@ export function AppShell() {
   const localLifecycle = useLocalLifecycle();
   const { summary: sessionSummary, refresh: refreshSessionSummary } = useLocalSessionSummary();
   const { status: syncStatus, refresh: syncRefresh } = useSyncOutboxStatus();
+  const runtimeHealth = useRuntimeHealth();
   const favoriteHeroes = useFavoriteHeroes();
   const [section, setSection] = useState<Section>("home");
   const [selectedHeroId, setSelectedHeroId] = useState<number | null>(null);
@@ -279,6 +281,7 @@ export function AppShell() {
             sessionPrompt={sessionPrompt}
             syncStatus={syncStatus}
             syncRefresh={syncRefresh}
+            runtimeHealth={runtimeHealth.health}
           />
         )}
       </main>

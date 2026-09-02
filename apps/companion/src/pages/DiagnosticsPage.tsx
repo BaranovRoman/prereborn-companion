@@ -4,11 +4,12 @@ import { DeviceCredentialPanel } from "../components/DeviceCredentialPanel";
 import { DiagnosticsPanel } from "../components/DiagnosticsPanel";
 import { EventHistoryList } from "../components/EventHistoryList";
 import { LastEventPanel } from "../components/LastEventPanel";
+import { RuntimeHealthPanel } from "../components/RuntimeHealthPanel";
 import { StatusChecklist } from "../components/StatusChecklist";
 import { StreamSessionCard } from "../components/StreamSessionCard";
 import type { StreamSessionPromptState } from "../hooks/useStreamSessionPrompt";
 import * as api from "../services/dotaCompanionApi";
-import type { DiagnosticsStatusSnapshot, LastEvent, StatusSnapshot, SyncOutboxStatus } from "../types/status";
+import type { DiagnosticsStatusSnapshot, LastEvent, RuntimeHealth, StatusSnapshot, SyncOutboxStatus } from "../types/status";
 
 interface Props {
   status: StatusSnapshot | null;
@@ -21,6 +22,7 @@ interface Props {
   sessionPrompt: StreamSessionPromptState;
   syncStatus: SyncOutboxStatus | null;
   syncRefresh: () => Promise<void>;
+  runtimeHealth: RuntimeHealth | null;
 }
 
 // Companion UI 2.0 / WK-114 - "Диагностика": technical/troubleshooting tools
@@ -33,11 +35,12 @@ interface Props {
 // recovery/debug tool, not a day-to-day control - Диагностика is exactly
 // that surface.
 export function DiagnosticsPage({
-  status, busy, run, history, latestEvent, diagnosticsStatus, diagnosticsRefresh, sessionPrompt, syncStatus, syncRefresh,
+  status, busy, run, history, latestEvent, diagnosticsStatus, diagnosticsRefresh, sessionPrompt, syncStatus, syncRefresh, runtimeHealth,
 }: Props) {
   return (
     <div className="diagnostics-view">
       <div className="page-heading"><span className="section-heading__eyebrow">Для разработчика</span><h2>Диагностика</h2><p>Технические данные и восстановление для troubleshooting. Повседневное управление находится на главной, настройки — по значку шестерёнки.</p></div>
+      <RuntimeHealthPanel health={runtimeHealth} />
       <section><h2>Базовая настройка</h2><StatusChecklist status={status} /></section>
       {(status?.gsi_last_error || status?.obs_last_error) && (
         <div className="diagnostic-card">

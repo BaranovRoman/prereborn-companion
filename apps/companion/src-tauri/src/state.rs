@@ -162,6 +162,17 @@ pub struct InnerState {
     pub obs_last_checked_at: Option<Instant>,
     pub obs_check_pending: bool,
     pub obs_last_error: Option<String>,
+    // WK-126 - RuntimeHealth: the stream-state watcher (obs.rs's
+    // start_stream_state_watcher) is a SECOND, independent OBS WebSocket
+    // connection that runs unconditionally (see its own WK-116 doc comment),
+    // unlike `obs_connected` above, which only ever gets probed when scene
+    // automation is enabled. Without this, RuntimeHealth's OBS component
+    // would incorrectly read "unknown/unavailable" whenever automation is
+    // off even though OBS is actually reachable - these two fields expose
+    // that watcher's own connectivity truth, mirroring `obs_connected`/
+    // `obs_last_error`'s shape but sourced from the other socket.
+    pub obs_watcher_connected: bool,
+    pub obs_watcher_last_error: Option<String>,
     // WK-99, now set by local_runtime::lifecycle::apply (WK-113) whenever
     // the local, OBS-driven session lifecycle finalizes an end/start - no
     // longer by a backend poll (see backend/mod.rs's removed
