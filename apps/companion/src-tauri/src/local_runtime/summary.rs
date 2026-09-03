@@ -217,8 +217,32 @@ pub fn get<R: Runtime>(app: &AppHandle<R>) -> LocalSessionSummary {
         .ok()
         .flatten()
         .map(|m| LocalMatchSummary::from(&m));
-    let (wins, losses) = store::session_match_tally(conn, &session.local_id).unwrap_or((0, 0));
     log_history_load(app, recent_matches.len(), Some(&session.local_id));
+
+    // WK-137 - a gameplay session (no OBS stream active) still surfaces its
+    // in-progress match on Home - hiding it would regress what a user
+    // already sees today whenever Dota simply hasn't produced a match yet -
+    // but must not present W/L/rating-delta as if it were a stream session's
+    // own, since nothing was actually broadcast. See
+    // docs/research/wk-137-match-session-decoupling.md's SESSION UI
+    // SEMANTICS section for why `has_session` itself still tracks "is a
+    // session open" (streamed or not) rather than being narrowed to
+    // streamed-only: HomePage.tsx renders `currentMatch` independently of
+    // `hasSession`, so decoupling them here would produce a contradictory
+    // "no session yet" + match row render without any frontend change,
+    // which is out of scope for this ticket.
+    if !session.is_streamed {
+        return LocalSessionSummary {
+            has_session: true,
+            started_at: Some(session.started_at),
+            rating_current: session.rating_current.or_else(|| store::get_current_rating(conn).ok().flatten()),
+            current_match,
+            recent_matches,
+            ..LocalSessionSummary::default()
+        };
+    }
+
+    let (wins, losses) = store::session_match_tally(conn, &session.local_id).unwrap_or((0, 0));
 
     LocalSessionSummary {
         has_session: true,

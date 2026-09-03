@@ -49,6 +49,9 @@ pub struct SessionLifecycleView {
     pub started_at: DateTime<Utc>,
     pub pending_end_at: Option<DateTime<Utc>>,
     pub stale_ack: bool,
+    // WK-137 - false for a gameplay session GSI opened with no OBS stream
+    // active. See docs/research/wk-137-match-session-decoupling.md.
+    pub is_streamed: bool,
 }
 
 impl SessionLifecycleView {
@@ -58,6 +61,7 @@ impl SessionLifecycleView {
             started_at: parse_rfc3339(&session.started_at)?,
             pending_end_at: session.pending_end_at.as_deref().and_then(parse_rfc3339),
             stale_ack: session.stale_ack,
+            is_streamed: session.is_streamed,
         })
     }
 }
@@ -110,15 +114,29 @@ fn decide_with(
         return if streaming { LifecycleDecision::StartNewSession } else { LifecycleDecision::NoOp };
     };
 
-    if is_stale(session, now) {
+    // WK-137 - staleness/manual-recovery is a stream-session concept only: a
+    // gameplay session (`is_streamed = false`) is invisible bookkeeping the
+    // user never manages through this UI (see `status` below, scoped to
+    // streamed sessions), and flagging one stale here would wrongly block
+    // it from ever graduating into a real stream if OBS starts streaming
+    // after it's been open a long time (an abandoned/never-resolved match).
+    if session.is_streamed && is_stale(session, now) {
         return LifecycleDecision::FlagStaleForManualRecovery;
     }
 
-    match (streaming, session.pending_end_at) {
-        (true, Some(_)) => LifecycleDecision::CancelPendingEnd,
-        (true, None) => LifecycleDecision::ContinueSession,
-        (false, None) => LifecycleDecision::BeginPendingEnd,
-        (false, Some(pending_since)) => {
+    // WK-137 - OBS reporting "not streaming" is the normal, expected state
+    // for a gameplay session (nothing has gone live at all) and must never
+    // start the pending-end countdown that only makes sense for a session
+    // OBS itself opened - see `store::ensure_gameplay_session`'s doc
+    // comment. `(true, ..)` still reaches `ContinueSession` for a gameplay
+    // session too, which is what lets it graduate (`apply`'s
+    // `mark_session_streamed` call) instead of restarting from scratch.
+    match (streaming, session.pending_end_at, session.is_streamed) {
+        (true, Some(_), _) => LifecycleDecision::CancelPendingEnd,
+        (true, None, _) => LifecycleDecision::ContinueSession,
+        (false, _, false) => LifecycleDecision::NoOp,
+        (false, None, true) => LifecycleDecision::BeginPendingEnd,
+        (false, Some(pending_since), true) => {
             if now.signed_duration_since(pending_since) >= grace {
                 LifecycleDecision::FinalizeEnd
             } else {
@@ -166,6 +184,17 @@ fn apply(app: &AppHandle, conn: &mut Connection, open_session: Option<&SessionLi
             crate::obs::handle_session_state(app, false);
         }
         LifecycleDecision::ContinueSession => {
+            // WK-137 - "graduates" a gameplay session the moment OBS is
+            // found streaming while it's still open; a no-op for a session
+            // that's already streamed (`mark_session_streamed`'s own
+            // `is_streamed = 0` guard), so this is safe to call on every
+            // ordinary already-streamed tick too. See
+            // docs/research/wk-137-match-session-decoupling.md.
+            if let Some(session) = open_session {
+                if let Err(error) = store::mark_session_streamed(conn, &session.local_id, now) {
+                    log_error(app, "mark_session_streamed", &error);
+                }
+            }
             crate::obs::handle_session_state(app, false);
         }
         LifecycleDecision::CancelPendingEnd => {
@@ -309,7 +338,11 @@ pub fn status(app: &AppHandle) -> LifecycleStatus {
             obs_streaming_confirmed_at,
         };
     };
-    let open = store::find_open_session(conn).ok().flatten();
+    // WK-137 - scoped to a genuine broadcast session only: this feeds the
+    // AppShell's OBS/session indicator, which must never report "Open" or
+    // "NeedsManualRecovery" for a gameplay session the user never started
+    // streaming - see docs/research/wk-137-match-session-decoupling.md.
+    let open = store::find_open_streamed_session(conn).ok().flatten();
     let Some(session) = open else {
         return LifecycleStatus {
             session_state: LifecycleSessionState::None,
@@ -379,7 +412,12 @@ mod tests {
     use super::*;
 
     fn view(started_at: DateTime<Utc>, pending_end_at: Option<DateTime<Utc>>, stale_ack: bool) -> SessionLifecycleView {
-        SessionLifecycleView { local_id: "s1".into(), started_at, pending_end_at, stale_ack }
+        SessionLifecycleView { local_id: "s1".into(), started_at, pending_end_at, stale_ack, is_streamed: true }
+    }
+
+    // WK-137 - a gameplay session GSI opened with no OBS stream active.
+    fn gameplay_view(started_at: DateTime<Utc>) -> SessionLifecycleView {
+        SessionLifecycleView { local_id: "s1".into(), started_at, pending_end_at: None, stale_ack: false, is_streamed: false }
     }
 
     // WK-112's architectural boundary, by direct analogy with WK-111's
@@ -487,6 +525,41 @@ mod tests {
         assert!(is_stale(&ancient, now));
         let acknowledged = view(now - Duration::hours(20), None, true);
         assert!(!is_stale(&acknowledged, now));
+    }
+
+    // WK-137 - a gameplay session (no OBS stream active) must never start
+    // the pending-end countdown just because OBS reports "not streaming" -
+    // that's its normal, expected state, not a signal anything is ending.
+    #[test]
+    fn a_gameplay_session_with_obs_not_streaming_does_nothing() {
+        let now = Utc::now();
+        let session = gameplay_view(now - Duration::minutes(10));
+        assert_eq!(decide(Some(&session), false, now), LifecycleDecision::NoOp);
+    }
+
+    // WK-137 - OBS starting to stream while a gameplay session is open must
+    // graduate it in place (ContinueSession, see `apply`'s
+    // `mark_session_streamed` call), never start a brand new session and
+    // never split/duplicate whatever match it's already tracking.
+    #[test]
+    fn obs_streaming_while_a_gameplay_session_is_open_continues_it_for_graduation() {
+        let now = Utc::now();
+        let session = gameplay_view(now - Duration::minutes(5));
+        assert_eq!(decide(Some(&session), true, now), LifecycleDecision::ContinueSession);
+    }
+
+    // WK-137 - an ancient (>12h) gameplay session must never be flagged
+    // stale: that would permanently block it from ever graduating once OBS
+    // starts streaming (the FlagStaleForManualRecovery arm short-circuits
+    // before ContinueSession/mark_session_streamed can run), and the
+    // recovery UI it would imply is scoped to streamed sessions only
+    // (see `status`), so the user would have no way to resolve it.
+    #[test]
+    fn an_ancient_gameplay_session_is_never_flagged_stale() {
+        let now = Utc::now();
+        let ancient = gameplay_view(now - Duration::hours(20));
+        assert_eq!(decide(Some(&ancient), true, now), LifecycleDecision::ContinueSession);
+        assert_eq!(decide(Some(&ancient), false, now), LifecycleDecision::NoOp);
     }
 
     // Integration-style tests below drive `decide` + the real store

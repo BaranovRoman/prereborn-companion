@@ -145,6 +145,25 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE local_matches ADD COLUMN ranked_mode_detected TEXT NOT NULL DEFAULT 'unknown';
     UPDATE local_matches SET ranked_mode_detected = ranked_mode;
     "#,
+    // v6 -> v7 (WK-137) - decouples match existence from OBS streaming.
+    // `local_sessions` stops meaning "an OBS broadcast" exclusively and
+    // becomes "a tracked gameplay period", of which a real broadcast is one
+    // kind - see docs/research/wk-137-match-session-decoupling.md. `is_streamed`
+    // is `1` by default, which is a truthful backfill (not a guess): every
+    // row that already exists was created exclusively by
+    // `store::ensure_active_session`, itself only ever called from OBS's own
+    // streaming-start signal (see that function's doc comment) - so every
+    // pre-existing session genuinely was an OBS-driven broadcast.
+    // `stream_started_at` backfilled from `started_at` for those rows is
+    // re-deriving already-true information (their only possible origin was
+    // OBS going live) - a brand new gameplay session (this migration's whole
+    // point) instead leaves it NULL until/unless it actually graduates into
+    // a stream (`store::mark_session_streamed`).
+    r#"
+    ALTER TABLE local_sessions ADD COLUMN is_streamed INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE local_sessions ADD COLUMN stream_started_at TEXT;
+    UPDATE local_sessions SET stream_started_at = started_at WHERE is_streamed = 1;
+    "#,
 ];
 
 /// WK-127 - applies one migration's DDL/DML and its `user_version` bump as a
@@ -309,6 +328,33 @@ mod tests {
             .query_row("SELECT ranked_mode_detected FROM local_matches WHERE local_id = 'm1'", [], |row| row.get(0))
             .unwrap();
         assert_eq!(detected, "ranked", "a pre-existing row's already-stored ranked_mode is what was actually detected");
+    }
+
+    // WK-137 - every session that already existed before this migration was
+    // created exclusively by OBS's own streaming-start signal (see
+    // ensure_active_session's doc comment), so backfilling `is_streamed = 1`
+    // and `stream_started_at = started_at` for it is truthful, not guessed.
+    #[test]
+    fn existing_v6_database_backfills_pre_existing_sessions_as_streamed() {
+        let conn = Connection::open_in_memory().unwrap();
+        for migration in MIGRATIONS.iter().take(6) {
+            conn.execute_batch(migration).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 6).unwrap();
+        conn.execute(
+            "INSERT INTO local_sessions (local_id, started_at) VALUES ('s1', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+        let (is_streamed, stream_started_at): (i64, Option<String>) = conn
+            .query_row("SELECT is_streamed, stream_started_at FROM local_sessions WHERE local_id = 's1'", [], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(is_streamed, 1);
+        assert_eq!(stream_started_at.as_deref(), Some("2026-01-01T00:00:00Z"));
     }
 
     // WK-127 - `migrate` reports the journal mode SQLite actually engaged so
