@@ -65,6 +65,16 @@ pub fn get_local_session_summary(app: AppHandle) -> crate::local_runtime::summar
     crate::local_runtime::summary::get(&app)
 }
 
+// WK-140 - Hero Detail's local statistics zone (matches/wins/losses/avg
+// K-D-A/recent results for one hero, device-wide) - see
+// local_runtime::summary::hero_stats's doc comment for why this is a
+// separate query from get_local_session_summary rather than derived from it
+// on the frontend.
+#[tauri::command]
+pub fn get_hero_local_stats(app: AppHandle, hero_id: i64) -> crate::local_runtime::summary::HeroLocalStats {
+    crate::local_runtime::summary::hero_stats(&app, hero_id)
+}
+
 #[tauri::command]
 pub fn set_current_mmr(
     app: AppHandle,

@@ -71,6 +71,67 @@ impl From<&LocalMatch> for LocalMatchSummary {
     }
 }
 
+// WK-140 - Hero Detail's local statistics zone. A distinct DTO/query from
+// `LocalSessionSummary` on purpose: that one is session-scoped and its
+// `recentMatches` is capped at 10 for the Главная feed, neither of which is
+// the right shape for "how have I done on this hero across my whole local
+// history" - see `store::hero_local_stats`'s own doc comment. Labeled
+// explicitly as local/Companion-observed data (not lifetime Dota stats) at
+// the call site in HeroDetailPage, per the task's semantics requirement -
+// this DTO itself just carries the numbers.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HeroLocalStats {
+    pub matches: i64,
+    pub wins: i64,
+    pub losses: i64,
+    pub avg_kills: Option<f64>,
+    pub avg_deaths: Option<f64>,
+    pub avg_assists: Option<f64>,
+    /// Newest-first, at most `RECENT_RESULTS_LIMIT` entries.
+    pub recent_results: Vec<MatchResult>,
+}
+
+const RECENT_RESULTS_LIMIT: i64 = 10;
+
+/// Read-only, mirrors `get`'s "missing runtime -> empty DTO, never an error"
+/// contract so a hero with no observed matches (or a runtime that failed to
+/// open) renders the same quiet empty state instead of a special-cased error
+/// path.
+pub fn hero_stats<R: Runtime>(app: &AppHandle<R>, hero_id: i64) -> HeroLocalStats {
+    let state = app.state::<LocalRuntimeState>();
+    let mut guard = state.lock();
+    let Some(conn) = guard.as_mut() else {
+        return HeroLocalStats {
+            matches: 0,
+            wins: 0,
+            losses: 0,
+            avg_kills: None,
+            avg_deaths: None,
+            avg_assists: None,
+            recent_results: Vec::new(),
+        };
+    };
+    let aggregate = store::hero_local_stats(conn, hero_id, RECENT_RESULTS_LIMIT).unwrap_or(store::HeroMatchAggregate {
+        matches: 0,
+        wins: 0,
+        losses: 0,
+        avg_kills: None,
+        avg_deaths: None,
+        avg_assists: None,
+        recent_results: Vec::new(),
+    });
+    HeroLocalStats {
+        matches: aggregate.matches,
+        wins: aggregate.wins,
+        losses: aggregate.losses,
+        avg_kills: aggregate.avg_kills,
+        avg_deaths: aggregate.avg_deaths,
+        avg_assists: aggregate.avg_assists,
+        recent_results: aggregate.recent_results,
+    }
+}
+
 #[cfg(test)]
 const ACTIVE_STATES: &[LocalMatchState] = &[
     LocalMatchState::InProgress,

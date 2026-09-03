@@ -260,6 +260,7 @@ pub fn run() {
             commands::local_lifecycle_stale_continue,
             commands::local_lifecycle_stale_end,
             commands::get_local_session_summary,
+            commands::get_hero_local_stats,
             commands::set_current_mmr,
             commands::correct_local_match_delta,
             commands::correct_local_match_ranked_mode,

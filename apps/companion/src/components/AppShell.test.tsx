@@ -144,6 +144,12 @@ vi.mock("../hooks/useLocalLifecycle", () => ({
 vi.mock("../hooks/useLocalSessionSummary", () => ({
   useLocalSessionSummary: () => ({ summary: null, refresh: vi.fn() }),
 }));
+// WK-140 - Hero Detail's local statistics zone, mocked like every other
+// polling/IPC-backed hook in this file so unrelated tests never make a real
+// invoke("get_hero_local_stats") call.
+vi.mock("../hooks/useHeroLocalStats", () => ({
+  useHeroLocalStats: () => null,
+}));
 let syncStatusFixture: Record<string, unknown> | null = null;
 vi.mock("../hooks/useSyncOutboxStatus", () => ({
   useSyncOutboxStatus: () => ({ status: syncStatusFixture, refresh: vi.fn().mockResolvedValue(undefined) }),

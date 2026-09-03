@@ -24,7 +24,7 @@ export interface TwitchChatStatus {
   messages: TwitchChatMessage[];
 }
 import { invoke } from "@tauri-apps/api/core";
-import type { AccountStatus, DiagnosticsStatusSnapshot, LifecycleStatus, LocalSessionSummary, ObsConfig, OverlayLayoutDoc, QueueSettingsDoc, RuntimeHealth, StatusSnapshot, SyncOutboxStatus } from "../types/status";
+import type { AccountStatus, DiagnosticsStatusSnapshot, HeroLocalStats, LifecycleStatus, LocalSessionSummary, ObsConfig, OverlayLayoutDoc, QueueSettingsDoc, RuntimeHealth, StatusSnapshot, SyncOutboxStatus } from "../types/status";
 import type { StreamSessionSummary } from "../session/session-prompt";
 
 export const getStatus = () => invoke<StatusSnapshot>("get_status");
@@ -90,6 +90,9 @@ export const staleRecoveryEnd = () => invoke<void>("local_lifecycle_stale_end");
 
 // WK-114 - read-only local session/match/MMR data for Главная.
 export const getLocalSessionSummary = () => invoke<LocalSessionSummary>("get_local_session_summary");
+// WK-140 - Hero Detail's local statistics zone (device-wide per-hero
+// aggregate, distinct from the session-scoped summary above).
+export const getHeroLocalStats = (heroId: number) => invoke<HeroLocalStats>("get_hero_local_stats", { heroId });
 export const setCurrentMmr = (rating: number) =>
   invoke<LocalSessionSummary>("set_current_mmr", { rating });
 

@@ -247,6 +247,140 @@ verification for the two fixes above.
 
 ---
 
+# WK-140 — Hero Detail v2: centered hero + local statistics
+
+WK-133's composition anchored everything (visual + content) top-left/right-biased, deliberately
+leaving the right side open "for a future statistics block." This slice is that block, plus
+re-centering the hero itself as the screen's dominant focal point.
+
+## What changed
+
+1. **Three compositional zones, not three panels** — `HeroDetailPage.tsx`'s JSX gained a
+   `.hero-detail__grid` (a two-column flex row: `.hero-detail__left` / `.hero-detail__right`)
+   layered over the still-absolutely-positioned hero visual, replacing WK-133's single
+   `.hero-detail__content` block. No card/panel background was added to either column — the hero
+   shows through the gap between them.
+2. **Hero — centered and larger** — `.hero-detail__visual-bg` moved from `right: 0` (edge-biased)
+   to `left: 50%; transform: translateX(-50%)` (centered), and grew from `min(72vh, 820px)` to
+   `min(84vh, 980px)`. Kept square (source captures are 1:1 — see WK-133's crop-bug note, still
+   applicable) and radial-masked/blended exactly as before.
+3. **Back navigation relocated** — `← Герои` moved from a lone top-level grid row (which read as a
+   button floating centered above the hero, per this task's own framing) into
+   `.hero-detail__left`'s first child, restyled as a restrained breadcrumb (small, muted, no
+   border/button chrome) rather than a `ui-button--ghost`.
+4. **Local statistics (RIGHT zone)** — new `HeroStatsPanel` in `HeroDetailPage.tsx`, backed by a
+   new `useHeroLocalStats(heroId)` hook (`hooks/useHeroLocalStats.ts`) → `getHeroLocalStats`
+   (`services/dotaCompanionApi.ts`) → Tauri command `get_hero_local_stats`
+   (`commands.rs`) → `local_runtime::summary::hero_stats` → `local_runtime::store::hero_local_stats`.
+
+## Local stats — data source and audit
+
+Audited `local_runtime::summary::LocalSessionSummary` (the Главная page's existing data) first,
+per the task's explicit instruction not to duplicate stored match data. It's the wrong shape for
+this: `recentMatches` is capped at 10 (`RECENT_MATCHES_DISPLAY`) for the Главная feed, and
+`wins`/`losses` are session-scoped, not "this hero, across all local history." Rather than load an
+unbounded match history into React to derive four numbers client-side, added one small dedicated
+SQL aggregate — `store::hero_local_stats(conn, hero_id, recent_limit)` — mirroring the existing
+`session_match_tally`/`list_recent_finalized_matches` query style (device-wide, `state =
+'finalized'`, no new table/schema).
+
+Returned fields: `matches`, `wins`, `losses` (COUNT queries), `avgKills`/`avgDeaths`/`avgAssists`
+(SQL `AVG(...)`, `None` when there's no data — SQLite's own `NULL` semantics, not a fabricated
+zero), `recentResults` (newest-first, capped at 10). Winrate itself isn't backend-computed — the
+frontend derives it as `wins / (wins + losses)`, so an all-`abandon` hero (matches > 0, no decided
+result) shows an honest "—" instead of a misleading `0%`; `matches` still counts abandons (an
+observed match), keeping "matches played" and "decided results" distinguishable at the display
+layer. Covered by three new Rust tests in `store.rs` (aggregate correctness across multiple
+heroes/sessions, clean empty state, abandon-only history).
+
+**Deliberately not implemented**: MMR gained/lost per hero. `detected_rating_delta` is immutable
+but `rating_delta_correction` layers on top of it (WK-115's Dashboard correction feature) and only
+counts when the match's *current* `ranked_mode` — not `ranked_mode_detected` — is Ranked; getting
+that aggregation right would mean re-deriving `correct_match_ranked_mode`'s contribution rules a
+second time in a read path, which is a real edge to get subtly wrong that the task's own "only add
+if correctly and unambiguously derivable" instruction argues against including here. Matches/wins/
+losses/winrate, average K/D/A, and the recent-results sequence ship; MMR-per-hero is left for a
+follow-up if wanted.
+
+## Semantics (explicit, per task requirement)
+
+`HeroStatsPanel` always renders a closing caption line — "Локальная история Companion" — so the
+numbers are never mistaken for lifetime Dota/OpenDota stats. `HeroLocalStats` (frontend type) /
+`HeroLocalStats` (Rust DTO) is a standalone data boundary: `HeroDetailPage` passes only the DTO
+into `HeroStatsPanel`, not the fetching hook, so a future OpenDota-backed source (WK-133 backlog,
+explicitly out of scope here) can hand the same component richer data later without another Hero
+Detail layout pass.
+
+## Empty state
+
+`stats.matches === 0` renders one quiet line — "Пока нет матчей в локальной истории" — no
+zeroed-out KPI row, no bordered empty-state card.
+
+## Responsive (1024×720 and narrow widths)
+
+Reused WK-133's `@media (max-height: 820px)` breakpoint (still the one that actually catches
+1024×720 — see that section's own note on why a width-only breakpoint misses this case) and added
+an equivalent `@media (max-width: 1200px)` tier; both shrink the hero visual and cap
+`.hero-detail__left`/`.hero-detail__right` width rather than stacking the three zones, per this
+task's "composition over rigid columns" guidance. Below 900px width the grid wraps and the stats
+column switches to left-aligned text (its `text-align: right` at normal widths is a wide-desktop
+affordance, not load-bearing).
+
+## Tests
+
+`HeroDetailPage.test.tsx` gained a `describe("local statistics")` block (empty state, computed
+matches/wins/losses/winrate against the task's own worked example — 24/15/9/62.5% — abandon-only
+"no fabricated winrate," conditional K/D/A row, the local-history caption) plus a
+`vi.mock("../services/dotaCompanionApi")` (jsdom has no real Tauri IPC). `AppShell.test.tsx` needed
+a matching `useHeroLocalStats` mock alongside its other polling/IPC-backed hook mocks, for the same
+reason. All existing ability-strip/sound-assignment/tri-state/tooltip/media-failure tests pass
+unmodified — that interaction model was frozen per the task and genuinely untouched.
+
+---
+
+# WK-141 — Heroes Search v2: Reaver overlay query
+
+WK-132's dim-in-place search *mechanics* were approved and explicitly frozen; only the query's
+*presentation* was in scope here.
+
+## What changed
+
+`HeroesPage.tsx`'s `.hero-search-indicator` (a `position: sticky`, bordered/red-gradient-filled
+chip — visually a form input, and one that occupied real flow space once it mounted, nudging the
+grid down on the first keystroke) is replaced by `.hero-search-overlay`: `position: absolute;
+inset: 0;` against a new `.hero-roster` wrapper (scoped to just the grid, so the overlay never
+covers the section header/favorites row above it), `pointer-events: none` so it never blocks
+clicking a tile underneath, no background/border/fill at all. The query itself renders in the
+existing Reaver font (`var(--font-title)`, already wired app-wide since WK-134 — no new asset),
+uppercase, sized with `clamp(2.2rem, 8vw, 6rem)` (a smaller `max-height: 820px` tier for short
+windows), `overflow-wrap: break-word` so the 32-character input cap (pre-existing, `HeroesPage.tsx`
+line ~89) can't force horizontal overflow.
+
+Because the overlay is `position: absolute` (removed from flow) rather than the old `sticky` chip,
+idle and active-search roster geometry are now byte-for-byte identical — mounting/unmounting the
+overlay can't nudge `.attribute-grid` regardless of query length or match count.
+
+Search mechanics untouched: `searchHeroes`, `matchedIds`, `data-search-match`/`data-searching`
+dimming, keyboard capture (letters/Backspace/Escape/3s idle-clear), favorites, hero ordering — none
+of that code moved.
+
+## Tests
+
+Added two presentation-only assertions to `HeroesPage.test.tsx`: the overlay only exists while a
+query is active and no `.hero-search-indicator` element exists at all anymore (old vs. new class
+names, not a pixel comparison), and that `.attribute-grid`'s parent element is unchanged before vs.
+during an active search (a structural proxy for "no reflow," without asserting on computed
+layout/pixels). All existing dim-in-place/matching/Escape/Backspace/favorite tests pass unmodified.
+
+## Screenshots (WK-140 + WK-141 combined visual QA)
+
+Pending capture against the mocked-Tauri dev-server approach WK-132–134 used (real Tauri can't
+launch headlessly here) — will cover both tasks' required scenarios (Techies/Pudge/no-history/
+Invoker/1024×720 for Hero Detail; idle/`"TEC"`/multi-match/no-match/1024×720 for Heroes search) in
+one visual-review pass, saved under `docs/qa-screenshots/wk140-*.png` / `wk141-*.png`.
+
+---
+
 # WK-134 — Hero Detail narrow polish pass
 
 WK-133's composition was approved in principle. This is a narrow, non-redesign polish pass on

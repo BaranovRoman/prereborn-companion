@@ -141,58 +141,67 @@ export function HeroesPage({ favorites, soundSettings, trackedHeroes, onSelectHe
         }
       />
 
-      {query && (
-        <div className="hero-search-indicator" aria-live="polite">
-          {query.toLocaleUpperCase()}
-          {matchedIds.size === 0 && <span className="hero-search-indicator__hint"> — герой не найден</span>}
-        </div>
-      )}
+      <div className="hero-roster">
+        {/* WK-141 - the active query is a temporary Reaver overlay ON the
+            roster (absolutely positioned, pointer-events: none), not a
+            form field: idle vs. active-search roster geometry stays
+            byte-for-byte identical since this never occupies flow space -
+            see this task's own "overlay, not reflow" requirement. */}
+        {query && (
+          <div className="hero-search-overlay" aria-live="polite">
+            <div className="hero-search-overlay__inner">
+              <span className="hero-search-overlay__query">{query.toLocaleUpperCase()}</span>
+              {matchedIds.size === 0 && <span className="hero-search-overlay__hint">Герой не найден</span>}
+            </div>
+          </div>
+        )}
 
-      <div className="attribute-grid">
-        {ATTRIBUTES.map((attribute) => {
-          const attributeHeroes = grouped.get(attribute.id) ?? [];
-          return (
-            <section key={attribute.id} className="attribute-column">
-              <h3><img src={attribute.iconUrl} alt="" aria-hidden="true" />{attribute.label}</h3>
-              <div className="hero-portrait-grid" role="list" data-searching={query ? "true" : "false"}>
-                {attributeHeroes.map((hero) => {
-                  const count = configuredCount(hero, trackedHeroes, soundSettings);
-                  const isFavorite = favorites.heroIds.includes(hero.id);
-                  const isMatch = !query || matchedIds.has(hero.id);
-                  return (
-                    <button
-                      key={hero.id}
-                      type="button"
-                      role="listitem"
-                      className={`hero-portrait-tile ${count > 0 ? "hero-portrait-tile--configured" : ""}`}
-                      data-search-match={isMatch ? "true" : "false"}
-                      title={hero.localizedName}
-                      onClick={() => onSelectHero(hero.id)}
-                    >
-                      <img className="hero-portrait-tile__image" src={hero.iconUrl} alt="" loading="lazy" />
-                      <span
-                        className={`hero-portrait-tile__favorite ${isFavorite ? "is-active" : ""}`}
-                        role="button"
-                        tabIndex={-1}
-                        aria-label={isFavorite ? "Убрать из избранного" : "Добавить в избранное"}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void favorites.toggle(hero.id);
-                        }}
+        <div className="attribute-grid">
+          {ATTRIBUTES.map((attribute) => {
+            const attributeHeroes = grouped.get(attribute.id) ?? [];
+            return (
+              <section key={attribute.id} className="attribute-column">
+                <h3><img src={attribute.iconUrl} alt="" aria-hidden="true" />{attribute.label}</h3>
+                <div className="hero-portrait-grid" role="list" data-searching={query ? "true" : "false"}>
+                  {attributeHeroes.map((hero) => {
+                    const count = configuredCount(hero, trackedHeroes, soundSettings);
+                    const isFavorite = favorites.heroIds.includes(hero.id);
+                    const isMatch = !query || matchedIds.has(hero.id);
+                    return (
+                      <button
+                        key={hero.id}
+                        type="button"
+                        role="listitem"
+                        className={`hero-portrait-tile ${count > 0 ? "hero-portrait-tile--configured" : ""}`}
+                        data-search-match={isMatch ? "true" : "false"}
+                        title={hero.localizedName}
+                        onClick={() => onSelectHero(hero.id)}
                       >
-                        ★
-                      </span>
-                      <span className="hero-portrait-tile__name">{hero.localizedName}</span>
-                      {count > 0 && (
-                        <b className="hero-portrait-tile__badge" aria-hidden="true">{count}</b>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-          );
-        })}
+                        <img className="hero-portrait-tile__image" src={hero.iconUrl} alt="" loading="lazy" />
+                        <span
+                          className={`hero-portrait-tile__favorite ${isFavorite ? "is-active" : ""}`}
+                          role="button"
+                          tabIndex={-1}
+                          aria-label={isFavorite ? "Убрать из избранного" : "Добавить в избранное"}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void favorites.toggle(hero.id);
+                          }}
+                        >
+                          ★
+                        </span>
+                        <span className="hero-portrait-tile__name">{hero.localizedName}</span>
+                        {count > 0 && (
+                          <b className="hero-portrait-tile__badge" aria-hidden="true">{count}</b>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
+        </div>
       </div>
       {favorites.error && <p className="app__error">Ошибка: {favorites.error}</p>}
     </div>
