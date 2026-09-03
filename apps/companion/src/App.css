@@ -1065,6 +1065,33 @@ h1, h2, p { margin-top: 0; }
 .account-form__login, .account-form__connected { display: grid; gap: 8px; }
 .account-form__identity { margin: 0; font-size: 1.05rem; font-weight: 700; color: var(--ui-text); }
 .account-form__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+
+/* WK-133 - Settings → Интеграции. Compact rows over the existing dark
+   metal/recessed language (see this task's "no SaaS marketplace cards"
+   requirement) - same shape as .account-form above (grid heading + a plain
+   border-bottom separator between rows), not a new card component. */
+/* WK-133 follow-up (visual review) - rows were stretching across the full
+   Settings content width, especially at 2560×1440, pushing the status badge
+   to the far edge of the window instead of the content itself. Constrained
+   to a sensible desktop reading width, staying LEFT-aligned (no auto-margin
+   centering) at the existing Settings content origin - not a floating
+   panel. */
+.integrations-panel { display: grid; gap: 4px; max-width: 1000px; }
+.integrations-panel h2 { margin: 0 0 6px; font-size: 1rem; color: var(--ui-text); font-weight: 600; }
+.integrations-panel__row { display: grid; gap: 6px; padding: 14px 0; border-bottom: 1px solid var(--ui-edge-soft); }
+.integrations-panel__row:last-of-type { border-bottom: none; }
+.integrations-panel__row-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.integrations-panel__provider { font-size: .95rem; font-weight: 700; color: var(--ui-text); }
+.integrations-panel__identity { margin: 0; font-size: .9rem; color: var(--ui-text); }
+.integrations-panel__hint { margin: 0; color: var(--ui-text-soft); font-size: .8rem; }
+.integrations-panel__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 2px; }
+.integrations-panel__confirm { display: grid; gap: 8px; }
+.integrations-panel__confirm-text { margin: 0; color: var(--warning); font-size: .8rem; max-width: 42ch; }
+/* WK-133 follow-up - external "manage on the website" actions must read as
+   a recognizable link/action, not caption-like body text (still the same
+   button chrome as every other action here, just a link-colored label). */
+.integrations-panel__link-action { color: var(--ui-cyan); }
+.integrations-panel__link-action:hover:not(:disabled) { color: #8fd0dc; }
 .obs-panel input:not([type="checkbox"]), .obs-panel select {
   min-width: 0;
   border: 1px solid var(--border);
@@ -1684,6 +1711,17 @@ h1, h2, p { margin-top: 0; }
 .hero-detail__stats-dot--abandon { background: var(--ui-text-muted); }
 .hero-detail__stats-caption { margin: 2px 0 0; color: var(--ui-text-muted); font-size: .68rem; text-shadow: 0 1px 4px #000; }
 
+/* WK-133 - RIGHT column now stacks two independent sources (local history,
+   OpenDota) - see this task's "never merge local + external" requirement.
+   A stacking flex column (not a second `.hero-detail__stats` sibling row)
+   so both keep their own `dl`/caption but read as one column. */
+.hero-detail__right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+/* Secondary enrichment, not a second equally-weighted block (task §24) - a
+   quiet top divider is the only visual distinction from the local block
+   above it, everything else (typography, row layout) stays identical. */
+.hero-detail__stats--opendota { padding-top: 10px; margin-top: 4px; border-top: 1px solid var(--ui-edge-soft); }
+.hero-detail__stats--opendota .ui-button { margin-top: 2px; }
+
 @media (max-width: 1200px) {
   .hero-detail__scene { min-height: min(66vh, 680px); }
   .hero-detail__visual-bg { width: min(70vh, 640px); height: min(70vh, 640px); }
@@ -1698,6 +1736,7 @@ h1, h2, p { margin-top: 0; }
   .hero-detail__grid { flex-wrap: wrap; padding-right: 0; }
   .hero-detail__left, .hero-detail__stats { max-width: 100%; }
   .hero-detail__stats { text-align: left; }
+  .hero-detail__right { align-items: flex-start; }
   .hero-detail__stats-row { justify-content: space-between; }
   .hero-detail__stats-recent { justify-content: flex-start; }
   .hero-detail__visual-bg { width: min(60vh, 520px); height: min(60vh, 520px); }

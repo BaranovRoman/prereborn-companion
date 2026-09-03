@@ -66,7 +66,10 @@ export const getGameplayReference = () => invoke<string | null>("get_gameplay_re
 export const chooseGameplayReference = () => invoke<string>("choose_gameplay_reference");
 export const removeGameplayReference = () => invoke<void>("remove_gameplay_reference");
 export const getTwitchChat = () => invoke<TwitchChatStatus>("get_twitch_chat");
-export const openTwitchSettings = () => invoke<void>("open_twitch_settings");
+// WK-133 rename - was `openTwitchSettings`: opens the web dashboard's
+// `/stream` settings page, where Twitch AND Steam account linking both live
+// (see IntegrationsPanel.tsx, which reuses this same call for Steam).
+export const openStreamSettings = () => invoke<void>("open_stream_settings");
 
 // WK-83 - startup "продолжить прошлый стрим?" prompt.
 export const getStreamSession = () => invoke<StreamSessionSummary>("get_stream_session");
@@ -93,6 +96,63 @@ export const getLocalSessionSummary = () => invoke<LocalSessionSummary>("get_loc
 // WK-140 - Hero Detail's local statistics zone (device-wide per-hero
 // aggregate, distinct from the session-scoped summary above).
 export const getHeroLocalStats = (heroId: number) => invoke<HeroLocalStats>("get_hero_local_stats", { heroId });
+
+// WK-133 - Settings → Интеграции + Hero Detail's OpenDota panel. Response
+// shapes mirror the backend's product contracts (see apps/api's
+// controllers/stream/steam.ts, twitch.ts, opendota.ts) - passed through as
+// `serde_json::Value` on the Rust side (same convention as
+// getStreamSession/getAccountOverlayData), typed here on the frontend.
+export interface SteamIntegrationStatus {
+  connected: boolean;
+  steamId64?: string;
+  connectedAt?: string;
+  lastSyncedAt?: string | null;
+  lastSyncStatus?: string | null;
+  profile?: { displayName: string; avatarUrl: string | null; profileUrl: string | null } | null;
+}
+export const getSteamIntegrationStatus = () =>
+  invoke<SteamIntegrationStatus>("get_steam_integration_status");
+export const disconnectSteam = () => invoke<void>("disconnect_steam");
+
+export interface TwitchIntegrationStatus {
+  connected: boolean;
+  login?: string;
+  displayName?: string;
+}
+export const getTwitchIntegrationStatus = () =>
+  invoke<TwitchIntegrationStatus>("get_twitch_integration_status");
+
+// WK-133 follow-up - DonationAlerts, missed by the original audit: a real
+// existing OAuth account integration (apps/api's
+// donation-alerts-integration-service.ts) already consumed by Companion's
+// own overlay renderer (topDonors -> Between Matches "Donaters" panel).
+// Status-only here, same as Twitch - management stays on the website
+// (existing OAuth flow, not reimplemented).
+export interface DonationAlertsIntegrationStatus {
+  connected: boolean;
+  configured: boolean;
+  displayName?: string;
+}
+export const getDonationAlertsIntegrationStatus = () =>
+  invoke<DonationAlertsIntegrationStatus>("get_donation_alerts_integration_status");
+
+export type HeroOpenDotaStats =
+  | {
+      status: "ok";
+      source: "opendota";
+      heroId: number;
+      games: number;
+      wins: number;
+      losses: number;
+      winRate: number | null;
+      fetchedAt: string;
+    }
+  | { status: "steam_not_connected" }
+  | { status: "no_data" }
+  | { status: "rate_limited" }
+  | { status: "unavailable" };
+export const getHeroOpenDotaStats = (heroId: number) =>
+  invoke<HeroOpenDotaStats>("get_hero_opendota_stats", { heroId });
 export const setCurrentMmr = (rating: number) =>
   invoke<LocalSessionSummary>("set_current_mmr", { rating });
 

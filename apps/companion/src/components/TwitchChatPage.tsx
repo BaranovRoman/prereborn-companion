@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { TwitchChatSession } from "../chat/useTwitchChatSession";
-import { openTwitchSettings, type TwitchChatMessage } from "../services/dotaCompanionApi";
+import { openStreamSettings, type TwitchChatMessage } from "../services/dotaCompanionApi";
 
 // WK-78 - polling, dedup, the TTS queue/playback and unread counting used to
 // live here and stopped the moment this page unmounted (e.g. switching to
@@ -60,7 +60,7 @@ export function TwitchChatPage({ session, onOpenChatSettings }: { session: Twitc
   const [reconnectError, setReconnectError] = useState<string | null>(null);
   const reconnectTwitch = async () => {
     setReconnectPending(true);
-    try { await openTwitchSettings(); }
+    try { await openStreamSettings(); }
     catch (cause) { setReconnectError(String(cause)); }
     finally { setReconnectPending(false); }
   };

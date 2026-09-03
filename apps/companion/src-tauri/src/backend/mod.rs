@@ -988,6 +988,163 @@ pub async fn get_twitch_chat(app: &AppHandle) -> Result<serde_json::Value, Strin
     Ok(merged)
 }
 
+// WK-133 - Settings → Интеграции (Steam/Twitch status + Steam unlink) and
+// Hero Detail's OpenDota panel. Same shape as `get_twitch_chat`/
+// `fetch_twitch_chat` above: a private blocking fn (bearer_auth'd reqwest
+// call against the same `/stream/integrations/*` REST contract apps/web
+// already uses) wrapped by a public `async` + `spawn_blocking` fn so a click
+// never freezes the window. Deliberately does NOT call `record_connectivity`
+// - these are on-demand, secondary calls a streamer triggers from Settings/
+// Hero Detail, not part of the core GSI-state heartbeat `AppState.backend_state`
+// represents; an OpenDota/Steam hiccup must never flip Companion's main
+// "PreReborn недоступен" banner (see this task's failure-isolation
+// requirement). Responses are passed through as `serde_json::Value` - same
+// convention `get_stream_session`/`get_account_overlay_data` already use -
+// the frontend types/parses the discriminated `status` contract itself.
+
+// Generic over `Runtime` (not just the concrete Wry handle every other
+// function in this file uses) so the WK-133 unit tests below can exercise it
+// against `tauri::test::MockRuntime` - same pattern local_runtime::handle_gsi
+// already established for this exact need (see commands.rs's WK-127 doc
+// comment on why command fns themselves can't do this).
+fn require_companion_token<R: Runtime>(app: &AppHandle<R>) -> Result<String, String> {
+    app.state::<AppState>()
+        .0
+        .lock()
+        .unwrap()
+        .companion_token
+        .clone()
+        .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())
+}
+
+fn fetch_steam_integration_status(token: &str) -> Result<serde_json::Value, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .get(format!("{DEFAULT_BACKEND_URL}/stream/integrations/steam"))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("Steam-статус недоступен: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json()
+        .map_err(|error| format!("Неверный ответ Steam-статуса: {error}"))
+}
+
+pub async fn get_steam_integration_status(app: &AppHandle) -> Result<serde_json::Value, String> {
+    let token = require_companion_token(app)?;
+    tauri::async_runtime::spawn_blocking(move || fetch_steam_integration_status(&token))
+        .await
+        .map_err(|error| format!("Internal error: {error}"))?
+}
+
+fn perform_disconnect_steam(token: &str) -> Result<(), String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .delete(format!("{DEFAULT_BACKEND_URL}/stream/integrations/steam"))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("Не удалось отвязать Steam: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    Ok(())
+}
+
+pub async fn disconnect_steam(app: &AppHandle) -> Result<(), String> {
+    let token = require_companion_token(app)?;
+    tauri::async_runtime::spawn_blocking(move || perform_disconnect_steam(&token))
+        .await
+        .map_err(|error| format!("Internal error: {error}"))?
+}
+
+fn fetch_twitch_integration_status(token: &str) -> Result<serde_json::Value, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .get(format!("{DEFAULT_BACKEND_URL}/stream/integrations/twitch"))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("Twitch-статус недоступен: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json()
+        .map_err(|error| format!("Неверный ответ Twitch-статуса: {error}"))
+}
+
+pub async fn get_twitch_integration_status(app: &AppHandle) -> Result<serde_json::Value, String> {
+    let token = require_companion_token(app)?;
+    tauri::async_runtime::spawn_blocking(move || fetch_twitch_integration_status(&token))
+        .await
+        .map_err(|error| format!("Internal error: {error}"))?
+}
+
+// WK-133 follow-up (visual review) - DonationAlerts was missed by the
+// original Settings → Интеграции audit: it's an existing OAuth account
+// integration (see apps/api's donation-alerts-integration-service.ts),
+// already consumed by Companion's own overlay renderer (topDonors feed the
+// Between Matches "Donaters" panel, see overlay-renderer/types.ts and
+// DesignPage.tsx's hint text). Same shape as get_twitch_integration_status -
+// status only, no new OAuth, existing `/stream/integrations/donation-alerts`
+// endpoint.
+fn fetch_donation_alerts_integration_status(token: &str) -> Result<serde_json::Value, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .get(format!("{DEFAULT_BACKEND_URL}/stream/integrations/donation-alerts"))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("DonationAlerts-статус недоступен: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json()
+        .map_err(|error| format!("Неверный ответ DonationAlerts-статуса: {error}"))
+}
+
+pub async fn get_donation_alerts_integration_status(app: &AppHandle) -> Result<serde_json::Value, String> {
+    let token = require_companion_token(app)?;
+    tauri::async_runtime::spawn_blocking(move || fetch_donation_alerts_integration_status(&token))
+        .await
+        .map_err(|error| format!("Internal error: {error}"))?
+}
+
+fn fetch_hero_opendota_stats(token: &str, hero_id: i64) -> Result<serde_json::Value, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .get(format!(
+            "{DEFAULT_BACKEND_URL}/stream/integrations/opendota/hero-stats/{hero_id}"
+        ))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("OpenDota недоступен: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json()
+        .map_err(|error| format!("Неверный ответ OpenDota: {error}"))
+}
+
+pub async fn get_hero_opendota_stats(app: &AppHandle, hero_id: i64) -> Result<serde_json::Value, String> {
+    let token = require_companion_token(app)?;
+    tauri::async_runtime::spawn_blocking(move || fetch_hero_opendota_stats(&token, hero_id))
+        .await
+        .map_err(|error| format!("Internal error: {error}"))?
+}
+
 const LOCAL_CHAT_HISTORY_LIMIT: usize = 50;
 
 fn merge_twitch_chat_status(
@@ -1250,6 +1407,26 @@ mod tests {
         // attempt is clamped to 5 internally, so 5 and 20 must land in the same capped bucket.
         assert!(retry_delay(5) >= Duration::from_secs(30) && retry_delay(5) < Duration::from_secs(31));
         assert!(retry_delay(20) >= Duration::from_secs(30) && retry_delay(20) < Duration::from_secs(31));
+    }
+
+    // WK-133 - Settings → Интеграции/Hero Detail's OpenDota calls all gate
+    // on `require_companion_token` before touching the network; this pins
+    // the "not logged in yet" error path independent of any real HTTP call.
+    #[test]
+    fn require_companion_token_errors_when_no_session_is_configured() {
+        let app = tauri::test::mock_app();
+        app.manage(AppState::new());
+        let handle = app.handle().clone();
+        assert!(require_companion_token(&handle).is_err());
+    }
+
+    #[test]
+    fn require_companion_token_returns_the_configured_token() {
+        let app = tauri::test::mock_app();
+        app.manage(AppState::new());
+        let handle = app.handle().clone();
+        handle.state::<AppState>().0.lock().unwrap().companion_token = Some("abc123".to_string());
+        assert_eq!(require_companion_token(&handle).unwrap(), "abc123");
     }
 
     #[test]

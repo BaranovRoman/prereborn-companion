@@ -6,6 +6,7 @@ import {
     steamCallbackController,
 } from "../../controllers/stream/steam.js";
 import { syncDotaController } from "../../controllers/stream/dota-sync.js";
+import { getOpenDotaHeroStatsController } from "../../controllers/stream/opendota.js";
 import { authenticateStreamUser } from "../../middleware/stream-auth.js";
 import { steamCallbackRateLimiter } from "../../middleware/rate-limit.js";
 import {
@@ -49,6 +50,15 @@ streamIntegrationsRouter.post(
     "/dota/sync",
     authenticateStreamUser,
     syncDotaController
+);
+
+// WK-133 - Hero Detail's OpenDota per-hero statistics (product contract, see
+// controllers/stream/opendota.ts) - reuses the same Steam identity link,
+// never a second "connect OpenDota" account.
+streamIntegrationsRouter.get(
+    "/opendota/hero-stats/:heroId",
+    authenticateStreamUser,
+    getOpenDotaHeroStatsController
 );
 
 streamIntegrationsRouter.get("/twitch", authenticateStreamUser, getTwitchStatusController);
