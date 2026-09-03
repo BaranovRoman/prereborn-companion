@@ -1477,20 +1477,37 @@ h1, h2, p { margin-top: 0; }
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   padding: 0 24px;
   text-align: center;
-  transform: translateY(28px);
+  transform: translateY(18px);
 }
+/* WK-141 visual-review polish - this was sized almost entirely off vw
+   (clamp(2.2rem, 8vw, 6rem)), so it read as "fill the available width"
+   rather than "a search-feedback headline": a 6rem (96px) ceiling wrapped
+   even a 3-letter query onto two lines, and made a single character look
+   like poster type dominating the roster. A query is feedback ON the
+   roster, not the page's primary content, so this is now a compact, mostly
+   viewport-*independent* display size (a small vw term only for a little
+   breathing room on very wide/narrow windows, not to drive the scale) -
+   the same size regardless of whether the query is 1 character or 5, per
+   this task's explicit requirement. At this size + the max-width below,
+   "TEC" fits on one line at desktop width and a 32-character query wraps
+   to at most two. */
 .hero-search-overlay__query {
   font-family: var(--font-title);
   font-weight: 600;
-  font-size: clamp(2.2rem, 8vw, 6rem);
-  line-height: 1.05;
-  letter-spacing: .05em;
+  font-size: clamp(2rem, 1.1rem + 2.2vw, 3.4rem);
+  line-height: 1.1;
+  letter-spacing: .04em;
   color: #f5efe6;
-  text-shadow: 0 8px 34px rgba(0, 0, 0, .85), 0 2px 8px rgba(0, 0, 0, .9);
-  max-width: min(84%, 900px);
+  text-shadow: 0 6px 22px rgba(0, 0, 0, .85), 0 2px 8px rgba(0, 0, 0, .9);
+  /* `vw`, not `%` - `__inner` (this element's containing block) is itself
+     shrink-to-fit width with no definite size, so a percentage here is a
+     circular reference that some engines resolve down to ~0, forcing even
+     a 3-letter query to break mid-word. `vw` resolves against the viewport
+     directly, sidestepping that entirely. */
+  max-width: min(90vw, 760px);
   overflow-wrap: break-word;
   word-break: break-word;
 }
@@ -1503,7 +1520,7 @@ h1, h2, p { margin-top: 0; }
   text-shadow: 0 2px 10px rgba(0, 0, 0, .85);
 }
 @media (max-height: 820px) {
-  .hero-search-overlay__query { font-size: clamp(1.8rem, 7vw, 3.6rem); }
+  .hero-search-overlay__query { font-size: clamp(1.6rem, 1rem + 1.8vw, 2.4rem); }
 }
 
 .hero-portrait-tile__favorite {
@@ -1575,6 +1592,16 @@ h1, h2, p { margin-top: 0; }
   justify-content: space-between;
   gap: 16px;
   width: 100%;
+  /* WK-140 visual-review polish - the RIGHT column previously sat flush
+     against the scene's true edge (space-between + no inset), which both
+     hugged the window edge and left a much bigger gap to the hero than the
+     LEFT column has to the hero on its side. This padding pulls it inward
+     by the same amount it gains as edge breathing room - one value doing
+     both jobs, since it's the same pool of space between the hero's edge
+     and the scene's edge. Reset near-zero at narrower breakpoints below,
+     where that pool is already small enough that any inset risks colliding
+     with the hero (verified against each breakpoint's own hero size). */
+  padding-right: clamp(20px, 4.5vw, 90px);
 }
 
 .hero-detail__left {
@@ -1641,11 +1668,14 @@ h1, h2, p { margin-top: 0; }
   .hero-detail__scene { min-height: min(66vh, 680px); }
   .hero-detail__visual-bg { width: min(70vh, 640px); height: min(70vh, 640px); }
   .hero-detail__left, .hero-detail__stats { max-width: 220px; }
+  /* the hero-edge-to-scene-edge gap is already narrow below 1200px - any
+     further inset here risks the stats column colliding with the hero. */
+  .hero-detail__grid { padding-right: 12px; }
 }
 
 @media (max-width: 900px) {
   .hero-detail__scene { min-height: min(56vh, 560px); }
-  .hero-detail__grid { flex-wrap: wrap; }
+  .hero-detail__grid { flex-wrap: wrap; padding-right: 0; }
   .hero-detail__left, .hero-detail__stats { max-width: 100%; }
   .hero-detail__stats { text-align: left; }
   .hero-detail__stats-row { justify-content: space-between; }
@@ -1666,8 +1696,13 @@ h1, h2, p { margin-top: 0; }
    1024px (comfortably wide enough once the hero shrinks) rather than
    stacking, per this task's "composition over rigid columns" guidance. */
 @media (max-height: 820px) {
-  .hero-detail__scene { min-height: min(58vh, 500px); }
-  .hero-detail__visual-bg { width: min(60vh, 460px); height: min(60vh, 460px); }
+  /* WK-140 visual-review polish - at 1024x720 the hero was noticeably
+     smaller than the ~564px of vertical room `.main` actually has here
+     (720 viewport - 84px header - 24px top padding - 48px bottom padding),
+     leaving a large unused gap below it. Sized to use most of that budget
+     with a safety margin, not just clear the header. */
+  .hero-detail__scene { min-height: min(74vh, 540px); }
+  .hero-detail__visual-bg { width: min(68vh, 500px); height: min(68vh, 500px); }
   .hero-detail__left, .hero-detail__stats { max-width: 200px; }
 }
 
