@@ -7,6 +7,20 @@ use crate::state::{GSI_CONFIG_FILE_NAME, GSI_PORT};
 /// gsi-manifest.json export (diagnostics/export.rs, via `data_sections()`)
 /// are built from this exact list, so it is not possible for the two to
 /// show a different set of requested sections.
+//
+// WK-138 - `couriers` added. Courier state is NOT part of the `items`
+// section at all (confirmed via the community GSI schema documentation,
+// not assumed) - it is this separate, additively-enabled section, which
+// Companion never requested before. Without it, an item sent to/carried by
+// courier vanishes from every section this app could see for the entire
+// duration the courier holds it - a real, previously-undiagnosed detector
+// blind spot behind false "item used" sounds on courier-mediated
+// transitions (see game_sounds::events's WK-138 doc comment). Enabling the
+// subscription is a safe, additive first step; game_sounds::events does
+// NOT parse this section yet - no real production capture with it enabled
+// exists yet to confirm its actual field shape, and guessing that shape is
+// exactly what this task's audit says not to do. See this task's final
+// report for the follow-up this unblocks.
 const GSI_DATA_SECTIONS: &[(&str, bool)] = &[
     ("provider", true),
     ("map", true),
@@ -19,6 +33,7 @@ const GSI_DATA_SECTIONS: &[(&str, bool)] = &[
     ("league", true),
     ("draft", true),
     ("wearables", true),
+    ("couriers", true),
 ];
 
 /// Exposed so diagnostics can report exactly what Companion asked Dota for,

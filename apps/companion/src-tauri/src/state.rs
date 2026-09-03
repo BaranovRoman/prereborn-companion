@@ -194,6 +194,13 @@ pub struct InnerState {
     // item/ability use.
     pub game_sounds_settings: crate::game_sounds::config::GameSoundSettings,
     pub game_sounds_previous_gsi: Option<serde_json::Value>,
+    // WK-138 - item-vanish candidates awaiting bounded multi-tick
+    // confirmation (see game_sounds::events::PendingConfirmations). In
+    // memory only, same lifecycle as `game_sounds_previous_gsi` immediately
+    // above: reset on every Companion restart and on every hero-identity
+    // change (see game_sounds::mod's handle_gsi), so a candidate can never
+    // resolve into a ghost event against a different match's inventory.
+    pub game_sounds_pending_item_confirmations: crate::game_sounds::events::PendingConfirmations,
     // WK-112 - see the field doc on StatusSnapshot::obs_streaming above.
     pub obs_streaming: Option<bool>,
     // WK-122 P0 diagnostics - see the field doc on

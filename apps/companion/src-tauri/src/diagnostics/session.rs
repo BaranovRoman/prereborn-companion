@@ -463,12 +463,20 @@ fn classify(tick_diff: &[DiffEntry], last_snapshot_at: Option<DateTime<Local>>, 
     // game_sounds::events::detect_item_events), and a tester needs the raw
     // GSI transition captured promptly enough to actually correlate with a
     // detected event.
+    //
+    // WK-138 - couriers.* added for the same reason, now that
+    // gsi/config.rs's GSI_DATA_SECTIONS actually subscribes to it: the next
+    // real reproduction of a courier-mediated item transition needs this
+    // section's actual shape captured promptly (it is not parsed by the
+    // detector yet - see game_sounds::events's WK-138 doc comment - and its
+    // real field layout is currently unconfirmed).
     let significant_changed = tick_diff.iter().any(|e| {
         e.kind == ChangeKind::ValueChanged
             && (SIGNIFICANT_PATHS.iter().any(|p| e.path == format!("$.{p}"))
                 || e.path.starts_with("$.draft")
                 || e.path.starts_with("$.abilities")
-                || e.path.starts_with("$.items"))
+                || e.path.starts_with("$.items")
+                || e.path.starts_with("$.couriers"))
     });
     if significant_changed {
         return Some(Reason::SignificantValueChanged);
