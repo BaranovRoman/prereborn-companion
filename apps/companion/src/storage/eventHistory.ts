@@ -5,8 +5,9 @@ const MAX_ENTRIES = 50;
 
 /**
  * Keeps a small client-side ring buffer of recent GSI events in localStorage
- * so the "history" panel survives a window reload — the durable source of
- * truth is still the per-request JSON files Rust writes to disk.
+ * so the "history" panel survives a window reload. GSI requests themselves
+ * are never written to disk per-request (see storage::parse_payload on the
+ * Rust side) — this ring buffer is the only durable record of recent events.
  */
 export function loadEventHistory(): LastEvent[] {
   try {
