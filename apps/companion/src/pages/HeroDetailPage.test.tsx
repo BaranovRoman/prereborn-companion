@@ -7,14 +7,18 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // available under jsdom; mocked the same way DesignPage.test.tsx mocks this
 // module. Defaults to a clean "no local history" shape so tests that don't
 // care about the stats panel don't need their own override.
+// WK-133 - HeroOpenDotaPanel similarly fetches via getHeroOpenDotaStats;
+// defaults to "steam_not_connected" (the common no-setup state) so tests
+// that don't care about the OpenDota panel don't need their own override.
 vi.mock("../services/dotaCompanionApi", () => ({
   getHeroLocalStats: vi.fn().mockResolvedValue({
     matches: 0, wins: 0, losses: 0, avgKills: null, avgDeaths: null, avgAssists: null, recentResults: [],
   }),
+  getHeroOpenDotaStats: vi.fn().mockResolvedValue({ status: "steam_not_connected" }),
 }));
 
 // eslint-disable-next-line import/order
-import { getHeroLocalStats } from "../services/dotaCompanionApi";
+import { getHeroLocalStats, getHeroOpenDotaStats } from "../services/dotaCompanionApi";
 // eslint-disable-next-line import/order
 import { HeroDetailPage } from "./HeroDetailPage";
 // eslint-disable-next-line import/order
@@ -23,6 +27,7 @@ import type { GameSoundSettings, TrackedHero } from "../services/dotaCompanionAp
 import type { useFavoriteHeroes } from "../hooks/useFavoriteHeroes";
 
 const mockedGetHeroLocalStats = vi.mocked(getHeroLocalStats);
+const mockedGetHeroOpenDotaStats = vi.mocked(getHeroOpenDotaStats);
 
 function buildFavorites(overrides: Partial<ReturnType<typeof useFavoriteHeroes>> = {}): ReturnType<typeof useFavoriteHeroes> {
   return {
@@ -67,6 +72,7 @@ function renderPage(overrides: Partial<Parameters<typeof HeroDetailPage>[0]> = {
       onPreview={vi.fn()}
       onRemove={vi.fn()}
       stopPreview={vi.fn()}
+      onOpenIntegrations={vi.fn()}
       {...overrides}
     />
   );
@@ -315,6 +321,79 @@ describe("HeroDetailPage", () => {
       });
       renderPage({ heroId: 105 });
       expect(await screen.findByText("Локальная история Companion")).toBeTruthy();
+    });
+  });
+
+  // WK-133 - RIGHT zone addendum: OpenDota's external per-hero statistics,
+  // separate from the local-history block above (never merged - see the
+  // caption assertions here vs. "Локальная история Companion" above).
+  describe("OpenDota statistics", () => {
+    it("prompts to link Steam via Настройки → Интеграции when Steam isn't connected", async () => {
+      const onOpenIntegrations = vi.fn();
+      renderPage({ heroId: 105, onOpenIntegrations });
+      expect(await screen.findByText("Настройки → Интеграции")).toBeTruthy();
+      fireEvent.click(screen.getByText("Настройки → Интеграции"));
+      expect(onOpenIntegrations).toHaveBeenCalledTimes(1);
+    });
+
+    it("renders games/wins/losses/winrate as a source clearly separate from local history", async () => {
+      mockedGetHeroOpenDotaStats.mockResolvedValueOnce({
+        status: "ok", source: "opendota", heroId: 105, games: 40, wins: 25, losses: 15, winRate: 62.5, fetchedAt: new Date().toISOString(),
+      });
+      renderPage({ heroId: 105 });
+      expect(await screen.findByText("Внешние данные OpenDota, привязанный Steam-аккаунт")).toBeTruthy();
+      expect(screen.getByText("40")).toBeTruthy();
+      expect(screen.getByText("25")).toBeTruthy();
+      expect(screen.getByText("15")).toBeTruthy();
+      expect(screen.getByText("62.5%")).toBeTruthy();
+    });
+
+    it("shows an explicit empty state when OpenDota has no data for this hero", async () => {
+      mockedGetHeroOpenDotaStats.mockResolvedValueOnce({ status: "no_data" });
+      renderPage({ heroId: 105 });
+      expect(await screen.findByText("Нет данных OpenDota по этому герою.")).toBeTruthy();
+    });
+
+    it("shows a restrained unavailable state on provider failure, without affecting local stats", async () => {
+      mockedGetHeroLocalStats.mockResolvedValueOnce({
+        matches: 5, wins: 3, losses: 2, avgKills: null, avgDeaths: null, avgAssists: null, recentResults: [],
+      });
+      mockedGetHeroOpenDotaStats.mockResolvedValueOnce({ status: "unavailable" });
+      renderPage({ heroId: 105 });
+      expect(await screen.findByText("OpenDota сейчас недоступна.")).toBeTruthy();
+      expect(screen.getByText("5")).toBeTruthy(); // local matches count, unaffected
+    });
+
+    it("shows a rate-limited state distinctly from a generic unavailable state", async () => {
+      mockedGetHeroOpenDotaStats.mockResolvedValueOnce({ status: "rate_limited" });
+      renderPage({ heroId: 105 });
+      expect(await screen.findByText("OpenDota временно ограничивает запросы.")).toBeTruthy();
+    });
+
+    it("switching heroes refetches OpenDota stats for the new hero", async () => {
+      mockedGetHeroOpenDotaStats.mockResolvedValueOnce({
+        status: "ok", source: "opendota", heroId: 105, games: 1, wins: 1, losses: 0, winRate: 100, fetchedAt: new Date().toISOString(),
+      });
+      const { rerender } = renderPage({ heroId: 105 });
+      await screen.findByText("Внешние данные OpenDota, привязанный Steam-аккаунт");
+      expect(mockedGetHeroOpenDotaStats).toHaveBeenCalledWith(105);
+
+      mockedGetHeroOpenDotaStats.mockResolvedValueOnce({ status: "no_data" });
+      rerender(
+        <HeroDetailPage
+          heroId={14}
+          favorites={buildFavorites()}
+          trackedHero={PUDGE_TRACKED}
+          settings={SETTINGS}
+          onBack={vi.fn()}
+          onChooseFile={vi.fn()}
+          onPreview={vi.fn()}
+          onRemove={vi.fn()}
+          stopPreview={vi.fn()}
+          onOpenIntegrations={vi.fn()}
+        />
+      );
+      expect(mockedGetHeroOpenDotaStats).toHaveBeenCalledWith(14);
     });
   });
 });

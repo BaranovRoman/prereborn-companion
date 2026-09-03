@@ -278,6 +278,7 @@ export function AppShell() {
               onPreview={(assetId) => gameSoundEngine.preview(assetId, gameSoundEngine.settings?.masterVolume ?? 100)}
               onRemove={gameSoundEngine.removeBinding}
               stopPreview={gameSoundEngine.stopPreview}
+              onOpenIntegrations={() => openSettings("integrations")}
             />
           ) : (
             <HeroesPage

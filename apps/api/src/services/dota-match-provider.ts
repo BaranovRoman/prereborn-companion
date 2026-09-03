@@ -38,9 +38,30 @@ export type DotaPlayerProfileResult =
     | { status: "ok"; profile: DotaPlayerProfile }
     | { status: "not_found" | "rate_limited" | "unavailable" };
 
+// WK-133 - один герой из ответа GET /players/{id}/heroes. games/win - это
+// именно то, что реально нужно продукту (см. отчёт по задаче, п.12): losses
+// вычисляется как games - win (в Dota у матча нет других исходов), сырые
+// with_games/with_win/against_* сознательно не прокидываются дальше -
+// продуктовый контракт не должен разрастаться сверх того, что реально
+// используется (см. секцию 21 задачи).
+export interface DotaPlayerHeroStats {
+    heroId: number;
+    games: number;
+    wins: number;
+}
+
+export type DotaPlayerHeroesResult =
+    | { status: "ok"; heroes: DotaPlayerHeroStats[] }
+    | { status: "not_found" | "rate_limited" | "unavailable" };
+
 export interface DotaMatchProvider {
     getRecentMatches(accountId: number): Promise<DotaMatchProviderResult>;
     getPlayerProfile(accountId: number): Promise<DotaPlayerProfileResult>;
+    // Один запрос отдаёт статистику по ВСЕМ героям сразу - вызывающий код
+    // (кэш + контроллер) должен запрашивать это один раз и выбирать нужного
+    // героя на своей стороне, а не дёргать OpenDota на каждый клик по герою
+    // в Hero Detail (см. задачи секция 20 "cache/request behavior").
+    getPlayerHeroes(accountId: number): Promise<DotaPlayerHeroesResult>;
 }
 
 const OPENDOTA_BASE_URL = "https://api.opendota.com/api";
@@ -85,6 +106,39 @@ const parseOpenDotaProfile = (value: unknown): DotaPlayerProfile | null => {
         profileUrl: typeof data.profileurl === "string" ? data.profileurl : null,
     };
 };
+
+// Ответ OpenDota на GET /players/{id}/heroes - поле hero_id наблюдалось и
+// как число, и как строку в разных клиентах этого эндпоинта, поэтому
+// принимаем оба варианта, а не падаем на строгой проверке типа.
+interface OpenDotaPlayerHero {
+    hero_id: number;
+    games: number;
+    win: number;
+}
+
+const toFiniteNumber = (value: unknown): number | null => {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) {
+        return Number(value);
+    }
+    return null;
+};
+
+const isOpenDotaPlayerHero = (value: unknown): value is OpenDotaPlayerHero => {
+    if (typeof value !== "object" || value === null) return false;
+    const record = value as Record<string, unknown>;
+    return (
+        toFiniteNumber(record.hero_id) !== null &&
+        toFiniteNumber(record.games) !== null &&
+        toFiniteNumber(record.win) !== null
+    );
+};
+
+const parseOpenDotaPlayerHero = (value: OpenDotaPlayerHero): DotaPlayerHeroStats => ({
+    heroId: toFiniteNumber(value.hero_id) as number,
+    games: toFiniteNumber(value.games) as number,
+    wins: toFiniteNumber(value.win) as number,
+});
 
 // player_slot < 128 - игрок на стороне Radiant (0-127), иначе Dire (128-255).
 // Победа игрока = его сторона совпала с radiant_win. Задокументированное
@@ -159,6 +213,38 @@ export const openDotaMatchProvider: DotaMatchProvider = {
             return profile
                 ? { status: "ok", profile }
                 : { status: "not_found" };
+        } catch {
+            return { status: "unavailable" };
+        } finally {
+            clearTimeout(timeout);
+        }
+    },
+    async getPlayerHeroes(accountId: number): Promise<DotaPlayerHeroesResult> {
+        const url = new URL(`${OPENDOTA_BASE_URL}/players/${accountId}/heroes`);
+        if (env.openDotaApiKey) {
+            url.searchParams.set("api_key", env.openDotaApiKey);
+        }
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+        try {
+            const response = await fetch(url, { signal: controller.signal });
+            if (response.status === 404) return { status: "not_found" };
+            if (response.status === 429) return { status: "rate_limited" };
+            if (!response.ok) return { status: "unavailable" };
+
+            const raw = await response.text();
+            if (raw.length > MAX_RESPONSE_BYTES) return { status: "unavailable" };
+
+            let data: unknown;
+            try {
+                data = JSON.parse(raw);
+            } catch {
+                return { status: "unavailable" };
+            }
+            if (!Array.isArray(data)) return { status: "unavailable" };
+
+            const heroes = data.filter(isOpenDotaPlayerHero).map(parseOpenDotaPlayerHero);
+            return { status: "ok", heroes };
         } catch {
             return { status: "unavailable" };
         } finally {

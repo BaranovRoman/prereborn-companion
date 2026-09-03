@@ -222,11 +222,42 @@ pub fn open_dota_folder(app: AppHandle, state: State<AppState>) -> Result<(), St
         .map_err(|e| e.to_string())
 }
 
+// WK-133 rename - was `open_twitch_settings`: this just opens the web
+// dashboard's `/stream` settings page, which is where BOTH Twitch and Steam
+// account linking already live (see steam-integration-panel.tsx /
+// integrations-card.tsx in apps/web) - not Twitch-specific in what it does,
+// only in its original call site (TwitchChatPage.tsx's "reconnect" action).
+// Settings → Интеграции's Steam "Привязать" button reuses this same command
+// rather than a second near-identical one.
 #[tauri::command]
-pub fn open_twitch_settings(app: AppHandle) -> Result<(), String> {
+pub fn open_stream_settings(app: AppHandle) -> Result<(), String> {
     app.opener()
         .open_url(format!("{DEFAULT_WEB_ORIGIN}/stream"), None::<String>)
         .map_err(|e| e.to_string())
+}
+
+// WK-133 - Settings → Интеграции: Steam status/unlink + Twitch status
+// (existing web-mediated OAuth, no new auth here), and Hero Detail's
+// OpenDota per-hero panel. See backend/mod.rs's doc comment on this group of
+// functions for why they don't touch `record_connectivity`/`backend_state`.
+#[tauri::command]
+pub async fn get_steam_integration_status(app: AppHandle) -> Result<serde_json::Value, String> {
+    backend::get_steam_integration_status(&app).await
+}
+
+#[tauri::command]
+pub async fn disconnect_steam(app: AppHandle) -> Result<(), String> {
+    backend::disconnect_steam(&app).await
+}
+
+#[tauri::command]
+pub async fn get_twitch_integration_status(app: AppHandle) -> Result<serde_json::Value, String> {
+    backend::get_twitch_integration_status(&app).await
+}
+
+#[tauri::command]
+pub async fn get_hero_opendota_stats(app: AppHandle, hero_id: i64) -> Result<serde_json::Value, String> {
+    backend::get_hero_opendota_stats(&app, hero_id).await
 }
 
 // `async` so this never blocks the main IPC/UI thread (see the WK-78 note
@@ -957,9 +988,23 @@ mod ipc_contract_tests {
         Ok(input_name)
     }
 
+    // WK-133 - same class of bug the WK-127 test above guards against,
+    // applied to `get_hero_opendota_stats(hero_id: i64)` (frontend sends
+    // `invoke("get_hero_opendota_stats", { heroId })` - see
+    // dotaCompanionApi.ts). A local stand-in for the same reason: the real
+    // command needs a concrete `AppHandle`/`spawn_blocking` network call,
+    // which can't run against `MockRuntime`.
+    #[tauri::command]
+    fn repro_get_hero_opendota_stats(hero_id: i64) -> Result<i64, String> {
+        Ok(hero_id)
+    }
+
     fn build_app() -> tauri::App<tauri::test::MockRuntime> {
         tauri::test::mock_builder()
-            .invoke_handler(tauri::generate_handler![repro_migrate_obs_browser_source])
+            .invoke_handler(tauri::generate_handler![
+                repro_migrate_obs_browser_source,
+                repro_get_hero_opendota_stats
+            ])
             .build(mock_context(noop_assets()))
             .expect("failed to build mock app")
     }
@@ -1014,5 +1059,27 @@ mod ipc_contract_tests {
         let Err(value) = response else { panic!("a snake_case key must not satisfy the camelCase-expecting command") };
         let message = value.as_str().unwrap_or_default();
         assert!(message.contains("missing required key"), "got: {message}");
+    }
+
+    // WK-133 - pins `invoke("get_hero_opendota_stats", { heroId })`'s
+    // payload against the real Tauri IPC dispatch, the same way the
+    // migrate_obs_browser_source pair above pins its own argument name.
+    #[test]
+    fn get_hero_opendota_stats_accepts_the_exact_payload_shape_the_frontend_sends() {
+        let app = build_app();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+
+        let response = get_ipc_response(
+            &webview,
+            request("repro_get_hero_opendota_stats", serde_json::json!({ "heroId": 42 })),
+        );
+
+        assert_eq!(
+            response.unwrap().deserialize::<i64>().unwrap(),
+            42,
+            "the frontend's heroId payload must bind to the Rust hero_id parameter"
+        );
     }
 }

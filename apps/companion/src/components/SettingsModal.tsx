@@ -3,6 +3,7 @@ import { AccountForm } from "./AccountForm";
 import { AutostartSetting } from "./AutostartSetting";
 import { DraftStreamReminderSetting } from "./DraftStreamReminderSetting";
 import { HotkeySettings } from "./HotkeySettings";
+import { IntegrationsPanel } from "./IntegrationsPanel";
 import { ObsScenePanel } from "./ObsScenePanel";
 import { AudioSettings } from "./settings/AudioSettings";
 import { ChatTtsSettings } from "./settings/ChatTtsSettings";
@@ -17,12 +18,17 @@ import type { StatusSnapshot } from "../types/status";
 // autostart stay (app-behavior configuration), "Чат и TTS" is new (moved
 // out of the Chat screen's sidebar - see ChatTtsSettings.tsx's doc
 // comment). Chat itself keeps only runtime concerns.
-export type Category = "account" | "obs" | "chat" | "hotkeys" | "autostart";
+// WK-133 - "Интеграции" added: the account-level external integrations
+// audit (Steam/Twitch - see IntegrationsPanel.tsx's doc comment) found no
+// existing Companion UI for. Deliberately NOT "obs" - OBS stays a separate
+// category, it's local runtime config, not an account integration.
+export type Category = "account" | "obs" | "chat" | "integrations" | "hotkeys" | "autostart";
 
 const CATEGORIES: { key: Category; label: string }[] = [
   { key: "account", label: "Аккаунт" },
   { key: "obs", label: "OBS" },
   { key: "chat", label: "Чат и TTS" },
+  { key: "integrations", label: "Интеграции" },
   { key: "hotkeys", label: "Горячие клавиши" },
   { key: "autostart", label: "Запуск" },
 ];
@@ -135,6 +141,7 @@ export function SettingsModal({
                 <ChatTtsSettings session={chatSession} />
               </>
             )}
+            {category === "integrations" && <IntegrationsPanel />}
             {category === "hotkeys" && (
               <HotkeySettings
                 status={hotkeyStatus}

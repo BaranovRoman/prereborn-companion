@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { SoundBindingRow } from "../components/sounds/SoundBindingRow";
-import { Badge } from "../components/ui";
+import { Badge, Button } from "../components/ui";
 import type { useFavoriteHeroes } from "../hooks/useFavoriteHeroes";
 import { useHeroLocalStats } from "../hooks/useHeroLocalStats";
-import type { GameSoundEventKind, GameSoundSettings, TrackedAbility, TrackedHero } from "../services/dotaCompanionApi";
+import { useHeroOpenDotaStats } from "../hooks/useHeroOpenDotaStats";
+import type { GameSoundEventKind, GameSoundSettings, HeroOpenDotaStats, TrackedAbility, TrackedHero } from "../services/dotaCompanionApi";
 import { getHeroById } from "../services/heroCatalog";
 import type { HeroLocalStats, LocalMatchResultValue } from "../types/status";
 
@@ -17,6 +18,10 @@ interface Props {
   onPreview: (assetId: string) => Promise<void>;
   onRemove: (eventId: string) => Promise<void>;
   stopPreview: () => void;
+  /** Opens Settings directly on "Интеграции" - used by the OpenDota panel's
+   *  "Steam не привязан" state (see this task's Settings↔Hero Detail
+   *  coherence requirement). */
+  onOpenIntegrations: () => void;
 }
 
 const ATTRIBUTE_LABEL: Record<string, string> = {
@@ -180,11 +185,77 @@ function HeroStatsPanel({ stats }: { stats: HeroLocalStats | null }) {
   );
 }
 
-export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBack, onChooseFile, onPreview, onRemove, stopPreview }: Props) {
+// WK-133 - RIGHT zone addendum: OpenDota's external per-hero statistics,
+// clearly separated from HeroStatsPanel's local history (see this task's
+// "never merge local + external" requirement) - a distinct component below
+// HeroStatsPanel rather than a merged row/total, same DTO-only boundary
+// HeroStatsPanel itself already established. Enrichment only: every branch
+// here renders something small and restrained, never a full-page error -
+// HeroStatsPanel above it always renders normally regardless of this
+// component's state.
+function HeroOpenDotaPanel({ stats, onOpenIntegrations }: { stats: HeroOpenDotaStats | null; onOpenIntegrations: () => void }) {
+  if (!stats) {
+    return (
+      <div className="hero-detail__stats hero-detail__stats--opendota">
+        <h3 className="hero-detail__stats-title">OpenDota</h3>
+        <p className="matches-panel__empty">Загрузка…</p>
+      </div>
+    );
+  }
+
+  if (stats.status === "steam_not_connected") {
+    return (
+      <div className="hero-detail__stats hero-detail__stats--opendota">
+        <h3 className="hero-detail__stats-title">OpenDota</h3>
+        <p className="hero-detail__stats-empty">Привяжите Steam, чтобы видеть статистику OpenDota.</p>
+        <Button variant="ghost" onClick={onOpenIntegrations}>Настройки → Интеграции</Button>
+      </div>
+    );
+  }
+
+  if (stats.status === "no_data") {
+    return (
+      <div className="hero-detail__stats hero-detail__stats--opendota">
+        <h3 className="hero-detail__stats-title">OpenDota</h3>
+        <p className="hero-detail__stats-empty">Нет данных OpenDota по этому герою.</p>
+      </div>
+    );
+  }
+
+  if (stats.status === "rate_limited" || stats.status === "unavailable") {
+    return (
+      <div className="hero-detail__stats hero-detail__stats--opendota">
+        <h3 className="hero-detail__stats-title">OpenDota</h3>
+        <p className="hero-detail__stats-empty">
+          {stats.status === "rate_limited" ? "OpenDota временно ограничивает запросы." : "OpenDota сейчас недоступна."}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="hero-detail__stats hero-detail__stats--opendota">
+      <h3 className="hero-detail__stats-title">OpenDota</h3>
+      <dl className="hero-detail__stats-list">
+        <div className="hero-detail__stats-row"><dt>Матчи</dt><dd>{stats.games}</dd></div>
+        <div className="hero-detail__stats-row"><dt>Победы</dt><dd>{stats.wins}</dd></div>
+        <div className="hero-detail__stats-row"><dt>Поражения</dt><dd>{stats.losses}</dd></div>
+        <div className="hero-detail__stats-row">
+          <dt>Винрейт</dt>
+          <dd>{stats.winRate === null ? "—" : `${stats.winRate.toFixed(1)}%`}</dd>
+        </div>
+      </dl>
+      <p className="hero-detail__stats-caption">Внешние данные OpenDota, привязанный Steam-аккаунт</p>
+    </div>
+  );
+}
+
+export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBack, onChooseFile, onPreview, onRemove, stopPreview, onOpenIntegrations }: Props) {
   const [selectedAbilityId, setSelectedAbilityId] = useState<string | null>(null);
   const [videoFailed, setVideoFailed] = useState(false);
   const [visualUnavailable, setVisualUnavailable] = useState(false);
   const heroStats = useHeroLocalStats(heroId);
+  const openDotaStats = useHeroOpenDotaStats(heroId);
 
   // WK-132 - a preview started here must not keep playing after the user
   // navigates away, whether via the back button or by switching to another
@@ -318,6 +389,7 @@ export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBac
               the task's data-boundary requirement. */}
           <div className="hero-detail__right">
             <HeroStatsPanel stats={heroStats} />
+            <HeroOpenDotaPanel stats={openDotaStats} onOpenIntegrations={onOpenIntegrations} />
           </div>
         </div>
       </div>
