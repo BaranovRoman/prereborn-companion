@@ -70,6 +70,15 @@ pub struct DiagnosticsStatusSnapshot {
     pub size_limit_bytes: u64,
     pub size_limit_reached: bool,
     pub tts_trace_count: u64,
+    // WK-48 - "Экспортировать диагностику (ZIP)" always bundles the rolling
+    // app.log and a redacted runtime-health report, independent of whether a
+    // diagnostics session is active (see `export` below) - these three
+    // fields let the UI show that composition to the user before they ever
+    // click export, not just the session-specific stats above. Populated
+    // unconditionally by `status()`, unlike the session-only fields.
+    pub companion_version: String,
+    pub os: String,
+    pub app_log_size_bytes: u64,
 }
 
 fn snapshot_of(session: &DiagnosticSession) -> DiagnosticsStatusSnapshot {
@@ -87,6 +96,9 @@ fn snapshot_of(session: &DiagnosticSession) -> DiagnosticsStatusSnapshot {
         size_limit_bytes: session::SIZE_LIMIT_BYTES,
         size_limit_reached: session.size_limit_reached,
         tts_trace_count: session.tts_trace_count,
+        companion_version: String::new(),
+        os: String::new(),
+        app_log_size_bytes: 0,
     }
 }
 
@@ -94,16 +106,25 @@ fn diagnostics_root(app: &AppHandle) -> PathBuf {
     storage::logs_root(app).join("diagnostics")
 }
 
-pub fn status(app: &AppHandle) -> DiagnosticsStatusSnapshot {
+// WK-48 - generic over `R: Runtime` (WK-116's pattern, see storage::logs_root's
+// doc comment) so status_tests below can drive this against a
+// `tauri::test::mock_app()` `AppHandle<MockRuntime>` directly, the same way
+// export's own preview data (companion_version/os/app_log_size_bytes) is
+// computed without a real diagnostics session ever having existed.
+pub fn status<R: tauri::Runtime>(app: &AppHandle<R>) -> DiagnosticsStatusSnapshot {
     let state = app.state::<DiagnosticsState>();
     let inner = state.0.lock().unwrap();
-    match &inner.session {
+    let mut snapshot = match &inner.session {
         Some(session) => snapshot_of(session),
         None => DiagnosticsStatusSnapshot {
             size_limit_bytes: session::SIZE_LIMIT_BYTES,
             ..Default::default()
         },
-    }
+    };
+    snapshot.companion_version = COMPANION_VERSION.to_string();
+    snapshot.os = std::env::consts::OS.to_string();
+    snapshot.app_log_size_bytes = storage::rolling_log_size_bytes(app);
+    snapshot
 }
 
 /// Called once at startup (lib.rs::run().setup()). If the previous
@@ -340,6 +361,36 @@ pub fn export(app: &AppHandle, output_path: PathBuf) -> Result<String, String> {
         ),
     );
     Ok(output_path.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod status_tests {
+    use super::*;
+    use tauri::Manager;
+
+    fn mock_handle() -> AppHandle<tauri::test::MockRuntime> {
+        let app = tauri::test::mock_app();
+        app.manage(DiagnosticsState::new());
+        app.handle().clone()
+    }
+
+    // WK-48 - the export preview shown in the UI before the user ever
+    // clicks "Экспортировать диагностику (ZIP)" is built entirely from
+    // these three fields, so they must be populated even when no
+    // diagnostics session has ever been started - not just once one exists
+    // (that part was already covered by the session-specific fields above).
+    #[test]
+    fn status_always_reports_version_os_and_log_size_even_with_no_session() {
+        let app = mock_handle();
+        let snapshot = status(&app);
+
+        assert!(!snapshot.has_session);
+        assert_eq!(snapshot.companion_version, COMPANION_VERSION);
+        assert_eq!(snapshot.os, std::env::consts::OS);
+        // mock_app's app_data_dir has no app.log on disk, so this must read
+        // as 0 rather than erroring or panicking.
+        assert_eq!(snapshot.app_log_size_bytes, 0);
+    }
 }
 
 const WATCHDOG_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(15);

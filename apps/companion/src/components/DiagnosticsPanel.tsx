@@ -54,6 +54,28 @@ export function DiagnosticsPanel({ status, refresh }: Props) {
         </li>
       </ul>
 
+      {status && (
+        <div className="diagnostics-panel__export-preview">
+          <h3>Что войдёт в экспорт</h3>
+          <dl className="diagnostics-panel__stats">
+            <dt>Версия Companion</dt>
+            <dd>{status.companion_version || "—"}</dd>
+            <dt>ОС</dt>
+            <dd>{status.os || "—"}</dd>
+            <dt>Общий лог приложения</dt>
+            <dd>{formatBytes(status.app_log_size_bytes)}</dd>
+            <dt>Отчёт о состоянии рантайма</dt>
+            <dd>включён</dd>
+            <dt>Данные диагностической сессии</dt>
+            <dd>{hasSession ? "включены (см. ниже)" : "нет активной или сохранённой сессии — не включены"}</dd>
+          </dl>
+          <p className="diagnostics-panel__hint">
+            Токены, пароли и другие секреты не включаются ни в один из этих источников — они маскируются перед
+            записью на диск.
+          </p>
+        </div>
+      )}
+
       {status && hasSession && (
         <dl className="diagnostics-panel__stats">
           <dt>Сессия</dt>

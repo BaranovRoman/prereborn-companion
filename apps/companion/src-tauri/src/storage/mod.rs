@@ -388,6 +388,20 @@ pub fn read_rolling_log<R: Runtime>(app: &AppHandle<R>) -> Vec<u8> {
     fs::read(rolling_log_path(app)).unwrap_or_default()
 }
 
+// WK-48 - lets the diagnostics export preview show the log's size without
+// reading its full (up to ROLLING_LOG_MAX_BYTES) contents into memory just
+// to report a byte count. Split into an `AppHandle`-resolving wrapper plus a
+// `_at(path)` core (WK-122's pattern - see its doc comment above) so the
+// test module can drive it against a tempfile path instead of the real,
+// unsandboxed `app_data_dir` a mocked `AppHandle` would resolve to.
+pub fn rolling_log_size_bytes<R: Runtime>(app: &AppHandle<R>) -> u64 {
+    rolling_log_size_bytes_at(&rolling_log_path(app))
+}
+
+fn rolling_log_size_bytes_at(path: &Path) -> u64 {
+    fs::metadata(path).map(|m| m.len()).unwrap_or(0)
+}
+
 pub fn append_rolling_log<R: Runtime>(app: &AppHandle<R>, line: &str) {
     let path = rolling_log_path(app);
     rotate_if_needed(&path);
@@ -674,6 +688,20 @@ mod tests {
             len <= ROLLING_LOG_MAX_BYTES + chunk.len() as u64,
             "app.log grew past its cap across repeated rotations: {len} bytes"
         );
+    }
+
+    #[test]
+    fn rolling_log_size_bytes_at_reflects_the_real_file_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.log");
+        fs::write(&path, b"hello").unwrap();
+        assert_eq!(rolling_log_size_bytes_at(&path), 5);
+    }
+
+    #[test]
+    fn rolling_log_size_bytes_at_is_zero_for_a_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(rolling_log_size_bytes_at(&dir.path().join("app.log")), 0);
     }
 
     #[test]

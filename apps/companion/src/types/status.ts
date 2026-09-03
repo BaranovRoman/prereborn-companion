@@ -18,6 +18,9 @@ export interface DiagnosticsStatusSnapshot {
   size_limit_bytes: number;
   size_limit_reached: boolean;
   tts_trace_count: number;
+  companion_version: string;
+  os: string;
+  app_log_size_bytes: number;
 }
 
 export type ConnectionState = "waiting" | "connected" | "recovering" | "unavailable";
