@@ -15,7 +15,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use crate::state::AppState;
 use crate::storage;
 use catalog::AbilityStatus;
-use events::{detect_events, hero_identity_changed, GameSoundEvent, GameSoundEventKind};
+use events::{detect_events_with_state, hero_identity_changed, GameSoundEvent, GameSoundEventKind, PendingReason};
 
 /// Wall-clock milliseconds since the Unix epoch - deliberately the OS clock,
 /// not a monotonic `Instant`, so a Rust-side timestamp embedded in an IPC
@@ -128,7 +128,7 @@ pub fn handle_gsi(app: &AppHandle, payload: &Value) {
     // happens before this point, inside Dota/the OS network stack) can't be
     // measured from here at all - see the WK-108 latency report.
     let gsi_received_at = now_ms();
-    let (detected, previous_for_evidence, enabled, master_volume, bindings, known_assets) = {
+    let (detected, pending_notes, previous_for_evidence, enabled, master_volume, bindings, known_assets) = {
         let state = app.state::<AppState>();
         let mut inner = state.0.lock().unwrap();
 
@@ -137,17 +137,47 @@ pub fn handle_gsi(app: &AppHandle, payload: &Value) {
         // makes the stale previous snapshot meaningless to diff - treated
         // exactly like Companion's own startup (no previous snapshot at
         // all) rather than let it produce a ghost event. See
-        // events::hero_identity_changed's doc comment.
+        // events::hero_identity_changed's doc comment. WK-138 addendum: the
+        // same reset also clears any item-vanish candidates still pending
+        // confirmation (see events::PendingConfirmations) - a candidate
+        // registered against the OLD match's inventory must never resolve
+        // (either way) against the new one.
         let effective_previous = match &previous {
             Some(prev) if !hero_identity_changed(prev, payload) => Some(prev),
-            _ => None,
+            _ => {
+                inner.game_sounds_pending_item_confirmations = events::PendingConfirmations::default();
+                None
+            }
         };
-        let detected = detect_events(effective_previous, payload);
+        let (detected, pending_notes) = detect_events_with_state(
+            effective_previous,
+            payload,
+            gsi_received_at,
+            &mut inner.game_sounds_pending_item_confirmations,
+        );
         inner.game_sounds_previous_gsi = Some(payload.clone());
 
         let settings = inner.game_sounds_settings.clone();
-        (detected, previous, settings.enabled, settings.master_volume, settings.bindings, settings.assets)
+        (detected, pending_notes, previous, settings.enabled, settings.master_volume, settings.bindings, settings.assets)
     };
+
+    // WK-138 - bounded, structural (never raw-payload) diagnostics for the
+    // multi-tick item-vanish confirmation window, so the next reported false
+    // positive/negative can be diagnosed post-hoc without a new capture
+    // mechanism: reuses the same size-capped rolling log every other
+    // breadcrumb in this function already goes through (see задача п.10 -
+    // "не возвращаться к выгрузке неограниченных raw GSI файлов").
+    for note in &pending_notes {
+        let reason = match note.reason {
+            PendingReason::VanishAwaitingConfirmation => "vanish-awaiting-confirmation",
+            PendingReason::ReappearedCancelled => "reappeared-cancelled",
+            PendingReason::ConfirmedAfterWindow => "confirmed-after-window",
+        };
+        storage::append_rolling_log(
+            app,
+            &format!("[game-sounds][pending] t={gsi_received_at} {reason} {}", note.item_name),
+        );
+    }
 
     if detected.is_empty() {
         return;
