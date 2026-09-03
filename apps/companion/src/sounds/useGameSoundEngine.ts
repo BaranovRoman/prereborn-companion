@@ -17,7 +17,10 @@ import type {
 // beyond that) - a new player because TTS's queue/generation/cancellation
 // machinery is coupled to streamed synthesis, not static files (see the
 // WK-106 research report, section C).
-export function useGameSoundEngine() {
+// WK-135 - `overallVolume` is the new Audio Settings "Общий" multiplier
+// (see useOverallVolume.ts). Defaults to 100 (no attenuation) so existing
+// callers/tests that don't pass it keep today's exact behavior.
+export function useGameSoundEngine(overallVolume: number = 100) {
   const [catalog, setCatalog] = useState<GameSoundCatalog | null>(null);
   const [settings, setSettings] = useState<GameSoundSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +35,8 @@ export function useGameSoundEngine() {
   // behind an in-flight setMaster(false) call, not the primary gate.
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const overallRef = useRef(overallVolume);
+  overallRef.current = overallVolume;
 
   useEffect(() => {
     let active = true;
@@ -53,7 +58,7 @@ export function useGameSoundEngine() {
     playPayload(next, () => {
       playing.current = false;
       playNext();
-    }, currentAudio);
+    }, currentAudio, overallRef.current);
   }, []);
 
   useEffect(() => {
@@ -72,7 +77,7 @@ export function useGameSoundEngine() {
       playPayload(item, () => {
         playing.current = false;
         playNext();
-      }, currentAudio);
+      }, currentAudio, overallRef.current);
     });
     return () => { void unlistenPromise.then((unlisten) => unlisten()); };
   }, [playNext]);
@@ -129,7 +134,7 @@ export function useGameSoundEngine() {
     const { base64, mime } = await api.previewGameSound(assetId);
     const url = base64ToObjectUrl(base64, mime);
     const audio = new Audio(url);
-    audio.volume = volume / 100;
+    audio.volume = (volume / 100) * (overallRef.current / 100);
     previewAudio.current = audio;
     const cleanup = () => {
       URL.revokeObjectURL(url);
@@ -152,10 +157,11 @@ function playPayload(
   item: GameSoundPlayback,
   done: () => void,
   currentAudio: MutableRefObject<HTMLAudioElement | null>,
+  overallVolume: number,
 ) {
   const url = base64ToObjectUrl(item.base64, item.mime);
   const audio = new Audio(url);
-  audio.volume = item.volume / 100;
+  audio.volume = (item.volume / 100) * (overallVolume / 100);
   currentAudio.current = audio;
   const cleanup = () => {
     URL.revokeObjectURL(url);

@@ -1,3 +1,4 @@
+use crate::broadcast_state::BroadcastState;
 use crate::obs::{BroadcastScene, ObsConfig};
 use serde::Serialize;
 use std::sync::Mutex;
@@ -198,6 +199,17 @@ pub struct InnerState {
     // WK-122 P0 diagnostics - see the field doc on
     // StatusSnapshot::obs_streaming_confirmed_at above.
     pub obs_streaming_confirmed_at: Option<String>,
+    // WK-136 - "Стрим не запущен" Draft reminder (see draft_reminder.rs).
+    // `draft_reminder_last_state` is the raw GSI-derived BroadcastState as of
+    // the previous tick (not `broadcast_state::resolve()`'s session-ended/
+    // manual-override-adjusted value - "entered Draft" is a game-state fact,
+    // independent of stream/session bookkeeping), diffed against the current
+    // tick to detect a fresh non-Draft -> Draft transition. `draft_reminder_fired`
+    // latches once the reminder has fired for the current Draft, and is
+    // cleared the moment we leave Draft (any other state), so the very next
+    // real Draft can fire again - see draft_reminder.rs's should_fire.
+    pub draft_reminder_last_state: Option<BroadcastState>,
+    pub draft_reminder_fired: bool,
     // WK-114 - "Итоги стрима" manual scene pin (see obs.rs's
     // `resolve_desired_scene`): while true, every automatic scene resolution
     // (GSI ticks, remote commands, config reapply) resolves to Post Stream

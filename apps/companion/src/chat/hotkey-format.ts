@@ -13,6 +13,12 @@
 // click) or OBS (user-configurable, rarely defaults to a modified F-key).
 export const DEFAULT_SKIP_SHORTCUT = "CommandOrControl+Alt+F10";
 
+// WK-135 - mirrors DEFAULT_OVERLAY_TOGGLE_SHORTCUT in src-tauri/src/hotkeys.rs
+// (the "show/hide overlay" hotkey, primary control for WK-124's overlay
+// visibility switch). Adjacent F-key to Skip TTS's F10, still unmodified-Alt
+// so it reads as part of the same family of Companion hotkeys.
+export const DEFAULT_OVERLAY_TOGGLE_SHORTCUT = "CommandOrControl+Alt+F11";
+
 const MODIFIER_CODES = new Set([
   "ControlLeft", "ControlRight", "AltLeft", "AltRight", "ShiftLeft", "ShiftRight", "MetaLeft", "MetaRight",
 ]);

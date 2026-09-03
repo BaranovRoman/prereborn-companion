@@ -52,11 +52,46 @@ pub struct SkipHotkeyStatus {
     pub last_error: Option<String>,
 }
 
+// WK-135 - "show/hide overlay" hotkey, the primary control for WK-124's
+// overlay visibility switch (see commands.rs's toggle_overlay_visible_now).
+// Second, fully independent slot: its own config type/JSON file/register
+// pair, exactly per this file's opening comment ("a future action... can get
+// its own small config field + register/unregister pair the same way this
+// one does") - not folded into SkipHotkeyConfig/hotkeys-config.json, so an
+// existing Skip-TTS install's persisted file is never touched/reshaped by
+// this addition.
+const DEFAULT_OVERLAY_TOGGLE_SHORTCUT: &str = "CommandOrControl+Alt+F11";
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct OverlayToggleHotkeyConfig {
+    pub enabled: bool,
+    pub shortcut: String,
+}
+
+impl Default for OverlayToggleHotkeyConfig {
+    fn default() -> Self {
+        Self { enabled: true, shortcut: DEFAULT_OVERLAY_TOGGLE_SHORTCUT.to_string() }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverlayToggleHotkeyStatus {
+    pub enabled: bool,
+    pub shortcut: String,
+    pub registered: bool,
+    pub last_error: Option<String>,
+}
+
 #[derive(Default)]
 pub struct HotkeysInner {
     config: SkipHotkeyConfig,
     registered_shortcut: Option<String>,
     last_error: Option<String>,
+    overlay_config: OverlayToggleHotkeyConfig,
+    overlay_registered_shortcut: Option<String>,
+    overlay_last_error: Option<String>,
 }
 
 pub struct HotkeysState(pub Mutex<HotkeysInner>);
@@ -86,11 +121,33 @@ fn save_config(app: &AppHandle, config: &SkipHotkeyConfig) -> std::io::Result<()
     fs::write(path, serde_json::to_string_pretty(config)?)
 }
 
+fn overlay_config_path(app: &AppHandle) -> PathBuf {
+    app.path().app_data_dir().expect("app_data_dir must resolve").join("overlay-hotkey-config.json")
+}
+
+fn load_overlay_config(app: &AppHandle) -> OverlayToggleHotkeyConfig {
+    fs::read_to_string(overlay_config_path(app))
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn save_overlay_config(app: &AppHandle, config: &OverlayToggleHotkeyConfig) -> std::io::Result<()> {
+    let path = overlay_config_path(app);
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    fs::write(path, serde_json::to_string_pretty(config)?)
+}
+
 /// A disabled hotkey, or one with an empty combo, is never registered with
 /// the OS - pure predicate so "disabled hotkeys stay unregistered" is
-/// unit-testable without touching a real GlobalHotKeyManager.
-fn should_register(config: &SkipHotkeyConfig) -> bool {
-    config.enabled && !config.shortcut.trim().is_empty()
+/// unit-testable without touching a real GlobalHotKeyManager. Takes plain
+/// `(enabled, shortcut)` rather than `&SkipHotkeyConfig` so the overlay-
+/// toggle hotkey below (WK-135, its own distinct config type but the exact
+/// same shape) can share this one predicate instead of a duplicate.
+fn should_register(enabled: bool, shortcut: &str) -> bool {
+    enabled && !shortcut.trim().is_empty()
 }
 
 /// Rejects an empty combo before any OS call is attempted - separated out
@@ -120,6 +177,22 @@ fn resolve_after_attempt(
     }
 }
 
+/// Same rollback contract as `resolve_after_attempt` above, typed for the
+/// overlay-toggle config - kept as its own small pure function (rather than
+/// generalizing `resolve_after_attempt`) so both are independently
+/// unit-testable without a live GlobalHotKeyManager, matching this file's
+/// existing testing approach.
+fn resolve_overlay_after_attempt(
+    previous: &OverlayToggleHotkeyConfig,
+    attempted: OverlayToggleHotkeyConfig,
+    attempt_result: Result<(), String>,
+) -> (OverlayToggleHotkeyConfig, Option<String>) {
+    match attempt_result {
+        Ok(()) => (attempted, None),
+        Err(error) => (previous.clone(), Some(error)),
+    }
+}
+
 fn emit_skip(app: &AppHandle) {
     let _ = app.emit(SKIP_TTS_EVENT, ());
 }
@@ -142,6 +215,22 @@ fn unregister_shortcut(app: &AppHandle, shortcut: &str) {
     let _ = app.global_shortcut().unregister(shortcut);
 }
 
+/// Registers `shortcut` to flip overlay visibility on key-down only (same
+/// key-down-only reasoning as `register_shortcut` above). Calls
+/// `toggle_overlay_visible_now` directly rather than emitting an event -
+/// unlike Skip TTS, this action has no audio-safety/queue state that needs
+/// to be handled on the frontend, so there's nothing for a listener to do
+/// that the backend mutation doesn't already fully cover.
+fn register_overlay_shortcut(app: &AppHandle, shortcut: &str) -> Result<(), String> {
+    app.global_shortcut()
+        .on_shortcut(shortcut, |app, _shortcut, event| {
+            if event.state == ShortcutState::Pressed {
+                crate::commands::toggle_overlay_visible_now(app);
+            }
+        })
+        .map_err(|e| format!("Не удалось зарегистрировать комбинацию «{shortcut}»: {e}"))
+}
+
 /// Loads the persisted config and, if it's enabled, tries to register it -
 /// a startup failure (e.g. the combo is now taken by another app) is
 /// reported via `last_error`/`status()` but never fatal to app startup.
@@ -149,7 +238,7 @@ pub fn init(app: &AppHandle) {
     let config = load_config(app);
     let mut last_error = None;
     let mut registered_shortcut = None;
-    if should_register(&config) {
+    if should_register(config.enabled, &config.shortcut) {
         match register_shortcut(app, &config.shortcut) {
             Ok(()) => registered_shortcut = Some(config.shortcut.clone()),
             Err(error) => {
@@ -161,11 +250,30 @@ pub fn init(app: &AppHandle) {
             }
         }
     }
+    let overlay_config = load_overlay_config(app);
+    let mut overlay_last_error = None;
+    let mut overlay_registered_shortcut = None;
+    if should_register(overlay_config.enabled, &overlay_config.shortcut) {
+        match register_overlay_shortcut(app, &overlay_config.shortcut) {
+            Ok(()) => overlay_registered_shortcut = Some(overlay_config.shortcut.clone()),
+            Err(error) => {
+                storage::append_rolling_log(
+                    app,
+                    &format!("Overlay-toggle hotkey failed to register at startup: {error}"),
+                );
+                overlay_last_error = Some(error);
+            }
+        }
+    }
+
     let state = app.state::<HotkeysState>();
     let mut inner = state.0.lock().unwrap();
     inner.config = config;
     inner.registered_shortcut = registered_shortcut;
     inner.last_error = last_error;
+    inner.overlay_config = overlay_config;
+    inner.overlay_registered_shortcut = overlay_registered_shortcut;
+    inner.overlay_last_error = overlay_last_error;
 }
 
 pub fn status(app: &AppHandle) -> SkipHotkeyStatus {
@@ -176,6 +284,17 @@ pub fn status(app: &AppHandle) -> SkipHotkeyStatus {
         shortcut: inner.config.shortcut.clone(),
         registered: inner.registered_shortcut.is_some(),
         last_error: inner.last_error.clone(),
+    }
+}
+
+pub fn overlay_status(app: &AppHandle) -> OverlayToggleHotkeyStatus {
+    let state = app.state::<HotkeysState>();
+    let inner = state.0.lock().unwrap();
+    OverlayToggleHotkeyStatus {
+        enabled: inner.overlay_config.enabled,
+        shortcut: inner.overlay_config.shortcut.clone(),
+        registered: inner.overlay_registered_shortcut.is_some(),
+        last_error: inner.overlay_last_error.clone(),
     }
 }
 
@@ -200,7 +319,7 @@ pub fn set_skip_hotkey(app: &AppHandle, enabled: bool, shortcut: String) -> Resu
 
     let attempted = SkipHotkeyConfig { enabled, shortcut: shortcut.clone() };
     let attempt_result =
-        if should_register(&attempted) { register_shortcut(app, &shortcut) } else { Ok(()) };
+        if should_register(attempted.enabled, &attempted.shortcut) { register_shortcut(app, &shortcut) } else { Ok(()) };
 
     let (resolved_config, error) =
         resolve_after_attempt(&previous_config, attempted, attempt_result);
@@ -220,11 +339,11 @@ pub fn set_skip_hotkey(app: &AppHandle, enabled: bool, shortcut: String) -> Resu
     } else if let Err(e) = save_config(app, &resolved_config) {
         let mut inner = state.0.lock().unwrap();
         inner.config = resolved_config;
-        inner.registered_shortcut = if should_register(&inner.config) { Some(inner.config.shortcut.clone()) } else { None };
+        inner.registered_shortcut = if should_register(inner.config.enabled, &inner.config.shortcut) { Some(inner.config.shortcut.clone()) } else { None };
         inner.last_error = Some(format!("Настройка применена, но не сохранена на диск: {e}"));
         drop(inner);
         return Ok(status(app));
-    } else if should_register(&resolved_config) {
+    } else if should_register(resolved_config.enabled, &resolved_config.shortcut) {
         Some(resolved_config.shortcut.clone())
     } else {
         None
@@ -249,12 +368,84 @@ pub fn set_skip_hotkey(app: &AppHandle, enabled: bool, shortcut: String) -> Resu
     Ok(status(app))
 }
 
-/// Unregisters the live shortcut without touching persisted config - used on
-/// app exit alongside tts::stop/silero::stop.
+/// Applies a new overlay-toggle hotkey configuration - mirrors
+/// `set_skip_hotkey` exactly (unregister old -> attempt register new ->
+/// roll back to the previous working shortcut on failure -> persist only on
+/// success), just against the overlay slot's own fields/file.
+pub fn set_overlay_toggle_hotkey(app: &AppHandle, enabled: bool, shortcut: String) -> Result<OverlayToggleHotkeyStatus, String> {
+    let shortcut = shortcut.trim().to_string();
+    validate(enabled, &shortcut)?;
+
+    let state = app.state::<HotkeysState>();
+    let (previous_registered, previous_config) = {
+        let inner = state.0.lock().unwrap();
+        (inner.overlay_registered_shortcut.clone(), inner.overlay_config.clone())
+    };
+
+    if let Some(previous) = &previous_registered {
+        unregister_shortcut(app, previous);
+    }
+
+    let attempted = OverlayToggleHotkeyConfig { enabled, shortcut: shortcut.clone() };
+    let attempt_result = if should_register(attempted.enabled, &attempted.shortcut) {
+        register_overlay_shortcut(app, &shortcut)
+    } else {
+        Ok(())
+    };
+
+    let (resolved_config, error) =
+        resolve_overlay_after_attempt(&previous_config, attempted, attempt_result);
+
+    let registered_shortcut = if error.is_some() {
+        if let Some(previous) = &previous_registered {
+            let _ = register_overlay_shortcut(app, previous);
+        }
+        previous_registered
+    } else if let Err(e) = save_overlay_config(app, &resolved_config) {
+        let mut inner = state.0.lock().unwrap();
+        inner.overlay_config = resolved_config;
+        inner.overlay_registered_shortcut = if should_register(inner.overlay_config.enabled, &inner.overlay_config.shortcut) {
+            Some(inner.overlay_config.shortcut.clone())
+        } else {
+            None
+        };
+        inner.overlay_last_error = Some(format!("Настройка применена, но не сохранена на диск: {e}"));
+        drop(inner);
+        return Ok(overlay_status(app));
+    } else if should_register(resolved_config.enabled, &resolved_config.shortcut) {
+        Some(resolved_config.shortcut.clone())
+    } else {
+        None
+    };
+
+    let mut inner = state.0.lock().unwrap();
+    inner.overlay_config = resolved_config.clone();
+    inner.overlay_registered_shortcut = registered_shortcut;
+    inner.overlay_last_error = error.clone();
+    drop(inner);
+
+    if let Some(error) = error {
+        return Err(error);
+    }
+    storage::append_rolling_log(
+        app,
+        &format!(
+            "Overlay-toggle hotkey {}.",
+            if resolved_config.enabled { format!("set to {}", resolved_config.shortcut) } else { "disabled".to_string() }
+        ),
+    );
+    Ok(overlay_status(app))
+}
+
+/// Unregisters the live shortcut(s) without touching persisted config - used
+/// on app exit alongside tts::stop/silero::stop.
 pub fn stop(app: &AppHandle) {
     let state = app.state::<HotkeysState>();
     let mut inner = state.0.lock().unwrap();
     if let Some(shortcut) = inner.registered_shortcut.take() {
+        unregister_shortcut(app, &shortcut);
+    }
+    if let Some(shortcut) = inner.overlay_registered_shortcut.take() {
         unregister_shortcut(app, &shortcut);
     }
 }
@@ -349,19 +540,19 @@ mod tests {
     #[test]
     fn disabled_hotkey_is_never_registered_even_with_a_shortcut_set() {
         let config = SkipHotkeyConfig { enabled: false, shortcut: DEFAULT_SKIP_SHORTCUT.to_string() };
-        assert!(!should_register(&config));
+        assert!(!should_register(config.enabled, &config.shortcut));
     }
 
     #[test]
     fn enabled_hotkey_with_a_shortcut_should_register() {
         let config = SkipHotkeyConfig { enabled: true, shortcut: DEFAULT_SKIP_SHORTCUT.to_string() };
-        assert!(should_register(&config));
+        assert!(should_register(config.enabled, &config.shortcut));
     }
 
     #[test]
     fn enabled_hotkey_with_an_empty_or_blank_shortcut_should_not_register() {
-        assert!(!should_register(&SkipHotkeyConfig { enabled: true, shortcut: String::new() }));
-        assert!(!should_register(&SkipHotkeyConfig { enabled: true, shortcut: "   ".to_string() }));
+        assert!(!should_register(true, ""));
+        assert!(!should_register(true, "   "));
     }
 
     #[test]
@@ -411,7 +602,7 @@ mod tests {
         // false) - disabling always succeeds regardless of OS state.
         let previous = SkipHotkeyConfig::default();
         let attempted = SkipHotkeyConfig { enabled: false, shortcut: previous.shortcut.clone() };
-        assert!(!should_register(&attempted));
+        assert!(!should_register(attempted.enabled, &attempted.shortcut));
         let (resolved, error) = resolve_after_attempt(&previous, attempted.clone(), Ok(()));
         assert_eq!(resolved, attempted);
         assert!(error.is_none());
@@ -422,4 +613,73 @@ mod tests {
     // reasoning tts.rs/silero.rs use for their #[ignore]'d real-subprocess
     // tests. Manual QA (see the feature report) covers register/unregister
     // against the real OS; everything decidable without one is covered above.
+
+    // WK-135 - overlay-toggle hotkey. Mirrors the Skip-TTS coverage above
+    // exactly, against the independent OverlayToggleHotkeyConfig slot.
+
+    #[test]
+    fn overlay_default_config_is_enabled_with_a_non_empty_shortcut() {
+        let config = OverlayToggleHotkeyConfig::default();
+        assert!(config.enabled);
+        assert!(!config.shortcut.trim().is_empty());
+    }
+
+    #[test]
+    fn overlay_default_config_round_trips_through_json() {
+        let config: OverlayToggleHotkeyConfig = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(config, OverlayToggleHotkeyConfig::default());
+    }
+
+    #[test]
+    fn overlay_default_shortcut_string_parses_as_a_valid_shortcut() {
+        use std::str::FromStr;
+        tauri_plugin_global_shortcut::Shortcut::from_str(DEFAULT_OVERLAY_TOGGLE_SHORTCUT)
+            .expect("DEFAULT_OVERLAY_TOGGLE_SHORTCUT must always be a parseable shortcut");
+    }
+
+    #[test]
+    fn overlay_default_shortcut_does_not_collide_with_skip_tts_default() {
+        assert_ne!(DEFAULT_OVERLAY_TOGGLE_SHORTCUT, DEFAULT_SKIP_SHORTCUT);
+    }
+
+    #[test]
+    fn overlay_disabled_hotkey_is_never_registered_even_with_a_shortcut_set() {
+        let config = OverlayToggleHotkeyConfig { enabled: false, shortcut: DEFAULT_OVERLAY_TOGGLE_SHORTCUT.to_string() };
+        assert!(!should_register(config.enabled, &config.shortcut));
+    }
+
+    #[test]
+    fn overlay_enabled_hotkey_with_a_shortcut_should_register() {
+        let config = OverlayToggleHotkeyConfig { enabled: true, shortcut: DEFAULT_OVERLAY_TOGGLE_SHORTCUT.to_string() };
+        assert!(should_register(config.enabled, &config.shortcut));
+    }
+
+    #[test]
+    fn overlay_a_failed_attempt_rolls_back_to_the_previous_config_and_surfaces_the_error() {
+        let previous = OverlayToggleHotkeyConfig { enabled: true, shortcut: "Ctrl+Alt+F9".to_string() };
+        let attempted = OverlayToggleHotkeyConfig { enabled: true, shortcut: "Ctrl+Alt+F11".to_string() };
+        let (resolved, error) =
+            resolve_overlay_after_attempt(&previous, attempted, Err("already taken".to_string()));
+        assert_eq!(resolved, previous);
+        assert_eq!(error.as_deref(), Some("already taken"));
+    }
+
+    #[test]
+    fn overlay_a_successful_attempt_adopts_the_new_config_with_no_error() {
+        let previous = OverlayToggleHotkeyConfig { enabled: true, shortcut: "Ctrl+Alt+F9".to_string() };
+        let attempted = OverlayToggleHotkeyConfig { enabled: true, shortcut: "Ctrl+Alt+F11".to_string() };
+        let (resolved, error) = resolve_overlay_after_attempt(&previous, attempted.clone(), Ok(()));
+        assert_eq!(resolved, attempted);
+        assert!(error.is_none());
+    }
+
+    #[test]
+    fn overlay_disabling_never_needs_a_successful_os_attempt_to_be_treated_as_ok() {
+        let previous = OverlayToggleHotkeyConfig::default();
+        let attempted = OverlayToggleHotkeyConfig { enabled: false, shortcut: previous.shortcut.clone() };
+        assert!(!should_register(attempted.enabled, &attempted.shortcut));
+        let (resolved, error) = resolve_overlay_after_attempt(&previous, attempted.clone(), Ok(()));
+        assert_eq!(resolved, attempted);
+        assert!(error.is_none());
+    }
 }

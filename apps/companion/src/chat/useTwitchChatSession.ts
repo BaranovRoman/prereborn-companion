@@ -74,7 +74,10 @@ export interface TwitchChatSession {
   updateSkipHotkey: (enabled: boolean, shortcut: string) => Promise<void>;
 }
 
-export function useTwitchChatSession(): TwitchChatSession {
+// WK-135 - `overallVolume` is the new Audio Settings "Общий" multiplier
+// (see useOverallVolume.ts). Defaults to 100 (no attenuation) so existing
+// callers/tests that don't pass it keep today's exact behavior.
+export function useTwitchChatSession(overallVolume: number = 100): TwitchChatSession {
   const [status, setStatus] = useState<TwitchChatStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState(loadSettings);
@@ -93,6 +96,13 @@ export function useTwitchChatSession(): TwitchChatSession {
   const speaking = useRef(false);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const overallRef = useRef(overallVolume);
+  overallRef.current = overallVolume;
+  // WK-135 - single source of truth for "overall × TTS" at every playback
+  // site below, so the multiplication logic exists exactly once even though
+  // it's applied in four different places (system-voice utterance, Silero
+  // audio, the live-volume-adjustment effect, and skip-triggered replays).
+  const effectiveSpeechVolume = () => (settingsRef.current.speechVolume / 100) * (overallRef.current / 100);
   // Nobody is looking at the Chat tab until it mounts and says otherwise
   // (see TwitchChatPage's setViewerAtBottom calls) - so messages that
   // arrive before the tab is ever opened count toward unread, not silently
@@ -147,7 +157,7 @@ export function useTwitchChatSession(): TwitchChatSession {
     if (trace.detail.engine === undefined) trace.detail.engine = "system";
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = "ru-RU";
-    utterance.volume = settingsRef.current.speechVolume / 100;
+    utterance.volume = effectiveSpeechVolume();
     trace.stages.audioReadyAt = performance.now();
     utterance.onstart = () => { trace.stages.actualPlaybackStartedAt = performance.now(); };
     utterance.onend = done;
@@ -178,7 +188,7 @@ export function useTwitchChatSession(): TwitchChatSession {
       const url = URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
       trace.stages.audioReadyAt = performance.now();
       const audio = new Audio(url);
-      audio.volume = settingsRef.current.speechVolume / 100;
+      audio.volume = effectiveSpeechVolume();
       currentAudio.current = audio;
       const cleanup = () => {
         URL.revokeObjectURL(url);
@@ -300,8 +310,8 @@ export function useTwitchChatSession(): TwitchChatSession {
   // system-voice fallback and any in-flight synthesis still only pick up
   // the new value on their next speakWithSystem/speakWithSilero call.
   useEffect(() => {
-    if (currentAudio.current) currentAudio.current.volume = settings.speechVolume / 100;
-  }, [settings.speechVolume]);
+    if (currentAudio.current) currentAudio.current.volume = effectiveSpeechVolume();
+  }, [settings.speechVolume, overallVolume]);
 
   const sileroActive = settings.ttsEnabled && settings.ttsEngine === "silero";
   useEffect(() => {
@@ -419,7 +429,7 @@ export function useTwitchChatSession(): TwitchChatSession {
         const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
         const url = URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
         const audio = new Audio(url);
-        audio.volume = settingsRef.current.speechVolume / 100;
+        audio.volume = effectiveSpeechVolume();
         currentAudio.current = audio;
         const cleanup = () => {
           URL.revokeObjectURL(url);

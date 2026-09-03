@@ -9,10 +9,13 @@ import { UpdateBanner } from "./UpdateBanner";
 import { useTwitchChatSession } from "../chat/useTwitchChatSession";
 import { useAutostart } from "../hooks/useAutostart";
 import { useDiagnostics } from "../hooks/useDiagnostics";
+import { useDraftStreamReminder } from "../hooks/useDraftStreamReminder";
 import { useFavoriteHeroes } from "../hooks/useFavoriteHeroes";
 import { useGsiEvents } from "../hooks/useGsiEvents";
 import { useLocalLifecycle } from "../hooks/useLocalLifecycle";
 import { useLocalSessionSummary } from "../hooks/useLocalSessionSummary";
+import { useOverallVolume } from "../hooks/useOverallVolume";
+import { useOverlayToggleHotkey } from "../hooks/useOverlayToggleHotkey";
 import { useRuntimeHealth } from "../hooks/useRuntimeHealth";
 import { useStatus } from "../hooks/useStatus";
 import { useSyncOutboxStatus } from "../hooks/useSyncOutboxStatus";
@@ -37,7 +40,7 @@ const MAIN_NAV_ITEMS: { key: Section; label: string }[] = [
   { key: "heroes", label: "Герои" },
   { key: "design", label: "Оформление" },
   { key: "chat", label: "Чат" },
-  { key: "sounds", label: "Звуки" },
+  { key: "sounds", label: "Предметы" },
 ];
 
 // WK-114 - Old Dota Companion shell: a heavy top header (brand + gear +
@@ -56,14 +59,17 @@ export function AppShell() {
   const diagnostics = useDiagnostics();
   const updater = useUpdater();
   const autostart = useAutostart();
-  const chatSession = useTwitchChatSession();
-  const gameSoundEngine = useGameSoundEngine();
+  const { overallVolume, setOverallVolume } = useOverallVolume();
+  const chatSession = useTwitchChatSession(overallVolume);
+  const gameSoundEngine = useGameSoundEngine(overallVolume);
+  const draftStreamReminder = useDraftStreamReminder(chatSession.settings.sileroVoice);
   const sessionPrompt = useStreamSessionPrompt();
   const localLifecycle = useLocalLifecycle();
   const { summary: sessionSummary, refresh: refreshSessionSummary } = useLocalSessionSummary();
   const { status: syncStatus, refresh: syncRefresh } = useSyncOutboxStatus();
   const runtimeHealth = useRuntimeHealth();
   const favoriteHeroes = useFavoriteHeroes();
+  const overlayHotkey = useOverlayToggleHotkey();
   const [section, setSection] = useState<Section>("home");
   const [selectedHeroId, setSelectedHeroId] = useState<number | null>(null);
   // WK-124 - clicking "Герои" while already inside Hero Detail must not be a
@@ -193,6 +199,21 @@ export function AppShell() {
           >
             Диагностика
           </button>
+          {/* WK-135 - overlay-visibility feedback that works no matter which
+              page is open or whether the toggle came from the (now removed)
+              Home button, Settings, or the global hotkey: this header renders
+              on every section, and `status` already refreshes every 3s (see
+              useStatus.ts), so no dedicated event/toast is needed - reuses
+              the existing small muted header-badge idiom right next to it
+              (.app-header__version) rather than introducing a new one.
+              Deliberately neutral, not a warning pill (see the removed
+              overlay-visibility-actions block's WK-124 comment: OFF is an
+              intentional streamer action, not an error state). */}
+          {status && !status.overlay_visible && (
+            <span className="app-header__overlay-badge" title="PreReborn Overlay скрыт в OBS Browser Source. GSI, сессия, MMR, OBS продолжают работать как обычно.">
+              Оверлей скрыт
+            </span>
+          )}
           {status?.companion_version && <span className="app-header__version">v{status.companion_version}</span>}
         </div>
       </header>
@@ -298,7 +319,15 @@ export function AppShell() {
         hotkeyStatus={chatSession.skipHotkeyStatus}
         hotkeyBusy={chatSession.skipHotkeyBusy}
         onUpdateHotkey={chatSession.updateSkipHotkey}
+        overlayHotkeyStatus={overlayHotkey.status}
+        overlayHotkeyBusy={overlayHotkey.busy}
+        onUpdateOverlayHotkey={overlayHotkey.updateOverlayHotkey}
+        overallVolume={overallVolume}
+        onOverallVolumeChange={setOverallVolume}
+        draftStreamReminderEnabled={draftStreamReminder.enabled}
+        onDraftStreamReminderChange={draftStreamReminder.setEnabled}
         chatSession={chatSession}
+        gameSoundEngine={gameSoundEngine}
         initialCategory={settingsCategory}
       />
     </div>

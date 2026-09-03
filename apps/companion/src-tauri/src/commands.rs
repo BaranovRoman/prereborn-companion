@@ -13,7 +13,7 @@ use crate::game_sounds::{
     GameSoundCatalog, GameSoundPreviewPayload,
 };
 use crate::gsi::{config, finder};
-use crate::hotkeys::{self, SkipHotkeyStatus};
+use crate::hotkeys::{self, OverlayToggleHotkeyStatus, SkipHotkeyStatus};
 use crate::local_runtime::lifecycle::{self, LifecycleStatus};
 use crate::obs::{self, BroadcastScene, ObsConfig};
 use crate::silero::{self, SileroStatus, SileroVoice};
@@ -650,19 +650,22 @@ pub fn resume_live_scene(state: State<AppState>) -> StatusSnapshot {
 // renderer's own final visibility gate (see overlay-renderer/OverlayApp.tsx)
 // reads this field, via the same OverlayStateSnapshot the SSE stream already
 // diffs and pushes on every change (overlay_server.rs's `current`).
-// Toggle-only (no explicit on/off argument) so a future single-keypress
-// hotkey (see this ticket's "не реализовывать сейчас" hotkey UI note) can
-// call this exact command without first reading current state itself - the
-// Home page button and the future hotkey are both just callers of this one
-// semantic action.
-#[tauri::command]
-pub fn toggle_overlay_visible(app: AppHandle, state: State<AppState>) -> StatusSnapshot {
+// Toggle-only (no explicit on/off argument) so a caller never needs to first
+// read current state itself.
+//
+// WK-135 - the mutation itself is extracted into `toggle_overlay_visible_now`
+// so hotkeys.rs's global-shortcut callback (which only has an `&AppHandle`,
+// not a Tauri command's `State<AppState>` context) can call the exact same
+// logic the Settings hotkey and this command both end up invoking, without
+// duplicating it.
+pub(crate) fn toggle_overlay_visible_now(app: &AppHandle) -> StatusSnapshot {
+    let state = app.state::<AppState>();
     let mut inner = state.0.lock().unwrap();
     inner.overlay_visible = !inner.overlay_visible;
     let now_visible = inner.overlay_visible;
     drop(inner);
     storage::append_rolling_log(
-        &app,
+        app,
         if now_visible {
             "Overlay visibility: OFF -> ON."
         } else {
@@ -670,6 +673,11 @@ pub fn toggle_overlay_visible(app: AppHandle, state: State<AppState>) -> StatusS
         },
     );
     state.snapshot()
+}
+
+#[tauri::command]
+pub fn toggle_overlay_visible(app: AppHandle) -> StatusSnapshot {
+    toggle_overlay_visible_now(&app)
 }
 
 // Diagnostic-mode GSI capture - see src-tauri/src/diagnostics/mod.rs. Off by
@@ -771,6 +779,22 @@ pub fn get_skip_hotkey_status(app: AppHandle) -> SkipHotkeyStatus {
 #[tauri::command]
 pub fn set_skip_hotkey(app: AppHandle, enabled: bool, shortcut: String) -> Result<SkipHotkeyStatus, String> {
     hotkeys::set_skip_hotkey(&app, enabled, shortcut)
+}
+
+// WK-135 - global "show/hide overlay" hotkey (see hotkeys.rs), the primary
+// control for WK-124's overlay visibility switch. Same shape as the
+// skip-TTS pair above, but its OS-shortcut callback calls
+// `toggle_overlay_visible_now` directly (see that fn's comment) rather than
+// emitting an event for the frontend to react to.
+
+#[tauri::command]
+pub fn get_overlay_toggle_hotkey_status(app: AppHandle) -> OverlayToggleHotkeyStatus {
+    hotkeys::overlay_status(&app)
+}
+
+#[tauri::command]
+pub fn set_overlay_toggle_hotkey(app: AppHandle, enabled: bool, shortcut: String) -> Result<OverlayToggleHotkeyStatus, String> {
+    hotkeys::set_overlay_toggle_hotkey(&app, enabled, shortcut)
 }
 
 #[tauri::command]

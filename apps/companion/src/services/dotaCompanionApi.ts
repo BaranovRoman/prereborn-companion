@@ -201,6 +201,21 @@ export const getSkipHotkeyStatus = () => invoke<SkipHotkeyStatus>("get_skip_hotk
 export const setSkipHotkey = (enabled: boolean, shortcut: string) =>
   invoke<SkipHotkeyStatus>("set_skip_hotkey", { enabled, shortcut });
 
+// WK-135 - global "show/hide overlay" hotkey (see src-tauri/src/hotkeys.rs),
+// the primary control for WK-124's overlay visibility switch. Same shape as
+// the skip-TTS pair above, but its OS-shortcut callback flips
+// InnerState::overlay_visible directly (see toggle_overlay_visible_now) -
+// there's no frontend-side event to listen for, only status to read/change.
+export interface OverlayToggleHotkeyStatus {
+  enabled: boolean;
+  shortcut: string;
+  registered: boolean;
+  lastError: string | null;
+}
+export const getOverlayToggleHotkeyStatus = () => invoke<OverlayToggleHotkeyStatus>("get_overlay_toggle_hotkey_status");
+export const setOverlayToggleHotkey = (enabled: boolean, shortcut: string) =>
+  invoke<OverlayToggleHotkeyStatus>("set_overlay_toggle_hotkey", { enabled, shortcut });
+
 // WK-106 - Custom Game Sounds. Types mirror the `#[serde(rename_all =
 // "camelCase")]` Rust structs/enums in src-tauri/src/game_sounds - see that
 // module's catalog.rs/config.rs/mod.rs for the authoritative shape.
