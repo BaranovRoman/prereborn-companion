@@ -1449,22 +1449,38 @@ h1, h2, p { margin-top: 0; }
    replacing WK-122/132's small sticky form-like chip (bordered, red-filled,
    read as a search input). No background/border/input chrome at all - the
    typography itself is the only feedback, per this task's own "the text IS
-   the search feedback" instruction. `position: absolute` (not sticky/flow)
-   is what keeps idle vs. active-search roster geometry byte-for-byte
-   identical - see `.hero-roster` above. `pointer-events: none` so it never
-   blocks clicking a hero tile underneath while a query is active. */
+   the search feedback" instruction.
+
+   `position: sticky` + `height: 0` (not `absolute; inset: 0`) is deliberate:
+   the roster can be far taller than the viewport (130 heroes), so an
+   `inset: 0` overlay centers itself against the ENTIRE scrollable grid
+   height and ends up rendered below the fold on first search - a real bug
+   caught via screenshot, not just a style choice. `height: 0` means
+   mounting/unmounting this element never contributes to `.hero-roster`'s
+   flow height (so idle vs. active-search grid geometry stays identical,
+   the actual requirement), while `position: sticky` still tracks
+   `.main`'s scroll position, keeping the query visible near the top of
+   whatever part of the roster the user is currently looking at. The
+   `translateY` on `__inner` (not padding/margin on this element) supplies
+   the visual top offset without adding back any flow height. */
 .hero-search-overlay {
-  position: absolute;
-  inset: 0;
+  position: sticky;
+  top: 0;
+  height: 0;
+  overflow: visible;
   z-index: 5;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.hero-search-overlay__inner {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 10px;
-  padding: 24px;
+  padding: 0 24px;
   text-align: center;
-  pointer-events: none;
+  transform: translateY(28px);
 }
 .hero-search-overlay__query {
   font-family: var(--font-title);
@@ -1474,7 +1490,7 @@ h1, h2, p { margin-top: 0; }
   letter-spacing: .05em;
   color: #f5efe6;
   text-shadow: 0 8px 34px rgba(0, 0, 0, .85), 0 2px 8px rgba(0, 0, 0, .9);
-  max-width: 92%;
+  max-width: min(84%, 900px);
   overflow-wrap: break-word;
   word-break: break-word;
 }

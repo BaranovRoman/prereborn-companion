@@ -149,8 +149,10 @@ export function HeroesPage({ favorites, soundSettings, trackedHeroes, onSelectHe
             see this task's own "overlay, not reflow" requirement. */}
         {query && (
           <div className="hero-search-overlay" aria-live="polite">
-            <span className="hero-search-overlay__query">{query.toLocaleUpperCase()}</span>
-            {matchedIds.size === 0 && <span className="hero-search-overlay__hint">Герой не найден</span>}
+            <div className="hero-search-overlay__inner">
+              <span className="hero-search-overlay__query">{query.toLocaleUpperCase()}</span>
+              {matchedIds.size === 0 && <span className="hero-search-overlay__hint">Герой не найден</span>}
+            </div>
           </div>
         )}
 
