@@ -357,11 +357,22 @@ fn rolling_log_path<R: Runtime>(app: &AppHandle<R>) -> PathBuf {
     logs_root(app).join(ROLLING_LOG_NAME)
 }
 
+// WK-129 re-audit finding - a plain `fs::rename` here used to be a silent
+// no-op on failure (e.g. `app.log.1` locked by an AV/OneDrive scan, the exact
+// class of interference WK-109's doc comment above already flags for the
+// open+write+close path). With no fallback, a failed rotation let app.log
+// grow past ROLLING_LOG_MAX_BYTES indefinitely, since every subsequent
+// append() only re-checked the same size and re-attempted the same rename.
+// Truncating in place when rotation can't proceed keeps the file bounded
+// even under that failure mode, at the cost of losing the not-yet-rotated
+// generation instead of the file growing without limit.
 fn rotate_if_needed(path: &PathBuf) {
     if let Ok(meta) = fs::metadata(path) {
         if meta.len() > ROLLING_LOG_MAX_BYTES {
             let rotated = path.with_extension("log.1");
-            let _ = fs::rename(path, rotated);
+            if fs::rename(path, rotated).is_err() {
+                let _ = fs::write(path, b"");
+            }
         }
     }
 }
@@ -612,6 +623,57 @@ mod tests {
         let result = parse_payload("not json");
         assert!(result.parsed.is_none());
         assert_eq!(result.summary, "non-JSON body (8 bytes)");
+    }
+
+    #[test]
+    fn rotate_if_needed_renames_an_oversized_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.log");
+        fs::write(&path, vec![b'x'; (ROLLING_LOG_MAX_BYTES + 1) as usize]).unwrap();
+
+        rotate_if_needed(&path);
+
+        assert!(!path.exists(), "oversized log should have been rotated away");
+        assert!(dir.path().join("app.log.1").exists());
+    }
+
+    #[test]
+    fn rotate_if_needed_truncates_in_place_when_rotation_fails() {
+        // Forces fs::rename to fail portably (on both Unix and Windows) by
+        // making the rotation target an existing directory instead of a
+        // regular file - rename can never replace a file with a directory.
+        // Regression guard for the bug this fixes: a swallowed rename error
+        // used to leave app.log growing past its cap forever.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.log");
+        fs::write(&path, vec![b'x'; (ROLLING_LOG_MAX_BYTES + 1) as usize]).unwrap();
+        fs::create_dir_all(path.with_extension("log.1")).unwrap();
+
+        rotate_if_needed(&path);
+
+        let len = fs::metadata(&path).unwrap().len();
+        assert!(len < ROLLING_LOG_MAX_BYTES, "log must be bounded even when rotation fails, was {len} bytes");
+    }
+
+    #[test]
+    fn append_rolling_log_never_exceeds_the_cap_across_many_rotations() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("app.log");
+        let chunk = "x".repeat(1024);
+
+        // Enough iterations to cross the 5MB cap and force several
+        // rotations, including rotating over an already-existing app.log.1.
+        for _ in 0..(6 * 1024) {
+            rotate_if_needed(&path);
+            let mut file = fs::OpenOptions::new().create(true).append(true).open(&path).unwrap();
+            file.write_all(chunk.as_bytes()).unwrap();
+        }
+
+        let len = fs::metadata(&path).unwrap().len();
+        assert!(
+            len <= ROLLING_LOG_MAX_BYTES + chunk.len() as u64,
+            "app.log grew past its cap across repeated rotations: {len} bytes"
+        );
     }
 
     #[test]
