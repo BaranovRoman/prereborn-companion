@@ -167,6 +167,91 @@ describe("HeroesPage", () => {
     expect(document.querySelector(".attribute-grid")?.parentElement).toBe(idleParent);
   });
 
+  // WK-144 - Space silently didn't reach the query (the keydown handler's
+  // letter regex never matched " "), making multi-word hero names
+  // unsearchable by typing. Real catalog entries, per the task's own
+  // instruction not to invent hero names for this.
+  describe("multi-word search (Space)", () => {
+    it("Space participates in the query so a multi-word hero name matches", () => {
+      render(
+        <HeroesPage favorites={buildFavorites()} soundSettings={null} trackedHeroes={[]} onSelectHero={vi.fn()} />
+      );
+      typeIntoHeroSearch("outworld destroyer");
+      expect(screen.getByText("OUTWORLD DESTROYER")).toBeTruthy();
+      expect(screen.getByTitle("Outworld Destroyer").getAttribute("data-search-match")).toBe("true");
+      expect(screen.getByTitle("Pudge").getAttribute("data-search-match")).toBe("false");
+    });
+
+    it("matches other real multi-word hero names the same way", () => {
+      render(
+        <HeroesPage favorites={buildFavorites()} soundSettings={null} trackedHeroes={[]} onSelectHero={vi.fn()} />
+      );
+      typeIntoHeroSearch("queen of pain");
+      expect(screen.getByTitle("Queen of Pain").getAttribute("data-search-match")).toBe("true");
+      fireEvent.keyDown(window, { key: "Escape" });
+      typeIntoHeroSearch("keeper of the light");
+      expect(screen.getByTitle("Keeper of the Light").getAttribute("data-search-match")).toBe("true");
+    });
+
+    it("ignores a leading space instead of starting the query with one", () => {
+      render(
+        <HeroesPage favorites={buildFavorites()} soundSettings={null} trackedHeroes={[]} onSelectHero={vi.fn()} />
+      );
+      fireEvent.keyDown(window, { key: " " });
+      // no overlay should have mounted for a query that's still effectively empty
+      expect(document.querySelector(".hero-search-overlay")).toBeNull();
+      typeIntoHeroSearch("pudge");
+      expect(screen.getByText("PUDGE")).toBeTruthy();
+    });
+
+    it("collapses repeated spaces instead of breaking the multi-word match", () => {
+      render(
+        <HeroesPage favorites={buildFavorites()} soundSettings={null} trackedHeroes={[]} onSelectHero={vi.fn()} />
+      );
+      typeIntoHeroSearch("outworld");
+      fireEvent.keyDown(window, { key: " " });
+      fireEvent.keyDown(window, { key: " " }); // second consecutive space - must be a no-op
+      typeIntoHeroSearch("destroyer");
+      expect(screen.getByText("OUTWORLD DESTROYER")).toBeTruthy();
+      expect(screen.getByTitle("Outworld Destroyer").getAttribute("data-search-match")).toBe("true");
+    });
+
+    it("Backspace removes a trailing space like any other character", () => {
+      render(
+        <HeroesPage favorites={buildFavorites()} soundSettings={null} trackedHeroes={[]} onSelectHero={vi.fn()} />
+      );
+      typeIntoHeroSearch("outworld ");
+      expect(screen.getByText("OUTWORLD")).toBeTruthy();
+      fireEvent.keyDown(window, { key: "Backspace" });
+      typeIntoHeroSearch("destroyer");
+      // the space was removed, so this would now read "outworlddestroyer" -
+      // a real regression this test would catch, not just a smoke check.
+      expect(screen.getByTitle("Outworld Destroyer").getAttribute("data-search-match")).toBe("false");
+    });
+
+    it("clearing the query after a multi-word search restores the exact idle roster", () => {
+      render(
+        <HeroesPage favorites={buildFavorites()} soundSettings={null} trackedHeroes={[]} onSelectHero={vi.fn()} />
+      );
+      typeIntoHeroSearch("outworld destroyer");
+      fireEvent.keyDown(window, { key: "Escape" });
+      expect(screen.queryByText("OUTWORLD DESTROYER")).toBeNull();
+      expect(screen.getByTitle("Pudge").getAttribute("data-search-match")).toBe("true");
+      expect(screen.getByTitle("Outworld Destroyer").getAttribute("data-search-match")).toBe("true");
+    });
+
+    it("clicking the star toggles favorite while a multi-word query is active (favorites unaffected)", () => {
+      const favorites = buildFavorites();
+      render(
+        <HeroesPage favorites={favorites} soundSettings={null} trackedHeroes={[]} onSelectHero={vi.fn()} />
+      );
+      typeIntoHeroSearch("outworld destroyer");
+      const tile = screen.getByTitle("Outworld Destroyer");
+      fireEvent.click(within(tile).getByLabelText("Добавить в избранное"));
+      expect(favorites.toggle).toHaveBeenCalledWith(76);
+    });
+  });
+
   it("shows a configured-count badge for heroes with bound ability sounds", () => {
     render(
       <HeroesPage

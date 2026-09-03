@@ -1494,20 +1494,40 @@ h1, h2, p { margin-top: 0; }
    this task's explicit requirement. At this size + the max-width below,
    "TEC" fits on one line at desktop width and a 32-character query wraps
    to at most two. */
+/* WK-144 - production visual-QA follow-up (per the repo's new 1920x1080
+   baseline / 2560x1440 required-check convention, see CLAUDE.md): the WK-141
+   clamp's preferred-value formula (1.1rem + 2.2vw) already hit its 3.4rem
+   ceiling BY 1920px width (2.2vw alone is 42.24px=2.64rem there), so 2560px
+   computed the exact same clamped 3.4rem - the query simply stopped growing
+   past 1920, reading as undersized on the larger canvas. Re-anchored as an
+   explicit two-point fluid scale instead of an arbitrary slope+ceiling:
+   1920px -> ~54px (unchanged from the previously-accepted size, only it's
+   no longer an accidentally-clamped value) and 2560px -> ~78px (noticeably
+   larger, still far short of WK-141's rejected 96px/6rem that wrapped "TEC"
+   and poster-sized "A"). `clamp()`'s own min/max still floor/ceiling this
+   for narrower and (hypothetically) ultra-wide windows. */
 .hero-search-overlay__query {
   font-family: var(--font-title);
   font-weight: 600;
-  font-size: clamp(2rem, 1.1rem + 2.2vw, 3.4rem);
+  font-size: clamp(2rem, calc(3.75vw - 1.125rem), 5.5rem);
   line-height: 1.1;
   letter-spacing: .04em;
   color: #f5efe6;
   text-shadow: 0 6px 22px rgba(0, 0, 0, .85), 0 2px 8px rgba(0, 0, 0, .9);
-  /* `vw`, not `%` - `__inner` (this element's containing block) is itself
-     shrink-to-fit width with no definite size, so a percentage here is a
-     circular reference that some engines resolve down to ~0, forcing even
-     a 3-letter query to break mid-word. `vw` resolves against the viewport
-     directly, sidestepping that entirely. */
-  max-width: min(90vw, 760px);
+  /* `vw`/`ch`, not `%` - `__inner` (this element's containing block) is
+     itself shrink-to-fit width with no definite size, so a percentage here
+     is a circular reference that some engines resolve down to ~0, forcing
+     even a 3-letter query to break mid-word.
+     WK-144 - `ch` (not a fixed px cap) so the box scales WITH the font-size
+     above: a fixed-px cap held constant while font-size grew for 2560px
+     wide screens meant the same real hero name (e.g. the catalog's longest,
+     "Keeper of the Light", 19 chars) fit on one line at 1920 but wrapped to
+     two at 2560 - larger text, same box. `30ch` comfortably fits every
+     current hero name (longest is 19 characters) with room for
+     letter-spacing, at whatever the current font-size actually is; a
+     genuinely long/garbage query (this app's own 32-char input cap) still
+     wraps to two lines either way. */
+  max-width: min(92vw, 30ch);
   overflow-wrap: break-word;
   word-break: break-word;
 }
