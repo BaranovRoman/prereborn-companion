@@ -1,20 +1,29 @@
 import { useCallback, useEffect, useState } from "react";
 import { Badge, Button } from "./ui";
 import * as api from "../services/dotaCompanionApi";
-import type { SteamIntegrationStatus, TwitchIntegrationStatus } from "../services/dotaCompanionApi";
+import type {
+  DonationAlertsIntegrationStatus,
+  SteamIntegrationStatus,
+  TwitchIntegrationStatus,
+} from "../services/dotaCompanionApi";
 
 type Load<T> = { kind: "loading" } | { kind: "error" } | { kind: "ready"; value: T };
 
 // WK-133 - Settings → Интеграции: the account-level integrations Companion
 // actually has (see this task's audit) - Steam (linked via the existing web
 // OAuth flow, unlinked directly from here through the existing DELETE
-// endpoint) and Twitch (status only - already OAuth-linked on the web, no
-// second auth implementation here, "Управлять на сайте" reuses the same
-// hand-off Chat's reconnect button already uses). OBS is deliberately NOT
-// here - see ObsScenePanel, it's local runtime config, not an account link.
+// endpoint), Twitch, and DonationAlerts (both status-only - already
+// OAuth-linked on the website, no second auth implementation here; the web
+// hand-off reuses the same `open_stream_settings` command Chat's "reconnect"
+// action already used). DonationAlerts was missed by the original audit -
+// it's an existing account integration already consumed by Companion's own
+// overlay renderer (topDonors -> Between Matches "Donaters" panel, see
+// overlay-renderer/types.ts). OBS is deliberately NOT here - see
+// ObsScenePanel, it's local runtime config, not an account link.
 export function IntegrationsPanel() {
   const [steam, setSteam] = useState<Load<SteamIntegrationStatus>>({ kind: "loading" });
   const [twitch, setTwitch] = useState<Load<TwitchIntegrationStatus>>({ kind: "loading" });
+  const [donationAlerts, setDonationAlerts] = useState<Load<DonationAlertsIntegrationStatus>>({ kind: "loading" });
   const [connecting, setConnecting] = useState(false);
   const [unlinking, setUnlinking] = useState(false);
   const [confirmUnlink, setConfirmUnlink] = useState(false);
@@ -32,25 +41,34 @@ export function IntegrationsPanel() {
       .then((value) => setTwitch({ kind: "ready", value }))
       .catch(() => setTwitch({ kind: "error" }));
   }, []);
+  const loadDonationAlerts = useCallback(() => {
+    void api
+      .getDonationAlertsIntegrationStatus()
+      .then((value) => setDonationAlerts({ kind: "ready", value }))
+      .catch(() => setDonationAlerts({ kind: "error" }));
+  }, []);
 
   useEffect(() => {
     loadSteam();
     loadTwitch();
-  }, [loadSteam, loadTwitch]);
+    loadDonationAlerts();
+  }, [loadSteam, loadTwitch, loadDonationAlerts]);
 
   // WK-133 §6 - Steam linking happens in the system browser (existing OpenID
   // redirect flow - Companion has no deep-link callback to land back in the
   // app, see this task's audit). Refetching on window focus is how this
   // panel picks up a completed link when the user returns to Companion,
-  // without requiring a restart.
+  // without requiring a restart. Applies equally to Twitch/DonationAlerts,
+  // both also linked through the same web flow.
   useEffect(() => {
     const onFocus = () => {
       loadSteam();
       loadTwitch();
+      loadDonationAlerts();
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [loadSteam, loadTwitch]);
+  }, [loadSteam, loadTwitch, loadDonationAlerts]);
 
   const connectSteam = async () => {
     setConnecting(true);
@@ -143,37 +161,76 @@ export function IntegrationsPanel() {
         )}
       </section>
 
-      <section className="integrations-panel__row">
-        <div className="integrations-panel__row-header">
-          <span className="integrations-panel__provider">Twitch</span>
-          {twitch.kind === "ready" && (
-            <Badge tone={twitch.value.connected ? "success" : "default"}>
-              {twitch.value.connected ? "Подключено" : "Не подключено"}
-            </Badge>
-          )}
-        </div>
+      <WebManagedIntegrationRow
+        provider="Twitch"
+        state={twitch}
+        identity={twitch.kind === "ready" && twitch.value.connected ? twitch.value.displayName ?? twitch.value.login ?? "Twitch подключён" : null}
+        hint="Используется для: чата и озвучки сообщений (TTS)."
+        errorLabel="Не удалось получить статус Twitch."
+      />
 
-        {twitch.kind === "loading" && <p className="matches-panel__empty">Загрузка…</p>}
-        {twitch.kind === "error" && <p className="app__error">Не удалось получить статус Twitch.</p>}
-
-        {twitch.kind === "ready" && (
-          <>
-            <p className="integrations-panel__identity">
-              {twitch.value.connected
-                ? twitch.value.displayName ?? twitch.value.login ?? "Twitch подключён"
-                : "Не подключено"}
-            </p>
-            <p className="integrations-panel__hint">Используется для: чата и озвучки сообщений (TTS).</p>
-            <div className="integrations-panel__actions">
-              <Button variant="ghost" onClick={() => void api.openStreamSettings()}>
-                Управлять на сайте
-              </Button>
-            </div>
-          </>
-        )}
-      </section>
+      <WebManagedIntegrationRow
+        provider="DonationAlerts"
+        state={donationAlerts}
+        identity={donationAlerts.kind === "ready" && donationAlerts.value.connected ? donationAlerts.value.displayName ?? "DonationAlerts подключён" : null}
+        hint="Используется для: панели донатеров в оверлее «Между матчами»."
+        errorLabel="Не удалось получить статус DonationAlerts."
+      />
 
       {actionError && <p className="app__error">Ошибка: {actionError}</p>}
     </div>
+  );
+}
+
+// WK-133 follow-up - Twitch and DonationAlerts are both status-only rows
+// with identical shape: management stays on the website via the same
+// `open_stream_settings` hand-off, only the connected/not-connected COPY
+// differs ("Управлять на сайте ↗" vs "Подключить на сайте ↗" - saying
+// "Управлять" for a provider that isn't connected reads as broken, see this
+// task's copy requirement). Factored out instead of duplicating a third
+// near-identical block for DonationAlerts.
+function WebManagedIntegrationRow({
+  provider,
+  state,
+  identity,
+  hint,
+  errorLabel,
+}: {
+  provider: string;
+  state: Load<{ connected: boolean }>;
+  identity: string | null;
+  hint: string;
+  errorLabel: string;
+}) {
+  return (
+    <section className="integrations-panel__row">
+      <div className="integrations-panel__row-header">
+        <span className="integrations-panel__provider">{provider}</span>
+        {state.kind === "ready" && (
+          <Badge tone={state.value.connected ? "success" : "default"}>
+            {state.value.connected ? "Подключено" : "Не подключено"}
+          </Badge>
+        )}
+      </div>
+
+      {state.kind === "loading" && <p className="matches-panel__empty">Загрузка…</p>}
+      {state.kind === "error" && <p className="app__error">{errorLabel}</p>}
+
+      {state.kind === "ready" && (
+        <>
+          <p className="integrations-panel__identity">{identity ?? "Не подключено"}</p>
+          <p className="integrations-panel__hint">{hint}</p>
+          <div className="integrations-panel__actions">
+            <Button
+              variant="ghost"
+              className="integrations-panel__link-action"
+              onClick={() => void api.openStreamSettings()}
+            >
+              {state.value.connected ? "Управлять на сайте ↗" : "Подключить на сайте ↗"}
+            </Button>
+          </div>
+        </>
+      )}
+    </section>
   );
 }

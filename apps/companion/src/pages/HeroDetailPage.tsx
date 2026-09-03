@@ -207,8 +207,8 @@ function HeroOpenDotaPanel({ stats, onOpenIntegrations }: { stats: HeroOpenDotaS
     return (
       <div className="hero-detail__stats hero-detail__stats--opendota">
         <h3 className="hero-detail__stats-title">OpenDota</h3>
-        <p className="hero-detail__stats-empty">Привяжите Steam, чтобы видеть статистику OpenDota.</p>
-        <Button variant="ghost" onClick={onOpenIntegrations}>Настройки → Интеграции</Button>
+        <p className="hero-detail__stats-empty">Steam не привязан</p>
+        <Button variant="ghost" onClick={onOpenIntegrations}>Открыть интеграции</Button>
       </div>
     );
   }
@@ -245,7 +245,6 @@ function HeroOpenDotaPanel({ stats, onOpenIntegrations }: { stats: HeroOpenDotaS
           <dd>{stats.winRate === null ? "—" : `${stats.winRate.toFixed(1)}%`}</dd>
         </div>
       </dl>
-      <p className="hero-detail__stats-caption">Внешние данные OpenDota, привязанный Steam-аккаунт</p>
     </div>
   );
 }

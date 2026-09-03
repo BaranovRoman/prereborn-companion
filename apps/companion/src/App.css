@@ -1070,7 +1070,13 @@ h1, h2, p { margin-top: 0; }
    metal/recessed language (see this task's "no SaaS marketplace cards"
    requirement) - same shape as .account-form above (grid heading + a plain
    border-bottom separator between rows), not a new card component. */
-.integrations-panel { display: grid; gap: 4px; }
+/* WK-133 follow-up (visual review) - rows were stretching across the full
+   Settings content width, especially at 2560×1440, pushing the status badge
+   to the far edge of the window instead of the content itself. Constrained
+   to a sensible desktop reading width, staying LEFT-aligned (no auto-margin
+   centering) at the existing Settings content origin - not a floating
+   panel. */
+.integrations-panel { display: grid; gap: 4px; max-width: 1000px; }
 .integrations-panel h2 { margin: 0 0 6px; font-size: 1rem; color: var(--ui-text); font-weight: 600; }
 .integrations-panel__row { display: grid; gap: 6px; padding: 14px 0; border-bottom: 1px solid var(--ui-edge-soft); }
 .integrations-panel__row:last-of-type { border-bottom: none; }
@@ -1081,6 +1087,11 @@ h1, h2, p { margin-top: 0; }
 .integrations-panel__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 2px; }
 .integrations-panel__confirm { display: grid; gap: 8px; }
 .integrations-panel__confirm-text { margin: 0; color: var(--warning); font-size: .8rem; max-width: 42ch; }
+/* WK-133 follow-up - external "manage on the website" actions must read as
+   a recognizable link/action, not caption-like body text (still the same
+   button chrome as every other action here, just a link-colored label). */
+.integrations-panel__link-action { color: var(--ui-cyan); }
+.integrations-panel__link-action:hover:not(:disabled) { color: #8fd0dc; }
 .obs-panel input:not([type="checkbox"]), .obs-panel select {
   min-width: 0;
   border: 1px solid var(--border);

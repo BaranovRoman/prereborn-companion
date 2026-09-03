@@ -256,6 +256,11 @@ pub async fn get_twitch_integration_status(app: AppHandle) -> Result<serde_json:
 }
 
 #[tauri::command]
+pub async fn get_donation_alerts_integration_status(app: AppHandle) -> Result<serde_json::Value, String> {
+    backend::get_donation_alerts_integration_status(&app).await
+}
+
+#[tauri::command]
 pub async fn get_hero_opendota_stats(app: AppHandle, hero_id: i64) -> Result<serde_json::Value, String> {
     backend::get_hero_opendota_stats(&app, hero_id).await
 }

@@ -290,6 +290,7 @@ pub fn run() {
             commands::get_steam_integration_status,
             commands::disconnect_steam,
             commands::get_twitch_integration_status,
+            commands::get_donation_alerts_integration_status,
             commands::get_hero_opendota_stats,
             commands::resend_current_state,
             commands::save_obs_config,

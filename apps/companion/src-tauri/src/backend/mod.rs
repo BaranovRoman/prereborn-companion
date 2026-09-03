@@ -1087,6 +1087,38 @@ pub async fn get_twitch_integration_status(app: &AppHandle) -> Result<serde_json
         .map_err(|error| format!("Internal error: {error}"))?
 }
 
+// WK-133 follow-up (visual review) - DonationAlerts was missed by the
+// original Settings → Интеграции audit: it's an existing OAuth account
+// integration (see apps/api's donation-alerts-integration-service.ts),
+// already consumed by Companion's own overlay renderer (topDonors feed the
+// Between Matches "Donaters" panel, see overlay-renderer/types.ts and
+// DesignPage.tsx's hint text). Same shape as get_twitch_integration_status -
+// status only, no new OAuth, existing `/stream/integrations/donation-alerts`
+// endpoint.
+fn fetch_donation_alerts_integration_status(token: &str) -> Result<serde_json::Value, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .get(format!("{DEFAULT_BACKEND_URL}/stream/integrations/donation-alerts"))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("DonationAlerts-статус недоступен: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json()
+        .map_err(|error| format!("Неверный ответ DonationAlerts-статуса: {error}"))
+}
+
+pub async fn get_donation_alerts_integration_status(app: &AppHandle) -> Result<serde_json::Value, String> {
+    let token = require_companion_token(app)?;
+    tauri::async_runtime::spawn_blocking(move || fetch_donation_alerts_integration_status(&token))
+        .await
+        .map_err(|error| format!("Internal error: {error}"))?
+}
+
 fn fetch_hero_opendota_stats(token: &str, hero_id: i64) -> Result<serde_json::Value, String> {
     let response = reqwest::blocking::Client::builder()
         .timeout(REQUEST_TIMEOUT)

@@ -328,24 +328,26 @@ describe("HeroDetailPage", () => {
   // separate from the local-history block above (never merged - see the
   // caption assertions here vs. "Локальная история Companion" above).
   describe("OpenDota statistics", () => {
-    it("prompts to link Steam via Настройки → Интеграции when Steam isn't connected", async () => {
+    it("prompts to open Интеграции when Steam isn't connected", async () => {
       const onOpenIntegrations = vi.fn();
       renderPage({ heroId: 105, onOpenIntegrations });
-      expect(await screen.findByText("Настройки → Интеграции")).toBeTruthy();
-      fireEvent.click(screen.getByText("Настройки → Интеграции"));
+      expect(await screen.findByText("Steam не привязан")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Открыть интеграции" }));
       expect(onOpenIntegrations).toHaveBeenCalledTimes(1);
     });
 
-    it("renders games/wins/losses/winrate as a source clearly separate from local history", async () => {
+    it("renders games/wins/losses/winrate as a source clearly separate from local history, under the OPENDOTA heading only", async () => {
       mockedGetHeroOpenDotaStats.mockResolvedValueOnce({
         status: "ok", source: "opendota", heroId: 105, games: 40, wins: 25, losses: 15, winRate: 62.5, fetchedAt: new Date().toISOString(),
       });
       renderPage({ heroId: 105 });
-      expect(await screen.findByText("Внешние данные OpenDota, привязанный Steam-аккаунт")).toBeTruthy();
-      expect(screen.getByText("40")).toBeTruthy();
+      expect(await screen.findByText("40")).toBeTruthy();
       expect(screen.getByText("25")).toBeTruthy();
       expect(screen.getByText("15")).toBeTruthy();
       expect(screen.getByText("62.5%")).toBeTruthy();
+      // WK-133 visual review - the OPENDOTA heading already communicates the
+      // source; the redundant caption line was removed.
+      expect(screen.queryByText(/Внешние данные OpenDota/)).toBeNull();
     });
 
     it("shows an explicit empty state when OpenDota has no data for this hero", async () => {
@@ -375,7 +377,7 @@ describe("HeroDetailPage", () => {
         status: "ok", source: "opendota", heroId: 105, games: 1, wins: 1, losses: 0, winRate: 100, fetchedAt: new Date().toISOString(),
       });
       const { rerender } = renderPage({ heroId: 105 });
-      await screen.findByText("Внешние данные OpenDota, привязанный Steam-аккаунт");
+      await screen.findByText("100.0%");
       expect(mockedGetHeroOpenDotaStats).toHaveBeenCalledWith(105);
 
       mockedGetHeroOpenDotaStats.mockResolvedValueOnce({ status: "no_data" });

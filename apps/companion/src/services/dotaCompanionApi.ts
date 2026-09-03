@@ -122,6 +122,20 @@ export interface TwitchIntegrationStatus {
 export const getTwitchIntegrationStatus = () =>
   invoke<TwitchIntegrationStatus>("get_twitch_integration_status");
 
+// WK-133 follow-up - DonationAlerts, missed by the original audit: a real
+// existing OAuth account integration (apps/api's
+// donation-alerts-integration-service.ts) already consumed by Companion's
+// own overlay renderer (topDonors -> Between Matches "Donaters" panel).
+// Status-only here, same as Twitch - management stays on the website
+// (existing OAuth flow, not reimplemented).
+export interface DonationAlertsIntegrationStatus {
+  connected: boolean;
+  configured: boolean;
+  displayName?: string;
+}
+export const getDonationAlertsIntegrationStatus = () =>
+  invoke<DonationAlertsIntegrationStatus>("get_donation_alerts_integration_status");
+
 export type HeroOpenDotaStats =
   | {
       status: "ok";
