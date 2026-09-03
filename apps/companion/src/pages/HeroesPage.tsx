@@ -84,6 +84,24 @@ export function HeroesPage({ favorites, soundSettings, trackedHeroes, onSelectHe
         setQuery((value) => value.slice(0, -1));
         return;
       }
+      // Multi-word hero names (Outworld Destroyer, Queen of Pain, Keeper of
+      // the Light) need Space to reach the query - `\p{L}` below only ever
+      // matched actual letters, so " " silently fell through unhandled
+      // (and un-prevented, letting the browser's default Space behavior
+      // through too). Normalized here rather than in searchHeroes(), which
+      // already `.trim()`s before matching: a leading space is simply
+      // ignored (nothing to search yet) and a second consecutive space is
+      // a no-op (collapsed), so the query itself never contains doubled
+      // internal spaces that would break the substring match against a
+      // real "outworld destroyer"-style single-spaced hero name.
+      if (event.key === " ") {
+        event.preventDefault();
+        setQuery((value) => {
+          if (!value || value.endsWith(" ")) return value;
+          return `${value} `.slice(0, 32);
+        });
+        return;
+      }
       if (/^\p{L}$/u.test(event.key)) {
         event.preventDefault();
         setQuery((value) => `${value}${event.key}`.slice(0, 32));
