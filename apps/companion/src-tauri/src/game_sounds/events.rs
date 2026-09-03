@@ -69,15 +69,14 @@ pub struct GameSoundEvent {
 }
 
 /// Convenience wrapper for callers (and the many tests) that don't care
-/// about the multi-tick item-vanish confirmation window (see
-/// `PendingConfirmations`) - a fresh, empty window state every call, so an
-/// item vanishing ambiguously can only ever be *registered* as pending by
-/// this wrapper, never confirmed (that needs a later tick, i.e. a later
-/// call sharing the same `PendingConfirmations` - see `handle_gsi`, which
-/// uses `detect_events_with_state` directly instead). Every other signal
-/// (cooldown start, same-slot charges decrease, ability casts) is decided
-/// from a single previous/current pair exactly as before, so this remains
-/// the right entry point for those.
+/// about item-vanish reconciliation diagnostics (see `PendingConfirmations`)
+/// - a fresh, empty window state every call. Every signal that can actually
+/// emit an event (cooldown start, same-slot charges decrease, ability
+/// casts) is decided from a single previous/current pair exactly as before,
+/// so this remains a fully correct entry point for those - it just can't
+/// observe multi-tick reconciliation *diagnostics*, which never affect
+/// whether an event fires anyway (see `detect_item_events`'s "ABSENCE IS
+/// NOT EVIDENCE" doc comment).
 pub fn detect_events(previous: Option<&Value>, current: &Value) -> Vec<GameSoundEvent> {
     let mut pending = PendingConfirmations::default();
     detect_events_with_state(previous, current, 0, &mut pending).0
@@ -86,18 +85,14 @@ pub fn detect_events(previous: Option<&Value>, current: &Value) -> Vec<GameSound
 /// The real entry point `game_sounds::mod::handle_gsi` uses - identical to
 /// `detect_events` except it threads a caller-owned `PendingConfirmations`
 /// (persisted in `AppState`, reset on hero-identity change) and the current
-/// wall-clock time through, so an ambiguous item vanish registered on one
-/// GSI tick can be confirmed or cancelled on a later one. `previous` being
-/// `None` (first tick ever, or the caller having just reset it after a hero
-/// swap - see `hero_identity_changed`) must never synthesize an event from a
-/// stale or nonexistent baseline, so item/ability detection is skipped
-/// entirely on such a tick, exactly like the old two-argument function. This
-/// also means a candidate already pending from before a hero swap does NOT
-/// get a chance to resolve on this tick - the caller MUST clear `pending`
-/// itself on every hero-identity change, exactly like it already does for
-/// `game_sounds_previous_gsi` (see задача п.11), or a stale candidate could
-/// otherwise resolve into a ghost event against a completely different
-/// match's inventory on some later tick.
+/// wall-clock time through, purely so item-vanish reconciliation
+/// diagnostics (see `PendingNote`) can span multiple real GSI ticks -
+/// **this has no effect on which events fire**, only on the accuracy of the
+/// forensic log `handle_gsi` writes. `previous` being `None` (first tick
+/// ever, or the caller having just reset it after a hero swap - see
+/// `hero_identity_changed`) must never synthesize an event from a stale or
+/// nonexistent baseline, so item/ability detection is skipped entirely on
+/// such a tick, exactly like the old two-argument function.
 ///
 /// Returns `(events, pending_notes)` - `pending_notes` is diagnostics-only
 /// (see `PendingNote`), describing any pending-candidate lifecycle change
@@ -141,7 +136,9 @@ fn item_slots(payload: &Value) -> Vec<(String, Value)> {
         .collect()
 }
 
-// WK-138 audit finding, superseding part of the WK-108/WK-109 design below.
+// WK-138 audit finding, superseding part of the WK-108/WK-109 design below,
+// itself revised once more after a first-pass fix was correctly rejected
+// (see the "absence is not evidence" note further down).
 //
 // WK-108's original root-cause diagnosis was correct (GSI's `items` section
 // has no stable per-instance identity, so a slot-level diff alone cannot
@@ -158,61 +155,70 @@ fn item_slots(payload: &Value) -> Vec<(String, Value)> {
 //    i.e. exactly the shape this function treats as a use.
 // 2. Courier state is NOT part of the `items` section Dota 2 GSI sends at
 //    all - it's a separate, additively-enabled `"couriers"` data section
-//    (see gsi/config.rs, which now requests it but does not yet parse it -
-//    no real capture with it enabled exists yet to confirm its shape, and
-//    guessing that shape is exactly what this audit was told not to do).
-//    WK-108's own test fixture used a `"courier0"` key *inside* `items` to
-//    model "item arrived at courier" - that shape has never been confirmed
-//    against real GSI and, given (2), is very likely fictional. Under the
-//    currently-subscribed schema, an item that goes to courier does not
-//    reappear ANYWHERE this detector can see for as long as the courier
-//    carries it - not in one tick, not in twenty.
+//    (see gsi/config.rs). WK-108's own test fixture used a `"courier0"`
+//    key *inside* `items` to model "item arrived at courier" - that shape
+//    was never confirmed against real GSI and was fictional. The real
+//    `couriers` schema (courier health/position/owner plus a nested
+//    `items.item<N>.name` map) is confirmed here against the long-
+//    maintained, widely-used community GSI client antonpup/Dota2GSI's
+//    `Courier`/`CourierItem` node classes - a well-established third-party
+//    reference, not a guess - and is now parsed (see `courier_item_names`
+//    below).
 //
-// Fix: the two same-tick-only fallbacks WK-108/WK-109 used (a bare
-// "not shown elsewhere in `items` this tick") are replaced by ONE bounded,
-// deterministic, multi-tick confirmation window (see `PendingConfirmations`
-// below). A `ChargesOrConsumed` item that vanishes from its slot without a
-// same-slot charges decrease as positive evidence is no longer judged
-// immediately - it is held as a *pending* candidate and only confirmed as a
-// genuine use once it has failed to reappear ANYWHERE in `items` for
-// `RELOCATION_CONFIRMATION_WINDOW_MS`, and is cancelled the instant it does
-// reappear, however many ticks later that happens to land. This closes gap
-// (1) outright. It does NOT close gap (2) - a real courier flight (many
-// real seconds) will still outlast the window and still confirm as a false
-// "used" event; that remains a documented, currently-unresolved limitation
-// pending a real capture of the newly-subscribed `couriers` section (see
-// this task's final report). Selling the very last charge of an item
-// remains its own, separate, still-unresolved ambiguity for the same
-// reason WK-109 originally accepted it: no GSI field distinguishes a fully
-// depleted stack being consumed from one being sold.
+// ABSENCE IS NOT EVIDENCE - the critical correction this function's first
+// WK-138 revision got wrong. That revision replaced the same-tick-only
+// fallback with a bounded timer: if an ambiguous vanish didn't reappear
+// anywhere within a short window, it was confirmed as "used". That is
+// still absence-based inference - it just delays the same invalid leap
+// ("we haven't seen it in N ms" -> "therefore it was consumed") instead of
+// removing it. It fails exactly the cases it was meant to fix: a courier
+// carry longer than the window, or selling the last charge, both still
+// vanish-and-never-reappear and would still have fired a false "used".
+//
+// The corrected model: a same-slot charges decrease remains the ONLY
+// signal that ever emits `ItemUsed` for a `ChargesOrConsumed` item - it is
+// real positive evidence (the item provably still exists, one fewer charge
+// than before) and requires no inference about anything absent. A vanish
+// with no same-slot decrease is *never* treated as use, at any point, no
+// matter how long it stays unexplained - `PendingConfirmations` still
+// tracks it, but purely to enrich diagnostics (did it later show up
+// somewhere - `items` OR now `couriers` - explaining the vanish, or did it
+// stay unexplained) for the eventual real-Dota capture this feature still
+// needs. Expiry discards a candidate silently; it never manufactures an
+// event. This is a deliberate, accepted false-negative for two real cases
+// current GSI evidence cannot resolve any other way:
+//   - a real courier carry, however long, since courier cargo is
+//     observable *while the courier still holds the item*, but this
+//     function has no way to prove a courier round-trip is still
+//     genuinely in progress versus having simply ended in a sale;
+//   - selling the very last charge of an item, which produces the exact
+//     same "vanished, never seen again" shape as consuming it - no GSI
+//     field distinguishes the two.
+// Per this task's explicit product policy: a missed ambiguous real use is
+// an acceptable, correct outcome; a false "used" broadcast sound is not.
 //
 // Applies only to `ItemSignal::ChargesOrConsumed` (Cooldown items were
-// never at risk - see that branch, unchanged) and only to the two
-// structurally-identical ambiguous shapes: no `charges` field at all
-// (Healing Salve, Smoke, ...) and exactly 1 remaining tracked charge
-// (Tango, Blood Grenade, ...) vanishing without ever showing a same-slot
-// decrease first. A vanish with 2+ charges still remaining is unchanged -
-// no positive evidence of any consumption ever existed for that
-// transition, so it is never even registered as a candidate, deferred or
-// otherwise.
-const RELOCATION_CONFIRMATION_WINDOW_MS: u64 = 2_000;
+// never at risk - see that branch, unchanged).
+const RELOCATION_RECONCILIATION_WINDOW_MS: u64 = 2_000;
 
 /// Why a pending vanish candidate's lifecycle changed this tick - purely a
 /// diagnostics/testing aid (see `game_sounds::mod::handle_gsi`'s rolling-log
 /// breadcrumb for pending transitions, задача п.10's "structural facts, not
-/// raw payloads" requirement), never consulted by the detector itself.
+/// raw payloads" requirement). Never consulted to decide whether an event
+/// fires - see the module-level "ABSENCE IS NOT EVIDENCE" note above.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PendingReason {
     /// First seen missing this tick with no positive relocation evidence -
-    /// registered, not yet decided either way.
-    VanishAwaitingConfirmation,
-    /// Reappeared somewhere in `items` before the window elapsed - proven
-    /// relocation, permanently cancelled, no event will ever fire for this
-    /// particular vanish.
+    /// registered, not yet explained either way.
+    VanishAwaitingReconciliation,
+    /// Reappeared somewhere (`items` or a courier's cargo) before the
+    /// reconciliation window elapsed - a proven relocation.
     ReappearedCancelled,
-    /// Never reappeared anywhere for the full confirmation window - treated
-    /// as a genuine (deferred) use.
-    ConfirmedAfterWindow,
+    /// Never reappeared anywhere for the full reconciliation window -
+    /// discarded silently. This is NOT confirmation of a use; no event is
+    /// ever emitted for this outcome (see the module-level doc comment
+    /// above `detect_item_events`).
+    DiscardedNoPositiveEvidence,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -221,15 +227,13 @@ pub struct PendingNote {
     pub reason: PendingReason,
 }
 
-/// Per-item-name "vanished, not yet decided" state that must survive across
-/// GSI ticks - unlike the rest of this module, this is why `detect_events`
-/// alone (a single previous/current pair, no memory) can no longer decide
-/// the ambiguous cases: it takes multiple real ticks, observed over real
-/// wall-clock time, to tell a same-payload race from an actual courier/sale
-/// gap. `game_sounds::mod::handle_gsi` owns one long-lived instance of this
-/// per Companion session (reset alongside `game_sounds_previous_gsi` on
-/// every hero-identity change - see that module - so a candidate can never
-/// resolve into a ghost event carried over from a previous match).
+/// Per-item-name "vanished, not yet explained" state that survives across
+/// GSI ticks - diagnostics/reconciliation bookkeeping only (see
+/// `PendingReason`'s doc comment: this NEVER causes an event to fire, by
+/// design). `game_sounds::mod::handle_gsi` owns one long-lived instance of
+/// this per Companion session (reset alongside `game_sounds_previous_gsi`
+/// on every hero-identity change - see that module - so a candidate can
+/// never leak diagnostics across a match boundary).
 #[derive(Debug, Clone, Default)]
 pub struct PendingConfirmations(HashMap<String, u64>);
 
@@ -237,7 +241,7 @@ impl PendingConfirmations {
     fn register_if_absent(&mut self, item_name: &str, now_ms: u64, notes: &mut Vec<PendingNote>) {
         if let std::collections::hash_map::Entry::Vacant(entry) = self.0.entry(item_name.to_string()) {
             entry.insert(now_ms);
-            notes.push(PendingNote { item_name: item_name.to_string(), reason: PendingReason::VanishAwaitingConfirmation });
+            notes.push(PendingNote { item_name: item_name.to_string(), reason: PendingReason::VanishAwaitingReconciliation });
         }
         // Already pending - the window is measured from the FIRST tick it
         // went missing, not re-armed on every subsequent tick it's still
@@ -256,26 +260,28 @@ impl PendingConfirmations {
     }
 }
 
-/// Resolves every currently-pending candidate against this tick's full set
-/// of observed item names - called once per tick, independent of whichever
-/// slot(s) the per-slot loop in `detect_item_events` happened to touch, so a
-/// candidate still gets a chance to resolve even on a tick where its own
-/// (now long-empty) source slot isn't revisited at all.
+/// Reconciles every currently-pending candidate against this tick's full
+/// set of observed item names (from `items` AND courier cargo) - called
+/// once per tick, independent of whichever slot(s) the per-slot loop in
+/// `detect_item_events` happened to touch, so a candidate still gets a
+/// chance to be explained even on a tick where its own (now long-empty)
+/// source slot isn't revisited at all. Never pushes an `ItemUsed` event -
+/// see the module-level "ABSENCE IS NOT EVIDENCE" doc comment above
+/// `detect_item_events`.
 fn resolve_pending(
     current_item_names: &std::collections::HashSet<&str>,
     now_ms: u64,
     pending: &mut PendingConfirmations,
-    events: &mut Vec<GameSoundEvent>,
     notes: &mut Vec<PendingNote>,
 ) {
-    let mut confirmed: Vec<String> = Vec::new();
+    let mut discarded: Vec<String> = Vec::new();
     let mut reappeared: Vec<String> = Vec::new();
     pending.0.retain(|name, first_missing_at_ms| {
         if current_item_names.contains(name.as_str()) {
             reappeared.push(name.clone());
             false
-        } else if now_ms.saturating_sub(*first_missing_at_ms) >= RELOCATION_CONFIRMATION_WINDOW_MS {
-            confirmed.push(name.clone());
+        } else if now_ms.saturating_sub(*first_missing_at_ms) >= RELOCATION_RECONCILIATION_WINDOW_MS {
+            discarded.push(name.clone());
             false
         } else {
             true
@@ -284,10 +290,35 @@ fn resolve_pending(
     for name in reappeared {
         notes.push(PendingNote { item_name: name, reason: PendingReason::ReappearedCancelled });
     }
-    for name in confirmed {
-        notes.push(PendingNote { item_name: name.clone(), reason: PendingReason::ConfirmedAfterWindow });
-        events.push(GameSoundEvent { kind: GameSoundEventKind::ItemUsed, id: name });
+    for name in discarded {
+        notes.push(PendingNote { item_name: name, reason: PendingReason::DiscardedNoPositiveEvidence });
     }
+}
+
+/// Item names currently reported as being carried by ANY courier - Dota 2
+/// GSI's separate, additively-enabled `couriers` section (see
+/// gsi/config.rs's WK-138 addendum), now actually subscribed to. Schema
+/// (`couriers.courier<N>.items.item<M>.name`) confirmed against the
+/// long-maintained, widely-used community GSI client antonpup/Dota2GSI's
+/// `Courier`/`CourierItem` node classes, not guessed.
+///
+/// Deliberately NOT filtered by the item's/courier's `owner` field: this
+/// is consulted ONLY to explain (cancel) an already-ambiguous pending
+/// candidate for diagnostics purposes, never to emit an event either way
+/// (see `resolve_pending`) - so even an imprecise, unowned-filtered name
+/// match can only ever make a diagnostic note more accurate or leave it
+/// unchanged, never cause a wrong sound to play or be suppressed.
+fn courier_item_names(payload: &Value) -> std::collections::HashSet<&str> {
+    payload
+        .get("couriers")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter_map(|(_, courier)| courier.get("items")?.as_object())
+        .flatten()
+        .filter_map(|(_, item)| item.get("name")?.as_str())
+        .filter(|name| !name.is_empty() && *name != "empty")
+        .collect()
 }
 
 fn detect_item_events(
@@ -323,17 +354,17 @@ fn detect_item_events(
     slot_keys.sort_unstable();
     slot_keys.dedup();
 
-    // Every item name present ANYWHERE in `current`, regardless of whether
-    // it was already there before this tick - the sole "does this name
-    // still exist" signal both new-candidate registration and
-    // `resolve_pending` use. A single set built once per tick, not derived
-    // per-slot, so it naturally covers a relocation whose destination slot
-    // doesn't land in the very same tick the source slot clears.
-    let current_item_names: std::collections::HashSet<&str> = current_slots
+    // Every item name present ANYWHERE in `current` - hero inventory slots
+    // AND courier cargo alike - regardless of whether it was already there
+    // before this tick. Diagnostics/reconciliation only (see
+    // `resolve_pending`'s doc comment): never used to decide whether an
+    // event fires.
+    let mut current_item_names: std::collections::HashSet<&str> = current_slots
         .iter()
         .filter_map(|(_, v)| v.get("name").and_then(Value::as_str))
         .filter(|name| *name != "empty")
         .collect();
+    current_item_names.extend(courier_item_names(current));
 
     for slot in slot_keys {
         let previous_item = previous_slots.iter().find(|(s, _)| s == slot).map(|(_, v)| v);
@@ -365,52 +396,41 @@ fn detect_item_events(
             Some(ItemSignal::ChargesOrConsumed) => {
                 let prev_charges = previous_item.get("charges").and_then(Value::as_i64);
                 if current_name == Some(previous_name) {
-                    // Same slot, same item - the one strong, immediate,
-                    // zero-latency signal: a charges decrease while the
-                    // item remains provably owned. Per задача п.8, this is
-                    // stronger evidence than any disappearance ever is, so
-                    // it fires right away and also clears any stale pending
-                    // candidate for this name (it's demonstrably still
-                    // owned and actively being used, not vanished).
+                    // Same slot, same item - the ONLY signal that ever
+                    // emits `ItemUsed` for this category (see the
+                    // module-level "ABSENCE IS NOT EVIDENCE" doc comment
+                    // above): a charges decrease while the item remains
+                    // provably owned is real positive evidence, not an
+                    // inference from silence. Fires immediately and also
+                    // clears any stale pending candidate for this name.
                     let current_item = current_item.expect("current_name implies current_item exists");
                     let curr_charges = current_item.get("charges").and_then(Value::as_i64);
                     if matches!((prev_charges, curr_charges), (Some(prev), Some(curr)) if curr < prev) {
                         pending.cancel(previous_name, notes);
                         events.push(GameSoundEvent { kind: GameSoundEventKind::ItemUsed, id: previous_name.to_string() });
                     }
-                } else if !matches!(current_name, None | Some("empty")) {
-                    // A genuinely different item now occupies this slot -
-                    // never a use of `previous_name` (sell/swap), regardless
-                    // of how many charges it had. Unambiguous, immediate.
-                } else if prev_charges.is_none() || prev_charges == Some(1) {
-                    // Ambiguous vanish - a single-instance consumable with
-                    // no charges field at all, or a charge-tracked item at
-                    // exactly its last charge, disappearing from its slot
-                    // without a same-slot decrease ever being observed
-                    // first. No longer decided from this one tick alone
-                    // (see the module-level doc comment above this
-                    // function) - deferred to `resolve_pending` below,
-                    // which is the single place either outcome (cancelled
-                    // by reappearance, or confirmed after the window) is
-                    // decided, using the FULL current-tick item-name set
-                    // rather than a per-slot view.
-                    if current_item_names.contains(previous_name) {
-                        pending.cancel(previous_name, notes);
-                    } else {
-                        pending.register_if_absent(previous_name, now_ms, notes);
-                    }
+                } else if !current_item_names.contains(previous_name) {
+                    // Vanished from this slot and not observed anywhere
+                    // else this tick either (a different/no item now here,
+                    // or the slot itself is gone). No positive evidence of
+                    // consumption exists and none ever will from silence
+                    // alone - registered purely for reconciliation
+                    // diagnostics (see `resolve_pending`), NEVER decided
+                    // into an event, no matter how long it stays
+                    // unexplained.
+                    pending.register_if_absent(previous_name, now_ms, notes);
+                } else {
+                    // Reappeared elsewhere this same tick (another `items`
+                    // slot, or courier cargo) - proven relocation, and also
+                    // explains away any candidate already pending for it.
+                    pending.cancel(previous_name, notes);
                 }
-                // 2+ charges remaining and the item still vanished outright
-                // without a same-slot decrease ever being observed first -
-                // no positive evidence this was a use, at any point; stays
-                // permanently silent rather than risk a false positive, and
-                // is never even registered as a pending candidate.
             }
             None => {}
         }
     }
 
-    resolve_pending(&current_item_names, now_ms, pending, events, notes);
+    resolve_pending(&current_item_names, now_ms, pending, notes);
 }
 
 fn ability_slots(payload: &Value) -> Vec<(String, Value)> {
@@ -532,43 +552,48 @@ mod tests {
     // (fresh window state every call), so this uses `detect_events_with_state`
     // directly to model the full real sequence, per задача п.12.
     #[test]
-    fn consumed_single_charge_item_disappearing_and_never_reappearing_is_confirmed_as_a_use_after_the_window() {
+    fn consumed_single_charge_item_disappearing_and_never_reappearing_is_never_treated_as_a_use() {
+        // WK-138 correction - absence is not evidence: expiry of the
+        // reconciliation window must discard the candidate silently, NEVER
+        // emit an event, no matter how long it stays unexplained.
         let prev = with_hero(1, json!({ "items": { "slot0": { "name": "item_flask" } } }));
         let curr = with_hero(1, json!({ "items": { "slot0": { "name": "empty" } } }));
         let mut pending = PendingConfirmations::default();
 
-        // Tick 0: vanishes - not yet decided, registered as pending.
+        // Tick 0: vanishes - not yet explained, registered as pending.
         let (events, notes) = detect_events_with_state(Some(&prev), &curr, 0, &mut pending);
-        assert!(events.is_empty(), "must not fire before the confirmation window elapses");
-        assert_eq!(notes, vec![PendingNote { item_name: "item_flask".into(), reason: PendingReason::VanishAwaitingConfirmation }]);
+        assert!(events.is_empty(), "must never fire for a bare vanish");
+        assert_eq!(notes, vec![PendingNote { item_name: "item_flask".into(), reason: PendingReason::VanishAwaitingReconciliation }]);
         assert!(pending.is_pending("item_flask"));
 
         // A later tick still within the window, item still nowhere - stays pending.
-        let (events, notes) = detect_events_with_state(Some(&curr), &curr, RELOCATION_CONFIRMATION_WINDOW_MS - 1, &mut pending);
+        let (events, notes) = detect_events_with_state(Some(&curr), &curr, RELOCATION_RECONCILIATION_WINDOW_MS - 1, &mut pending);
         assert!(events.is_empty());
         assert!(notes.is_empty());
         assert!(pending.is_pending("item_flask"));
 
-        // The window fully elapses with no reappearance anywhere - confirmed.
-        let (events, notes) = detect_events_with_state(Some(&curr), &curr, RELOCATION_CONFIRMATION_WINDOW_MS, &mut pending);
-        assert_eq!(events, vec![GameSoundEvent { kind: GameSoundEventKind::ItemUsed, id: "item_flask".into() }]);
-        assert_eq!(notes, vec![PendingNote { item_name: "item_flask".into(), reason: PendingReason::ConfirmedAfterWindow }]);
+        // The window fully elapses with no reappearance anywhere - discarded
+        // silently. This is NOT a use; no event is emitted.
+        let (events, notes) = detect_events_with_state(Some(&curr), &curr, RELOCATION_RECONCILIATION_WINDOW_MS, &mut pending);
+        assert!(events.is_empty(), "expiry must never manufacture a use event from silence");
+        assert_eq!(notes, vec![PendingNote { item_name: "item_flask".into(), reason: PendingReason::DiscardedNoPositiveEvidence }]);
         assert!(!pending.is_pending("item_flask"));
 
-        // And it must never refire on a subsequent tick.
-        let (events, notes) = detect_events_with_state(Some(&curr), &curr, RELOCATION_CONFIRMATION_WINDOW_MS + 500, &mut pending);
+        // And an arbitrarily long time later must still never fire either.
+        let (events, notes) = detect_events_with_state(Some(&curr), &curr, RELOCATION_RECONCILIATION_WINDOW_MS + 3_600_000, &mut pending);
         assert!(events.is_empty());
         assert!(notes.is_empty());
     }
 
-    // The multi-tick relocation case this whole mechanism exists to fix:
-    // the item's destination slot doesn't land in the SAME tick the source
-    // slot clears (ordinary hero<->backpack/stash bookkeeping can
-    // legitimately straddle two GSI ticks) - must still be recognized as a
-    // relocation, not a use, as long as it reappears before the window
-    // elapses.
+    // The multi-tick relocation case this mechanism exists to fix: the
+    // item's destination slot doesn't land in the SAME tick the source slot
+    // clears (ordinary hero<->backpack/stash bookkeeping can legitimately
+    // straddle two GSI ticks) - correctly explained as a relocation. No
+    // event fires at any point in this scenario either way (see the test
+    // above), but this pins that reappearance is recognized (for
+    // diagnostics accuracy) exactly when it should be.
     #[test]
-    fn item_reappearing_in_a_later_tick_before_the_window_elapses_is_a_relocation_not_a_use() {
+    fn item_reappearing_in_a_later_tick_before_the_window_elapses_is_recognized_as_a_relocation() {
         let holding = with_hero(1, json!({ "items": { "slot0": { "name": "item_flask" } } }));
         let vanished = with_hero(1, json!({ "items": { "slot0": { "name": "empty" } } }));
         let relocated = with_hero(1, json!({ "items": { "slot0": { "name": "empty" }, "stash0": { "name": "item_flask" } } }));
@@ -584,8 +609,70 @@ mod tests {
         assert_eq!(notes, vec![PendingNote { item_name: "item_flask".into(), reason: PendingReason::ReappearedCancelled }]);
         assert!(!pending.is_pending("item_flask"));
 
-        // The window elapsing afterwards must not resurrect it.
-        let (events, notes) = detect_events_with_state(Some(&relocated), &relocated, RELOCATION_CONFIRMATION_WINDOW_MS + 1000, &mut pending);
+        // The window elapsing afterwards must not do anything at all - it
+        // was already resolved.
+        let (events, notes) = detect_events_with_state(Some(&relocated), &relocated, RELOCATION_RECONCILIATION_WINDOW_MS + 1000, &mut pending);
+        assert!(events.is_empty());
+        assert!(notes.is_empty());
+    }
+
+    // WK-138 - expiration of the reconciliation window must NEVER create an
+    // event by itself, for ANY reason a vanish went unexplained - explicit
+    // direct pin of the policy, independent of any specific item/scenario.
+    #[test]
+    fn window_expiration_never_creates_an_event_by_itself() {
+        let prev = with_hero(1, json!({ "items": { "slot0": { "name": "item_tango", "charges": 1 } } }));
+        let curr = with_hero(1, json!({ "items": { "slot0": { "name": "empty" } } }));
+        let mut pending = PendingConfirmations::default();
+        let (events, _) = detect_events_with_state(Some(&prev), &curr, 0, &mut pending);
+        assert!(events.is_empty());
+
+        for elapsed_ms in [
+            RELOCATION_RECONCILIATION_WINDOW_MS - 1,
+            RELOCATION_RECONCILIATION_WINDOW_MS,
+            RELOCATION_RECONCILIATION_WINDOW_MS + 1,
+            RELOCATION_RECONCILIATION_WINDOW_MS * 100,
+        ] {
+            let mut probe = PendingConfirmations::default();
+            let (events, _) = detect_events_with_state(Some(&prev), &curr, 0, &mut probe);
+            assert!(events.is_empty());
+            let (events, _) = detect_events_with_state(Some(&curr), &curr, elapsed_ms, &mut probe);
+            assert!(events.is_empty(), "elapsed_ms={elapsed_ms} must never itself produce an event");
+        }
+    }
+
+    // WK-138 - a real courier cargo signal (see `courier_item_names`) must
+    // still explain (cancel) a pending candidate, exactly like an `items`
+    // reappearance does - this is what actually lets a short, ordinary
+    // courier hand-off correlate cleanly in diagnostics instead of just
+    // silently expiring unexplained.
+    #[test]
+    fn item_appearing_in_courier_cargo_on_a_later_tick_is_recognized_as_a_relocation() {
+        let holding = with_hero(1, json!({ "items": { "slot1": { "name": "item_blood_grenade", "charges": 1, "cooldown": 0 } } }));
+        // Vanishes with no courier data yet this tick (e.g. the courier
+        // pickup hasn't landed in GSI's `couriers` section yet either).
+        let vanished = with_hero(1, json!({ "items": { "slot1": { "name": "empty" } } }));
+        // A LATER tick: GSI's separate `couriers` section (schema confirmed
+        // against antonpup/Dota2GSI's Courier/CourierItem node classes -
+        // see `courier_item_names`) now shows the courier carrying it.
+        let in_courier_cargo = with_hero(1, json!({
+            "items": { "slot1": { "name": "empty" } },
+            "couriers": { "courier0": { "owner": 0, "items": { "item0": { "owner": 0, "name": "item_blood_grenade" } } } }
+        }));
+        let mut pending = PendingConfirmations::default();
+
+        let (events, _) = detect_events_with_state(Some(&holding), &vanished, 0, &mut pending);
+        assert!(events.is_empty());
+        assert!(pending.is_pending("item_blood_grenade"));
+
+        let (events, notes) = detect_events_with_state(Some(&vanished), &in_courier_cargo, 500, &mut pending);
+        assert!(events.is_empty());
+        assert_eq!(notes, vec![PendingNote { item_name: "item_blood_grenade".into(), reason: PendingReason::ReappearedCancelled }]);
+        assert!(!pending.is_pending("item_blood_grenade"));
+
+        // And the window elapsing afterwards must not do anything - it was
+        // already explained.
+        let (events, notes) = detect_events_with_state(Some(&in_courier_cargo), &in_courier_cargo, RELOCATION_RECONCILIATION_WINDOW_MS + 1000, &mut pending);
         assert!(events.is_empty());
         assert!(notes.is_empty());
     }
@@ -893,15 +980,13 @@ mod tests {
     // That shape was never confirmed against real Dota GSI and, per the
     // WK-138 audit (see events.rs's module-level doc comment above
     // `detect_item_events`), is very likely fictional - Dota 2 GSI exposes
-    // courier state through a separate, then-unsubscribed `couriers`
-    // section, not as any key inside `items`. Those two tests are replaced
-    // below with `stash0`/`backpack0`-keyed equivalents (slot keys this
-    // detector's own code already treats identically - it has no
-    // courier-specific logic to begin with) plus an explicit
-    // `known_limitation_*` test that honestly pins what actually happens
-    // under the currently-subscribed schema when an item genuinely does go
-    // to courier (it vanishes with no trace anywhere `items` can show,
-    // exactly like a real courier transition does today).
+    // courier state through a separate `couriers` section (now subscribed
+    // AND parsed - see `courier_item_names`), not as any key inside
+    // `items`. The corrected policy also means the old "confirmed after
+    // window"/"known limitation" split no longer applies: absence is never
+    // evidence, so a courier transition of ANY duration and selling the
+    // last charge both now correctly produce ZERO events, not a delayed
+    // false positive.
     mod wk108_item_purchase_move_merge_semantics {
         use super::*;
 
@@ -914,8 +999,8 @@ mod tests {
             // newly-purchased grenade landing at a different slot is
             // present in this SAME `items` snapshot, so it's ruled out
             // immediately (see `item_reappearing_in_a_later_tick_before_the
-            // _window_elapses_is_a_relocation_not_a_use` for the case where
-            // it *doesn't* land in the same tick).
+            // _window_elapses_is_recognized_as_a_relocation` for the case
+            // where it *doesn't* land in the same tick).
             let holding_one = with_hero(1, json!({ "items": {
                 "slot1": { "name": "item_blood_grenade", "charges": 1, "cooldown": 0 },
                 "stash0": { "name": "empty" }
@@ -927,16 +1012,17 @@ mod tests {
             assert!(detect_events(Some(&holding_one), &slot_cleared_by_purchase).is_empty());
         }
 
-        // WK-109 задача B / WK-138 addendum - the last-charge case. The
-        // grenade's own slot going straight from `charges: 1` to fully
-        // gone, with the item name never reappearing anywhere for the full
-        // confirmation window, IS treated as a genuine use - see the
-        // window-based test above (`consumed_single_charge_item_
-        // disappearing_and_never_reappearing_is_confirmed_as_a_use_after_
-        // the_window`) for the exact mechanism; this is the
-        // Blood-Grenade-flavored regression pin for the same behavior.
+        // WK-109 задача B / WK-138 correction - the last-charge case. GSI
+        // cannot distinguish "consumed the last charge" from "sold the last
+        // charge" (or "courier is carrying the last charge") - the grenade's
+        // own slot going straight from `charges: 1` to fully gone and never
+        // reappearing anywhere is IDENTICAL in shape for all three. Per the
+        // corrected product policy (absence is not evidence; a missed
+        // ambiguous use is acceptable, a false broadcast sound is not),
+        // this now correctly produces ZERO events, reversing WK-109's
+        // original "treat it as a use" call for this one case.
         #[test]
-        fn using_the_last_charge_of_a_charge_tracked_item_is_confirmed_after_the_window() {
+        fn using_the_last_charge_of_a_charge_tracked_item_never_fires_from_vanishing_alone() {
             let prev = with_hero(1, json!({ "items": { "slot1": { "name": "item_blood_grenade", "charges": 1, "cooldown": 0 } } }));
             let curr = with_hero(1, json!({ "items": { "slot1": { "name": "empty" } } }));
             let mut pending = PendingConfirmations::default();
@@ -944,24 +1030,21 @@ mod tests {
             let (events, _) = detect_events_with_state(Some(&prev), &curr, 0, &mut pending);
             assert!(events.is_empty(), "must not fire on the very tick it vanishes");
 
-            let (events, _) = detect_events_with_state(Some(&curr), &curr, RELOCATION_CONFIRMATION_WINDOW_MS, &mut pending);
-            assert_eq!(events, vec![GameSoundEvent { kind: GameSoundEventKind::ItemUsed, id: "item_blood_grenade".into() }]);
+            // Nor after any amount of time, however long - see
+            // `window_expiration_never_creates_an_event_by_itself`.
+            let (events, _) = detect_events_with_state(Some(&curr), &curr, RELOCATION_RECONCILIATION_WINDOW_MS + 60_000, &mut pending);
+            assert!(events.is_empty(), "expiry must never manufacture a use event for the last-charge case either");
         }
 
-        // WK-138 - known, documented, currently-unresolved limitation: under
-        // the schema this detector actually parses today, a real courier
-        // transition is indistinguishable from a real last-charge use - the
-        // item vanishes from `items` with no trace anywhere for as long as
-        // the courier carries it, which will almost always outlast the
-        // short confirmation window (a real courier flight is many real
-        // seconds; the window only covers a same-payload bookkeeping race).
-        // This test pins that CURRENT, KNOWN-IMPERFECT behavior honestly
-        // rather than hiding it - it is not a passing "correctness" test,
-        // it is a regression pin for the documented gap (see the final
-        // WK-138 report and gsi/config.rs's `couriers` subscription addendum
-        // for the follow-up this requires).
+        // WK-138 - a courier transition, however long the courier actually
+        // carries the item for, must never produce a false "used" event.
+        // Before this correction, a courier flight simply outlasting the
+        // reconciliation window would have incorrectly confirmed a use;
+        // now expiry never fires anything, so this is unconditionally safe
+        // regardless of real courier flight duration (still unmeasured -
+        // see the final WK-138 report's manual-verification recipe).
         #[test]
-        fn known_limitation_a_courier_transition_that_outlasts_the_window_still_confirms_as_a_false_use() {
+        fn a_courier_transition_of_any_duration_never_produces_a_false_use() {
             let holding = with_hero(1, json!({ "items": { "slot1": { "name": "item_blood_grenade", "charges": 1, "cooldown": 0 } } }));
             let sent_to_courier = with_hero(1, json!({ "items": { "slot1": { "name": "empty" } } }));
             let mut pending = PendingConfirmations::default();
@@ -969,20 +1052,32 @@ mod tests {
             let (events, _) = detect_events_with_state(Some(&holding), &sent_to_courier, 0, &mut pending);
             assert!(events.is_empty());
 
-            // The item is still genuinely owned (courier is carrying it),
-            // but under the currently-parsed schema this detector has no
-            // way to see that - so the window elapsing still confirms.
-            let (events, _) = detect_events_with_state(
-                Some(&sent_to_courier),
-                &sent_to_courier,
-                RELOCATION_CONFIRMATION_WINDOW_MS,
-                &mut pending,
-            );
-            assert_eq!(
-                events,
-                vec![GameSoundEvent { kind: GameSoundEventKind::ItemUsed, id: "item_blood_grenade".into() }],
-                "documented limitation: a courier transition longer than the window is still misread as a use"
-            );
+            for elapsed_ms in [
+                RELOCATION_RECONCILIATION_WINDOW_MS, // short carry, outlasting the window
+                10_000,                              // a real, multi-second courier flight
+                120_000,                              // an unusually long one
+            ] {
+                let (events, _) = detect_events_with_state(Some(&sent_to_courier), &sent_to_courier, elapsed_ms, &mut pending);
+                assert!(events.is_empty(), "elapsed_ms={elapsed_ms} must never produce a false use");
+            }
+        }
+
+        // WK-138 - selling the last charge is the same shape as consuming
+        // it (vanishes, never reappears anywhere) and is explicitly called
+        // out by the corrected product policy as a case GSI cannot resolve
+        // - it must produce zero events, same as the generic last-charge
+        // test above. Kept as its own named regression pin since selling is
+        // the scenario actually reported in production.
+        #[test]
+        fn selling_the_last_charge_never_produces_a_false_use() {
+            let holding = with_hero(1, json!({ "items": { "slot1": { "name": "item_blood_grenade", "charges": 1, "cooldown": 0 } } }));
+            let sold = with_hero(1, json!({ "items": { "slot1": { "name": "empty" } } }));
+            let mut pending = PendingConfirmations::default();
+
+            let (events, _) = detect_events_with_state(Some(&holding), &sold, 0, &mut pending);
+            assert!(events.is_empty());
+            let (events, _) = detect_events_with_state(Some(&sold), &sold, RELOCATION_RECONCILIATION_WINDOW_MS + 60_000, &mut pending);
+            assert!(events.is_empty(), "selling the last charge must never be misread as a use, even after the window");
         }
 
         // The same vanish-from-slot shape, but the item still exists
@@ -1002,22 +1097,23 @@ mod tests {
         }
 
         // A charge-tracked item with 2+ charges remaining that vanishes
-        // outright (no same-slot decrease ever observed) still never fires,
-        // not even after the confirmation window elapses - the last-charge
-        // relaxation is scoped to exactly `charges == 1`, and this shape is
-        // never even registered as a pending candidate.
+        // outright (no same-slot decrease ever observed) never fires either
+        // - no positive evidence of any consumption exists for it, at any
+        // point. Still tracked as a pending candidate purely for
+        // reconciliation diagnostics (uniform treatment with every other
+        // vanish shape - see `detect_item_events`), but that tracking can
+        // never itself produce an event (see
+        // `window_expiration_never_creates_an_event_by_itself`).
         #[test]
         fn vanishing_with_two_or_more_charges_remaining_and_no_trace_elsewhere_is_still_not_a_use() {
             let prev = with_hero(1, json!({ "items": { "slot1": { "name": "item_blood_grenade", "charges": 2, "cooldown": 0 } } }));
             let curr = with_hero(1, json!({ "items": { "slot1": { "name": "empty" } } }));
             let mut pending = PendingConfirmations::default();
-            let (events, notes) = detect_events_with_state(Some(&prev), &curr, 0, &mut pending);
+            let (events, _) = detect_events_with_state(Some(&prev), &curr, 0, &mut pending);
             assert!(events.is_empty());
-            assert!(notes.is_empty(), "2+ charges vanishing must not even register a pending candidate");
-            assert!(!pending.is_pending("item_blood_grenade"));
 
-            // Confirmed by the window never firing it either, however long it waits.
-            let (events, _) = detect_events_with_state(Some(&curr), &curr, RELOCATION_CONFIRMATION_WINDOW_MS + 60_000, &mut pending);
+            // Never fires, however long it waits.
+            let (events, _) = detect_events_with_state(Some(&curr), &curr, RELOCATION_RECONCILIATION_WINDOW_MS + 60_000, &mut pending);
             assert!(events.is_empty());
         }
 

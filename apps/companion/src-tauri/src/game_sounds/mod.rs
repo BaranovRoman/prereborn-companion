@@ -139,9 +139,11 @@ pub fn handle_gsi(app: &AppHandle, payload: &Value) {
         // all) rather than let it produce a ghost event. See
         // events::hero_identity_changed's doc comment. WK-138 addendum: the
         // same reset also clears any item-vanish candidates still pending
-        // confirmation (see events::PendingConfirmations) - a candidate
-        // registered against the OLD match's inventory must never resolve
-        // (either way) against the new one.
+        // reconciliation (see events::PendingConfirmations) - a candidate
+        // registered against the OLD match's inventory must never leak
+        // diagnostics into the new one (it can never cause an event either
+        // way, see that module's doc comment, but the reset keeps
+        // diagnostics honest too).
         let effective_previous = match &previous {
             Some(prev) if !hero_identity_changed(prev, payload) => Some(prev),
             _ => {
@@ -162,16 +164,19 @@ pub fn handle_gsi(app: &AppHandle, payload: &Value) {
     };
 
     // WK-138 - bounded, structural (never raw-payload) diagnostics for the
-    // multi-tick item-vanish confirmation window, so the next reported false
+    // item-vanish reconciliation window, so the next reported false
     // positive/negative can be diagnosed post-hoc without a new capture
     // mechanism: reuses the same size-capped rolling log every other
     // breadcrumb in this function already goes through (see задача п.10 -
     // "не возвращаться к выгрузке неограниченных raw GSI файлов").
+    // IMPORTANT: none of these three outcomes ever caused an `ItemUsed`
+    // event above or below - see events::PendingReason's doc comment
+    // ("absence is not evidence"). This is purely forensic logging.
     for note in &pending_notes {
         let reason = match note.reason {
-            PendingReason::VanishAwaitingConfirmation => "vanish-awaiting-confirmation",
+            PendingReason::VanishAwaitingReconciliation => "vanish-awaiting-reconciliation",
             PendingReason::ReappearedCancelled => "reappeared-cancelled",
-            PendingReason::ConfirmedAfterWindow => "confirmed-after-window",
+            PendingReason::DiscardedNoPositiveEvidence => "discarded-no-positive-evidence",
         };
         storage::append_rolling_log(
             app,
