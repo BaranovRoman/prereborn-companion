@@ -2,6 +2,18 @@ name: PreReborn Companion - Windows
 
 on:
   workflow_dispatch:
+  # WK-145 - before this, build-windows only ran on workflow_dispatch or a
+  # push to main/tags, so a PR touching apps/companion/src-tauri merged with
+  # zero automated Rust build/test coverage (ci.yml only covers web/api).
+  # Safe to trigger straight from pull_request (no fork-PR / secrets concern
+  # here - build-windows never references TAURI_SIGNING_PRIVATE_KEY, only
+  # release-windows does, and that job's tag-only `if` below is unaffected
+  # by this). Same path filter as the push trigger below, since this job
+  # builds the whole packaged app, not just the Rust crate.
+  pull_request:
+    paths:
+      - "apps/companion/**"
+      - ".github/workflows/windows-release.yml"
   push:
     branches:
       - main
