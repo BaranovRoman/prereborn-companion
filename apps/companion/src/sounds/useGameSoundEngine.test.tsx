@@ -41,8 +41,8 @@ const baseSettings: GameSoundSettings = {
   assets: [{ id: "asset-1", fileName: "asset-1.wav", originalName: "hook.wav", sizeBytes: 10 }],
 };
 
-function Harness({ onEngine }: { onEngine: (engine: ReturnType<typeof useGameSoundEngine>) => void }) {
-  const engine = useGameSoundEngine();
+function Harness({ onEngine, overallVolume }: { onEngine: (engine: ReturnType<typeof useGameSoundEngine>) => void; overallVolume?: number }) {
+  const engine = useGameSoundEngine(overallVolume);
   onEngine(engine);
   return null;
 }
@@ -115,6 +115,38 @@ describe("useGameSoundEngine", () => {
 
     expect(MockAudio.instances).toHaveLength(1);
     expect(MockAudio.instances[0].volume).toBeCloseTo(0.42);
+  });
+
+  // WK-135 - Audio Settings "Общий" multiplier: effective_custom = overall ×
+  // item.volume, applied at playback time only (item.volume itself is
+  // unchanged - Rust's game_sounds/mod.rs still resolves it the same way).
+  it("multiplies the event's volume by the Общий (overall) multiplier", async () => {
+    let engine!: ReturnType<typeof useGameSoundEngine>;
+    render(<Harness overallVolume={50} onEngine={(e) => { engine = e; }} />);
+    await waitFor(() => expect(engine.settings).not.toBeNull());
+
+    getPlayNotifyHandler()({ payload: playEvent("item_tango", 80) });
+
+    expect(MockAudio.instances[0].volume).toBeCloseTo(0.4); // 80% * 50%
+  });
+
+  it("0% Общий silences playback entirely regardless of the event's own volume", async () => {
+    let engine!: ReturnType<typeof useGameSoundEngine>;
+    render(<Harness overallVolume={0} onEngine={(e) => { engine = e; }} />);
+    await waitFor(() => expect(engine.settings).not.toBeNull());
+
+    getPlayNotifyHandler()({ payload: playEvent("item_tango", 100) });
+
+    expect(MockAudio.instances[0].volume).toBeCloseTo(0);
+  });
+
+  it("preview also applies the Общий multiplier", async () => {
+    let engine!: ReturnType<typeof useGameSoundEngine>;
+    render(<Harness overallVolume={50} onEngine={(e) => { engine = e; }} />);
+    await waitFor(() => expect(engine.settings).not.toBeNull());
+
+    await engine.preview("asset-1", 80);
+    expect(MockAudio.instances[0].volume).toBeCloseTo(0.4); // 80% * 50%
   });
 
   it("logs frontend-received/audio-play-requested/audio-playing timing stages for the played event's correlation id, without blocking playback", async () => {

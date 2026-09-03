@@ -2,6 +2,7 @@ mod backend;
 mod broadcast_state;
 mod commands;
 mod diagnostics;
+mod draft_reminder;
 mod game_sounds;
 mod gsi;
 mod hotkeys;
@@ -306,6 +307,8 @@ pub fn run() {
             commands::diagnostics_trace_tts_frontend,
             commands::get_skip_hotkey_status,
             commands::set_skip_hotkey,
+            commands::get_overlay_toggle_hotkey_status,
+            commands::set_overlay_toggle_hotkey,
             commands::get_stream_session,
             commands::reset_stream_session,
             commands::end_stream_session,

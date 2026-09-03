@@ -1,4 +1,4 @@
-import { Checkbox, Slider, Tabs } from "../components/ui";
+import { Checkbox, Tabs } from "../components/ui";
 import { ItemsCatalog } from "../components/sounds/ItemsCatalog";
 import type { useGameSoundEngine } from "../sounds/useGameSoundEngine";
 import type { GameSoundEventKind } from "../services/dotaCompanionApi";
@@ -39,8 +39,8 @@ export function SoundsPage({ engine }: Props) {
   if (!catalog || !settings) {
     return (
       <div className="page-heading">
-        <span className="section-heading__eyebrow">Звуки</span>
-        <h2>Звуки</h2>
+        <span className="section-heading__eyebrow">Предметы</span>
+        <h2>Предметы</h2>
         <p>Загрузка каталога…</p>
       </div>
     );
@@ -49,8 +49,8 @@ export function SoundsPage({ engine }: Props) {
   return (
     <div className="sounds-view">
       <div className="page-heading">
-        <span className="section-heading__eyebrow">Звуки</span>
-        <h2>Звуки</h2>
+        <span className="section-heading__eyebrow">Предметы</span>
+        <h2>Предметы</h2>
         <p>Выберите собственный звуковой файл для предметов и способностей — никаких встроенных звуков.</p>
       </div>
 
@@ -62,20 +62,10 @@ export function SoundsPage({ engine }: Props) {
             checked={settings.enabled}
             onChange={(event) => void setMaster(event.target.checked, settings.masterVolume)}
           />
-          <div className="tts-volume sounds-panel__volume">
-            <div className="tts-volume__row">
-              <span>Громкость</span>
-              <span className="tts-volume__value">{settings.masterVolume}%</span>
-            </div>
-            <Slider
-              min={0}
-              max={100}
-              value={settings.masterVolume}
-              disabled={!settings.enabled}
-              onChange={(event) => void setMaster(settings.enabled, Number(event.target.value))}
-              aria-label="Громкость"
-            />
-          </div>
+          {/* WK-135 - the "Громкость" slider that used to sit here moved into
+              Settings → Чат и TTS → Аудио (AudioSettings.tsx), consolidated
+              alongside Общий/TTS. This checkbox (enable/disable, not volume)
+              stays - only the volume control was moved. */}
         </div>
         {error && <p className="app__error">Ошибка: {error}</p>}
 

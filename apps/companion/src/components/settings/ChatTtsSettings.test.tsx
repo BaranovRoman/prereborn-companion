@@ -37,9 +37,8 @@ afterEach(() => cleanup());
 // instance's updateSetting (no parallel/local state).
 describe("ChatTtsSettings", () => {
   it("reflects current settings", () => {
-    render(<ChatTtsSettings session={buildSession({ settings: { ...DEFAULT_CHAT_SETTINGS, ttsEnabled: true, speechVolume: 42 } })} />);
+    render(<ChatTtsSettings session={buildSession({ settings: { ...DEFAULT_CHAT_SETTINGS, ttsEnabled: true } })} />);
     expect((screen.getByLabelText("Озвучивать сообщения (TTS)") as HTMLInputElement).checked).toBe(true);
-    expect(screen.getByText("42%")).toBeTruthy();
   });
 
   it("toggling TTS enabled calls updateSetting('ttsEnabled', ...)", () => {
@@ -56,11 +55,12 @@ describe("ChatTtsSettings", () => {
     expect(session.updateSetting).toHaveBeenCalledWith("soundEnabled", true);
   });
 
-  it("changing the speech volume slider calls updateSetting('speechVolume', ...)", () => {
-    const session = buildSession({ settings: { ...DEFAULT_CHAT_SETTINGS, ttsEnabled: true } });
-    render(<ChatTtsSettings session={session} />);
-    fireEvent.change(screen.getByLabelText("Громкость речи"), { target: { value: "33" } });
-    expect(session.updateSetting).toHaveBeenCalledWith("speechVolume", 33);
+  // WK-135 - the "Громкость речи" slider moved into Settings → Чат и TTS →
+  // Аудио (AudioSettings.tsx, see that component's own test) - ChatTtsSettings
+  // no longer renders a volume control at all.
+  it("no longer renders a speech-volume slider (moved to AudioSettings)", () => {
+    render(<ChatTtsSettings session={buildSession({ settings: { ...DEFAULT_CHAT_SETTINGS, ttsEnabled: true } })} />);
+    expect(screen.queryByLabelText("Громкость речи")).toBeNull();
   });
 
   it("only shows Silero voice picker when TTS is enabled and engine is silero", () => {

@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
 import { AccountForm } from "./AccountForm";
 import { AutostartSetting } from "./AutostartSetting";
+import { DraftStreamReminderSetting } from "./DraftStreamReminderSetting";
 import { HotkeySettings } from "./HotkeySettings";
 import { ObsScenePanel } from "./ObsScenePanel";
+import { AudioSettings } from "./settings/AudioSettings";
 import { ChatTtsSettings } from "./settings/ChatTtsSettings";
 import type { TwitchChatSession } from "../chat/useTwitchChatSession";
 import type { AutostartState } from "../hooks/useAutostart";
 import { useModalBehavior } from "../hooks/useModalBehavior";
-import type { SkipHotkeyStatus } from "../services/dotaCompanionApi";
+import type { OverlayToggleHotkeyStatus, SkipHotkeyStatus } from "../services/dotaCompanionApi";
+import type { useGameSoundEngine } from "../sounds/useGameSoundEngine";
 import type { StatusSnapshot } from "../types/status";
 
 // WK-121 §4 - Settings ownership audit result: connection/OBS/hotkeys/
@@ -41,7 +44,15 @@ interface Props {
   hotkeyStatus: SkipHotkeyStatus | null;
   hotkeyBusy: boolean;
   onUpdateHotkey: (enabled: boolean, shortcut: string) => Promise<void>;
+  overlayHotkeyStatus: OverlayToggleHotkeyStatus | null;
+  overlayHotkeyBusy: boolean;
+  onUpdateOverlayHotkey: (enabled: boolean, shortcut: string) => Promise<void>;
+  overallVolume: number;
+  onOverallVolumeChange: (value: number) => void;
+  draftStreamReminderEnabled: boolean;
+  onDraftStreamReminderChange: (enabled: boolean) => void;
   chatSession: TwitchChatSession;
+  gameSoundEngine: ReturnType<typeof useGameSoundEngine>;
   /** Opens directly onto a specific category (e.g. Chat's "Открыть настройки
    *  чата и TTS" link) - re-applied every time the modal opens. */
   initialCategory?: Category;
@@ -56,7 +67,10 @@ interface Props {
 // component's removal in the same change.
 export function SettingsModal({
   open, onClose, status, setStatus, autostart, hotkeyStatus, hotkeyBusy, onUpdateHotkey,
-  chatSession, initialCategory,
+  overlayHotkeyStatus, overlayHotkeyBusy, onUpdateOverlayHotkey,
+  overallVolume, onOverallVolumeChange,
+  draftStreamReminderEnabled, onDraftStreamReminderChange,
+  chatSession, gameSoundEngine, initialCategory,
 }: Props) {
   const [category, setCategory] = useState<Category>("account");
   const containerRef = useModalBehavior(open, onClose);
@@ -102,11 +116,33 @@ export function SettingsModal({
             {category === "account" && <AccountForm />}
             {category === "obs" && (
               status
-                ? <ObsScenePanel status={status} onStatus={setStatus} />
+                ? (
+                  <>
+                    <ObsScenePanel status={status} onStatus={setStatus} />
+                    <DraftStreamReminderSetting enabled={draftStreamReminderEnabled} onChange={onDraftStreamReminderChange} />
+                  </>
+                )
                 : <p className="matches-panel__empty">Загрузка…</p>
             )}
-            {category === "chat" && <ChatTtsSettings session={chatSession} />}
-            {category === "hotkeys" && <HotkeySettings status={hotkeyStatus} busy={hotkeyBusy} onUpdate={onUpdateHotkey} />}
+            {category === "chat" && (
+              <>
+                <AudioSettings
+                  overallVolume={overallVolume}
+                  onOverallVolumeChange={onOverallVolumeChange}
+                  chatSession={chatSession}
+                  gameSoundEngine={gameSoundEngine}
+                />
+                <ChatTtsSettings session={chatSession} />
+              </>
+            )}
+            {category === "hotkeys" && (
+              <HotkeySettings
+                status={hotkeyStatus}
+                busy={hotkeyBusy}
+                onUpdate={onUpdateHotkey}
+                overlay={{ status: overlayHotkeyStatus, busy: overlayHotkeyBusy, onUpdate: onUpdateOverlayHotkey }}
+              />
+            )}
             {category === "autostart" && <AutostartSetting state={autostart.state} busy={autostart.busy} onChange={autostart.setAutostart} />}
           </div>
         </div>

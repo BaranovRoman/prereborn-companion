@@ -121,4 +121,71 @@ describe("HotkeySettings", () => {
     );
     expect(screen.getByText(/Не удалось зарегистрировать хоткей/)).toBeTruthy();
   });
+
+  // WK-135 - overlay show/hide hotkey, a second independent row reusing the
+  // exact same HotkeyBindRow. Pins that the two rows keep fully independent
+  // recording/error state - recording one must never affect the other.
+  describe("with the overlay row", () => {
+    it("renders both rows with their own shortcuts", () => {
+      render(
+        <HotkeySettings
+          status={{ enabled: true, shortcut: "Ctrl+Alt+F9", registered: true, lastError: null }}
+          busy={false}
+          onUpdate={vi.fn()}
+          overlay={{
+            status: { enabled: true, shortcut: "Ctrl+Alt+F11", registered: true, lastError: null },
+            busy: false,
+            onUpdate: vi.fn(),
+          }}
+        />
+      );
+      expect(screen.getByRole("button", { name: "Ctrl+Alt+F9" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Ctrl+Alt+F11" })).toBeTruthy();
+      expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+    });
+
+    it("recording the overlay row's shortcut does not put the skip-TTS row into recording state", () => {
+      const skipUpdate = vi.fn().mockResolvedValue(undefined);
+      const overlayUpdate = vi.fn().mockResolvedValue(undefined);
+      render(
+        <HotkeySettings
+          status={{ enabled: true, shortcut: "Ctrl+Alt+F9", registered: true, lastError: null }}
+          busy={false}
+          onUpdate={skipUpdate}
+          overlay={{
+            status: { enabled: true, shortcut: "Ctrl+Alt+F11", registered: true, lastError: null },
+            busy: false,
+            onUpdate: overlayUpdate,
+          }}
+        />
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Ctrl+Alt+F11" }));
+      // Only the overlay row entered recording mode.
+      expect(screen.getByRole("button", { name: /Нажмите клавиши/ })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Ctrl+Alt+F9" })).toBeTruthy();
+
+      fireEvent.keyDown(window, { code: "F12", key: "F12" });
+      expect(overlayUpdate).toHaveBeenCalledWith(true, expect.stringContaining("F12"));
+      expect(skipUpdate).not.toHaveBeenCalled();
+    });
+
+    it("resetting the overlay row uses its own default shortcut", () => {
+      const overlayUpdate = vi.fn().mockResolvedValue(undefined);
+      render(
+        <HotkeySettings
+          status={{ enabled: true, shortcut: "Ctrl+Alt+F9", registered: true, lastError: null }}
+          busy={false}
+          onUpdate={vi.fn()}
+          overlay={{
+            status: { enabled: true, shortcut: "Ctrl+Alt+F12", registered: true, lastError: null },
+            busy: false,
+            onUpdate: overlayUpdate,
+          }}
+        />
+      );
+      const resetButtons = screen.getAllByRole("button", { name: "Сбросить по умолчанию" });
+      fireEvent.click(resetButtons[1]);
+      expect(overlayUpdate).toHaveBeenCalledWith(true, "CommandOrControl+Alt+F11");
+    });
+  });
 });

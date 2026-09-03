@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::diagnostics;
+use crate::draft_reminder;
 use crate::game_sounds;
 use crate::local_runtime;
 use crate::obs;
@@ -90,6 +91,11 @@ fn process_gsi_body(app: &AppHandle, remote_addr: &str, body: &str) -> LastEvent
         // backend forwarding, the same isolation obs::handle_gsi and
         // game_sounds::handle_gsi already have from each other.
         local_runtime::handle_gsi(app, parsed);
+        // WK-136 - "Стрим не запущен" Draft reminder, a 4th independent
+        // consumer with the same isolation as the three above (see
+        // draft_reminder.rs's own doc comment for why it isn't folded into
+        // obs.rs).
+        draft_reminder::handle_gsi(app, parsed);
     }
 
     {

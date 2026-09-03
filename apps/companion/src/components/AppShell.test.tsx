@@ -159,7 +159,25 @@ vi.mock("../chat/useTwitchChatSession", () => ({
     skipHotkeyStatus: { enabled: false, shortcut: "CommandOrControl+Alt+F10", registered: false, lastError: null },
     skipHotkeyBusy: false,
     updateSkipHotkey: vi.fn().mockResolvedValue(undefined),
+    // Read by useDraftStreamReminder (WK-136) - reuses whatever voice chat
+    // TTS is already configured with, never a second setting of its own.
+    settings: { sileroVoice: "xenia" },
   }),
+}));
+// WK-135 - overlay show/hide hotkey, mocked like every other polling hook in
+// this file so unrelated tests never make a real
+// invoke("get_overlay_toggle_hotkey_status") call.
+vi.mock("../hooks/useOverlayToggleHotkey", () => ({
+  useOverlayToggleHotkey: () => ({
+    status: { enabled: true, shortcut: "CommandOrControl+Alt+F11", registered: true, lastError: null },
+    busy: false,
+    updateOverlayHotkey: vi.fn().mockResolvedValue(undefined),
+  }),
+}));
+// WK-136 - Draft stream-not-started reminder, mocked like every other
+// polling/IPC-backed hook in this file.
+vi.mock("../hooks/useDraftStreamReminder", () => ({
+  useDraftStreamReminder: () => ({ enabled: true, setEnabled: vi.fn() }),
 }));
 vi.mock("./TwitchChatPage", () => ({
   TwitchChatPage: () => <div data-testid="chat-page-stub">Chat stub</div>,
@@ -203,13 +221,13 @@ describe("AppShell navigation", () => {
     expect(screen.getByRole("button", { name: /Чат/ }).className).toContain("is-active");
   });
 
-  it("switches to Звуки and hides every other section's content", () => {
+  it("switches to Предметы and hides every other section's content", () => {
     render(<AppShell />);
-    clickNav("Звуки");
+    clickNav("Предметы");
     expect(screen.getByTestId("sounds-page-stub")).toBeTruthy();
     expect(screen.queryByText("Текущий MMR")).toBeNull();
     expect(screen.queryByTestId("chat-page-stub")).toBeNull();
-    expect(screen.getByRole("button", { name: /Звуки/ }).className).toContain("is-active");
+    expect(screen.getByRole("button", { name: /Предметы/ }).className).toContain("is-active");
   });
 
   it("switches to Диагностика (secondary link) and hides every other section's content", () => {
@@ -515,5 +533,27 @@ describe("Диагностика sync outbox detail (WK-119)", () => {
     clickNav("Диагностика");
     expect(screen.getByText(/Последняя успешная синхронизация:/)).toBeTruthy();
     expect(screen.queryByText(/Последняя успешная синхронизация:\s*ещё не было/)).toBeNull();
+  });
+
+  // WK-135 - overlay-visibility header badge: the primary feedback path
+  // after toggling the overlay via the (now removed) Home button, Settings,
+  // or the global hotkey - see AppShell.tsx's comment on this badge for why
+  // it lives in the header (visible on every page) instead of Home only.
+  it("shows a header badge when the overlay is hidden", () => {
+    statusFixture = buildStatusFixture({ overlay_visible: false });
+    render(<AppShell />);
+    expect(screen.getByText("Оверлей скрыт")).toBeTruthy();
+  });
+
+  it("shows no overlay badge while the overlay is visible", () => {
+    statusFixture = buildStatusFixture({ overlay_visible: true });
+    render(<AppShell />);
+    expect(screen.queryByText("Оверлей скрыт")).toBeNull();
+  });
+
+  it("no longer renders a manual overlay toggle button on Home (superseded by the hotkey)", () => {
+    render(<AppShell />);
+    expect(screen.queryByText("Скрыть оверлей")).toBeNull();
+    expect(screen.queryByText("Показать оверлей")).toBeNull();
   });
 });

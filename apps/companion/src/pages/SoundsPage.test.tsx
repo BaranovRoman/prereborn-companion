@@ -157,10 +157,9 @@ describe("SoundsPage - no Герои tab", () => {
 });
 
 describe("SoundsPage - master controls", () => {
-  it("reflects the enabled toggle and current volume, independent of TTS settings", () => {
+  it("reflects the enabled toggle, independent of TTS settings", () => {
     render(<SoundsPage engine={buildEngine({ settings: buildSettings({ enabled: false, masterVolume: 30 }) })} />);
     expect((screen.getByLabelText("Звуковые реакции") as HTMLInputElement).checked).toBe(false);
-    expect(screen.getByText("30%")).toBeTruthy();
   });
 
   it("toggling the master switch calls setMaster with the toggled value and current volume", () => {
@@ -170,10 +169,11 @@ describe("SoundsPage - master controls", () => {
     expect(engine.setMaster).toHaveBeenCalledWith(true, 50);
   });
 
-  it("changing the volume slider calls setMaster with the current enabled flag and new volume", () => {
-    const engine = buildEngine({ settings: buildSettings({ enabled: true, masterVolume: 50 }) });
-    render(<SoundsPage engine={engine} />);
-    fireEvent.change(screen.getByRole("slider"), { target: { value: "20" } });
-    expect(engine.setMaster).toHaveBeenCalledWith(true, 20);
+  // WK-135 - the volume slider itself moved into Settings → Чат и TTS →
+  // Аудио (AudioSettings.tsx, see that component's own test) - SoundsPage no
+  // longer renders one, only the enable/disable checkbox above.
+  it("no longer renders a volume slider (moved to AudioSettings)", () => {
+    render(<SoundsPage engine={buildEngine({ settings: buildSettings({ enabled: true, masterVolume: 50 }) })} />);
+    expect(screen.queryByRole("slider")).toBeNull();
   });
 });

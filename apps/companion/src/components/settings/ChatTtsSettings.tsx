@@ -1,7 +1,7 @@
 import type { ChatSettings } from "../../chat/chat-model";
 import type { TwitchChatSession } from "../../chat/useTwitchChatSession";
 import type { SileroVoice } from "../../services/dotaCompanionApi";
-import { Checkbox, Radio, Select, Slider } from "../ui";
+import { Checkbox, Radio, Select } from "../ui";
 
 const SILERO_VOICES: { value: SileroVoice; label: string }[] = [
   { value: "xenia", label: "Xenia" },
@@ -52,18 +52,6 @@ export function ChatTtsSettings({ session }: { session: TwitchChatSession }) {
           label="Системный голос"
         />
       </div>
-      <label className={`tts-volume ${!settings.ttsEnabled ? "is-disabled" : ""}`}>
-        <span className="tts-volume__row"><span>Громкость речи</span><span className="tts-volume__value">{settings.speechVolume}%</span></span>
-        <Slider
-          min={0}
-          max={100}
-          step={1}
-          disabled={!settings.ttsEnabled}
-          value={settings.speechVolume}
-          onChange={(event) => update("speechVolume", Number(event.target.value))}
-          aria-label="Громкость речи"
-        />
-      </label>
       {settings.ttsEnabled && settings.ttsEngine === "silero" && (
         <>
           <label>Голос
