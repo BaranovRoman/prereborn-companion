@@ -221,6 +221,20 @@ export interface LocalSessionSummary {
   recentMatches: LocalMatchSummary[];
 }
 
+// WK-140 - Hero Detail's local statistics zone: a device-wide, per-hero
+// aggregate (not session-scoped like LocalSessionSummary above), mirrors
+// local_runtime::summary::HeroLocalStats field-for-field. Explicitly local/
+// Companion-observed data, not lifetime Dota stats - see HeroDetailPage.
+export interface HeroLocalStats {
+  matches: number;
+  wins: number;
+  losses: number;
+  avgKills: number | null;
+  avgDeaths: number | null;
+  avgAssists: number | null;
+  recentResults: LocalMatchResultValue[];
+}
+
 export interface SyncOutboxStatus {
   pendingCount: number;
   retryingCount: number;

@@ -1440,30 +1440,55 @@ h1, h2, p { margin-top: 0; }
 .hero-favorites-strip__card img { width: 100%; height: 100%; object-fit: cover; }
 .hero-favorites-strip__card:hover { box-shadow: inset 0 0 0 1px var(--ui-red-hover); }
 
-/* WK-122 §8 / WK-132 - transient keyboard-search indicator: no permanent
-   input, just a small floating chip echoing what the user is currently
-   typing (auto-clears on its own, see HeroesPage's QUERY_IDLE_CLEAR_MS) -
-   sits above the grid rather than covering it; the grid itself now dims
-   non-matches in place instead of filtering (see .hero-portrait-grid
-   [data-searching] rules), so this chip stays a lightweight echo rather
-   than the only sign that a search occurred. */
-.hero-search-indicator {
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  align-self: flex-start;
-  margin-bottom: 10px;
-  padding: 6px 16px;
-  border: 1px solid #260d0d;
-  border-radius: var(--radius);
-  background: linear-gradient(180deg, var(--ui-red-hover), #612a29);
-  box-shadow: 0 4px 14px rgba(0, 0, 0, .5), inset 0 0 0 1px rgba(225, 156, 147, .35);
-  color: #f5efe6;
-  font-weight: 700;
-  font-size: 1rem;
-  letter-spacing: .12em;
+/* WK-141 - the roster wrapper the search overlay is absolutely positioned
+   against: scoped to just the grid (not the whole page), so the overlay
+   never covers the section header/favorites row above it. */
+.hero-roster { position: relative; }
+
+/* WK-141 - active query as a large temporary Reaver overlay ON the roster,
+   replacing WK-122/132's small sticky form-like chip (bordered, red-filled,
+   read as a search input). No background/border/input chrome at all - the
+   typography itself is the only feedback, per this task's own "the text IS
+   the search feedback" instruction. `position: absolute` (not sticky/flow)
+   is what keeps idle vs. active-search roster geometry byte-for-byte
+   identical - see `.hero-roster` above. `pointer-events: none` so it never
+   blocks clicking a hero tile underneath while a query is active. */
+.hero-search-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  pointer-events: none;
 }
-.hero-search-indicator__hint { color: rgba(245, 239, 230, .72); font-weight: 500; letter-spacing: normal; text-transform: none; }
+.hero-search-overlay__query {
+  font-family: var(--font-title);
+  font-weight: 600;
+  font-size: clamp(2.2rem, 8vw, 6rem);
+  line-height: 1.05;
+  letter-spacing: .05em;
+  color: #f5efe6;
+  text-shadow: 0 8px 34px rgba(0, 0, 0, .85), 0 2px 8px rgba(0, 0, 0, .9);
+  max-width: 92%;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+.hero-search-overlay__hint {
+  font-size: .78rem;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: rgba(245, 239, 230, .75);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, .85);
+}
+@media (max-height: 820px) {
+  .hero-search-overlay__query { font-size: clamp(1.8rem, 7vw, 3.6rem); }
+}
 
 .hero-portrait-tile__favorite {
   position: absolute;
@@ -1482,58 +1507,75 @@ h1, h2, p { margin-top: 0; }
 .hero-portrait-tile__favorite.is-active { color: var(--ui-gold); text-shadow: 0 0 6px rgba(162,151,110,.6), 0 1px 2px #000; }
 .hero-portrait-tile__favorite:hover { color: #f2ece5; }
 
-/* WK-133 - Hero Detail rebuilt around a Dota hero-pick-screen composition,
-   not a "video card + settings list": the hero visual is a LARGE radial-
-   masked background filling most of the scene (feathered into the app's
-   ambient fog/ember layer behind it, not a bounded rectangle), and
-   foreground content (name, ability strip, expanded sound control) is
-   anchored top-left over it - deliberately not spanning the full scene
-   width, so the right side stays open for a future statistics block
-   without needing another layout pass. Replaces WK-121/122/125's
-   [visual, ability-list] side-by-side pair entirely. */
+/* WK-140 - Hero Detail composed as three ZONES, not three visible panels:
+   identity/abilities LEFT, the hero itself CENTER (large, genuinely
+   centered - not biased to one edge), local statistics RIGHT. The hero
+   visual stays a large radial-masked background (feathered into the app's
+   ambient fog/ember layer, not a bounded rectangle - unchanged from WK-133)
+   and LEFT/RIGHT content is laid out over it via `.hero-detail__grid`'s two
+   flex-anchored columns, with the hero showing through the gap between them
+   rather than being boxed into its own column. Replaces WK-133's single
+   top-left content block (which deliberately left the right side open "for
+   a future statistics block" - this is that block). */
 .hero-detail { display: grid; gap: 14px; }
-.hero-detail__back { align-self: flex-start; }
 
 .hero-detail__scene {
   position: relative;
   isolation: isolate;
-  min-height: min(74vh, 760px);
+  min-height: min(82vh, 880px);
   display: flex;
 }
 /* Source hero-idle-loop captures are always square (1:1) - stretching that
-   to `inset:0` on a wide/tall scene rectangle forced a much heavier crop
-   than the old bounded square visual ever had, and on a more dynamic loop
-   (Pudge's hook swing vs. Techies' relatively static idle) that occasionally
-   lands on an unrecognizable extreme close-up. Keeping this container
-   itself square - just far larger than before, biased to the right side of
-   the scene - lets `object-fit: cover` stay centered (its default) with
-   minimal cropping while still reading as genuinely large. */
+   to `inset:0` on a wide/tall scene rectangle forces a much heavier crop
+   than a centered square visual needs, and on a more dynamic loop (Pudge's
+   hook swing vs. Techies' relatively static idle) that occasionally lands
+   on an unrecognizable extreme close-up. Keeping this container itself
+   square - substantially larger than WK-133 and centered horizontally
+   instead of biased to the right edge - lets `object-fit: cover` stay
+   centered (its default) with minimal cropping while reading as the
+   screen's dominant focal point. */
 .hero-detail__visual-bg {
   position: absolute;
-  top: 4%;
-  right: 0;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 0;
-  width: min(72vh, 820px);
-  height: min(72vh, 820px);
+  width: min(84vh, 980px);
+  height: min(84vh, 980px);
   pointer-events: none;
 }
 .hero-detail__visual-bg video, .hero-detail__visual-bg img {
   display: block; width: 100%; height: 100%; object-fit: cover;
-  -webkit-mask-image: radial-gradient(ellipse 68% 72% at 50% 42%, #000 44%, transparent 88%);
-  mask-image: radial-gradient(ellipse 68% 72% at 50% 42%, #000 44%, transparent 88%);
+  -webkit-mask-image: radial-gradient(ellipse 66% 70% at 50% 40%, #000 44%, transparent 88%);
+  mask-image: radial-gradient(ellipse 66% 70% at 50% 40%, #000 44%, transparent 88%);
   filter: drop-shadow(0 30px 60px rgba(0, 0, 0, .55));
 }
 
-.hero-detail__content {
+.hero-detail__grid {
   position: relative;
   z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+}
+
+.hero-detail__left {
   display: flex;
   flex-direction: column;
   gap: 12px;
   width: 100%;
-  max-width: 640px;
+  max-width: 360px;
   padding-top: 6px;
 }
+/* WK-140 - relocated from the page's own top row (a lone full-width grid
+   row, which read as a button floating centered above the hero) into the
+   LEFT identity hierarchy - a restrained breadcrumb, not a button pinned to
+   the page. */
+.hero-detail__back { align-self: flex-start; padding: 4px 2px; font-size: .8rem; color: var(--ui-text-soft); border: 0; background: none; }
+.hero-detail__back:hover { color: var(--ui-text); }
+
 .hero-detail__identity { display: flex; align-items: center; gap: 12px; }
 /* WK-134 - Reaver, same title font apps/web already uses for hero/profile
    names (queue-scene.module.scss's --font-title) - font-weight 600 is the
@@ -1553,25 +1595,64 @@ h1, h2, p { margin-top: 0; }
    banner - deliberately doesn't compete with the hero for attention. */
 .hero-detail__sounds-disabled-hint { margin: 0; color: var(--ui-text-soft); font-size: .78rem; text-shadow: 0 1px 4px #000; }
 
+/* WK-140 - RIGHT: local statistics, typography over KPI tiles - see this
+   task's own "no boxed dashboard" requirement. `dl`/rows instead of a
+   grid of cards; a `min-width` (not a fixed one) so it can compress under
+   the 1024px breakpoint below rather than forcing horizontal overflow. */
+.hero-detail__stats {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  max-width: 260px;
+  padding-top: 6px;
+  text-align: right;
+}
+.hero-detail__stats-title { margin: 0 0 2px; color: var(--ui-gold); font-size: .72rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; text-shadow: 0 1px 4px #000; }
+.hero-detail__stats-empty { margin: 0; color: var(--ui-text-soft); font-size: .82rem; text-shadow: 0 1px 4px #000; }
+.hero-detail__stats-list { display: grid; gap: 4px; margin: 0; }
+.hero-detail__stats-row { display: flex; align-items: baseline; justify-content: flex-end; gap: 10px; padding-bottom: 4px; border-bottom: 1px solid var(--ui-edge-soft); }
+.hero-detail__stats-row dt { margin: 0; color: var(--ui-text-soft); font-size: .74rem; letter-spacing: .04em; text-transform: uppercase; text-shadow: 0 1px 4px #000; }
+.hero-detail__stats-row dd { margin: 0; color: var(--ui-text); font-size: .95rem; font-weight: 700; font-variant-numeric: tabular-nums; text-shadow: 0 1px 4px #000; }
+.hero-detail__stats-recent { display: flex; justify-content: flex-end; gap: 4px; }
+.hero-detail__stats-dot { width: 6px; height: 6px; border-radius: 1px; box-shadow: 0 1px 3px rgba(0, 0, 0, .6); }
+.hero-detail__stats-dot--win { background: var(--ui-green); }
+.hero-detail__stats-dot--loss { background: var(--ui-red-hover); }
+.hero-detail__stats-dot--abandon { background: var(--ui-text-muted); }
+.hero-detail__stats-caption { margin: 2px 0 0; color: var(--ui-text-muted); font-size: .68rem; text-shadow: 0 1px 4px #000; }
+
+@media (max-width: 1200px) {
+  .hero-detail__scene { min-height: min(66vh, 680px); }
+  .hero-detail__visual-bg { width: min(70vh, 640px); height: min(70vh, 640px); }
+  .hero-detail__left, .hero-detail__stats { max-width: 220px; }
+}
+
 @media (max-width: 900px) {
   .hero-detail__scene { min-height: min(56vh, 560px); }
-  .hero-detail__content { max-width: 100%; }
+  .hero-detail__grid { flex-wrap: wrap; }
+  .hero-detail__left, .hero-detail__stats { max-width: 100%; }
+  .hero-detail__stats { text-align: left; }
+  .hero-detail__stats-row { justify-content: space-between; }
+  .hero-detail__stats-recent { justify-content: flex-start; }
   .hero-detail__visual-bg { width: min(60vh, 520px); height: min(60vh, 520px); }
 }
 
-/* WK-133 - the width-based breakpoint above doesn't help a WIDE-but-SHORT
-   window (e.g. 1024x720, a real supported size per this task's own
-   responsive requirement): `min(74vh, 760px)` alone was still tall enough
-   at 720px viewport height to push total page height past the window,
-   and since `.main`'s flex-scroll only engages once its flex ancestor
-   chain is itself height-constrained (a separate, pre-existing shell
-   quirk out of this slice's scope - see `.main`'s own `min-height: 0`
-   fix), an overflow here falls back to page-level scroll and drags the
-   header off-screen with it. Sized so scene + chrome comfortably clears
-   ~720-760px tall windows without depending on that fix landing too. */
+/* WK-133/WK-140 - the width-based breakpoint above doesn't help a WIDE-but-
+   SHORT window (e.g. 1024x720, a real supported size per this task's own
+   responsive requirement): a tall `min-height` alone can still push total
+   page height past the window, and since `.main`'s flex-scroll only
+   engages once its flex ancestor chain is itself height-constrained (a
+   separate, pre-existing shell quirk out of this slice's scope - see
+   `.main`'s own `min-height: 0` fix), an overflow here falls back to
+   page-level scroll and drags the header off-screen with it. Sized so
+   scene + chrome comfortably clears ~720-760px tall windows without
+   depending on that fix landing too; the three zones stay side-by-side at
+   1024px (comfortably wide enough once the hero shrinks) rather than
+   stacking, per this task's "composition over rigid columns" guidance. */
 @media (max-height: 820px) {
-  .hero-detail__scene { min-height: min(52vh, 460px); }
-  .hero-detail__visual-bg { width: min(56vh, 420px); height: min(56vh, 420px); }
+  .hero-detail__scene { min-height: min(58vh, 500px); }
+  .hero-detail__visual-bg { width: min(60vh, 460px); height: min(60vh, 460px); }
+  .hero-detail__left, .hero-detail__stats { max-width: 200px; }
 }
 
 /* WK-122 §16-18 - "Оформление" real editor workspace: preview (real 16:9,

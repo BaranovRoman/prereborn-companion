@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { SoundBindingRow } from "../components/sounds/SoundBindingRow";
 import { Badge } from "../components/ui";
 import type { useFavoriteHeroes } from "../hooks/useFavoriteHeroes";
+import { useHeroLocalStats } from "../hooks/useHeroLocalStats";
 import type { GameSoundEventKind, GameSoundSettings, TrackedAbility, TrackedHero } from "../services/dotaCompanionApi";
 import { getHeroById } from "../services/heroCatalog";
+import type { HeroLocalStats, LocalMatchResultValue } from "../types/status";
 
 interface Props {
   heroId: number;
@@ -115,10 +117,74 @@ function AbilityStrip({ abilities, settings, selectedAbilityId, onSelect }: Abil
   );
 }
 
+const RESULT_LABEL: Record<LocalMatchResultValue, string> = {
+  win: "Победа",
+  loss: "Поражение",
+  abandon: "Оставлен",
+};
+
+function formatAvg(value: number | null): string {
+  return value === null ? "—" : value.toFixed(1);
+}
+
+// WK-140 - RIGHT zone: honest local statistics, not a dashboard. Typography
+// + a compact recent-results row, no KPI tiles/charts/bordered panel - see
+// this task's own "no boxed dashboard" requirement. Explicitly captioned as
+// Companion's own local history (not lifetime Dota stats, and not yet
+// enriched by OpenDota - see this component's data-boundary doc comment
+// below) so the numbers are never mistaken for something they aren't.
+function HeroStatsPanel({ stats }: { stats: HeroLocalStats | null }) {
+  if (!stats) return null;
+
+  if (stats.matches === 0) {
+    return (
+      <div className="hero-detail__stats">
+        <h3 className="hero-detail__stats-title">Статистика</h3>
+        <p className="hero-detail__stats-empty">Пока нет матчей в локальной истории</p>
+      </div>
+    );
+  }
+
+  const decided = stats.wins + stats.losses;
+  const winrate = decided > 0 ? (stats.wins / decided) * 100 : null;
+  const hasKda = stats.avgKills !== null || stats.avgDeaths !== null || stats.avgAssists !== null;
+
+  return (
+    <div className="hero-detail__stats">
+      <h3 className="hero-detail__stats-title">Статистика</h3>
+      <dl className="hero-detail__stats-list">
+        <div className="hero-detail__stats-row"><dt>Матчи</dt><dd>{stats.matches}</dd></div>
+        <div className="hero-detail__stats-row"><dt>Победы</dt><dd>{stats.wins}</dd></div>
+        <div className="hero-detail__stats-row"><dt>Поражения</dt><dd>{stats.losses}</dd></div>
+        <div className="hero-detail__stats-row"><dt>Винрейт</dt><dd>{winrate === null ? "—" : `${winrate.toFixed(1)}%`}</dd></div>
+        {hasKda && (
+          <div className="hero-detail__stats-row">
+            <dt>Ср. K/D/A</dt>
+            <dd>{formatAvg(stats.avgKills)} / {formatAvg(stats.avgDeaths)} / {formatAvg(stats.avgAssists)}</dd>
+          </div>
+        )}
+      </dl>
+      {stats.recentResults.length > 0 && (
+        <div className="hero-detail__stats-recent" aria-label="Последние результаты на этом герое">
+          {stats.recentResults.map((result, index) => (
+            <span
+              key={index}
+              className={`hero-detail__stats-dot hero-detail__stats-dot--${result}`}
+              title={RESULT_LABEL[result]}
+            />
+          ))}
+        </div>
+      )}
+      <p className="hero-detail__stats-caption">Локальная история Companion</p>
+    </div>
+  );
+}
+
 export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBack, onChooseFile, onPreview, onRemove, stopPreview }: Props) {
   const [selectedAbilityId, setSelectedAbilityId] = useState<string | null>(null);
   const [videoFailed, setVideoFailed] = useState(false);
   const [visualUnavailable, setVisualUnavailable] = useState(false);
+  const heroStats = useHeroLocalStats(heroId);
 
   // WK-132 - a preview started here must not keep playing after the user
   // navigates away, whether via the back button or by switching to another
@@ -157,15 +223,16 @@ export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBac
 
   return (
     <div className="hero-detail">
-      <button className="ui-button ui-button--ghost hero-detail__back" onClick={onBack}>← Герои</button>
       {favorites.error && <p className="app__error">Ошибка: {favorites.error}</p>}
 
-      {/* WK-133 - the hero visual is now the scene's own large background
-          (radial-masked, feathered into the app's ambient fog/ember layer
-          behind it - see App.css), not a bounded video card - foreground
-          content (name, ability strip, expanded control) is anchored to the
-          top-left over it, deliberately leaving the right side open for a
-          future statistics block instead of stretching content full-width. */}
+      {/* WK-140 - three compositional zones (identity/abilities LEFT, hero
+          CENTER, statistics RIGHT), not three visible panels: the hero
+          visual stays the scene's own large, centered, radial-masked
+          background (see App.css) and LEFT/RIGHT content is laid out over
+          it via `.hero-detail__grid`, not boxed containers. Replaces
+          WK-133's single top-left content block, which deliberately left
+          the right side open "for a future statistics block" - this is
+          that block. */}
       <div className="hero-detail__scene">
         {!visualUnavailable && (
           <div className="hero-detail__visual-bg" aria-hidden="true">
@@ -186,56 +253,72 @@ export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBac
           </div>
         )}
 
-        <div className="hero-detail__content">
-          <div className="hero-detail__identity">
-            <h2>{hero.localizedName}</h2>
-            <button
-              type="button"
-              className={`hero-detail__favorite ${isFavorite ? "is-active" : ""}`}
-              aria-label={isFavorite ? "Убрать из избранного" : "Добавить в избранное"}
-              disabled={favorites.busyId === hero.id}
-              onClick={() => void favorites.toggle(hero.id)}
-            >
-              ★
-            </button>
-            <Badge tone="gold">{ATTRIBUTE_LABEL[hero.attribute]}</Badge>
+        <div className="hero-detail__grid">
+          <div className="hero-detail__left">
+            {/* WK-140 - moved off the page's own top row (where it read as
+                a button floating centered above the hero) into the LEFT
+                identity hierarchy, as a restrained breadcrumb. */}
+            <button className="ui-button ui-button--ghost hero-detail__back" onClick={onBack}>← Герои</button>
+
+            <div className="hero-detail__identity">
+              <h2>{hero.localizedName}</h2>
+              <button
+                type="button"
+                className={`hero-detail__favorite ${isFavorite ? "is-active" : ""}`}
+                aria-label={isFavorite ? "Убрать из избранного" : "Добавить в избранное"}
+                disabled={favorites.busyId === hero.id}
+                onClick={() => void favorites.toggle(hero.id)}
+              >
+                ★
+              </button>
+              <Badge tone="gold">{ATTRIBUTE_LABEL[hero.attribute]}</Badge>
+            </div>
+
+            {!trackedHero || !settings ? (
+              <p className="hero-detail__loading">Загрузка способностей…</p>
+            ) : (
+              <>
+                <AbilityStrip
+                  abilities={abilities}
+                  settings={settings}
+                  selectedAbilityId={selectedAbilityId}
+                  onSelect={setSelectedAbilityId}
+                />
+
+                {selectedAbility && (
+                  <div className="hero-ability-expanded">
+                    <span className="hero-ability-expanded__name">{selectedAbility.displayName}</span>
+                    <SoundBindingRow
+                      eventId={selectedAbility.id}
+                      kind="abilityCast"
+                      masterVolume={settings.masterVolume}
+                      binding={selectedBinding}
+                      assets={settings.assets}
+                      onChooseFile={onChooseFile}
+                      onPreview={onPreview}
+                      onRemove={onRemove}
+                    />
+                  </div>
+                )}
+
+                {!settings.enabled && (
+                  // WK-133 §13 - a subtle inline line near the strip, not the
+                  // previous detached full-width banner - assignment/preview
+                  // stay fully usable, this is informational only.
+                  <p className="hero-detail__sounds-disabled-hint">Звуковые реакции выключены</p>
+                )}
+              </>
+            )}
           </div>
 
-          {!trackedHero || !settings ? (
-            <p className="hero-detail__loading">Загрузка способностей…</p>
-          ) : (
-            <>
-              <AbilityStrip
-                abilities={abilities}
-                settings={settings}
-                selectedAbilityId={selectedAbilityId}
-                onSelect={setSelectedAbilityId}
-              />
-
-              {selectedAbility && (
-                <div className="hero-ability-expanded">
-                  <span className="hero-ability-expanded__name">{selectedAbility.displayName}</span>
-                  <SoundBindingRow
-                    eventId={selectedAbility.id}
-                    kind="abilityCast"
-                    masterVolume={settings.masterVolume}
-                    binding={selectedBinding}
-                    assets={settings.assets}
-                    onChooseFile={onChooseFile}
-                    onPreview={onPreview}
-                    onRemove={onRemove}
-                  />
-                </div>
-              )}
-
-              {!settings.enabled && (
-                // WK-133 §13 - a subtle inline line near the strip, not the
-                // previous detached full-width banner - assignment/preview
-                // stay fully usable, this is informational only.
-                <p className="hero-detail__sounds-disabled-hint">Звуковые реакции выключены</p>
-              )}
-            </>
-          )}
+          {/* WK-140 - RIGHT: local statistics. Deliberately a distinct
+              component/prop boundary (HeroStatsPanel takes just the DTO, not
+              the fetching hook) so a future OpenDota-backed source can hand
+              it richer data later without this composition changing - see
+              the task's data-boundary requirement. */}
+          <div className="hero-detail__right">
+            <HeroStatsPanel stats={heroStats} />
+          </div>
         </div>
       </div>
     </div>

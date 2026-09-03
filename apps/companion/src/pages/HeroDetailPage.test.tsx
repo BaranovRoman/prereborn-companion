@@ -1,9 +1,28 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+// WK-140 - HeroDetailPage now fetches local hero stats (via
+// useHeroLocalStats -> getHeroLocalStats -> Tauri invoke), which isn't
+// available under jsdom; mocked the same way DesignPage.test.tsx mocks this
+// module. Defaults to a clean "no local history" shape so tests that don't
+// care about the stats panel don't need their own override.
+vi.mock("../services/dotaCompanionApi", () => ({
+  getHeroLocalStats: vi.fn().mockResolvedValue({
+    matches: 0, wins: 0, losses: 0, avgKills: null, avgDeaths: null, avgAssists: null, recentResults: [],
+  }),
+}));
+
+// eslint-disable-next-line import/order
+import { getHeroLocalStats } from "../services/dotaCompanionApi";
+// eslint-disable-next-line import/order
 import { HeroDetailPage } from "./HeroDetailPage";
+// eslint-disable-next-line import/order
 import type { GameSoundSettings, TrackedHero } from "../services/dotaCompanionApi";
+// eslint-disable-next-line import/order
 import type { useFavoriteHeroes } from "../hooks/useFavoriteHeroes";
+
+const mockedGetHeroLocalStats = vi.mocked(getHeroLocalStats);
 
 function buildFavorites(overrides: Partial<ReturnType<typeof useFavoriteHeroes>> = {}): ReturnType<typeof useFavoriteHeroes> {
   return {
@@ -252,5 +271,50 @@ describe("HeroDetailPage", () => {
     expect(middleIcon.dataset.tooltipAlign).toBeUndefined();
 
     Object.defineProperty(window, "innerWidth", { value: original, configurable: true });
+  });
+
+  // WK-140 - RIGHT zone: local statistics sourced from getHeroLocalStats.
+  describe("local statistics", () => {
+    it("shows a quiet empty state for a hero with no local match history", async () => {
+      renderPage({ heroId: 105 });
+      expect(await screen.findByText("Пока нет матчей в локальной истории")).toBeTruthy();
+      expect(screen.queryByText(/матчи/i)).toBeNull();
+    });
+
+    it("renders matches/wins/losses/winrate computed from the local aggregate", async () => {
+      mockedGetHeroLocalStats.mockResolvedValueOnce({
+        matches: 24, wins: 15, losses: 9, avgKills: null, avgDeaths: null, avgAssists: null, recentResults: [],
+      });
+      renderPage({ heroId: 105 });
+      expect(await screen.findByText("24")).toBeTruthy();
+      expect(screen.getByText("15")).toBeTruthy();
+      expect(screen.getByText("9")).toBeTruthy();
+      expect(screen.getByText("62.5%")).toBeTruthy();
+    });
+
+    it("does not fabricate a winrate for an all-abandon history", async () => {
+      mockedGetHeroLocalStats.mockResolvedValueOnce({
+        matches: 3, wins: 0, losses: 0, avgKills: null, avgDeaths: null, avgAssists: null, recentResults: ["abandon", "abandon", "abandon"],
+      });
+      renderPage({ heroId: 105 });
+      expect(await screen.findByText("3")).toBeTruthy();
+      expect(screen.getByText("—")).toBeTruthy();
+    });
+
+    it("shows average K/D/A only when the backend provides it", async () => {
+      mockedGetHeroLocalStats.mockResolvedValueOnce({
+        matches: 2, wins: 1, losses: 1, avgKills: 3, avgDeaths: 4, avgAssists: 4, recentResults: ["loss", "win"],
+      });
+      renderPage({ heroId: 105 });
+      expect(await screen.findByText("3.0 / 4.0 / 4.0")).toBeTruthy();
+    });
+
+    it("labels statistics as Companion's local history, not lifetime stats", async () => {
+      mockedGetHeroLocalStats.mockResolvedValueOnce({
+        matches: 1, wins: 1, losses: 0, avgKills: null, avgDeaths: null, avgAssists: null, recentResults: ["win"],
+      });
+      renderPage({ heroId: 105 });
+      expect(await screen.findByText("Локальная история Companion")).toBeTruthy();
+    });
   });
 });

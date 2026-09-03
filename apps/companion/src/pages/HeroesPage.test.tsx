@@ -137,6 +137,36 @@ describe("HeroesPage", () => {
     expect(onSelectHero).toHaveBeenCalledWith(14);
   });
 
+  // WK-141 - the active query renders as a large Reaver overlay ON the
+  // roster, not the old bordered/backgrounded form-input-like chip.
+  it("shows the active query as a Reaver overlay, with no leftover search-bar chrome", () => {
+    render(
+      <HeroesPage favorites={buildFavorites()} soundSettings={null} trackedHeroes={[]} onSelectHero={vi.fn()} />
+    );
+    expect(document.querySelector(".hero-search-overlay")).toBeNull();
+    expect(document.querySelector(".hero-search-indicator")).toBeNull();
+
+    typeIntoHeroSearch("tec");
+    const overlay = document.querySelector(".hero-search-overlay");
+    expect(overlay).toBeTruthy();
+    expect(overlay?.querySelector(".hero-search-overlay__query")?.textContent).toBe("TEC");
+    // no legacy bordered/backgrounded chip left behind
+    expect(document.querySelector(".hero-search-indicator")).toBeNull();
+  });
+
+  // WK-141 - overlay presentation must not disturb roster geometry: the
+  // grid stays the query's sibling, mounted the exact same way whether or
+  // not a search is active (no wrapping/reflow container swap).
+  it("the search overlay does not reflow the roster grid", () => {
+    render(
+      <HeroesPage favorites={buildFavorites()} soundSettings={null} trackedHeroes={[]} onSelectHero={vi.fn()} />
+    );
+    const grid = document.querySelector(".attribute-grid");
+    const idleParent = grid?.parentElement;
+    typeIntoHeroSearch("tec");
+    expect(document.querySelector(".attribute-grid")?.parentElement).toBe(idleParent);
+  });
+
   it("shows a configured-count badge for heroes with bound ability sounds", () => {
     render(
       <HeroesPage

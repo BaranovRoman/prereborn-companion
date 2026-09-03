@@ -326,6 +326,60 @@ pub fn session_match_tally(conn: &Connection, session_local_id: &str) -> rusqlit
     Ok((wins, losses))
 }
 
+/// WK-140 - per-hero local aggregate for Hero Detail's statistics zone.
+/// Device-wide (not session-scoped) like `list_recent_finalized_matches`:
+/// "how have I done on this hero across my local history" is the intended
+/// semantics, not "this stream". `matches` counts every finalized match on
+/// the hero regardless of result (including `abandon`); `wins`/`losses` and
+/// the winrate they imply are computed by the caller only from decided
+/// (win/loss) results, so an abandon-only history reports a real "no
+/// decided result" state instead of a misleading 0%.
+pub struct HeroMatchAggregate {
+    pub matches: i64,
+    pub wins: i64,
+    pub losses: i64,
+    pub avg_kills: Option<f64>,
+    pub avg_deaths: Option<f64>,
+    pub avg_assists: Option<f64>,
+    /// Newest-first, capped at `recent_limit`.
+    pub recent_results: Vec<MatchResult>,
+}
+
+pub fn hero_local_stats(conn: &Connection, hero_id: i64, recent_limit: i64) -> rusqlite::Result<HeroMatchAggregate> {
+    let matches: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM local_matches WHERE state = 'finalized' AND hero_id = ?1",
+        params![hero_id],
+        |row| row.get(0),
+    )?;
+    let wins: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM local_matches WHERE state = 'finalized' AND hero_id = ?1 AND result = 'win'",
+        params![hero_id],
+        |row| row.get(0),
+    )?;
+    let losses: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM local_matches WHERE state = 'finalized' AND hero_id = ?1 AND result = 'loss'",
+        params![hero_id],
+        |row| row.get(0),
+    )?;
+    let (avg_kills, avg_deaths, avg_assists) = conn.query_row(
+        "SELECT AVG(kills), AVG(deaths), AVG(assists) FROM local_matches WHERE state = 'finalized' AND hero_id = ?1",
+        params![hero_id],
+        |row| Ok((row.get::<_, Option<f64>>(0)?, row.get::<_, Option<f64>>(1)?, row.get::<_, Option<f64>>(2)?)),
+    )?;
+    let mut stmt = conn.prepare(
+        "SELECT result FROM local_matches WHERE state = 'finalized' AND hero_id = ?1 ORDER BY rowid DESC LIMIT ?2",
+    )?;
+    let recent_results = stmt
+        .query_map(params![hero_id, recent_limit], |row| {
+            let raw: String = row.get(0)?;
+            Ok(MatchResult::from_db_str(&raw))
+        })?
+        .filter_map(|row| row.transpose())
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+
+    Ok(HeroMatchAggregate { matches, wins, losses, avg_kills, avg_deaths, avg_assists, recent_results })
+}
+
 fn synthesized_match_key(session_local_id: &str, now: DateTime<Utc>, hero_id: i64) -> String {
     format!("session:{session_local_id}:{}:{hero_id}", now.timestamp_millis())
 }
@@ -1850,5 +1904,76 @@ mod tests {
         assert!(reopen_elapsed.as_millis() < 2_000, "reopening a {}-match DB took {reopen_elapsed:?}", SESSIONS * MATCHES_PER_SESSION);
         assert!(recent_elapsed.as_millis() < 500, "recent-matches lookup took {recent_elapsed:?}");
         assert!(reanchor_elapsed.as_millis() < 2_000, "a full-history cascade reanchor took {reanchor_elapsed:?}");
+    }
+
+    #[test]
+    fn hero_local_stats_aggregates_across_sessions_and_ignores_other_heroes() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+
+        // Techies (105): a win with 4/2/6 and a loss with 2/6/2.
+        create_match(&conn, &session.local_id, Some("m1"), 105, "radiant", RankedMode::Unranked, now).unwrap();
+        let m1 = find_active_match(&conn, &session.local_id).unwrap().unwrap();
+        update_match_telemetry(
+            &conn,
+            &m1.local_id,
+            &super::super::gsi::MatchTelemetry { kills: Some(4), deaths: Some(2), assists: Some(6), inventory: vec![] },
+        )
+        .unwrap();
+        finalize_match(&mut conn, &m1.local_id, &session.local_id, RankedMode::Unranked, MatchResult::Win, "confirmed", now).unwrap();
+
+        create_match(&conn, &session.local_id, Some("m2"), 105, "radiant", RankedMode::Unranked, now).unwrap();
+        let m2 = find_active_match(&conn, &session.local_id).unwrap().unwrap();
+        update_match_telemetry(
+            &conn,
+            &m2.local_id,
+            &super::super::gsi::MatchTelemetry { kills: Some(2), deaths: Some(6), assists: Some(2), inventory: vec![] },
+        )
+        .unwrap();
+        finalize_match(&mut conn, &m2.local_id, &session.local_id, RankedMode::Unranked, MatchResult::Loss, "confirmed", now).unwrap();
+
+        // A different hero (Pudge, 14) must not pollute Techies' aggregate.
+        create_match(&conn, &session.local_id, Some("m3"), 14, "radiant", RankedMode::Unranked, now).unwrap();
+        let m3 = find_active_match(&conn, &session.local_id).unwrap().unwrap();
+        finalize_match(&mut conn, &m3.local_id, &session.local_id, RankedMode::Unranked, MatchResult::Win, "confirmed", now).unwrap();
+
+        let stats = hero_local_stats(&conn, 105, 10).unwrap();
+        assert_eq!(stats.matches, 2);
+        assert_eq!(stats.wins, 1);
+        assert_eq!(stats.losses, 1);
+        assert_eq!(stats.avg_kills, Some(3.0));
+        assert_eq!(stats.avg_deaths, Some(4.0));
+        assert_eq!(stats.avg_assists, Some(4.0));
+        assert_eq!(stats.recent_results, vec![MatchResult::Loss, MatchResult::Win], "must be newest-first");
+    }
+
+    #[test]
+    fn hero_local_stats_reports_a_clean_empty_state_for_a_hero_with_no_history() {
+        let conn = test_conn();
+        let stats = hero_local_stats(&conn, 999, 10).unwrap();
+        assert_eq!(stats.matches, 0);
+        assert_eq!(stats.wins, 0);
+        assert_eq!(stats.losses, 0);
+        assert_eq!(stats.avg_kills, None);
+        assert_eq!(stats.avg_deaths, None);
+        assert_eq!(stats.avg_assists, None);
+        assert!(stats.recent_results.is_empty());
+    }
+
+    #[test]
+    fn hero_local_stats_counts_abandons_in_matches_but_not_in_wins_or_losses() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        create_match(&conn, &session.local_id, Some("m1"), 105, "radiant", RankedMode::Unranked, now).unwrap();
+        let m1 = find_active_match(&conn, &session.local_id).unwrap().unwrap();
+        finalize_match(&mut conn, &m1.local_id, &session.local_id, RankedMode::Unranked, MatchResult::Abandon, "confirmed", now).unwrap();
+
+        let stats = hero_local_stats(&conn, 105, 10).unwrap();
+        assert_eq!(stats.matches, 1, "an abandon still counts as an observed match");
+        assert_eq!(stats.wins, 0);
+        assert_eq!(stats.losses, 0, "an abandon is neither a win nor a loss");
+        assert_eq!(stats.recent_results, vec![MatchResult::Abandon]);
     }
 }
