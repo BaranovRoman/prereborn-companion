@@ -6,6 +6,7 @@ use super::model::{LocalMatch, LocalMatchState, LocalSession, MatchResult, Ranke
 
 fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<LocalSession> {
     let stale_ack: i64 = row.get(8)?;
+    let is_streamed: i64 = row.get(9)?;
     Ok(LocalSession {
         local_id: row.get(0)?,
         backend_id: row.get(1)?,
@@ -16,12 +17,14 @@ fn row_to_session(row: &rusqlite::Row) -> rusqlite::Result<LocalSession> {
         rating_adjustment: row.get(6)?,
         pending_end_at: row.get(7)?,
         stale_ack: stale_ack != 0,
+        is_streamed: is_streamed != 0,
+        stream_started_at: row.get(10)?,
         sync_state: SyncState::Pending,
     })
 }
 
 const SESSION_COLUMNS: &str = "local_id, backend_id, started_at, ended_at, rating_start, \
-     rating_current, rating_adjustment, pending_end_at, stale_ack";
+     rating_current, rating_adjustment, pending_end_at, stale_ack, is_streamed, stream_started_at";
 
 /// Mirrors `getOrCreateActiveSession`'s *read* half (stream-session-service.ts):
 /// the most recent session that hasn't ended, or `None`. Read-only - does
@@ -35,6 +38,33 @@ pub fn find_open_session(conn: &Connection) -> rusqlite::Result<Option<LocalSess
         row_to_session,
     )
     .optional()
+}
+
+/// WK-137 - like `find_open_session`, but only ever returns a genuine
+/// broadcast session (`is_streamed = 1`). Used by everything that surfaces
+/// "the current stream" to a human or to OBS scene automation
+/// (`lifecycle::status`, `summary::get`'s W/L tally) - a gameplay session
+/// opened for GSI-observed-but-not-streamed play must never be mistaken for
+/// one of those, see docs/research/wk-137-match-session-decoupling.md.
+pub fn find_open_streamed_session(conn: &Connection) -> rusqlite::Result<Option<LocalSession>> {
+    conn.query_row(
+        &format!(
+            "SELECT {SESSION_COLUMNS} FROM local_sessions WHERE ended_at IS NULL AND is_streamed = 1 \
+             ORDER BY rowid DESC LIMIT 1"
+        ),
+        [],
+        row_to_session,
+    )
+    .optional()
+}
+
+/// WK-137 - single-session lookup by id, regardless of `ended_at` (unlike
+/// `find_open_session`). Used after a match resolves to check whether ITS
+/// session is still a gameplay session that should now auto-close - see
+/// `local_runtime::mod::handle_gsi`.
+pub fn find_session(conn: &Connection, local_id: &str) -> rusqlite::Result<Option<LocalSession>> {
+    conn.query_row(&format!("SELECT {SESSION_COLUMNS} FROM local_sessions WHERE local_id = ?1"), params![local_id], row_to_session)
+        .optional()
 }
 
 const CURRENT_RATING_KEY: &str = "current_rating";
@@ -59,43 +89,50 @@ fn persist_current_rating(conn: &Connection, rating: i64) -> rusqlite::Result<()
     Ok(())
 }
 
-/// Mirrors `getOrCreateActiveSession` (stream-session-service.ts): finds the
-/// most recent session that hasn't ended, or creates a fresh one. The ONLY
-/// place a new LocalSession is created (see local_runtime::mod.rs's
-/// handle_gsi, which used to also call this on any GSI tick - removed in
-/// WK-113 so creation always durably enqueues a sync event, see below).
-pub fn ensure_active_session(conn: &mut Connection, now: DateTime<Utc>) -> rusqlite::Result<LocalSession> {
-    if let Some(session) = find_open_session(conn)? {
-        return Ok(session);
-    }
-
-    // WK-113 - MMR carry-over, mirroring the backend's own
-    // resetActiveSession (stream-session-service.ts): a brand new local
-    // session's starting rating is the last session's known rating_current,
-    // not null - the account's last-known MMR doesn't reset just because a
-    // new stream (OBS Start Streaming) began. Genuinely null only for this
-    // device's very first session ever.
+/// WK-113/WK-137 - MMR carry-over shared by every session-creation path,
+/// mirroring the backend's own `resetActiveSession`
+/// (stream-session-service.ts): a brand new local session's starting rating
+/// is the last session's known `rating_current`, not null - the account's
+/// last-known MMR doesn't reset just because a new session (streamed or,
+/// since WK-137, gameplay-only) began. Genuinely null only for this
+/// device's very first session ever.
+fn carried_over_rating(conn: &Connection) -> rusqlite::Result<Option<i64>> {
     let previous_session_rating: Option<i64> = conn
         .query_row("SELECT rating_current FROM local_sessions ORDER BY rowid DESC LIMIT 1", [], |row| row.get(0))
         .optional()?
         .flatten();
-    let carried_rating = get_current_rating(conn)?.or(previous_session_rating);
+    Ok(get_current_rating(conn)?.or(previous_session_rating))
+}
 
+/// WK-137 - shared INSERT for both session-creation paths below; only
+/// `is_streamed` (and therefore whether a `session_started` sync event is
+/// true to send) differs between them.
+fn insert_session(conn: &mut Connection, now: DateTime<Utc>, is_streamed: bool) -> rusqlite::Result<LocalSession> {
+    let carried_rating = carried_over_rating(conn)?;
     let local_id = Uuid::new_v4().to_string();
     let tx = conn.transaction()?;
     tx.execute(
-        "INSERT INTO local_sessions (local_id, started_at, rating_start, rating_current) VALUES (?1, ?2, ?3, ?3)",
-        params![local_id, now.to_rfc3339(), carried_rating],
+        "INSERT INTO local_sessions (local_id, started_at, rating_start, rating_current, is_streamed, stream_started_at) \
+         VALUES (?1, ?2, ?3, ?3, ?4, ?5)",
+        params![
+            local_id,
+            now.to_rfc3339(),
+            carried_rating,
+            is_streamed as i64,
+            is_streamed.then(|| now.to_rfc3339()),
+        ],
     )?;
-    // WK-113 - durable outbox entry, in the SAME transaction as the insert
-    // above - see local_runtime::sync's doc comment for why this atomicity
-    // is the whole point.
-    let payload = serde_json::json!({
-        "localSessionId": local_id,
-        "startedAt": now.to_rfc3339(),
-        "ratingStart": carried_rating,
-    });
-    super::sync::enqueue(&tx, "session", &local_id, "session_started", &payload, now)?;
+    if is_streamed {
+        // WK-113 - durable outbox entry, in the SAME transaction as the
+        // insert above - see local_runtime::sync's doc comment for why this
+        // atomicity is the whole point.
+        let payload = serde_json::json!({
+            "localSessionId": local_id,
+            "startedAt": now.to_rfc3339(),
+            "ratingStart": carried_rating,
+        });
+        super::sync::enqueue(&tx, "session", &local_id, "session_started", &payload, now)?;
+    }
     tx.commit()?;
 
     Ok(LocalSession {
@@ -108,8 +145,70 @@ pub fn ensure_active_session(conn: &mut Connection, now: DateTime<Utc>) -> rusql
         rating_adjustment: 0,
         pending_end_at: None,
         stale_ack: false,
+        is_streamed,
+        stream_started_at: is_streamed.then(|| now.to_rfc3339()),
         sync_state: SyncState::Pending,
     })
+}
+
+/// Mirrors `getOrCreateActiveSession` (stream-session-service.ts): finds the
+/// most recent session that hasn't ended, or creates a fresh, genuinely
+/// streamed one. The ONLY place a new OBS-driven LocalSession is created
+/// (see `lifecycle::apply`'s `StartNewSession` arm, the only caller).
+pub fn ensure_active_session(conn: &mut Connection, now: DateTime<Utc>) -> rusqlite::Result<LocalSession> {
+    if let Some(session) = find_open_session(conn)? {
+        return Ok(session);
+    }
+    insert_session(conn, now, true)
+}
+
+/// WK-137 - opens a session for GSI-observed gameplay with no OBS stream
+/// active. Never called when a session is already open (mod.rs only reaches
+/// this after both `find_active_match_anywhere` and `find_open_session`
+/// came back empty) - the `find_open_session` check below is defense in
+/// depth against a race, matching `ensure_active_session`'s own shape, not
+/// the primary path. Deliberately enqueues no sync event: nothing has
+/// actually gone live, so there is nothing true to tell the backend yet -
+/// see `mark_session_streamed` for the moment that changes, and
+/// docs/research/wk-137-match-session-decoupling.md for why syncing this
+/// session prematurely would misrepresent it as a broadcast.
+pub fn ensure_gameplay_session(conn: &mut Connection, now: DateTime<Utc>) -> rusqlite::Result<LocalSession> {
+    if let Some(session) = find_open_session(conn)? {
+        return Ok(session);
+    }
+    insert_session(conn, now, false)
+}
+
+/// WK-137 - "graduates" an open gameplay session into a genuine stream
+/// session the moment OBS is found streaming while it's still open
+/// (`lifecycle::apply`'s `ContinueSession` arm, which also runs on every
+/// ordinary already-streamed tick - the `is_streamed = 0` guard below is
+/// what makes this idempotent/a no-op then). `stream_started_at` records
+/// the moment OBS actually went live, kept separate from `started_at`
+/// (which stays "when this session began being observed") so the session's
+/// synced `startedAt` is never backdated to before OBS was actually
+/// streaming. The match already tracked in this session, if any, is not
+/// moved or re-created - it simply keeps finalizing into the same session,
+/// which is now a real stream session.
+pub fn mark_session_streamed(conn: &mut Connection, local_id: &str, now: DateTime<Utc>) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    let changed = tx.execute(
+        "UPDATE local_sessions SET is_streamed = 1, stream_started_at = ?2 WHERE local_id = ?1 AND is_streamed = 0",
+        params![local_id, now.to_rfc3339()],
+    )?;
+    if changed > 0 {
+        let rating_start: Option<i64> = tx
+            .query_row("SELECT rating_start FROM local_sessions WHERE local_id = ?1", params![local_id], |row| row.get(0))
+            .optional()?
+            .flatten();
+        let payload = serde_json::json!({
+            "localSessionId": local_id,
+            "startedAt": now.to_rfc3339(),
+            "ratingStart": rating_start,
+        });
+        super::sync::enqueue(&tx, "session", local_id, "session_started", &payload, now)?;
+    }
+    tx.commit()
 }
 
 /// Applies an absolute correction to the open session's Current MMR.
@@ -157,10 +256,17 @@ pub fn cancel_pending_end(conn: &Connection, local_id: &str) -> rusqlite::Result
 }
 
 /// WK-112 - grace period elapsed with OBS confirmed not-streaming, or a
-/// manual stale-recovery "end" action. `ended_at IS NULL` guard makes this
-/// idempotent against a repeated call for the same session - including for
-/// WK-113's outbox enqueue below, which only fires on the write that
-/// actually changed something (`changed > 0`), never on a no-op repeat.
+/// manual stale-recovery "end" action. WK-137 also reuses this to close a
+/// gameplay session once the match that opened it resolves (see mod.rs's
+/// `handle_gsi`). `ended_at IS NULL` guard makes this idempotent against a
+/// repeated call for the same session - including for WK-113's outbox
+/// enqueue below, which only fires on the write that actually changed
+/// something (`changed > 0`), never on a no-op repeat. The `session_ended`
+/// event is only ever true for a session the backend actually knows about -
+/// enqueued only when `is_streamed`, i.e. only when a matching
+/// `session_started` was (or will be) sent; a gameplay session that never
+/// graduated into a stream has nothing to end on the backend, see
+/// docs/research/wk-137-match-session-decoupling.md.
 pub fn finalize_session_end(conn: &mut Connection, local_id: &str, now: DateTime<Utc>) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
     let changed = tx.execute(
@@ -168,8 +274,15 @@ pub fn finalize_session_end(conn: &mut Connection, local_id: &str, now: DateTime
         params![local_id, now.to_rfc3339()],
     )?;
     if changed > 0 {
-        let payload = serde_json::json!({ "localSessionId": local_id, "endedAt": now.to_rfc3339() });
-        super::sync::enqueue(&tx, "session", local_id, "session_ended", &payload, now)?;
+        let is_streamed: i64 = tx.query_row(
+            "SELECT is_streamed FROM local_sessions WHERE local_id = ?1",
+            params![local_id],
+            |row| row.get(0),
+        )?;
+        if is_streamed != 0 {
+            let payload = serde_json::json!({ "localSessionId": local_id, "endedAt": now.to_rfc3339() });
+            super::sync::enqueue(&tx, "session", local_id, "session_ended", &payload, now)?;
+        }
     }
     tx.commit()
 }
@@ -251,6 +364,28 @@ pub fn find_active_match(conn: &Connection, session_local_id: &str) -> rusqlite:
             active_states_in_clause()
         ),
         params![session_local_id],
+        row_to_match,
+    )
+    .optional()
+}
+
+/// WK-137 - the session-independent counterpart of `find_active_match`: the
+/// currently active match anywhere on the device, regardless of which
+/// session it belongs to or whether that session has already `ended_at`.
+/// This is what lets a match survive its own session ending mid-flight (OBS
+/// stops streaming, the 30s grace elapses, but the match itself is still
+/// being played) - see `local_runtime::mod::handle_gsi`, the only caller: a
+/// match's own lifecycle, not its session's, decides whether GSI ticks
+/// still apply to it. At most one match is ever active device-wide by
+/// construction (detector.rs's own transition logic never leaves two rows
+/// in an active state at once), so this needs no session_local_id filter.
+pub fn find_active_match_anywhere(conn: &Connection) -> rusqlite::Result<Option<LocalMatch>> {
+    conn.query_row(
+        &format!(
+            "SELECT {MATCH_COLUMNS} FROM local_matches WHERE state IN ({}) ORDER BY rowid DESC LIMIT 1",
+            active_states_in_clause()
+        ),
+        [],
         row_to_match,
     )
     .optional()

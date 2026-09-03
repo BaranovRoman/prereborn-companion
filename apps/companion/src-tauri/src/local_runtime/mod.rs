@@ -9,10 +9,17 @@
 // - it never calls the backend, never reads `AppState`'s `backend_*`
 //   fields, and never makes a network call of any kind - `handle_gsi`
 //   below only ever touches the local SQLite connection this module owns;
-// - it does not decide when a stream session starts/ends (that's WK-112,
+// - it does not decide when a STREAM session starts/ends (that's WK-112,
 //   OBS-driven lifecycle) - `ensure_active_session` only ever lazily
-//   creates one if none is open yet, mirroring the backend's
-//   `getOrCreateActiveSession`, and nothing here ever closes one;
+//   creates a genuinely streamed one if none is open yet, mirroring the
+//   backend's `getOrCreateActiveSession`, and nothing here ever closes a
+//   streamed one (only OBS-driven lifecycle does). Since WK-137, match
+//   EXISTENCE no longer depends on a stream session at all: `handle_gsi`
+//   below may lazily open a non-streamed "gameplay session"
+//   (`ensure_gameplay_session`) purely from GSI match evidence, and closes
+//   it itself once that match resolves - see
+//   docs/research/wk-137-match-session-decoupling.md;
+
 // - the Home Dashboard's per-match correction commands (WK-115,
 //   `correct_match_delta`/`correct_match_ranked_mode` below) are the one
 //   exception to "shadow mirror only, no manual-correction workflow" above:
@@ -143,42 +150,92 @@ pub fn handle_gsi<R: Runtime>(app: &AppHandle<R>, payload: &Value) {
     let mut guard = state.lock();
     let Some(conn) = guard.as_mut() else { return };
 
-    // WK-113 - session CREATION is exclusively OBS-driven now (see
-    // lifecycle::apply's StartNewSession branch, the only place
-    // store::ensure_active_session is called). A bare GSI tick used to
-    // lazily create one too (WK-111/112's shadow-mirror stage) - now that
-    // creating a session must also durably enqueue a session_started sync
-    // event, a GSI-triggered creation would bypass that entirely and would
-    // never reach the backend. If OBS hasn't told the local lifecycle a
-    // stream is live yet, there is nothing to attach this tick's match
-    // detection to, and none is attempted.
-    let session = match store::find_open_session(conn) {
-        Ok(Some(session)) => session,
-        Ok(None) => return,
+    let now = chrono::Utc::now();
+
+    // WK-137 - session resolution no longer requires OBS to have started a
+    // stream (see docs/research/wk-137-match-session-decoupling.md). Three
+    // tiers, in order:
+    //   1. Whatever match is currently active anywhere on the device keeps
+    //      being tracked in ITS session, even if that session has already
+    //      `ended_at` (OBS stopped + the 30s grace elapsed mid-match) - a
+    //      match's own lifecycle, not its session's, decides whether ticks
+    //      still apply to it.
+    //   2. Otherwise, the current open session, if any - a streamed session
+    //      with no match in progress yet, or a gameplay session already
+    //      open for the match this tick is about to resume.
+    //   3. Otherwise, only if THIS tick itself carries genuine new-match
+    //      evidence (the same gate detector.rs uses to create a match),
+    //      lazily open a gameplay session for it. An ordinary menu/idle tick
+    //      with nothing open creates nothing, exactly as before WK-137.
+    let session_local_id = match store::find_active_match_anywhere(conn) {
+        Ok(Some(active)) => active.session_local_id,
+        Ok(None) => match store::find_open_session(conn) {
+            Ok(Some(session)) => session.local_id,
+            Ok(None) => {
+                if !detector::is_new_match_evidence(&snapshot) {
+                    return;
+                }
+                match store::ensure_gameplay_session(conn, now) {
+                    Ok(session) => session.local_id,
+                    Err(error) => {
+                        crate::storage::append_rolling_log(app, &format!("Local runtime: ensure_gameplay_session failed ({error})"));
+                        return;
+                    }
+                }
+            }
+            Err(error) => {
+                crate::storage::append_rolling_log(app, &format!("Local runtime: find_open_session failed ({error})"));
+                return;
+            }
+        },
         Err(error) => {
-            crate::storage::append_rolling_log(app, &format!("Local runtime: find_open_session failed ({error})"));
+            crate::storage::append_rolling_log(app, &format!("Local runtime: find_active_match_anywhere failed ({error})"));
             return;
         }
     };
 
-    let now = chrono::Utc::now();
     let ranked_mode = sync::cached_ranked_mode(conn);
     // WK-116 observability - captured before/after the pure decision layer
     // runs (detector.rs stays AppHandle-free, per its own architectural
     // pin) so a match's creation/transition/finalization is visible in
     // app.log without adding a single per-tick log line - this only ever
     // logs on an actual state change, never on a no-op tick.
-    let before = store::find_active_match(conn, &session.local_id).ok().flatten();
-    if let Err(error) = detector::handle_snapshot(conn, &session.local_id, ranked_mode, &snapshot, now) {
+    let before = store::find_active_match(conn, &session_local_id).ok().flatten();
+    if let Err(error) = detector::handle_snapshot(conn, &session_local_id, ranked_mode, &snapshot, now) {
         crate::storage::append_rolling_log(app, &format!("Local runtime: handle_snapshot failed ({error})"));
         return;
     }
-    let after = store::find_active_match(conn, &session.local_id).ok().flatten();
+    let after = store::find_active_match(conn, &session_local_id).ok().flatten();
     let terminal = before
         .as_ref()
         .filter(|_| after.is_none())
         .and_then(|old| store::find_match(conn, &old.local_id).ok().flatten());
-    log_match_transition(app, &session.local_id, before.as_ref(), after.as_ref(), terminal.as_ref());
+
+    // WK-137 - a gameplay session (not yet/never streamed) is 1:1 with the
+    // match that opened it: close it the moment that match resolves for a
+    // TERMINAL reason (finalized or needs_review - not interrupted, which
+    // can still resume within the existing reconnect window). If OBS
+    // graduated this session in the meantime (`is_streamed` is now true,
+    // see `lifecycle::apply`'s ContinueSession arm), it behaves like any
+    // other stream session from here on and is left alone - it now only
+    // ends via the normal OBS-stop + grace path. See the decision note for
+    // why this mirrors "one continuous period ends when the thing that was
+    // happening ends" rather than leaving gameplay sessions open forever.
+    if terminal.is_some() {
+        match store::find_session(conn, &session_local_id) {
+            Ok(Some(session)) if !session.is_streamed => {
+                if let Err(error) = store::finalize_session_end(conn, &session_local_id, now) {
+                    crate::storage::append_rolling_log(app, &format!("Local runtime: finalize_session_end (gameplay) failed ({error})"));
+                }
+            }
+            Ok(_) => {}
+            Err(error) => {
+                crate::storage::append_rolling_log(app, &format!("Local runtime: find_session failed ({error})"));
+            }
+        }
+    }
+
+    log_match_transition(app, &session_local_id, before.as_ref(), after.as_ref(), terminal.as_ref());
 }
 
 /// Sets/corrects Current MMR on the authoritative open local session.
@@ -488,7 +545,13 @@ mod tests {
     // comment) so a future change can't reintroduce silent GSI-triggered
     // session creation without this test forcing a conscious decision.
     #[test]
-    fn real_gsi_entrypoint_ignores_ticks_when_no_local_session_is_open() {
+    fn real_gsi_entrypoint_opens_a_nonstreamed_gameplay_session_for_a_real_match_with_no_obs_session_open() {
+        // WK-137 - this is the ticket's core fix, pinned at the real
+        // production entry point: a fully-observed match must not require
+        // OBS to have started a stream session first. Superseded the old
+        // "handle_gsi must never create a session itself" contract this
+        // test name/assertion used to pin (WK-113) - see
+        // docs/research/wk-137-match-session-decoupling.md.
         let app = tauri::test::mock_app();
         app.manage(LocalRuntimeState::new());
 
@@ -511,8 +574,83 @@ mod tests {
         let conn = guard.as_mut().unwrap();
         let session_count: i64 = conn.query_row("SELECT COUNT(*) FROM local_sessions", [], |row| row.get(0)).unwrap();
         let match_count: i64 = conn.query_row("SELECT COUNT(*) FROM local_matches", [], |row| row.get(0)).unwrap();
-        assert_eq!(session_count, 0, "handle_gsi must never create a session itself");
-        assert_eq!(match_count, 0, "a tick with no open session must never create a match");
+        assert_eq!(session_count, 1, "real match evidence with no session open must lazily open exactly one gameplay session");
+        assert_eq!(match_count, 1, "the match itself must be created, not dropped");
+        let is_streamed: i64 =
+            conn.query_row("SELECT is_streamed FROM local_sessions", [], |row| row.get(0)).unwrap();
+        assert_eq!(is_streamed, 0, "a session opened from GSI evidence alone must never claim to be an OBS broadcast");
+    }
+
+    #[test]
+    fn real_gsi_entrypoint_still_ignores_ordinary_ticks_with_no_match_evidence_and_no_session_open() {
+        // WK-137 - the flip side of the fix above: an idle/menu tick must
+        // still create nothing when there is no open session and no real
+        // match evidence - only genuine GSI evidence of a match may lazily
+        // open a gameplay session, never every GSI tick unconditionally
+        // (that was the WK-113 problem this ticket deliberately does not
+        // reintroduce - see docs/research/wk-137-match-session-decoupling.md's
+        // "Alternatives rejected").
+        let app = tauri::test::mock_app();
+        app.manage(LocalRuntimeState::new());
+
+        let conn = Connection::open_in_memory().unwrap();
+        schema::migrate(&conn).unwrap();
+        *app.state::<LocalRuntimeState>().lock() = Some(conn);
+
+        let handle = app.handle();
+        handle_gsi(
+            handle,
+            &serde_json::json!({
+                "map": { "game_state": "DOTA_GAMERULES_STATE_DISCONNECT" },
+                "player": { "activity": "menu" },
+            }),
+        );
+
+        let state = app.state::<LocalRuntimeState>();
+        let mut guard = state.lock();
+        let conn = guard.as_mut().unwrap();
+        let session_count: i64 = conn.query_row("SELECT COUNT(*) FROM local_sessions", [], |row| row.get(0)).unwrap();
+        let match_count: i64 = conn.query_row("SELECT COUNT(*) FROM local_matches", [], |row| row.get(0)).unwrap();
+        assert_eq!(session_count, 0, "an ordinary idle tick must never lazily open a session");
+        assert_eq!(match_count, 0);
+    }
+
+    #[test]
+    fn a_nonstreamed_gameplay_session_closes_itself_once_its_match_finalizes() {
+        // WK-137 - "one gameplay session per match": once the match that
+        // opened a non-streamed session finalizes, that session must close
+        // itself so a later, unrelated match doesn't inherit it.
+        let app = tauri::test::mock_app();
+        app.manage(LocalRuntimeState::new());
+        let conn = Connection::open_in_memory().unwrap();
+        schema::migrate(&conn).unwrap();
+        *app.state::<LocalRuntimeState>().lock() = Some(conn);
+        let handle = app.handle();
+
+        let in_progress = serde_json::json!({
+            "map": { "game_state": "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", "matchid": "42" },
+            "player": { "activity": "playing", "team_name": "radiant" },
+            "hero": { "id": 14 },
+        });
+        handle_gsi(handle, &in_progress);
+
+        let post_game = serde_json::json!({
+            "map": { "game_state": "DOTA_GAMERULES_STATE_POST_GAME", "matchid": "42", "win_team": "radiant" },
+            "player": { "activity": "menu" },
+        });
+        handle_gsi(handle, &post_game);
+        handle_gsi(handle, &post_game); // second confirming tick finalizes
+
+        let state = app.state::<LocalRuntimeState>();
+        let mut guard = state.lock();
+        let conn = guard.as_mut().unwrap();
+        let (ended_at, is_streamed): (Option<String>, i64) =
+            conn.query_row("SELECT ended_at, is_streamed FROM local_sessions", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+        assert!(ended_at.is_some(), "a gameplay session must close itself once its match finalizes");
+        assert_eq!(is_streamed, 0);
+        let match_state: String =
+            conn.query_row("SELECT state FROM local_matches", [], |row| row.get(0)).unwrap();
+        assert_eq!(match_state, "finalized");
     }
 
     // WK-111 acceptance criterion #2: Companion closed mid-match, reopened -
@@ -520,6 +658,130 @@ mod tests {
     // closing the SQLite connection (dropping it) and reopening a fresh one
     // against the same on-disk file, exactly what happens across a real
     // process restart.
+    #[test]
+    fn a_match_still_finalizes_correctly_after_its_session_has_already_ended() {
+        // WK-137 - scenario 5 (OBS stops streaming mid-match): the existing
+        // 30s grace period ends the session (`store::finalize_session_end`,
+        // simulated directly here rather than through the full OBS/reconcile
+        // machinery, which lifecycle.rs's own tests already cover) without
+        // any awareness of whether a match is still active. Ticks for that
+        // match must keep resolving into ITS session - not be dropped, not
+        // attach to a different session - and MMR must land correctly on
+        // the now-ended session.
+        let app = tauri::test::mock_app();
+        app.manage(LocalRuntimeState::new());
+        let conn = Connection::open_in_memory().unwrap();
+        schema::migrate(&conn).unwrap();
+        *app.state::<LocalRuntimeState>().lock() = Some(conn);
+        let handle = app.handle();
+
+        let session_id = {
+            let state = app.state::<LocalRuntimeState>();
+            let mut guard = state.lock();
+            let conn = guard.as_mut().unwrap();
+            let session = store::ensure_active_session(conn, Utc::now()).unwrap();
+            store::set_current_rating(conn, 5_000).unwrap();
+            session.local_id
+        };
+
+        handle_gsi(
+            handle,
+            &serde_json::json!({
+                "map": { "game_state": "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", "matchid": "99" },
+                "player": { "activity": "playing", "team_name": "radiant" },
+                "hero": { "id": 14 },
+            }),
+        );
+
+        {
+            let state = app.state::<LocalRuntimeState>();
+            let mut guard = state.lock();
+            let conn = guard.as_mut().unwrap();
+            store::finalize_session_end(conn, &session_id, Utc::now()).unwrap();
+            assert!(store::find_open_session(conn).unwrap().is_none(), "session must actually be ended for this test to prove anything");
+        }
+
+        let post_game = serde_json::json!({
+            "map": { "game_state": "DOTA_GAMERULES_STATE_POST_GAME", "matchid": "99", "win_team": "radiant" },
+            "player": { "activity": "menu" },
+        });
+        handle_gsi(handle, &post_game);
+        handle_gsi(handle, &post_game);
+
+        let state = app.state::<LocalRuntimeState>();
+        let mut guard = state.lock();
+        let conn = guard.as_mut().unwrap();
+        let session_count: i64 = conn.query_row("SELECT COUNT(*) FROM local_sessions", [], |row| row.get(0)).unwrap();
+        assert_eq!(session_count, 1, "no second session must be created just because the first had already ended");
+        let (state_str, session_local_id): (String, String) =
+            conn.query_row("SELECT state, session_local_id FROM local_matches", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+        assert_eq!(state_str, "finalized");
+        assert_eq!(session_local_id, session_id, "the match must finalize into the SAME session it started tracking in, even though that session already ended");
+    }
+
+    #[test]
+    fn obs_starting_mid_match_graduates_the_gameplay_session_without_duplicating_the_match() {
+        // WK-137 - scenario 4 (OBS starts streaming mid-match): the match
+        // must stay in the same session, which simply becomes streamed -
+        // never a second session, never a moved/duplicated match. Graduation
+        // itself (`store::mark_session_streamed`) is invoked directly here,
+        // exactly as `lifecycle::apply`'s `ContinueSession` arm does - that
+        // OBS-truth-to-decision wiring is lifecycle.rs's own concern
+        // (`obs_streaming_while_a_gameplay_session_is_open_continues_it_for_graduation`);
+        // this test's job is what happens to the match/session data once it fires.
+        let app = tauri::test::mock_app();
+        app.manage(LocalRuntimeState::new());
+        let conn = Connection::open_in_memory().unwrap();
+        schema::migrate(&conn).unwrap();
+        *app.state::<LocalRuntimeState>().lock() = Some(conn);
+        let handle = app.handle();
+
+        handle_gsi(
+            handle,
+            &serde_json::json!({
+                "map": { "game_state": "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", "matchid": "7" },
+                "player": { "activity": "playing", "team_name": "radiant" },
+                "hero": { "id": 14 },
+            }),
+        );
+
+        let session_id = {
+            let state = app.state::<LocalRuntimeState>();
+            let mut guard = state.lock();
+            let conn = guard.as_mut().unwrap();
+            let session = store::find_open_session(conn).unwrap().expect("gameplay session must already be open");
+            assert!(!session.is_streamed);
+            store::mark_session_streamed(conn, &session.local_id, Utc::now()).unwrap();
+            session.local_id
+        };
+
+        let post_game = serde_json::json!({
+            "map": { "game_state": "DOTA_GAMERULES_STATE_POST_GAME", "matchid": "7", "win_team": "radiant" },
+            "player": { "activity": "menu" },
+        });
+        handle_gsi(handle, &post_game);
+        handle_gsi(handle, &post_game);
+
+        let state = app.state::<LocalRuntimeState>();
+        let mut guard = state.lock();
+        let conn = guard.as_mut().unwrap();
+        let session_count: i64 = conn.query_row("SELECT COUNT(*) FROM local_sessions", [], |row| row.get(0)).unwrap();
+        assert_eq!(session_count, 1, "graduation must not create a second session");
+        let match_count: i64 = conn.query_row("SELECT COUNT(*) FROM local_matches", [], |row| row.get(0)).unwrap();
+        assert_eq!(match_count, 1, "the match must not be duplicated across the graduation");
+        let (state_str, session_local_id): (String, String) =
+            conn.query_row("SELECT state, session_local_id FROM local_matches", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+        assert_eq!(state_str, "finalized");
+        assert_eq!(session_local_id, session_id);
+        let is_streamed: i64 = conn.query_row("SELECT is_streamed FROM local_sessions WHERE local_id = ?1", params![session_id], |row| row.get(0)).unwrap();
+        assert_eq!(is_streamed, 1, "the session must still be marked streamed after the match finalizes into it");
+        // A now-streamed session must NOT auto-close the way a gameplay
+        // session does once its match finalizes - it only ever ends via the
+        // normal OBS-stop + grace path from here on.
+        let ended_at: Option<String> = conn.query_row("SELECT ended_at FROM local_sessions WHERE local_id = ?1", params![session_id], |row| row.get(0)).unwrap();
+        assert!(ended_at.is_none(), "a graduated (now-streamed) session must not auto-close just because its match finalized");
+    }
+
     #[test]
     fn crash_mid_match_then_restart_preserves_the_in_progress_match() {
         let dir = TempDir::new().unwrap();

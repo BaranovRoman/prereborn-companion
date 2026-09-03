@@ -140,6 +140,17 @@ pub struct LocalSession {
     // WK-112 - true once the user has explicitly chosen "continue this
     // session" during stale-session manual recovery. See `lifecycle::is_stale`.
     pub stale_ack: bool,
+    // WK-137 - false for a "gameplay session" opened by GSI match evidence
+    // with no OBS stream active; true for a genuine OBS-driven broadcast
+    // (the only kind that ever existed before this ticket). Can flip false
+    // -> true (`store::mark_session_streamed`, "graduation") but never back.
+    // See docs/research/wk-137-match-session-decoupling.md.
+    pub is_streamed: bool,
+    // WK-137 - the moment OBS actually went live for this session, if ever.
+    // Kept separate from `started_at` (which stays "when this session began
+    // being observed") so a graduated gameplay session never backdates its
+    // broadcast to before OBS was actually streaming.
+    pub stream_started_at: Option<String>,
     pub sync_state: SyncState,
 }
 

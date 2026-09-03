@@ -124,6 +124,25 @@ fn apply_leave(conn: &mut Connection, active: &LocalMatch, now: DateTime<Utc>) -
     }
 }
 
+/// WK-137 - true exactly when this tick would cause `handle_snapshot` to
+/// create a brand new match if there were no active match/session to
+/// attach it to (the same hero-picked/team-known/not-post-game gate at the
+/// bottom of `handle_snapshot` below - kept as one pure, testable function
+/// so `local_runtime::mod::handle_gsi` can decide "is it worth lazily
+/// opening a gameplay session for this tick" without duplicating that gate
+/// or needing a database handle). An ordinary menu/idle/hero-not-picked-yet
+/// tick with no session open must keep creating nothing, exactly as before
+/// this ticket.
+pub fn is_new_match_evidence(snapshot: &GsiSnapshot) -> bool {
+    if !snapshot.is_match_lifecycle_tick() || snapshot.custom_game_name.is_some() || snapshot.is_post_game() {
+        return false;
+    }
+    match snapshot.hero_id {
+        Some(hero_id) if hero_id > 0 => snapshot.team_name.is_some(),
+        _ => false,
+    }
+}
+
 /// Entry point called (indirectly, via `local_runtime::handle_gsi`) once
 /// per GSI tick with the current session already resolved. Mirrors
 /// `processGsiPayloadForMatch` end to end: DB reads/writes happen here
@@ -452,6 +471,45 @@ mod tests {
         handle_snapshot(&mut conn, &session.local_id, RankedMode::Unknown, &menu_tick, now).unwrap();
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM local_matches", [], |row| row.get(0)).unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn hero_picked_tick_is_new_match_evidence() {
+        assert!(is_new_match_evidence(&tick("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", 14, "radiant", Some("555"), None)));
+    }
+
+    #[test]
+    fn hero_not_yet_picked_is_not_new_match_evidence() {
+        let mut snapshot = tick("DOTA_GAMERULES_STATE_HERO_SELECTION", 0, "radiant", None, None);
+        snapshot.hero_id = None;
+        assert!(!is_new_match_evidence(&snapshot));
+    }
+
+    #[test]
+    fn post_game_tick_is_not_new_match_evidence() {
+        assert!(!is_new_match_evidence(&tick("DOTA_GAMERULES_STATE_POST_GAME", 14, "radiant", Some("555"), Some("radiant"))));
+    }
+
+    #[test]
+    fn menu_tick_is_not_new_match_evidence() {
+        let menu_tick = GsiSnapshot {
+            game_state: "DOTA_GAMERULES_STATE_DISCONNECT".to_string(),
+            activity: Some("menu".to_string()),
+            custom_game_name: None,
+            match_id: None,
+            win_team: None,
+            hero_id: None,
+            team_name: None,
+            telemetry: Default::default(),
+        };
+        assert!(!is_new_match_evidence(&menu_tick));
+    }
+
+    #[test]
+    fn custom_game_tick_is_not_new_match_evidence() {
+        let mut snapshot = tick("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", 14, "radiant", Some("555"), None);
+        snapshot.custom_game_name = Some("some_mod".to_string());
+        assert!(!is_new_match_evidence(&snapshot));
     }
 
     #[test]
