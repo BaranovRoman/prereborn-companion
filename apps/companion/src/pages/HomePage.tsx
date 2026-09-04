@@ -48,15 +48,18 @@ function effectiveDelta(match: LocalMatchSummary): number | null {
   return match.detectedRatingDelta == null ? null : match.detectedRatingDelta + match.ratingDeltaCorrection;
 }
 
-const DELTA_STEP = 25;
+const DELTA_FINE_STEP = 1;
+const DELTA_COARSE_STEP = 25;
 
-// WK-115 - compact, hover-revealed correction controls for one finalized
-// match: +/- and ×2 on the effective delta (never touches detected_rating_delta,
-// only rating_delta_correction - see local_runtime::store::correct_match_delta),
-// plus the Ranked<->Unranked toggle. Deliberately its own component (not
-// inline in MatchRow) so it can stay entirely absent from the DOM for the
+// WK-115/WK-151 - compact, hover-revealed correction controls for one
+// finalized match: -25/-1/+1/+25 and ×2 on the effective delta (never
+// touches detected_rating_delta, only rating_delta_correction - see
+// local_runtime::store::correct_match_delta, which already cascades/
+// reanchors subsequent sessions - see cascade_reanchor), plus the
+// Ranked<->Unranked toggle. Deliberately its own component (not inline in
+// MatchRow) so it can stay entirely absent from the DOM for the
 // in-progress match and for legacy matches with nothing to correct.
-function MatchCorrectionControls({
+export function MatchCorrectionControls({
   match,
   onCorrectDelta,
   onCorrectRanked,
@@ -77,7 +80,8 @@ function MatchCorrectionControls({
     <span className="match-row__actions">
       {canCorrectDelta && detected != null && (
         <span className="match-row__delta-controls">
-          <button type="button" className="match-row__step" aria-label="Уменьшить дельту на 25" onClick={() => onCorrectDelta(match.localId, (current ?? 0) - DELTA_STEP)}>−</button>
+          <button type="button" className="match-row__step match-row__step--coarse" aria-label="Уменьшить дельту на 25" onClick={() => onCorrectDelta(match.localId, (current ?? 0) - DELTA_COARSE_STEP)}>−25</button>
+          <button type="button" className="match-row__step" aria-label="Уменьшить дельту на 1" onClick={() => onCorrectDelta(match.localId, (current ?? 0) - DELTA_FINE_STEP)}>−</button>
           <button
             type="button"
             className={`match-row__x2 ${isDoubled(match) ? "is-active" : ""}`}
@@ -87,7 +91,8 @@ function MatchCorrectionControls({
           >
             ×2
           </button>
-          <button type="button" className="match-row__step" aria-label="Увеличить дельту на 25" onClick={() => onCorrectDelta(match.localId, (current ?? 0) + DELTA_STEP)}>+</button>
+          <button type="button" className="match-row__step" aria-label="Увеличить дельту на 1" onClick={() => onCorrectDelta(match.localId, (current ?? 0) + DELTA_FINE_STEP)}>+</button>
+          <button type="button" className="match-row__step match-row__step--coarse" aria-label="Увеличить дельту на 25" onClick={() => onCorrectDelta(match.localId, (current ?? 0) + DELTA_COARSE_STEP)}>+25</button>
         </span>
       )}
       <button type="button" className="match-row__ranked-toggle" onClick={() => onCorrectRanked(match.localId, rankedToggleTarget)}>

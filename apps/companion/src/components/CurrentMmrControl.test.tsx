@@ -56,4 +56,22 @@ describe("CurrentMmrControl", () => {
     await waitFor(() => expect(setCurrentMmr).toHaveBeenCalledWith(6_100));
     expect(await screen.findByText("6100")).toBeTruthy();
   });
+
+  // WK-151 - the plain +/- buttons must nudge by 1, not the coarse ±25 step,
+  // so tiny corrections don't require the full edit form.
+  it("nudges Current MMR up by 1 through the fine stepper", async () => {
+    setCurrentMmr.mockResolvedValue({ ratingCurrent: 6_126, sessionDelta: 26 });
+    render(<CurrentMmrControl currentMmr={6_125} sessionDelta={25} hasSession />);
+    fireEvent.click(screen.getByRole("button", { name: "Увеличить MMR на 1" }));
+    await waitFor(() => expect(setCurrentMmr).toHaveBeenCalledWith(6_126));
+    expect(await screen.findByText("6126")).toBeTruthy();
+  });
+
+  it("nudges Current MMR down by 1 through the fine stepper", async () => {
+    setCurrentMmr.mockResolvedValue({ ratingCurrent: 6_124, sessionDelta: 24 });
+    render(<CurrentMmrControl currentMmr={6_125} sessionDelta={25} hasSession />);
+    fireEvent.click(screen.getByRole("button", { name: "Уменьшить MMR на 1" }));
+    await waitFor(() => expect(setCurrentMmr).toHaveBeenCalledWith(6_124));
+    expect(await screen.findByText("6124")).toBeTruthy();
+  });
 });
