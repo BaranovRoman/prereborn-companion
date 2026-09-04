@@ -205,6 +205,22 @@ describe("RecentGames (Between Matches)", () => {
             expect(strong.dataset.positive).toBe("false");
         });
 
+        // Caught in visual QA: without spaces "8/3/14" reads like a date, not
+        // a K/D/A triple - especially now the "KDA " label is gone.
+        it("renders K/D/A with spaces around the slashes, not run together", () => {
+            const { container } = render(
+                <RecentGames
+                    {...baseProps}
+                    matches={[{ ...match("a", "s1"), kills: 8, deaths: 3, assists: 14 }]}
+                    activeSessionId="s1"
+                    title="Recent Games"
+                    limit={5}
+                />
+            );
+            const kda = container.querySelector(`.${styles.gameKda}`) as HTMLElement;
+            expect(kda.textContent).toBe("8 / 3 / 14");
+        });
+
         it("never renders the hero's localized name as text - the portrait is the only hero identifier", () => {
             const { container } = render(
                 <RecentGames

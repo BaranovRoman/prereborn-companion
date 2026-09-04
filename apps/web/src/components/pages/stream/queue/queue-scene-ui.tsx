@@ -473,7 +473,7 @@ export const RecentGames = ({
                         ) : (
                             <span className={styles.gameMark}>?</span>
                         )}
-                        <span className={styles.gameKda}>{match.kills}/{match.deaths}/{match.assists}</span>
+                        <span className={styles.gameKda}>{match.kills} / {match.deaths} / {match.assists}</span>
                         <strong data-positive={isPositiveOutcome(match)}>
                             {isRankedDelta(match) ? formatDelta(match.ratingDelta) : shortResult(match)}
                         </strong>
