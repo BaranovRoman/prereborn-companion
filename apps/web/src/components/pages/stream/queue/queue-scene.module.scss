@@ -1208,8 +1208,10 @@
     letter-spacing: .12em;
 }
 
+// WK-152 - enlarged from 46px now that the row no longer also renders the
+// hero name as text (portrait alone identifies the hero).
 .gameHeroImage {
-    width: 46px;
+    width: 58px;
     aspect-ratio: 225 / 127;
     border: 1px solid #444a49;
     object-fit: cover;
@@ -1223,11 +1225,9 @@
     padding: 3px;
     text-align: center;
 }
-// WK-90 (second pass): hero names are PRIMARY content in both Favorite
-// Heroes and Recent Games rows - WK-87's first-pass 13/12px proved
-// insufficient, pushed further. Timestamps stay untouched below
-// (.gameRow time) - still SECONDARY per the task.
-.favorite b, .gameRow b { color: #c3c0b8; font-family: var(--font-title); font-size: 18px; font-weight: 400; }
+// WK-90 (second pass): hero names are PRIMARY content in Favorite Heroes -
+// WK-87's first-pass 13/12px proved insufficient, pushed further.
+.favorite b { color: #c3c0b8; font-family: var(--font-title); font-size: 18px; font-weight: 400; }
 .favorite b {
     width: 100%;
     overflow: hidden;
@@ -1237,9 +1237,10 @@
     text-transform: uppercase;
     white-space: nowrap;
 }
-// WK-90 (second pass): KDA is PRIMARY (a key stat) - pushed further from
-// the WK-87 first-pass 13px.
-.gameRow small { color: #747976; font-size: 16px; }
+// WK-152 - Recent Games no longer renders the hero name (redundant with the
+// portrait); K/D/A is now the row's only primary text, sized up accordingly
+// from WK-90's 16px .gameRow small.
+.gameKda { color: #c3c0b8; font-family: var(--font-title); font-size: 19px; font-weight: 400; }
 
 .gamesList {
     position: relative;
@@ -1247,7 +1248,7 @@
     display: flex;
     flex-direction: column;
     justify-content: flex-start;
-    padding: 0 10px 7px;
+    padding: 0 10px 5px;
 }
 .attributeIcon {
     position: absolute;
@@ -1263,30 +1264,29 @@
 .gamesList::after {
     content: none;
 }
-// WK-90 (second pass): row height/columns widened slightly (46px -> 54px,
-// result/delta columns +6px each) to give the larger text below room
-// without touching the panel's own size or the grid/composition around it -
-// see the task's explicit allowance for line-height/gap/padding tweaks.
+// WK-152 - name column dropped, portrait enlarged (46->58px), row shrunk
+// (54->42px) and gap tightened (7->5px) so more rows fit without the list
+// feeling cramped - the result/delta column is now the row's own single
+// PRIMARY-strong cell (was a separate word + delta pair, see below).
 .gameRow {
     z-index: 1;
-    flex: 0 0 54px;
+    flex: 0 0 42px;
     display: grid;
-    grid-template-columns: 52px minmax(110px, 1fr) 64px 54px 94px;
+    grid-template-columns: 58px minmax(0, 1fr) 56px 88px;
     align-items: center;
-    gap: 7px;
+    gap: 5px;
     border-bottom: 1px solid #2a3030;
 }
 // WK-84: матчи прошлых stream-сессий в общей истории (Between Matches) -
 // строка/layout не меняются, см. задачу.
 .gameRow[data-session="previous"] { opacity: 0.8; }
 .gameMark { width: 30px; height: 30px; font-size: 12px; }
-.gameRow div { display: flex; flex-direction: column; gap: 2px; }
-// WK-90 (second pass): match result and rating delta are PRIMARY values -
-// pushed further from the WK-87 first-pass 14px.
-.gameRow em { color: #9eb17f; font-size: 17px; font-style: normal; }
-.gameRow em[data-result="DEFEAT"],
-.gameRow em[data-result="ABANDON"] { color: #bd655e; }
-.gameRow > strong { color: #918f89; font-family: var(--font-title); font-size: 17px; font-weight: 400; text-align: right; }
+// WK-152 - ranked shows only the actual effective rating delta (+N/-N, read
+// from the real stored value, never assumed ±25); unranked (no rating
+// delta) shows W/L instead - see RecentGames' isRankedDelta/isPositiveOutcome.
+// Positive/win reuses the existing restrained green, negative/loss the
+// existing restrained red - same tokens WK-90 already established below.
+.gameRow > strong { color: #bd655e; font-family: var(--font-title); font-size: 18px; font-weight: 400; text-align: right; }
 .gameRow > strong[data-positive="true"] { color: #9eb17f; }
 // Timestamp stays SECONDARY (explicitly called out as such in the WK-87
 // task) - unchanged from before this pass.
@@ -1756,10 +1756,8 @@
         height: 18px;
     }
 
-    // WK-90 (second pass): result/delta columns widened slightly (48/40 ->
-    // 54/46) to keep fitting the bigger base .gameRow em/>strong font-size.
     .gameRow {
-        grid-template-columns: 38px minmax(86px, 1fr) 54px 46px 68px;
+        grid-template-columns: 58px minmax(0, 1fr) 48px 68px;
         gap: 5px;
     }
 
@@ -1830,23 +1828,20 @@
         min-height: 28px;
     }
 
-    // WK-90 (second pass): this compact row height (38px, unchanged) can't
-    // fit the new bigger base font sizes - rolled back to the WK-87
-    // first-pass values here, which were already proven to fit at this
-    // breakpoint. Broadcast/normal-height viewports keep the bigger sizes.
+    // This compact row height can't fit the base breakpoint's bigger sizes -
+    // rolled back to smaller values proven to fit here. Broadcast/normal-
+    // height viewports keep the bigger sizes (WK-152 base above).
     .gameRow {
-        flex-basis: 38px;
+        flex-basis: 34px;
     }
 
-    .favorite b, .gameRow b { font-size: 15px; }
+    .favorite b { font-size: 15px; }
     .favorite b { font-size: 14px; }
-    .gameRow small { font-size: 13px; }
-    .gameRow em { font-size: 14px; }
+    .gameKda { font-size: 14px; }
     .gameRow > strong { font-size: 14px; }
-    .gameRow div { gap: 1px; }
 
     .gameHeroImage {
-        width: 38px;
+        width: 40px;
         height: auto;
     }
 

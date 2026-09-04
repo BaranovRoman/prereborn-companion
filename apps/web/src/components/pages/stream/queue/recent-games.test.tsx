@@ -125,4 +125,115 @@ describe("RecentGames (Between Matches)", () => {
         const row = container.querySelector(`.${styles.gameRow}`) as HTMLElement;
         expect(row.dataset.session).toBe("current");
     });
+
+    // WK-152 - result semantics: ranked shows only the actual effective
+    // rating delta (never assumed ±25), unranked (no rating delta) shows W/L
+    // instead. Portrait alone identifies the hero - the name is never
+    // rendered as text.
+    describe("result cell semantics (WK-152)", () => {
+        it("ranked positive delta shows the numeric delta, colored positive", () => {
+            const { container } = render(
+                <RecentGames
+                    {...baseProps}
+                    matches={[match("a", "s1")]}
+                    activeSessionId="s1"
+                    title="Recent Games"
+                    limit={5}
+                />
+            );
+            const strong = container.querySelector(`.${styles.gameRow} > strong`) as HTMLElement;
+            expect(strong.textContent).toBe("+25");
+            expect(strong.dataset.positive).toBe("true");
+        });
+
+        it("ranked negative delta shows the numeric delta, colored negative", () => {
+            const { container } = render(
+                <RecentGames
+                    {...baseProps}
+                    matches={[{ ...match("a", "s1"), result: "loss", ratingDelta: -25, ratingAfter: 975 }]}
+                    activeSessionId="s1"
+                    title="Recent Games"
+                    limit={5}
+                />
+            );
+            const strong = container.querySelector(`.${styles.gameRow} > strong`) as HTMLElement;
+            expect(strong.textContent).toBe("-25");
+            expect(strong.dataset.positive).toBe("false");
+        });
+
+        it("a non-standard ranked delta (manual correction) shows the real stored value, not an assumed ±25", () => {
+            const { container } = render(
+                <RecentGames
+                    {...baseProps}
+                    matches={[{ ...match("a", "s1"), ratingDelta: 50, ratingAfter: 1050 }]}
+                    activeSessionId="s1"
+                    title="Recent Games"
+                    limit={5}
+                />
+            );
+            const strong = container.querySelector(`.${styles.gameRow} > strong`) as HTMLElement;
+            expect(strong.textContent).toBe("+50");
+        });
+
+        it("unranked win shows W, colored positive, not a rating delta", () => {
+            const { container } = render(
+                <RecentGames
+                    {...baseProps}
+                    matches={[{ ...match("a", "s1"), gameMode: "unranked", ratingDelta: null, ratingBefore: null, ratingAfter: null }]}
+                    activeSessionId="s1"
+                    title="Recent Games"
+                    limit={5}
+                />
+            );
+            const strong = container.querySelector(`.${styles.gameRow} > strong`) as HTMLElement;
+            expect(strong.textContent).toBe("W");
+            expect(strong.dataset.positive).toBe("true");
+        });
+
+        it("unranked loss shows L, colored negative", () => {
+            const { container } = render(
+                <RecentGames
+                    {...baseProps}
+                    matches={[{ ...match("a", "s1"), gameMode: "unranked", result: "loss", ratingDelta: null, ratingBefore: null, ratingAfter: null }]}
+                    activeSessionId="s1"
+                    title="Recent Games"
+                    limit={5}
+                />
+            );
+            const strong = container.querySelector(`.${styles.gameRow} > strong`) as HTMLElement;
+            expect(strong.textContent).toBe("L");
+            expect(strong.dataset.positive).toBe("false");
+        });
+
+        // Caught in visual QA: without spaces "8/3/14" reads like a date, not
+        // a K/D/A triple - especially now the "KDA " label is gone.
+        it("renders K/D/A with spaces around the slashes, not run together", () => {
+            const { container } = render(
+                <RecentGames
+                    {...baseProps}
+                    matches={[{ ...match("a", "s1"), kills: 8, deaths: 3, assists: 14 }]}
+                    activeSessionId="s1"
+                    title="Recent Games"
+                    limit={5}
+                />
+            );
+            const kda = container.querySelector(`.${styles.gameKda}`) as HTMLElement;
+            expect(kda.textContent).toBe("8 / 3 / 14");
+        });
+
+        it("never renders the hero's localized name as text - the portrait is the only hero identifier", () => {
+            const { container } = render(
+                <RecentGames
+                    {...baseProps}
+                    matches={[match("a", "s1")]}
+                    activeSessionId="s1"
+                    title="Recent Games"
+                    limit={5}
+                />
+            );
+            const row = container.querySelector(`.${styles.gameRow}`) as HTMLElement;
+            expect(row.querySelector("b")).toBeNull();
+            expect(row.querySelector(`.${styles.gameHeroImage}`)).toBeTruthy();
+        });
+    });
 });
