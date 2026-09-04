@@ -260,6 +260,34 @@ pub async fn get_donation_alerts_integration_status(app: AppHandle) -> Result<se
     backend::get_donation_alerts_integration_status(&app).await
 }
 
+// WK-149 - Twitch/DonationAlerts connect+disconnect entirely from Companion,
+// same shape as get_steam_integration_status/disconnect_steam above. connect
+// fetches the provider's redirectUrl from the backend then opens it via the
+// same opener `open_stream_settings` already uses - the OAuth dance itself
+// still happens in the system browser, only the "which URL, and does the
+// user have to go find it in the web cabinet first" part changes.
+#[tauri::command]
+pub async fn connect_twitch(app: AppHandle) -> Result<(), String> {
+    let url = backend::connect_twitch(&app).await?;
+    app.opener().open_url(url, None::<String>).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn disconnect_twitch(app: AppHandle) -> Result<(), String> {
+    backend::disconnect_twitch(&app).await
+}
+
+#[tauri::command]
+pub async fn connect_donation_alerts(app: AppHandle) -> Result<(), String> {
+    let url = backend::connect_donation_alerts(&app).await?;
+    app.opener().open_url(url, None::<String>).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn disconnect_donation_alerts(app: AppHandle) -> Result<(), String> {
+    backend::disconnect_donation_alerts(&app).await
+}
+
 #[tauri::command]
 pub async fn get_hero_opendota_stats(app: AppHandle, hero_id: i64) -> Result<serde_json::Value, String> {
     backend::get_hero_opendota_stats(&app, hero_id).await
