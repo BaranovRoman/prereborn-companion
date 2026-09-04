@@ -4,7 +4,8 @@ import { Badge, Button } from "../components/ui";
 import type { useFavoriteHeroes } from "../hooks/useFavoriteHeroes";
 import { useHeroLocalStats } from "../hooks/useHeroLocalStats";
 import { useHeroOpenDotaStats } from "../hooks/useHeroOpenDotaStats";
-import type { GameSoundEventKind, GameSoundSettings, HeroOpenDotaStats, TrackedAbility, TrackedHero } from "../services/dotaCompanionApi";
+import { useHeroOpenDotaInsights } from "../hooks/useHeroOpenDotaInsights";
+import type { GameSoundEventKind, GameSoundSettings, HeroOpenDotaInsights, HeroOpenDotaStats, TrackedAbility, TrackedHero } from "../services/dotaCompanionApi";
 import { getHeroById } from "../services/heroCatalog";
 import type { HeroLocalStats, LocalMatchResultValue } from "../types/status";
 
@@ -193,7 +194,78 @@ function HeroStatsPanel({ stats }: { stats: HeroLocalStats | null }) {
 // here renders something small and restrained, never a full-page error -
 // HeroStatsPanel above it always renders normally regardless of this
 // component's state.
-function HeroOpenDotaPanel({ stats, onOpenIntegrations }: { stats: HeroOpenDotaStats | null; onOpenIntegrations: () => void }) {
+// WK-148 - "ПОСЛЕДНИЕ N"/"ПАТЧ 7.XX"/KDA-GPM-XPM/ranking, additive to the
+// lifetime block above (задача, секции 2-3). Every sub-block is independently
+// omitted when its data is null/insufficient - never a placeholder, never a
+// misleading "0 матчей" (see computeHeroPatchStats/computeHeroParsedAverages
+// in apps/api for why each field can legitimately be null).
+function HeroOpenDotaInsightsBlock({ insights }: { insights: HeroOpenDotaInsights | null }) {
+  if (!insights || insights.status !== "ok") return null;
+
+  const kdaAvailable = insights.kills !== null && insights.deaths !== null && insights.assists !== null;
+  const hasParsedMetrics = insights.heroDamage !== null || insights.towerDamage !== null || insights.heroHealing !== null;
+
+  return (
+    <>
+      {insights.recentForm && (
+        <div className="hero-detail__stats-group">
+          <p className="hero-detail__stats-subhead">Последние {insights.recentForm.sample}</p>
+          <p className="hero-detail__stats-line">
+            {insights.recentForm.wins}–{insights.recentForm.losses} · {insights.recentForm.winRate.toFixed(1)}%
+          </p>
+        </div>
+      )}
+
+      {insights.patch && insights.patch.patchName && (
+        <div className="hero-detail__stats-group">
+          {/* WK-148 polish - isLatestKnown distinguishes "this hero's current
+              observed patch is confirmed to be OpenDota's latest known patch"
+              from "this is merely the newest patch this player has played" -
+              only the former may say "Патч", the latter must say "Последний
+              патч" so it never falsely implies the live game patch. */}
+          <p className="hero-detail__stats-subhead">
+            {insights.patch.isLatestKnown ? "Патч" : "Последний патч ·"} {insights.patch.patchName}
+          </p>
+          <p className="hero-detail__stats-line">
+            {insights.patch.wins}–{insights.patch.losses} · {insights.patch.winRate.toFixed(1)}%
+          </p>
+        </div>
+      )}
+
+      {(kdaAvailable || insights.goldPerMin !== null || insights.xpPerMin !== null || hasParsedMetrics) && (
+        <dl className="hero-detail__stats-list hero-detail__stats-list--compact">
+          {kdaAvailable && (
+            <div className="hero-detail__stats-row">
+              <dt>KDA</dt>
+              <dd>{insights.kills!.toFixed(1)} / {insights.deaths!.toFixed(1)} / {insights.assists!.toFixed(1)}</dd>
+            </div>
+          )}
+          {insights.goldPerMin !== null && (
+            <div className="hero-detail__stats-row"><dt>GPM</dt><dd>{Math.round(insights.goldPerMin)}</dd></div>
+          )}
+          {insights.xpPerMin !== null && (
+            <div className="hero-detail__stats-row"><dt>XPM</dt><dd>{Math.round(insights.xpPerMin)}</dd></div>
+          )}
+          {insights.heroDamage !== null && (
+            <div className="hero-detail__stats-row"><dt>Урон герою</dt><dd>{Math.round(insights.heroDamage)}</dd></div>
+          )}
+          {insights.towerDamage !== null && (
+            <div className="hero-detail__stats-row"><dt>Урон башням</dt><dd>{Math.round(insights.towerDamage)}</dd></div>
+          )}
+          {insights.heroHealing !== null && (
+            <div className="hero-detail__stats-row"><dt>Лечение</dt><dd>{Math.round(insights.heroHealing)}</dd></div>
+          )}
+        </dl>
+      )}
+
+      {insights.rankPercent !== null && (
+        <p className="hero-detail__stats-caption">Рейтинг героя: топ {(100 - insights.rankPercent).toFixed(1)}%</p>
+      )}
+    </>
+  );
+}
+
+function HeroOpenDotaPanel({ stats, insights, onOpenIntegrations }: { stats: HeroOpenDotaStats | null; insights: HeroOpenDotaInsights | null; onOpenIntegrations: () => void }) {
   if (!stats) {
     return (
       <div className="hero-detail__stats hero-detail__stats--opendota">
@@ -245,6 +317,7 @@ function HeroOpenDotaPanel({ stats, onOpenIntegrations }: { stats: HeroOpenDotaS
           <dd>{stats.winRate === null ? "—" : `${stats.winRate.toFixed(1)}%`}</dd>
         </div>
       </dl>
+      <HeroOpenDotaInsightsBlock insights={insights} />
     </div>
   );
 }
@@ -255,6 +328,7 @@ export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBac
   const [visualUnavailable, setVisualUnavailable] = useState(false);
   const heroStats = useHeroLocalStats(heroId);
   const openDotaStats = useHeroOpenDotaStats(heroId);
+  const openDotaInsights = useHeroOpenDotaInsights(heroId);
 
   // WK-132 - a preview started here must not keep playing after the user
   // navigates away, whether via the back button or by switching to another
@@ -388,7 +462,7 @@ export function HeroDetailPage({ heroId, favorites, trackedHero, settings, onBac
               the task's data-boundary requirement. */}
           <div className="hero-detail__right">
             <HeroStatsPanel stats={heroStats} />
-            <HeroOpenDotaPanel stats={openDotaStats} onOpenIntegrations={onOpenIntegrations} />
+            <HeroOpenDotaPanel stats={openDotaStats} insights={openDotaInsights} onOpenIntegrations={onOpenIntegrations} />
           </div>
         </div>
       </div>

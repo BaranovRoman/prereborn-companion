@@ -54,6 +54,7 @@ export const buildOverlayData = (overrides: Partial<OverlayData> = {}): OverlayD
     recentMatches: [],
     companion: { isOnline: false, receivedAt: null, companionVersion: null, payload: null },
     steam: { connected: false, profile: null },
+    openDota: null,
     twitch: {
         connected: false,
         configured: false,

@@ -1255,6 +1255,65 @@ pub async fn get_hero_opendota_stats(app: &AppHandle, hero_id: i64) -> Result<se
         .map_err(|error| format!("Internal error: {error}"))?
 }
 
+// WK-148 - тот же паттерн, что и fetch_hero_opendota_stats выше: аддитивное
+// обогащение (recent form/патч/KDA-GPM-XPM/ranking), отдельный эндпоинт от
+// hero-stats, не заменяет его.
+fn fetch_hero_opendota_insights(token: &str, hero_id: i64) -> Result<serde_json::Value, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .get(format!(
+            "{DEFAULT_BACKEND_URL}/stream/integrations/opendota/hero-insights/{hero_id}"
+        ))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("OpenDota недоступен: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json()
+        .map_err(|error| format!("Неверный ответ OpenDota: {error}"))
+}
+
+pub async fn get_hero_opendota_insights(
+    app: &AppHandle,
+    hero_id: i64,
+) -> Result<serde_json::Value, String> {
+    let token = require_companion_token(app)?;
+    tauri::async_runtime::spawn_blocking(move || fetch_hero_opendota_insights(&token, hero_id))
+        .await
+        .map_err(|error| format!("Internal error: {error}"))?
+}
+
+// WK-148 - account-wide "ПРОФИЛЬ ИГРОКА" радар (не hero-scoped).
+fn fetch_account_opendota_radar(token: &str) -> Result<serde_json::Value, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .get(format!(
+            "{DEFAULT_BACKEND_URL}/stream/integrations/opendota/profile-radar"
+        ))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("OpenDota недоступен: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json()
+        .map_err(|error| format!("Неверный ответ OpenDota: {error}"))
+}
+
+pub async fn get_account_opendota_radar(app: &AppHandle) -> Result<serde_json::Value, String> {
+    let token = require_companion_token(app)?;
+    tauri::async_runtime::spawn_blocking(move || fetch_account_opendota_radar(&token))
+        .await
+        .map_err(|error| format!("Internal error: {error}"))?
+}
+
 const LOCAL_CHAT_HISTORY_LIMIT: usize = 50;
 
 fn merge_twitch_chat_status(

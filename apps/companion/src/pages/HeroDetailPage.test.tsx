@@ -10,15 +10,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // WK-133 - HeroOpenDotaPanel similarly fetches via getHeroOpenDotaStats;
 // defaults to "steam_not_connected" (the common no-setup state) so tests
 // that don't care about the OpenDota panel don't need their own override.
+// WK-148 - getHeroOpenDotaInsights is the additive enrichment call
+// (useHeroOpenDotaInsights); defaults to "steam_not_connected" too so tests
+// that don't care about it don't need their own override.
 vi.mock("../services/dotaCompanionApi", () => ({
   getHeroLocalStats: vi.fn().mockResolvedValue({
     matches: 0, wins: 0, losses: 0, avgKills: null, avgDeaths: null, avgAssists: null, recentResults: [],
   }),
   getHeroOpenDotaStats: vi.fn().mockResolvedValue({ status: "steam_not_connected" }),
+  getHeroOpenDotaInsights: vi.fn().mockResolvedValue({ status: "steam_not_connected" }),
 }));
 
 // eslint-disable-next-line import/order
-import { getHeroLocalStats, getHeroOpenDotaStats } from "../services/dotaCompanionApi";
+import { getHeroLocalStats, getHeroOpenDotaStats, getHeroOpenDotaInsights } from "../services/dotaCompanionApi";
 // eslint-disable-next-line import/order
 import { HeroDetailPage } from "./HeroDetailPage";
 // eslint-disable-next-line import/order
@@ -28,6 +32,7 @@ import type { useFavoriteHeroes } from "../hooks/useFavoriteHeroes";
 
 const mockedGetHeroLocalStats = vi.mocked(getHeroLocalStats);
 const mockedGetHeroOpenDotaStats = vi.mocked(getHeroOpenDotaStats);
+const mockedGetHeroOpenDotaInsights = vi.mocked(getHeroOpenDotaInsights);
 
 function buildFavorites(overrides: Partial<ReturnType<typeof useFavoriteHeroes>> = {}): ReturnType<typeof useFavoriteHeroes> {
   return {
@@ -396,6 +401,125 @@ describe("HeroDetailPage", () => {
         />
       );
       expect(mockedGetHeroOpenDotaStats).toHaveBeenCalledWith(14);
+    });
+  });
+
+  // WK-148 - additive enrichment atop the lifetime OpenDota block above.
+  describe("OpenDota insights", () => {
+    const OK_STATS = {
+      status: "ok" as const, source: "opendota" as const, heroId: 105,
+      games: 40, wins: 25, losses: 15, winRate: 62.5, fetchedAt: new Date().toISOString(),
+    };
+
+    it("renders recent form and current-patch blocks when both are available", async () => {
+      mockedGetHeroOpenDotaStats.mockResolvedValueOnce(OK_STATS);
+      mockedGetHeroOpenDotaInsights.mockResolvedValueOnce({
+        status: "ok", source: "opendota", heroId: 105,
+        recentForm: { sample: 12, wins: 8, losses: 4, winRate: 66.7 },
+        patch: { patchId: 60, patchName: "7.41", isLatestKnown: true, games: 7, wins: 4, losses: 3, winRate: 57.1 },
+        kills: null, deaths: null, assists: null, goldPerMin: null, xpPerMin: null,
+        heroDamage: null, towerDamage: null, heroHealing: null, rankPercent: null,
+        fetchedAt: new Date().toISOString(),
+      });
+      renderPage({ heroId: 105 });
+
+      expect(await screen.findByText("Последние 12")).toBeTruthy();
+      expect(screen.getByText("8–4 · 66.7%")).toBeTruthy();
+      expect(screen.getByText("Патч 7.41")).toBeTruthy();
+      expect(screen.getByText("4–3 · 57.1%")).toBeTruthy();
+    });
+
+    it("labels the patch block 'Последний патч' rather than 'Патч' when the player's patch is not confirmed to be OpenDota's current known patch", async () => {
+      mockedGetHeroOpenDotaStats.mockResolvedValueOnce(OK_STATS);
+      mockedGetHeroOpenDotaInsights.mockResolvedValueOnce({
+        status: "ok", source: "opendota", heroId: 105,
+        recentForm: null,
+        patch: { patchId: 58, patchName: "7.39", isLatestKnown: false, games: 5, wins: 3, losses: 2, winRate: 60 },
+        kills: null, deaths: null, assists: null, goldPerMin: null, xpPerMin: null,
+        heroDamage: null, towerDamage: null, heroHealing: null, rankPercent: null,
+        fetchedAt: new Date().toISOString(),
+      });
+      renderPage({ heroId: 105 });
+
+      expect(await screen.findByText("Последний патч · 7.39")).toBeTruthy();
+      expect(screen.queryByText(/^Патч /)).toBeNull();
+    });
+
+    it("omits the patch block when the patch id could not be resolved to a name, rather than showing a raw id", async () => {
+      mockedGetHeroOpenDotaStats.mockResolvedValueOnce(OK_STATS);
+      mockedGetHeroOpenDotaInsights.mockResolvedValueOnce({
+        status: "ok", source: "opendota", heroId: 105,
+        recentForm: null,
+        patch: { patchId: 61, patchName: null, isLatestKnown: false, games: 3, wins: 2, losses: 1, winRate: 66.7 },
+        kills: null, deaths: null, assists: null, goldPerMin: null, xpPerMin: null,
+        heroDamage: null, towerDamage: null, heroHealing: null, rankPercent: null,
+        fetchedAt: new Date().toISOString(),
+      });
+      renderPage({ heroId: 105 });
+
+      await screen.findByText("62.5%"); // wait for the lifetime block to settle
+      expect(screen.queryByText(/Патч/)).toBeNull();
+    });
+
+    it("renders KDA/GPM/XPM and omits parsed-only metrics that were not sufficiently sampled", async () => {
+      mockedGetHeroOpenDotaStats.mockResolvedValueOnce(OK_STATS);
+      mockedGetHeroOpenDotaInsights.mockResolvedValueOnce({
+        status: "ok", source: "opendota", heroId: 105,
+        recentForm: null, patch: null,
+        kills: 6.2, deaths: 4.1, assists: 11.3, goldPerMin: 487, xpPerMin: 612,
+        heroDamage: null, towerDamage: null, heroHealing: null, rankPercent: null,
+        fetchedAt: new Date().toISOString(),
+      });
+      renderPage({ heroId: 105 });
+
+      expect(await screen.findByText("KDA")).toBeTruthy();
+      expect(screen.getByText("6.2 / 4.1 / 11.3")).toBeTruthy();
+      expect(screen.getByText("487")).toBeTruthy();
+      expect(screen.getByText("612")).toBeTruthy();
+      expect(screen.queryByText("Урон герою")).toBeNull();
+      expect(screen.queryByText("Урон башням")).toBeNull();
+      expect(screen.queryByText("Лечение")).toBeNull();
+    });
+
+    it("shows parsed-only metrics once the backend has already gated them by sample size", async () => {
+      mockedGetHeroOpenDotaStats.mockResolvedValueOnce(OK_STATS);
+      mockedGetHeroOpenDotaInsights.mockResolvedValueOnce({
+        status: "ok", source: "opendota", heroId: 105,
+        recentForm: null, patch: null,
+        kills: null, deaths: null, assists: null, goldPerMin: null, xpPerMin: null,
+        heroDamage: 18000, towerDamage: 4000, heroHealing: 0, rankPercent: null,
+        fetchedAt: new Date().toISOString(),
+      });
+      renderPage({ heroId: 105 });
+
+      expect(await screen.findByText("Урон герою")).toBeTruthy();
+      expect(screen.getByText("18000")).toBeTruthy();
+      expect(screen.getByText("Урон башням")).toBeTruthy();
+      expect(screen.getByText("4000")).toBeTruthy();
+    });
+
+    it("shows best-effort ranking when available, and nothing when it isn't", async () => {
+      mockedGetHeroOpenDotaStats.mockResolvedValueOnce(OK_STATS);
+      mockedGetHeroOpenDotaInsights.mockResolvedValueOnce({
+        status: "ok", source: "opendota", heroId: 105,
+        recentForm: null, patch: null,
+        kills: null, deaths: null, assists: null, goldPerMin: null, xpPerMin: null,
+        heroDamage: null, towerDamage: null, heroHealing: null,
+        rankPercent: 83.4, fetchedAt: new Date().toISOString(),
+      });
+      renderPage({ heroId: 105 });
+
+      expect(await screen.findByText("Рейтинг героя: топ 16.6%")).toBeTruthy();
+    });
+
+    it("renders nothing extra when insights carry no usable data (no_data/unavailable)", async () => {
+      mockedGetHeroOpenDotaStats.mockResolvedValueOnce(OK_STATS);
+      mockedGetHeroOpenDotaInsights.mockResolvedValueOnce({ status: "unavailable" });
+      renderPage({ heroId: 105 });
+
+      await screen.findByText("62.5%");
+      expect(screen.queryByText("KDA")).toBeNull();
+      expect(screen.queryByText(/Последние/)).toBeNull();
     });
   });
 });

@@ -96,6 +96,15 @@ pub struct OverlayStateSnapshot {
     /// field here, so a toggle is pushed to an already-open Browser Source
     /// immediately, without a reload.
     pub overlay_visible: bool,
+    /// WK-148 - Between Matches OpenDota enrichment, populated in the
+    /// background by opendota_overlay_cache.rs (this renderer has no Tauri
+    /// IPC, see that module's doc comment) - `None` until the first
+    /// successful poll, or if OpenDota/Steam-link is unavailable. Opaque
+    /// `serde_json::Value` (same pattern as `account`/`twitch_chat` above) -
+    /// the renderer owns the typed DTO, matching apps/api's
+    /// OpenDotaFavoriteHeroesResponse/OpenDotaProfileRadarResponse shapes.
+    pub opendota_favorite_heroes: Option<serde_json::Value>,
+    pub opendota_radar: Option<serde_json::Value>,
 }
 
 /// Reads AppState (canonical resolver fields) plus the local runtime's
@@ -110,7 +119,17 @@ pub struct OverlayStateSnapshot {
 /// than only testing a hand-built stand-in. Every real call site keeps
 /// compiling unchanged (`R = Wry` by inference).
 pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
-    let (gsi_derived_source, session_ended, obs_manual_summary_override, layout_version, account, twitch_chat, overlay_visible) = {
+    let (
+        gsi_derived_source,
+        session_ended,
+        obs_manual_summary_override,
+        layout_version,
+        account,
+        twitch_chat,
+        overlay_visible,
+        opendota_favorite_heroes,
+        opendota_radar,
+    ) = {
         let state = app.state::<AppState>();
         let inner = state.0.lock().unwrap();
         (
@@ -121,6 +140,8 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
             inner.account_overlay_data.clone(),
             inner.twitch_chat.clone(),
             inner.overlay_visible,
+            inner.opendota_favorite_heroes.clone(),
+            inner.opendota_radar.clone(),
         )
     };
     let gsi_derived = gsi_derived_source.unwrap_or(BroadcastState::BetweenMatches);
@@ -138,6 +159,8 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
         account,
         twitch_chat,
         overlay_visible,
+        opendota_favorite_heroes,
+        opendota_radar,
     }
 }
 
@@ -460,6 +483,40 @@ mod tests {
         });
         app.state::<AppState>().0.lock().unwrap().twitch_chat = Some(chat.clone());
         assert_eq!(current(&app).twitch_chat, Some(chat));
+    }
+
+    // WK-148 - same "opaque cached JSON, exposed as-is" contract as
+    // account/twitch_chat above, for the two OpenDota fields
+    // opendota_overlay_cache.rs's background poll populates.
+    #[test]
+    fn current_includes_the_cached_opendota_favorite_heroes_bundle() {
+        let app = test_app();
+        let bundle = serde_json::json!({
+            "status": "ok",
+            "patchName": "7.41",
+            "heroes": [{ "heroId": 1, "lifetime": { "games": 132, "wins": 71, "losses": 61, "winRate": 53.8 }, "patch": null }]
+        });
+        app.state::<AppState>().0.lock().unwrap().opendota_favorite_heroes = Some(bundle.clone());
+        assert_eq!(current(&app).opendota_favorite_heroes, Some(bundle));
+    }
+
+    #[test]
+    fn current_includes_the_cached_opendota_radar() {
+        let app = test_app();
+        let radar = serde_json::json!({
+            "status": "ok",
+            "combat": 62, "farm": 74, "support": 41, "objectives": null, "flexibility": 55
+        });
+        app.state::<AppState>().0.lock().unwrap().opendota_radar = Some(radar.clone());
+        assert_eq!(current(&app).opendota_radar, Some(radar));
+    }
+
+    #[test]
+    fn opendota_fields_default_to_none_before_the_background_poll_ever_completes() {
+        let app = test_app();
+        let snapshot = current(&app);
+        assert_eq!(snapshot.opendota_favorite_heroes, None);
+        assert_eq!(snapshot.opendota_radar, None);
     }
 
     // WK-124 - fresh AppState (mirrors state.rs's own pin of the same fact)
@@ -902,6 +959,8 @@ mod tests {
                 account: None,
                 twitch_chat: None,
                 overlay_visible: true,
+                opendota_favorite_heroes: None,
+                opendota_radar: None,
             };
             let json = serde_json::to_string(&snapshot).unwrap().to_lowercase();
             for forbidden in ["token", "secret", "password", "companion_token", "bearer"] {

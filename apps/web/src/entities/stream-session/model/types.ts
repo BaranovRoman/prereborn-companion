@@ -219,6 +219,36 @@ export interface OverlayData {
             profileUrl: string | null;
         } | null;
     };
+    // WK-148 - Between Matches enrichment (Favorite Heroes current-patch line
+    // + "ПРОФИЛЬ ИГРОКА" радар), null when Steam isn't linked. Both
+    // sub-fields are independently null on a cold cache/upstream failure -
+    // see apps/api's opendota-overlay-insights-cache-service.ts, which never
+    // blocks this endpoint's response on OpenDota (stale-while-refresh,
+    // fills in on a later poll).
+    openDota: {
+        favoriteHeroes: {
+            patchName: string | null;
+            // WK-148 polish - true only when confirmed to be OpenDota's
+            // current known patch, not just the newest one this player has
+            // played (see apps/api's resolveCurrentPatchId doc comment).
+            isLatestKnown: boolean;
+            perHero: Record<
+                number,
+                {
+                    lifetime: { games: number; wins: number; losses: number; winRate: number } | null;
+                    patch: { games: number; wins: number; losses: number; winRate: number } | null;
+                }
+            >;
+        } | null;
+        radar: {
+            combat: number | null;
+            farm: number | null;
+            support: number | null;
+            objectives: number | null;
+            flexibility: number | null;
+            insufficientSample: boolean;
+        } | null;
+    } | null;
     twitch: TwitchIntegrationStatus;
     donationAlerts: DonationAlertsIntegrationStatus | null;
     // WK-72 - follow/subscribe/gift-sub/raid, bounded + deduped server-side

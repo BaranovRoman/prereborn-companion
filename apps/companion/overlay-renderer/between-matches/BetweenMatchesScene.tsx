@@ -219,26 +219,178 @@ function WebcamPanel({ title, imageUrl }: { title: string; imageUrl: string | nu
   return <Panel title={title} className={`${styles.webcamPanel} ${parity.webcamPanel}`}><div className={`${styles.webcam} ${parity.webcam}`} data-has-image={Boolean(resolvedUrl)}>{resolvedUrl ? <img src={resolvedUrl} alt="" /> : <><span>LIVE CAPTURE</span><small>FALLBACK NOT SET</small></>}</div></Panel>;
 }
 
-function FavoriteHeroes({ matches, heroIds, title }: { matches: LocalMatchSummary[]; heroIds: number[]; title: string }) {
+// WK-148 - OpenDota enrichment (lifetime "matches · winrate" + optional
+// current-patch line), same visual language as the production web scene's
+// FavoriteHeroes (reuses .favoriteOpenDota/.favoriteOpenDotaPatch from the
+// shared queue-scene.module.scss import, not a second stylesheet) - this is
+// the LOCAL renderer's counterpart, sourced from
+// OverlayStateSnapshot.opendotaFavoriteHeroes (populated in the background by
+// opendota_overlay_cache.rs) instead of the public OverlayData payload.
+function FavoriteHeroes({ matches, heroIds, title, openDota }: { matches: LocalMatchSummary[]; heroIds: number[]; title: string; openDota: OverlayStateSnapshot["opendotaFavoriteHeroes"] }) {
   const counts = new Map<number, number>();
   matches.forEach((match) => counts.set(match.heroId, (counts.get(match.heroId) ?? 0) + 1));
   const favorites = (heroIds.length ? heroIds.map((id) => [id, counts.get(id) ?? 0] as [number, number]) : [...counts].sort((a, b) => b[1] - a[1])).slice(0, 3);
+  const patchName = openDota?.status === "ok" ? openDota.patchName : null;
+  // WK-148 polish - see resolveCurrentPatchId's doc comment on
+  // opendota-account-insights-cache-service.ts: this patch is the player's
+  // last OBSERVED patch, not confirmed to be the live one unless isLatestKnown.
+  const isLatestKnownPatch = openDota?.status === "ok" && openDota.isLatestKnown;
+  const findHeroOpenDota = (heroId: number) =>
+    openDota?.status === "ok" ? openDota.heroes.find((entry) => entry.heroId === heroId) : undefined;
   return (
     <Panel title={title} className={styles.favorites}>
       <div className={styles.favoriteList}>
         {favorites.length ? favorites.map(([heroId]) => {
           const hero = getHeroById(heroId);
+          const heroOpenDota = findHeroOpenDota(heroId);
           return (
             <div className={`${styles.favorite} ${parity.favorite}`} key={heroId}>
               <div className={styles.favoritePortrait}>
                 {hero ? <PreloadedVideo className="" src={hero.videoUrl} poster={hero.portraitUrl} /> : <span>?</span>}
                 {hero && <img className={styles.attributeIcon} src={`https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/icons/hero_${hero.attribute}.png`} alt="" />}
               </div>
-              <div className={styles.favoriteCaption}><b>{hero?.localizedName ?? `Hero ${heroId}`}</b></div>
+              <div className={styles.favoriteCaption}>
+                <b>{hero?.localizedName ?? `Hero ${heroId}`}</b>
+                {heroOpenDota?.lifetime && (
+                  <small className={styles.favoriteOpenDota}>
+                    {heroOpenDota.lifetime.games} · {heroOpenDota.lifetime.winRate.toFixed(1)}%
+                  </small>
+                )}
+                {heroOpenDota?.patch && patchName && (
+                  <small className={styles.favoriteOpenDotaPatch}>
+                    {!isLatestKnownPatch && "посл. "}
+                    {patchName} · {heroOpenDota.patch.winRate.toFixed(0)}%
+                  </small>
+                )}
+              </div>
             </div>
           );
         }) : <div className={`${styles.panelEmpty} ${parity.panelEmpty}`}>No match history yet</div>}
       </div>
+    </Panel>
+  );
+}
+
+// WK-148 - "ПРОФИЛЬ ИГРОКА": hand-ported from the production web scene's
+// PlayerProfileRadarPanel (queue-scene-ui.tsx) - same math/anchors/rendering,
+// duplicated rather than imported because this whole file is already a
+// hand-maintained parallel implementation of the web scene for LOCAL data
+// (see the module's own history/WK-152 parity comments), not a shared
+// component; reuses the same .radar* classes from the shared
+// queue-scene.module.scss import, so it's pixel-identical to the public
+// scene once real data exists.
+const RADAR_AXES: ReadonlyArray<{ key: "combat" | "farm" | "objectives" | "support" | "flexibility"; label: string }> = [
+  { key: "combat", label: "БОЙ" },
+  { key: "farm", label: "ФАРМ" },
+  { key: "objectives", label: "ОБЪЕКТЫ" },
+  { key: "support", label: "ПОДДЕРЖКА" },
+  { key: "flexibility", label: "ГИБКОСТЬ" },
+];
+// Visual-QA polish pass - scaled ~1.8x from the first cut (260px), which
+// read as a tiny island inside a much wider panel; mirrors the same change
+// in the production web scene's PlayerProfileRadarPanel (queue-scene-ui.tsx).
+const RADAR_SIZE = 468;
+const RADAR_CENTER = RADAR_SIZE / 2;
+const RADAR_MAX_RADIUS = 86;
+const RADAR_LABEL_RADIUS = 130;
+const RADAR_GRID_RINGS = [0.5, 1];
+// Missing axis (e.g. ОБЪЕКТЫ without sufficient parsed tower-damage
+// coverage) - no invented score/fake neutral value; the vertex still
+// geometrically sits at the center, but renders as a hollow dashed ring on a
+// dashed spoke instead of a solid dot, so it reads as intentional.
+const RADAR_MISSING_MARKER_RADIUS_RATIO = 0.12;
+
+const radarAngle = (index: number) => (-90 + index * (360 / RADAR_AXES.length)) * (Math.PI / 180);
+const radarXY = (index: number, ratio: number, radius: number) => {
+  const angle = radarAngle(index);
+  return { x: RADAR_CENTER + radius * ratio * Math.cos(angle), y: RADAR_CENTER + radius * ratio * Math.sin(angle) };
+};
+const radarLabelAnchor = (index: number): "start" | "middle" | "end" => {
+  const cos = Math.cos(radarAngle(index));
+  if (cos > 0.3) return "start";
+  if (cos < -0.3) return "end";
+  return "middle";
+};
+
+function PlayerProfileRadarPanel({ openDota }: { openDota: OverlayStateSnapshot["opendotaRadar"] }) {
+  // No placeholder/loading state on a live stream surface (задача, секции
+  // 10/12) - renders nothing until there's a real, sufficiently-sampled
+  // profile.
+  if (!openDota || openDota.status !== "ok") return null;
+  const radar = openDota;
+
+  const axisPoints = RADAR_AXES.map((axis, index) => {
+    const raw = radar[axis.key];
+    const ratio = raw === null ? 0 : Math.max(0, Math.min(100, raw)) / 100;
+    return { ...axis, raw, ...radarXY(index, ratio, RADAR_MAX_RADIUS) };
+  });
+  const shapePoints = axisPoints.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+
+  return (
+    <Panel title="Player radar" className={styles.radarPanel}>
+      <svg className={styles.radarChart} viewBox={`0 0 ${RADAR_SIZE} ${RADAR_SIZE}`}>
+        {RADAR_GRID_RINGS.map((ring) => (
+          <polygon
+            key={ring}
+            className={styles.radarGridRing}
+            points={RADAR_AXES.map((_, index) => {
+              const p = radarXY(index, ring, RADAR_MAX_RADIUS);
+              return `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+            }).join(" ")}
+          />
+        ))}
+        {RADAR_AXES.map((axis, index) => {
+          const p = radarXY(index, 1, RADAR_MAX_RADIUS);
+          const isMissing = radar[axis.key] === null;
+          return (
+            <line
+              key={axis.key}
+              className={isMissing ? styles.radarSpokeMissing : styles.radarSpoke}
+              x1={RADAR_CENTER}
+              y1={RADAR_CENTER}
+              x2={p.x}
+              y2={p.y}
+            />
+          );
+        })}
+        <polygon className={styles.radarShape} points={shapePoints} />
+        {axisPoints.map((p) =>
+          p.raw === null ? (
+            <circle
+              key={p.key}
+              className={styles.radarVertexMissing}
+              cx={p.x}
+              cy={p.y}
+              r={RADAR_MAX_RADIUS * RADAR_MISSING_MARKER_RADIUS_RATIO}
+            />
+          ) : (
+            <circle key={p.key} className={styles.radarVertex} cx={p.x} cy={p.y} r={4.5} />
+          )
+        )}
+        {RADAR_AXES.map((axis, index) => {
+          const labelPoint = radarXY(index, 1, RADAR_LABEL_RADIUS);
+          const raw = radar[axis.key];
+          return (
+            <text
+              key={axis.key}
+              className={styles.radarLabel}
+              x={labelPoint.x}
+              y={labelPoint.y}
+              textAnchor={radarLabelAnchor(index)}
+              dominantBaseline="middle"
+            >
+              {axis.label}
+              <tspan
+                className={raw === null ? styles.radarLabelValueMissing : styles.radarLabelValue}
+                x={labelPoint.x}
+                dy="1.15em"
+              >
+                {raw === null ? "—" : Math.round(raw)}
+              </tspan>
+            </text>
+          );
+        })}
+      </svg>
     </Panel>
   );
 }
@@ -308,7 +460,21 @@ function TwitchChat({ chat, title, limit }: { chat: OverlayStateSnapshot["twitch
   );
 }
 
-export function BetweenMatchesScene({ session, settings = null, account = null, twitchChat = null }: { session: LocalSessionSummary; settings?: QueueSettings | null; account?: OverlayStateSnapshot["account"]; twitchChat?: OverlayStateSnapshot["twitchChat"] }) {
+export function BetweenMatchesScene({
+  session,
+  settings = null,
+  account = null,
+  twitchChat = null,
+  openDotaFavoriteHeroes = null,
+  openDotaRadar = null,
+}: {
+  session: LocalSessionSummary;
+  settings?: QueueSettings | null;
+  account?: OverlayStateSnapshot["account"];
+  twitchChat?: OverlayStateSnapshot["twitchChat"];
+  openDotaFavoriteHeroes?: OverlayStateSnapshot["opendotaFavoriteHeroes"];
+  openDotaRadar?: OverlayStateSnapshot["opendotaRadar"];
+}) {
   const sceneStyle = {
     width: "100%",
     height: "100%",
@@ -327,13 +493,14 @@ export function BetweenMatchesScene({ session, settings = null, account = null, 
               <WebcamPanel title="LIVE CAPTURE" imageUrl={settings?.webcamImageUrl ?? null} />
             </div>
             <div className={`${styles.sideStack} ${parity.centerStack}`} data-widget-count={2}>
-              <FavoriteHeroes title="FAVORITE HEROES" matches={session.recentMatches} heroIds={settings?.favoriteHeroIds ?? []} />
+              <FavoriteHeroes title="FAVORITE HEROES" matches={session.recentMatches} heroIds={settings?.favoriteHeroIds ?? []} openDota={openDotaFavoriteHeroes} />
               <RecentGames title="RECENT GAMES" matches={session.recentMatches} limit={settings?.widgets.recentGamesLimit ?? 5} />
             </div>
           </div>
           <div className={styles.rightMain}>
             <TwitchChat chat={twitchChat} title="TWITCH CHAT" limit={settings?.widgets.chatMessagesLimit ?? 12} />
             {settings && <CommunityArea title="COMMUNITY" account={account} settings={settings.widgets.friends} />}
+            <PlayerProfileRadarPanel openDota={openDotaRadar} />
           </div>
         </div>
       </div>

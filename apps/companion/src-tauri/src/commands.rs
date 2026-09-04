@@ -293,6 +293,19 @@ pub async fn get_hero_opendota_stats(app: AppHandle, hero_id: i64) -> Result<ser
     backend::get_hero_opendota_stats(&app, hero_id).await
 }
 
+#[tauri::command]
+pub async fn get_hero_opendota_insights(
+    app: AppHandle,
+    hero_id: i64,
+) -> Result<serde_json::Value, String> {
+    backend::get_hero_opendota_insights(&app, hero_id).await
+}
+
+#[tauri::command]
+pub async fn get_account_opendota_radar(app: AppHandle) -> Result<serde_json::Value, String> {
+    backend::get_account_opendota_radar(&app).await
+}
+
 // `async` so this never blocks the main IPC/UI thread (see the WK-78 note
 // on get_twitch_chat/resend_current_state below for why a plain `fn` command
 // is dangerous here) - the rename step is fast regardless of how many files

@@ -42,6 +42,7 @@ const baseProps = {
     donationAlerts: null,
     webcamImageUrl: null,
     channelGoal: { type: "none" as const, label: "", startValue: 0, targetValue: 0 },
+    openDota: null,
 };
 
 describe("RecentGames (Between Matches)", () => {
