@@ -284,7 +284,7 @@ describe("BetweenMatchesScene", () => {
           openDotaRadar={{ status: "insufficient_data" }}
         />
       );
-      expect(screen.queryByLabelText("Player profile")).toBeNull();
+      expect(screen.queryByLabelText("Player radar")).toBeNull();
       expect(screen.getByLabelText("FAVORITE HEROES")).toBeTruthy();
     });
 
@@ -305,7 +305,10 @@ describe("BetweenMatchesScene", () => {
           }}
         />
       );
-      expect(screen.getByLabelText("Player profile")).toBeTruthy();
+      // Distinct from the existing top-bar "PLAYER PROFILE" widget (Steam
+      // identity/rating) also rendered in this same scene - same reasoning
+      // as the production web scene's PlayerProfileRadarPanel.
+      expect(screen.getByLabelText("Player radar")).toBeTruthy();
       expect(screen.getByText("БОЙ")).toBeTruthy();
       expect(screen.getByText("62")).toBeTruthy();
       expect(screen.getByText("75")).toBeTruthy();

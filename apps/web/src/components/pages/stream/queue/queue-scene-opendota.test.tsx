@@ -191,9 +191,11 @@ describe("PlayerProfileRadarPanel", () => {
         );
         // English title - Between Matches doesn't mix languages across
         // panel headings (LAST MATCH/FAVORITE HEROES/RECENT GAMES/PLAYER
-        // PROFILE all render uppercase via CSS from a consistent source
-        // language, see .panelTitle's text-transform).
-        expect(screen.getByText("Player profile")).toBeTruthy();
+        // RADAR all render uppercase via CSS from a consistent source
+        // language, see .panelTitle's text-transform). "Player radar", NOT
+        // "Player profile" - that title is already taken by the existing
+        // top-bar Steam identity/rating widget elsewhere in this same scene.
+        expect(screen.getByText("Player radar")).toBeTruthy();
         expect(screen.getByText("БОЙ")).toBeTruthy();
         expect(screen.getByText("62")).toBeTruthy();
         expect(screen.getByText("75")).toBeTruthy(); // farm rounded from 74.6

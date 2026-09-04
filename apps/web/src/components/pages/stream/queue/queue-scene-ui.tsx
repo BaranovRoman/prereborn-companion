@@ -459,16 +459,19 @@ export const FavoriteHeroes = ({
     );
 };
 
-// WK-148 - "Player profile": five-axis account-wide radar, own OpenDota
+// WK-148 - "Player radar": five-axis account-wide radar, own OpenDota
 // source (see apps/api's opendota-player-profile-radar.ts for the formulas/
 // anchors - values here are 0-100 "% of the way from a weak to a strong
 // reference anchor", NOT a percentile among players, see the task's
 // normalization requirement). Plain SVG, no charting dependency for one
 // pentagon. Axis order (clockwise from top) groups offense (combat/farm) on
 // the right, support/utility (support/flexibility) on the left. Title is in
-// English ("Player profile") to match the rest of Between Matches' headings
+// English ("Player radar") to match the rest of Between Matches' headings
 // (LAST MATCH/FAVORITE HEROES/RECENT GAMES) - no mixed-language headings in
-// one stream scene (visual polish pass).
+// one scene. NOT "Player profile" - that title already belongs to the
+// existing top-bar Steam identity/rating widget (see PlayerProfile above,
+// same aria-label="Player profile") - reusing it here produced two
+// identically-titled panels in the same scene (fixed in the layout pass).
 const RADAR_AXES: ReadonlyArray<{
     key: "combat" | "farm" | "objectives" | "support" | "flexibility";
     label: string;
@@ -540,7 +543,7 @@ export const PlayerProfileRadarPanel = ({ openDota }: QueueDataProps) => {
     const shapePoints = axisPoints.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
 
     return (
-        <Panel title="Player profile" className={styles.radarPanel}>
+        <Panel title="Player radar" className={styles.radarPanel}>
             <svg className={styles.radarChart} viewBox={`0 0 ${RADAR_SIZE} ${RADAR_SIZE}`}>
                 {RADAR_GRID_RINGS.map((ring) => (
                     <polygon

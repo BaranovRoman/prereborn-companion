@@ -327,7 +327,7 @@ function PlayerProfileRadarPanel({ openDota }: { openDota: OverlayStateSnapshot[
   const shapePoints = axisPoints.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
 
   return (
-    <Panel title="Player profile" className={styles.radarPanel}>
+    <Panel title="Player radar" className={styles.radarPanel}>
       <svg className={styles.radarChart} viewBox={`0 0 ${RADAR_SIZE} ${RADAR_SIZE}`}>
         {RADAR_GRID_RINGS.map((ring) => (
           <polygon
