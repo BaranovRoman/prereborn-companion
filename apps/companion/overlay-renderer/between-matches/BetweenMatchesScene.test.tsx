@@ -85,8 +85,11 @@ describe("BetweenMatchesScene", () => {
     expect(screen.getAllByText(/PUDGE/i).length).toBeGreaterThan(0);
     expect(screen.getByTestId("last-match-delta").textContent).toBe("6025(+25)");
     expect(screen.getAllByText("12 / 4 / 18").length).toBe(2);
-    expect(screen.getAllByText("6025").length).toBe(2);
-    expect(screen.getAllByText("(+25)").length).toBe(2);
+    // WK-152 - Recent Games no longer shows the absolute rating-after value
+    // (that stays Last Match-only, asserted via last-match-delta above); it
+    // shows only the actual effective delta, "+25" not "(+25)".
+    expect(screen.getByText("6025")).toBeTruthy();
+    expect(screen.getByLabelText("RECENT GAMES").textContent).toContain("+25");
     expect(screen.getByLabelText("RECENT GAMES").querySelector("[data-short='true']")).toBeTruthy();
     expect(screen.getByTitle("blink")).toBeTruthy();
     const lastMatch = screen.getByLabelText("LAST MATCH");
@@ -150,6 +153,56 @@ describe("BetweenMatchesScene", () => {
     expect(screen.getByText("Ranked grind")).toBeTruthy();
     expect(screen.getByText("42 LIVE")).toBeTruthy();
     expect(screen.queryByText("LOCAL SESSION")).toBeNull();
+  });
+
+  // WK-152 - same result semantics as the web queue-scene's RecentGames:
+  // ranked shows only the actual effective rating delta (never assumed
+  // ±25), unranked (no rating delta) shows W/L instead. Portrait alone
+  // identifies the hero - the name is never rendered as text here.
+  const baseRecentMatch = {
+    localId: "local-1", matchId: "1", heroId: 14, rankedMode: "ranked", rankedModeDetected: "ranked",
+    state: "finalized", kills: 12, deaths: 4, assists: 18, inventory: [],
+    startedAt: "2026-08-30T12:00:00Z", finalizedAt: "2026-08-30T12:40:00Z",
+  };
+
+  it("Recent Games never renders the hero's localized name as text", () => {
+    render(<BetweenMatchesScene session={{ ...SESSION, recentMatches: [{ ...baseRecentMatch, result: "win", ratingBefore: 6_000, ratingAfter: 6_025, detectedRatingDelta: 25, ratingDeltaCorrection: 0 }] }} settings={SETTINGS} />);
+    const recentGames = screen.getByLabelText("RECENT GAMES");
+    expect(recentGames.querySelector("b")).toBeNull();
+  });
+
+  it("ranked positive delta shows the numeric delta, colored positive", () => {
+    render(<BetweenMatchesScene session={{ ...SESSION, recentMatches: [{ ...baseRecentMatch, result: "win", ratingBefore: 6_000, ratingAfter: 6_025, detectedRatingDelta: 25, ratingDeltaCorrection: 0 }] }} settings={SETTINGS} />);
+    const cell = screen.getByLabelText("RECENT GAMES").querySelector("[class*='recentRating']") as HTMLElement;
+    expect(cell.textContent).toBe("+25");
+    expect(cell.dataset.tone).toBe("positive");
+  });
+
+  it("ranked negative delta shows the numeric delta, colored negative", () => {
+    render(<BetweenMatchesScene session={{ ...SESSION, recentMatches: [{ ...baseRecentMatch, result: "loss", ratingBefore: 6_025, ratingAfter: 6_000, detectedRatingDelta: -25, ratingDeltaCorrection: 0 }] }} settings={SETTINGS} />);
+    const cell = screen.getByLabelText("RECENT GAMES").querySelector("[class*='recentRating']") as HTMLElement;
+    expect(cell.textContent).toBe("-25");
+    expect(cell.dataset.tone).toBe("negative");
+  });
+
+  it("a non-standard ranked delta (manual correction) shows the real stored value, not an assumed ±25", () => {
+    render(<BetweenMatchesScene session={{ ...SESSION, recentMatches: [{ ...baseRecentMatch, result: "win", ratingBefore: 6_000, ratingAfter: 6_050, detectedRatingDelta: 25, ratingDeltaCorrection: 25 }] }} settings={SETTINGS} />);
+    const cell = screen.getByLabelText("RECENT GAMES").querySelector("[class*='recentRating']") as HTMLElement;
+    expect(cell.textContent).toBe("+50");
+  });
+
+  it("unranked win shows W, colored positive, not a rating delta", () => {
+    render(<BetweenMatchesScene session={{ ...SESSION, recentMatches: [{ ...baseRecentMatch, rankedMode: "unranked", rankedModeDetected: "unranked", result: "win", ratingBefore: null, ratingAfter: null, detectedRatingDelta: null, ratingDeltaCorrection: 0 }] }} settings={SETTINGS} />);
+    const cell = screen.getByLabelText("RECENT GAMES").querySelector("[class*='recentRating']") as HTMLElement;
+    expect(cell.textContent).toBe("W");
+    expect(cell.dataset.tone).toBe("positive");
+  });
+
+  it("unranked loss shows L, colored negative", () => {
+    render(<BetweenMatchesScene session={{ ...SESSION, recentMatches: [{ ...baseRecentMatch, rankedMode: "unranked", rankedModeDetected: "unranked", result: "loss", ratingBefore: null, ratingAfter: null, detectedRatingDelta: null, ratingDeltaCorrection: 0 }] }} settings={SETTINGS} />);
+    const cell = screen.getByLabelText("RECENT GAMES").querySelector("[class*='recentRating']") as HTMLElement;
+    expect(cell.textContent).toBe("L");
+    expect(cell.dataset.tone).toBe("negative");
   });
 
   it("binds existing Twitch followers and DonationAlerts donors to the legacy community block", () => {

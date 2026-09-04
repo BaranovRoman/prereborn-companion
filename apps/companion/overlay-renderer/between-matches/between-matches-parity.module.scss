@@ -90,10 +90,8 @@
   font-size: 1em;
   font-weight: 400;
 }
-.heroDelta small[data-tone="positive"],
-.recentRating small[data-tone="positive"] { color: #9bbb76; }
-.heroDelta small[data-tone="negative"],
-.recentRating small[data-tone="negative"] { color: #bd655e; }
+.heroDelta small[data-tone="positive"] { color: #9bbb76; }
+.heroDelta small[data-tone="negative"] { color: #bd655e; }
 
 .inventoryOverlay {
   position: absolute;
@@ -141,47 +139,38 @@
 // Recent Games to start slightly lower - no structural/column-width change.
 .favoritePortrait { height: 236px; }
 
+// WK-152 - hero name dropped (redundant with the portrait right next to
+// it); portrait enlarged and row shrunk so more rows fit. Result cell shows
+// only the actual effective rating delta for ranked matches, or W/L for
+// unranked - never both, see RecentGames' isRankedDelta/isPositiveOutcome.
 .gameRow {
-  flex-basis: 46px;
-  grid-template-columns: 52px minmax(0, 1fr) minmax(84px, auto) minmax(108px, auto);
-
-  b {
-    overflow: hidden;
-    font-size: 11px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
+  flex-basis: 38px;
+  grid-template-columns: 62px minmax(0, 1fr) 44px;
 }
 
 .recentKda {
-  grid-column: 3;
+  grid-column: 2;
   color: #b9b7b0;
-  // 0.5.63 final polish - K/D/A is a key per-match stat, was reading as an
-  // afterthought next to the hero name; bumped up to be more noticeable
-  // than the rating metadata beside it. No "KDA" label, no ratio - still
-  // the raw K / D / A triple.
-  font-size: 13px;
+  // 0.5.63 final polish - K/D/A is a key per-match stat; bumped up further
+  // under WK-152 now that the row no longer also renders the hero name.
+  font-size: 15px;
   letter-spacing: .04em;
   white-space: nowrap;
 }
 
 .recentRating {
-  grid-column: 4;
+  grid-column: 3;
   display: inline-flex;
   justify-content: flex-end;
   align-items: baseline;
-  gap: 5px;
-  color: #d5d1c9;
+  font-family: var(--font-title, inherit);
+  font-size: 14px;
+  font-weight: 400;
   white-space: nowrap;
+  color: #bd655e;
 }
 
-.gameRow > .recentRating,
-.recentRating small {
-  color: #918f89;
-  font-size: 11px;
-}
-
-.gameRow > .recentRating { color: #d5d1c9; }
+.recentRating[data-tone="positive"] { color: #9bbb76; }
 
 .gameMark { font-size: 10px; }
 .panelEmpty { font-size: 10px; }

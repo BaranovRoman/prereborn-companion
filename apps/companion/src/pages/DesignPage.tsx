@@ -3,6 +3,7 @@ import { Button, Checkbox, Input, Select, Slider, Tabs } from "../components/ui"
 import * as api from "../services/dotaCompanionApi";
 import type { MinimapCoverSettings, OverlayAnchor, OverlayLayoutDoc, OverlayWidgetLayout, QueueSettingsDoc } from "../types/status";
 import { useGameplayReferenceBackground } from "../hooks/useGameplayReferenceBackground";
+import { useLocalOverlayPreviewReady } from "../hooks/useLocalOverlayPreviewReady";
 
 type DesignTab = "betweenMatches" | "draft" | "gameplay" | "postStream";
 
@@ -105,6 +106,7 @@ export function DesignPage() {
   const [queueSettings, setQueueSettings] = useState<QueueSettingsDoc | null>(null);
   const [currentMmr, setCurrentMmr] = useState<number | null>(null);
   const referenceBackground = useGameplayReferenceBackground();
+  const preview = useLocalOverlayPreviewReady();
 
   useEffect(() => {
     let cancelled = false;
@@ -248,13 +250,26 @@ export function DesignPage() {
 
       <div className="design-page__workspace">
         <div className="design-page__preview-frame">
-          <iframe
-            key={tab}
-            className="design-page__preview"
-            src={`http://127.0.0.1:3666/overlay?previewScene=${tab}&editor=1`}
-            onLoad={(event) => event.currentTarget.contentWindow?.postMessage({ type: "prereborn-overlay-layout-preview", layout, queueSettings, referenceBackground: tab === "gameplay" && referenceBackground.imageUrl ? { url: referenceBackground.imageUrl, opacity: referenceBackground.opacity } : null }, "*")}
-            title="Предпросмотр локального оверлея"
-          />
+          {preview.ready ? (
+            <iframe
+              key={tab}
+              className="design-page__preview"
+              src={`http://127.0.0.1:3666/overlay?previewScene=${tab}&editor=1`}
+              onLoad={(event) => event.currentTarget.contentWindow?.postMessage({ type: "prereborn-overlay-layout-preview", layout, queueSettings, referenceBackground: tab === "gameplay" && referenceBackground.imageUrl ? { url: referenceBackground.imageUrl, opacity: referenceBackground.opacity } : null }, "*")}
+              title="Предпросмотр локального оверлея"
+            />
+          ) : (
+            <div className="design-page__preview-placeholder">
+              {preview.error ? (
+                <>
+                  <p className="app__error">{preview.error}</p>
+                  <Button onClick={preview.retry}>Повторить</Button>
+                </>
+              ) : (
+                <p className="matches-panel__empty">Ожидаем локальный оверлей…</p>
+              )}
+            </div>
+          )}
         </div>
 
         <aside className="design-page__inspector" aria-label="Настройки оформления">

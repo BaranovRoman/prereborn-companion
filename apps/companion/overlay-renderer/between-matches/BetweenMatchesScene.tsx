@@ -46,6 +46,19 @@ const matchRating = (match: LocalMatchSummary) => ({
   delta: ratingDelta(match),
 });
 
+// WK-152 - same ranked/unranked result semantics as the web queue-scene's
+// RecentGames (queue-scene-ui.tsx): ranked shows only the actual effective
+// rating change, unranked (no rating delta) shows W/L instead.
+const isRankedDelta = (match: LocalMatchSummary) => match.rankedMode === "ranked" && ratingDelta(match) !== null;
+const isPositiveOutcome = (match: LocalMatchSummary) =>
+  isRankedDelta(match) ? (ratingDelta(match) ?? 0) > 0 : match.result === "win";
+const shortResult = (match: LocalMatchSummary) => {
+  if (match.result === "win") return "W";
+  if (match.result === "loss") return "L";
+  if (match.result === "abandon") return "A";
+  return EMPTY_VALUE;
+};
+
 function Panel({ title, className = "", children }: {
   title: string;
   className?: string;
@@ -236,21 +249,14 @@ function RecentGames({ matches, title, limit }: { matches: LocalMatchSummary[]; 
       <div className={`${styles.gamesList} ${parity.gamesList}`} data-short={matches.length < limit ? "true" : undefined}>
         {matches.length ? matches.slice(0, limit).map((match, index) => {
           const hero = getHeroById(match.heroId);
-          const rating = matchRating(match);
           const hasKda = match.kills !== null && match.deaths !== null && match.assists !== null;
           return (
             <div className={`${styles.gameRow} ${parity.gameRow}`} key={match.matchId ?? `${match.startedAt}-${index}`} data-session="current">
               {hero ? <img className={styles.gameHeroImage} src={hero.portraitUrl} alt="" /> : <span className={`${styles.gameMark} ${parity.gameMark}`}>?</span>}
-              <b>{hero?.localizedName.toUpperCase() ?? `HERO ${match.heroId}`}</b>
               {hasKda && <span className={parity.recentKda}>{match.kills} / {match.deaths} / {match.assists}</span>}
-              {rating.after !== null && (
-                <strong className={parity.recentRating}>
-                  <span>{rating.after}</span>
-                  {rating.delta !== null && rating.delta !== 0 && (
-                    <small data-tone={rating.delta > 0 ? "positive" : "negative"}>({formatDelta(rating.delta)})</small>
-                  )}
-                </strong>
-              )}
+              <strong className={parity.recentRating} data-tone={isPositiveOutcome(match) ? "positive" : "negative"}>
+                {isRankedDelta(match) ? formatDelta(ratingDelta(match)) : shortResult(match)}
+              </strong>
             </div>
           );
         }) : <div className={`${styles.panelEmpty} ${parity.panelEmpty}`}>No completed matches</div>}

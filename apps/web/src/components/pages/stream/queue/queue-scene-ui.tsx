@@ -437,6 +437,17 @@ const FavoriteHeroes = ({
     );
 };
 
+// WK-152 - compact row: the hero name was redundant with the portrait right
+// next to it (removed); the reclaimed width goes to a bigger portrait and
+// more legible K/D/A. Result semantics differ by game mode - ranked shows
+// only the actual effective rating change (never assume ±25, read the real
+// stored ratingDelta), unranked (no rating delta) shows W/L instead - see
+// this task. `shortResult` used to be dead code; this is its first real
+// caller.
+const isRankedDelta = (match: StreamMatch) => match.gameMode === "ranked" && match.ratingDelta != null;
+const isPositiveOutcome = (match: StreamMatch) =>
+    isRankedDelta(match) ? (match.ratingDelta ?? 0) > 0 : match.result === "win";
+
 export const RecentGames = ({
     matches,
     activeSessionId,
@@ -447,7 +458,6 @@ export const RecentGames = ({
         <div className={styles.gamesList}>
             {matches.length ? matches.slice(0, limit).map((match) => {
                 const hero = getHeroById(match.heroId);
-                const result = resultLabel(match);
                 const isCurrentSession = isMatchFromCurrentSession(
                     match.streamSessionId,
                     activeSessionId
@@ -463,10 +473,9 @@ export const RecentGames = ({
                         ) : (
                             <span className={styles.gameMark}>?</span>
                         )}
-                        <div><b>{hero?.localizedName.toUpperCase() ?? `HERO ${match.heroId}`}</b><small>KDA {match.kills}/{match.deaths}/{match.assists}</small></div>
-                        <em data-result={result}>{result}</em>
-                        <strong data-positive={Boolean(match.ratingDelta && match.ratingDelta > 0)}>
-                            ({formatDelta(match.ratingDelta)})
+                        <span className={styles.gameKda}>{match.kills}/{match.deaths}/{match.assists}</span>
+                        <strong data-positive={isPositiveOutcome(match)}>
+                            {isRankedDelta(match) ? formatDelta(match.ratingDelta) : shortResult(match)}
                         </strong>
                         <time>{formatDate(match.endedAt)}</time>
                     </div>

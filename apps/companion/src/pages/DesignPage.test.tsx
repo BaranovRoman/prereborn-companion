@@ -15,6 +15,16 @@ vi.mock("../services/dotaCompanionApi", () => ({
   removeGameplayReference: vi.fn(),
 }));
 
+// WK-152 - the preview iframe now gates on a real readiness probe (see
+// useLocalOverlayPreviewReady's own dedicated test) - mocked here as
+// immediately-ready so the rest of DesignPage's tests, which predate and
+// are unrelated to that fix, keep exercising the same "preview is up"
+// state they always assumed, without a real fetch to a nonexistent local
+// server on every render.
+vi.mock("../hooks/useLocalOverlayPreviewReady", () => ({
+  useLocalOverlayPreviewReady: () => ({ ready: true, error: null, retry: vi.fn() }),
+}));
+
 // eslint-disable-next-line import/order
 import { chooseGameplayReference, getOverlayLayout, getQueueSettings, removeGameplayReference, saveOverlayLayout, saveQueueSettings } from "../services/dotaCompanionApi";
 // eslint-disable-next-line import/order
