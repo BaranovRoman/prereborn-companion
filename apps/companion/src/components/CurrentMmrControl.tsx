@@ -8,7 +8,8 @@ interface Props {
   hasSession: boolean;
 }
 
-const STEP = 25;
+const FINE_STEP = 1;
+const COARSE_STEP = 25;
 
 export function CurrentMmrControl({ currentMmr, sessionDelta, hasSession }: Props) {
   const [editing, setEditing] = useState(false);
@@ -58,8 +59,8 @@ export function CurrentMmrControl({ currentMmr, sessionDelta, hasSession }: Prop
     void commit(Number(draft));
   };
 
-  const nudge = (direction: 1 | -1) => {
-    void commit((savedMmr ?? 0) + direction * STEP);
+  const nudge = (amount: number) => {
+    void commit((savedMmr ?? 0) + amount);
   };
 
   return (
@@ -70,10 +71,19 @@ export function CurrentMmrControl({ currentMmr, sessionDelta, hasSession }: Prop
           <div className="mmr-panel__stepper">
             <button
               type="button"
-              className="mmr-panel__step"
+              className="mmr-panel__step mmr-panel__step--coarse"
               aria-label="Уменьшить MMR на 25"
               disabled={saving || savedMmr == null}
-              onClick={() => nudge(-1)}
+              onClick={() => nudge(-COARSE_STEP)}
+            >
+              −25
+            </button>
+            <button
+              type="button"
+              className="mmr-panel__step"
+              aria-label="Уменьшить MMR на 1"
+              disabled={saving || savedMmr == null}
+              onClick={() => nudge(-FINE_STEP)}
             >
               −
             </button>
@@ -81,11 +91,20 @@ export function CurrentMmrControl({ currentMmr, sessionDelta, hasSession }: Prop
             <button
               type="button"
               className="mmr-panel__step"
-              aria-label="Увеличить MMR на 25"
+              aria-label="Увеличить MMR на 1"
               disabled={saving || savedMmr == null}
-              onClick={() => nudge(1)}
+              onClick={() => nudge(FINE_STEP)}
             >
               +
+            </button>
+            <button
+              type="button"
+              className="mmr-panel__step mmr-panel__step--coarse"
+              aria-label="Увеличить MMR на 25"
+              disabled={saving || savedMmr == null}
+              onClick={() => nudge(COARSE_STEP)}
+            >
+              +25
             </button>
           </div>
           {savedDelta != null && (

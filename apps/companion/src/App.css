@@ -860,16 +860,17 @@ h1, h2, p { margin-top: 0; }
 .mmr-panel__hint { color: var(--ui-text-soft); font-size: .74rem; }
 .mmr-panel__error { color: var(--danger); font-size: .78rem; }
 
-/* WK-115 - compact [ - ] value [ + ] stepper next to the editable Current
-   MMR readout, per the streamer-dashboard mockup. Nudges by a fixed 25 and
-   saves immediately through the existing absolute-correction command
-   (CurrentMmrControl's `commit`) - no separate model. */
-.mmr-panel__stepper { display: flex; align-items: baseline; gap: 12px; }
+/* WK-115/WK-151 - compact [-25][-] value [+][+25] stepper next to the
+   editable Current MMR readout, per the streamer-dashboard mockup. Both
+   granularities save immediately through the existing absolute-correction
+   command (CurrentMmrControl's `commit`) - no separate model. */
+.mmr-panel__stepper { display: flex; align-items: baseline; gap: 8px; }
 .mmr-panel__step {
   display: grid; place-items: center; width: 30px; height: 30px; padding: 0;
   border: 1px solid var(--ui-edge); border-radius: var(--radius);
   background: var(--ui-well); color: var(--ui-text); font-size: 1.1rem; line-height: 1;
 }
+.mmr-panel__step--coarse { width: auto; padding: 0 8px; font-size: .8rem; }
 .mmr-panel__step:hover:not(:disabled) { border-color: var(--ui-red-hover); color: var(--ui-red-hover); }
 .mmr-panel__step:disabled { opacity: .4; }
 
@@ -906,6 +907,7 @@ h1, h2, p { margin-top: 0; }
   border: 1px solid var(--ui-edge); border-radius: var(--radius); background: var(--ui-well);
   color: var(--ui-text-soft); font-size: .85rem; line-height: 1;
 }
+.match-row__step--coarse { width: auto; padding: 0 5px; font-size: .68rem; }
 .match-row__step:hover { border-color: var(--ui-red-hover); color: var(--ui-red-hover); }
 .match-row__x2 {
   padding: 3px 7px; border: 1px solid var(--ui-edge); border-radius: var(--radius);
