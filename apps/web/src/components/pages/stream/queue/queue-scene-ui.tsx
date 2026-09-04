@@ -441,6 +441,10 @@ export const FavoriteHeroes = ({
                                 )}
                                 {heroOpenDota?.patch && openDota?.favoriteHeroes?.patchName && (
                                     <small className={styles.favoriteOpenDotaPatch}>
+                                        {/* WK-148 polish - "посл." (last observed) prefix when this
+                                            patch isn't confirmed to be OpenDota's current known patch,
+                                            so this compact line never falsely implies "current patch". */}
+                                        {!openDota.favoriteHeroes.isLatestKnown && "посл. "}
                                         {openDota.favoriteHeroes.patchName} · {heroOpenDota.patch.winRate.toFixed(0)}%
                                     </small>
                                 )}
@@ -455,13 +459,16 @@ export const FavoriteHeroes = ({
     );
 };
 
-// WK-148 - "ПРОФИЛЬ ИГРОКА": five-axis account-wide radar, own OpenDota
+// WK-148 - "Player profile": five-axis account-wide radar, own OpenDota
 // source (see apps/api's opendota-player-profile-radar.ts for the formulas/
 // anchors - values here are 0-100 "% of the way from a weak to a strong
 // reference anchor", NOT a percentile among players, see the task's
 // normalization requirement). Plain SVG, no charting dependency for one
 // pentagon. Axis order (clockwise from top) groups offense (combat/farm) on
-// the right, support/utility (support/flexibility) on the left.
+// the right, support/utility (support/flexibility) on the left. Title is in
+// English ("Player profile") to match the rest of Between Matches' headings
+// (LAST MATCH/FAVORITE HEROES/RECENT GAMES) - no mixed-language headings in
+// one stream scene (visual polish pass).
 const RADAR_AXES: ReadonlyArray<{
     key: "combat" | "farm" | "objectives" | "support" | "flexibility";
     label: string;
@@ -483,11 +490,25 @@ const RADAR_AXES: ReadonlyArray<{
 // its anchor point (text-anchor start/end), and an SVG clips anything past
 // its own viewBox edges, so ГИБКОСТЬ/ПОДДЕРЖКА (the longest left-side
 // labels) need room to spill left of their anchor without hitting x=0.
-const RADAR_SIZE = 260;
+//
+// Visual-QA polish pass: the first cut (260px) read as a tiny island inside
+// a much wider panel (.rightMain columns run ~830px wide at 1920x1080) -
+// scaled ~1.8x here. rightMain's grid row for this panel is `auto` sized
+// (see .rightMain in queue-scene.module.scss), so the panel's own height
+// grows with the chart and Twitch Chat/Friends' `fr` rows absorb the
+// difference automatically - this does NOT touch .sideStack/Recent Games at
+// all, which live in a completely separate grid column.
+const RADAR_SIZE = 468;
 const RADAR_CENTER = RADAR_SIZE / 2;
-const RADAR_MAX_RADIUS = 48;
-const RADAR_LABEL_RADIUS = 72;
+const RADAR_MAX_RADIUS = 86;
+const RADAR_LABEL_RADIUS = 130;
 const RADAR_GRID_RINGS = [0.5, 1];
+// Missing axis (задача: "ОБЪЕКТЫ" can legitimately be unavailable - parse-
+// dependent tower damage) - the vertex still geometrically sits at the
+// center (no invented score, no fake neutral/50), but is drawn as a hollow
+// ring on a dashed spoke instead of a solid filled dot, so the pinch reads
+// as "explicitly marked unmeasured" rather than a broken/glitched shape.
+const RADAR_MISSING_MARKER_RADIUS_RATIO = 0.12;
 
 const radarAngle = (index: number) => (-90 + index * (360 / RADAR_AXES.length)) * (Math.PI / 180);
 const radarXY = (index: number, ratio: number, radius: number) => {
@@ -519,7 +540,7 @@ export const PlayerProfileRadarPanel = ({ openDota }: QueueDataProps) => {
     const shapePoints = axisPoints.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
 
     return (
-        <Panel title="Профиль игрока" className={styles.radarPanel}>
+        <Panel title="Player profile" className={styles.radarPanel}>
             <svg className={styles.radarChart} viewBox={`0 0 ${RADAR_SIZE} ${RADAR_SIZE}`}>
                 {RADAR_GRID_RINGS.map((ring) => (
                     <polygon
@@ -533,10 +554,11 @@ export const PlayerProfileRadarPanel = ({ openDota }: QueueDataProps) => {
                 ))}
                 {RADAR_AXES.map((axis, index) => {
                     const p = radarXY(index, 1, RADAR_MAX_RADIUS);
+                    const isMissing = radar[axis.key] === null;
                     return (
                         <line
                             key={axis.key}
-                            className={styles.radarSpoke}
+                            className={isMissing ? styles.radarSpokeMissing : styles.radarSpoke}
                             x1={RADAR_CENTER}
                             y1={RADAR_CENTER}
                             x2={p.x}
@@ -545,9 +567,19 @@ export const PlayerProfileRadarPanel = ({ openDota }: QueueDataProps) => {
                     );
                 })}
                 <polygon className={styles.radarShape} points={shapePoints} />
-                {axisPoints.map((p) => (
-                    <circle key={p.key} className={styles.radarVertex} cx={p.x} cy={p.y} r={2.5} />
-                ))}
+                {axisPoints.map((p) =>
+                    p.raw === null ? (
+                        <circle
+                            key={p.key}
+                            className={styles.radarVertexMissing}
+                            cx={p.x}
+                            cy={p.y}
+                            r={RADAR_MAX_RADIUS * RADAR_MISSING_MARKER_RADIUS_RATIO}
+                        />
+                    ) : (
+                        <circle key={p.key} className={styles.radarVertex} cx={p.x} cy={p.y} r={4.5} />
+                    )
+                )}
                 {RADAR_AXES.map((axis, index) => {
                     const labelPoint = radarXY(index, 1, RADAR_LABEL_RADIUS);
                     const raw = radar[axis.key];
@@ -561,7 +593,11 @@ export const PlayerProfileRadarPanel = ({ openDota }: QueueDataProps) => {
                             dominantBaseline="middle"
                         >
                             {axis.label}
-                            <tspan className={styles.radarLabelValue} x={labelPoint.x} dy="1.15em">
+                            <tspan
+                                className={raw === null ? styles.radarLabelValueMissing : styles.radarLabelValue}
+                                x={labelPoint.x}
+                                dy="1.15em"
+                            >
                                 {raw === null ? "—" : Math.round(raw)}
                             </tspan>
                         </text>

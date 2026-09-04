@@ -809,37 +809,68 @@
 // no sufficiently-sampled profile, so this rule only matters once real data
 // exists.
 .radarPanel { height: fit-content; }
+// Visual-QA polish pass - scaled ~1.8x from the first cut (260px), which
+// read as a tiny island in a ~830px-wide panel. This grows .radarPanel's
+// own (auto-sized) row in .rightMain, NOT .sideStack/Recent Games - see the
+// component's own comment in queue-scene-ui.tsx.
 .radarChart {
     display: block;
     width: 100%;
-    max-width: 260px;
+    max-width: 468px;
     height: auto;
-    margin: 8px auto;
+    margin: 6px auto;
 }
 .radarGridRing {
     fill: none;
     stroke: #2d3334;
     stroke-width: 1;
 }
-.radarSpoke { stroke: #242020; stroke-width: 1; }
+.radarSpoke { stroke: #242020; stroke-width: 1.5; }
+// Missing axis (e.g. ОБЪЕКТЫ without sufficient parsed tower-damage
+// coverage) - dashed instead of solid so the pinch at that vertex reads as
+// an intentional "not measured" cue, not a rendering glitch.
+.radarSpokeMissing {
+    stroke: #4a4442;
+    stroke-width: 1.5;
+    stroke-dasharray: 3 3;
+}
 .radarShape {
     fill: rgba(123, 53, 50, .38);
     stroke: #c29a69;
-    stroke-width: 1.5;
+    stroke-width: 2;
     stroke-linejoin: round;
 }
 .radarVertex { fill: #c29a69; }
+// Hollow ring, not a filled dot - never implies a measured (possibly zero)
+// value the way a solid vertex would (задача: "do not invent a score / do
+// not substitute a fake neutral value").
+.radarVertexMissing {
+    fill: none;
+    stroke: #6b6460;
+    stroke-width: 1.5;
+    stroke-dasharray: 2 2;
+}
 .radarLabel {
     fill: #a6a39d;
     font-family: var(--font-ui);
-    font-size: 10px;
+    font-size: 16px;
     letter-spacing: .05em;
     text-transform: uppercase;
 }
 .radarLabelValue {
     fill: #c3c0b8;
     font-family: var(--font-title);
-    font-size: 14px;
+    font-size: 24px;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+}
+// Missing value ("—") reads as quietly absent, not as a real (if muted)
+// number - kept smaller/dimmer than .radarLabelValue.
+.radarLabelValueMissing {
+    fill: #726c68;
+    font-family: var(--font-title);
+    font-size: 20px;
     font-weight: 400;
     letter-spacing: 0;
     text-transform: none;

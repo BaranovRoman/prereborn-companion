@@ -34,6 +34,9 @@ export interface OverlayFavoriteHeroEntry {
 
 export interface OverlayFavoriteHeroPatchStats {
     patchName: string | null;
+    // WK-148 polish - see resolveCurrentPatchId's doc comment on
+    // opendota-account-insights-cache-service.ts.
+    isLatestKnown: boolean;
     perHero: Record<number, OverlayFavoriteHeroEntry>;
 }
 
@@ -88,6 +91,7 @@ export const getCachedOverlayFavoriteHeroStats = async (
                     });
                     value = {
                         patchName: currentPatch.status === "ok" ? currentPatch.patchName : null,
+                        isLatestKnown: currentPatch.status === "ok" && currentPatch.isLatestKnown,
                         perHero,
                     };
                 }

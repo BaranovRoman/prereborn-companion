@@ -78,6 +78,9 @@ export interface OverlayStateSnapshot {
         status: "ok";
         source: "opendota";
         patchName: string | null;
+        // WK-148 polish - true only when confirmed to be OpenDota's current
+        // known patch, not just the newest one this player has played.
+        isLatestKnown: boolean;
         heroes: Array<{
           heroId: number;
           lifetime: { games: number; wins: number; losses: number; winRate: number } | null;

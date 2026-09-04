@@ -228,6 +228,10 @@ export interface OverlayData {
     openDota: {
         favoriteHeroes: {
             patchName: string | null;
+            // WK-148 polish - true only when confirmed to be OpenDota's
+            // current known patch, not just the newest one this player has
+            // played (see apps/api's resolveCurrentPatchId doc comment).
+            isLatestKnown: boolean;
             perHero: Record<
                 number,
                 {

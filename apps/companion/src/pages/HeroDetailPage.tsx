@@ -218,7 +218,14 @@ function HeroOpenDotaInsightsBlock({ insights }: { insights: HeroOpenDotaInsight
 
       {insights.patch && insights.patch.patchName && (
         <div className="hero-detail__stats-group">
-          <p className="hero-detail__stats-subhead">Патч {insights.patch.patchName}</p>
+          {/* WK-148 polish - isLatestKnown distinguishes "this hero's current
+              observed patch is confirmed to be OpenDota's latest known patch"
+              from "this is merely the newest patch this player has played" -
+              only the former may say "Патч", the latter must say "Последний
+              патч" so it never falsely implies the live game patch. */}
+          <p className="hero-detail__stats-subhead">
+            {insights.patch.isLatestKnown ? "Патч" : "Последний патч ·"} {insights.patch.patchName}
+          </p>
           <p className="hero-detail__stats-line">
             {insights.patch.wins}–{insights.patch.losses} · {insights.patch.winRate.toFixed(1)}%
           </p>

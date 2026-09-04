@@ -115,6 +115,12 @@ export type OpenDotaHeroInsightsResponse =
           patch: {
               patchId: number;
               patchName: string | null;
+              // WK-148 polish - true only when patchId is confirmed to be
+              // OpenDota's current known patch (see resolveCurrentPatchId's
+              // doc comment); false means "this is the last patch this
+              // player has actually played", which the UI must label
+              // differently rather than implying it's the live patch.
+              isLatestKnown: boolean;
               games: number;
               wins: number;
               losses: number;
@@ -176,7 +182,9 @@ export const getOpenDotaHeroInsightsController = async (req: Request, res: Respo
         let patch: Extract<OpenDotaHeroInsightsResponse, { status: "ok" }>["patch"] = null;
         if (patchCountsResult.status === "ok" && currentPatch.status === "ok") {
             const stats = computeHeroPatchStats(patchCountsResult.patch, currentPatch.patchId);
-            if (stats) patch = { ...stats, patchName: currentPatch.patchName };
+            if (stats) {
+                patch = { ...stats, patchName: currentPatch.patchName, isLatestKnown: currentPatch.isLatestKnown };
+            }
         }
 
         const kda = totalsResult.status === "ok" ? computeHeroKdaAverages(totalsResult.totals) : null;
@@ -314,6 +322,8 @@ export type OpenDotaFavoriteHeroesResponse =
           status: "ok";
           source: "opendota";
           patchName: string | null;
+          // WK-148 polish - see resolveCurrentPatchId's doc comment.
+          isLatestKnown: boolean;
           heroes: Array<{
               heroId: number;
               lifetime: { games: number; wins: number; losses: number; winRate: number } | null;
@@ -374,6 +384,7 @@ export const getOpenDotaFavoriteHeroesController = async (req: Request, res: Res
             status: "ok",
             source: "opendota",
             patchName: currentPatch.status === "ok" ? currentPatch.patchName : null,
+            isLatestKnown: currentPatch.status === "ok" && currentPatch.isLatestKnown,
             heroes,
             fetchedAt: new Date().toISOString(),
         } satisfies OpenDotaFavoriteHeroesResponse);

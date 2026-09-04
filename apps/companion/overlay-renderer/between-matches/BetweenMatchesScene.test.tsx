@@ -236,6 +236,7 @@ describe("BetweenMatchesScene", () => {
             status: "ok",
             source: "opendota",
             patchName: "7.41",
+            isLatestKnown: true,
             heroes: [
               {
                 heroId: 1,
@@ -251,6 +252,30 @@ describe("BetweenMatchesScene", () => {
       expect(screen.getByText("7.41 · 58%")).toBeTruthy();
     });
 
+    it("prefixes the patch line with 'посл.' when the patch isn't confirmed to be OpenDota's current known patch", () => {
+      render(
+        <BetweenMatchesScene
+          session={SESSION}
+          settings={{ ...SETTINGS, favoriteHeroIds: [1] }}
+          openDotaFavoriteHeroes={{
+            status: "ok",
+            source: "opendota",
+            patchName: "7.39",
+            isLatestKnown: false,
+            heroes: [
+              {
+                heroId: 1,
+                lifetime: { games: 132, wins: 71, losses: 61, winRate: 53.79 },
+                patch: { games: 12, wins: 7, losses: 5, winRate: 58.3 },
+              },
+            ],
+            fetchedAt: "2026-01-01T00:00:00Z",
+          }}
+        />
+      );
+      expect(screen.getByText("посл. 7.39 · 58%")).toBeTruthy();
+    });
+
     it("renders nothing for the radar when the sample is insufficient, without breaking the rest of the scene", () => {
       render(
         <BetweenMatchesScene
@@ -259,7 +284,7 @@ describe("BetweenMatchesScene", () => {
           openDotaRadar={{ status: "insufficient_data" }}
         />
       );
-      expect(screen.queryByLabelText("Профиль игрока")).toBeNull();
+      expect(screen.queryByLabelText("Player profile")).toBeNull();
       expect(screen.getByLabelText("FAVORITE HEROES")).toBeTruthy();
     });
 
@@ -280,11 +305,33 @@ describe("BetweenMatchesScene", () => {
           }}
         />
       );
-      expect(screen.getByLabelText("Профиль игрока")).toBeTruthy();
+      expect(screen.getByLabelText("Player profile")).toBeTruthy();
       expect(screen.getByText("БОЙ")).toBeTruthy();
       expect(screen.getByText("62")).toBeTruthy();
       expect(screen.getByText("75")).toBeTruthy();
       expect(screen.getByText("—")).toBeTruthy();
+    });
+
+    it("marks the missing axis with a hollow vertex and dashed spoke, never a solid dot implying a real value", () => {
+      const { container } = render(
+        <BetweenMatchesScene
+          session={SESSION}
+          settings={SETTINGS}
+          openDotaRadar={{
+            status: "ok",
+            source: "opendota",
+            combat: 62,
+            farm: 74,
+            support: 41,
+            objectives: null,
+            flexibility: 55,
+            fetchedAt: "2026-01-01T00:00:00Z",
+          }}
+        />
+      );
+      expect(container.querySelectorAll(`circle[class*="radarVertexMissing"]`).length).toBe(1);
+      expect(container.querySelectorAll(`line[class*="radarSpokeMissing"]`).length).toBe(1);
+      expect(container.querySelectorAll(`circle[class*="radarVertex"]:not([class*="Missing"])`).length).toBe(4);
     });
   });
 });

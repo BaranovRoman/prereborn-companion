@@ -158,7 +158,7 @@ describe("getOpenDotaHeroInsightsController", () => {
         });
         getCachedHeroPatchCounts.mockResolvedValue({ status: "ok", patch: { "60": { games: 7, win: 4 } } });
         getCachedHeroTotals.mockResolvedValue({ status: "ok", totals: emptyTotals });
-        resolveCurrentPatchId.mockResolvedValue({ status: "ok", patchId: 60, patchName: "7.41" });
+        resolveCurrentPatchId.mockResolvedValue({ status: "ok", patchId: 60, patchName: "7.41", isLatestKnown: true });
         getCachedAccountRankings.mockResolvedValue({ status: "ok", rankings: [{ heroId: 1, percentRank: 0.834 }] });
         const { getOpenDotaHeroInsightsController } = await import("../controllers/stream/opendota.js");
 
@@ -169,8 +169,27 @@ describe("getOpenDotaHeroInsightsController", () => {
             expect.objectContaining({
                 status: "ok",
                 recentForm: { sample: 1, wins: 1, losses: 0, winRate: 100 },
-                patch: { patchId: 60, patchName: "7.41", games: 7, wins: 4, losses: 3, winRate: (4 / 7) * 100 },
+                patch: { patchId: 60, patchName: "7.41", isLatestKnown: true, games: 7, wins: 4, losses: 3, winRate: (4 / 7) * 100 },
                 rankPercent: 83.4,
+            })
+        );
+    });
+
+    it("marks the patch block as not-latest when the player's patch is behind OpenDota's known current patch", async () => {
+        getSteamLink.mockResolvedValue(link);
+        getCachedHeroRecentMatches.mockResolvedValue({ status: "ok", matches: [] });
+        getCachedHeroPatchCounts.mockResolvedValue({ status: "ok", patch: { "58": { games: 5, win: 3 } } });
+        getCachedHeroTotals.mockResolvedValue({ status: "ok", totals: emptyTotals });
+        resolveCurrentPatchId.mockResolvedValue({ status: "ok", patchId: 58, patchName: "7.39", isLatestKnown: false });
+        getCachedAccountRankings.mockResolvedValue({ status: "ok", rankings: [] });
+        const { getOpenDotaHeroInsightsController } = await import("../controllers/stream/opendota.js");
+
+        const res = makeRes();
+        await getOpenDotaHeroInsightsController(makeReq("1"), res);
+
+        expect(res.json).toHaveBeenCalledWith(
+            expect.objectContaining({
+                patch: expect.objectContaining({ patchName: "7.39", isLatestKnown: false }),
             })
         );
     });

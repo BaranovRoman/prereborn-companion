@@ -174,6 +174,9 @@ export type HeroOpenDotaInsights =
       patch: {
         patchId: number;
         patchName: string | null;
+        // WK-148 polish - true only when confirmed to be OpenDota's current
+        // known patch, not just the newest one this player has played.
+        isLatestKnown: boolean;
         games: number;
         wins: number;
         losses: number;

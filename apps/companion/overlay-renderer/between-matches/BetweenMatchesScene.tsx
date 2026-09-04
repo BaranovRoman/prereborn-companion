@@ -231,6 +231,10 @@ function FavoriteHeroes({ matches, heroIds, title, openDota }: { matches: LocalM
   matches.forEach((match) => counts.set(match.heroId, (counts.get(match.heroId) ?? 0) + 1));
   const favorites = (heroIds.length ? heroIds.map((id) => [id, counts.get(id) ?? 0] as [number, number]) : [...counts].sort((a, b) => b[1] - a[1])).slice(0, 3);
   const patchName = openDota?.status === "ok" ? openDota.patchName : null;
+  // WK-148 polish - see resolveCurrentPatchId's doc comment on
+  // opendota-account-insights-cache-service.ts: this patch is the player's
+  // last OBSERVED patch, not confirmed to be the live one unless isLatestKnown.
+  const isLatestKnownPatch = openDota?.status === "ok" && openDota.isLatestKnown;
   const findHeroOpenDota = (heroId: number) =>
     openDota?.status === "ok" ? openDota.heroes.find((entry) => entry.heroId === heroId) : undefined;
   return (
@@ -254,6 +258,7 @@ function FavoriteHeroes({ matches, heroIds, title, openDota }: { matches: LocalM
                 )}
                 {heroOpenDota?.patch && patchName && (
                   <small className={styles.favoriteOpenDotaPatch}>
+                    {!isLatestKnownPatch && "посл. "}
                     {patchName} · {heroOpenDota.patch.winRate.toFixed(0)}%
                   </small>
                 )}
@@ -281,11 +286,19 @@ const RADAR_AXES: ReadonlyArray<{ key: "combat" | "farm" | "objectives" | "suppo
   { key: "support", label: "ПОДДЕРЖКА" },
   { key: "flexibility", label: "ГИБКОСТЬ" },
 ];
-const RADAR_SIZE = 260;
+// Visual-QA polish pass - scaled ~1.8x from the first cut (260px), which
+// read as a tiny island inside a much wider panel; mirrors the same change
+// in the production web scene's PlayerProfileRadarPanel (queue-scene-ui.tsx).
+const RADAR_SIZE = 468;
 const RADAR_CENTER = RADAR_SIZE / 2;
-const RADAR_MAX_RADIUS = 48;
-const RADAR_LABEL_RADIUS = 72;
+const RADAR_MAX_RADIUS = 86;
+const RADAR_LABEL_RADIUS = 130;
 const RADAR_GRID_RINGS = [0.5, 1];
+// Missing axis (e.g. ОБЪЕКТЫ without sufficient parsed tower-damage
+// coverage) - no invented score/fake neutral value; the vertex still
+// geometrically sits at the center, but renders as a hollow dashed ring on a
+// dashed spoke instead of a solid dot, so it reads as intentional.
+const RADAR_MISSING_MARKER_RADIUS_RATIO = 0.12;
 
 const radarAngle = (index: number) => (-90 + index * (360 / RADAR_AXES.length)) * (Math.PI / 180);
 const radarXY = (index: number, ratio: number, radius: number) => {
@@ -314,7 +327,7 @@ function PlayerProfileRadarPanel({ openDota }: { openDota: OverlayStateSnapshot[
   const shapePoints = axisPoints.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
 
   return (
-    <Panel title="Профиль игрока" className={styles.radarPanel}>
+    <Panel title="Player profile" className={styles.radarPanel}>
       <svg className={styles.radarChart} viewBox={`0 0 ${RADAR_SIZE} ${RADAR_SIZE}`}>
         {RADAR_GRID_RINGS.map((ring) => (
           <polygon
@@ -328,12 +341,32 @@ function PlayerProfileRadarPanel({ openDota }: { openDota: OverlayStateSnapshot[
         ))}
         {RADAR_AXES.map((axis, index) => {
           const p = radarXY(index, 1, RADAR_MAX_RADIUS);
-          return <line key={axis.key} className={styles.radarSpoke} x1={RADAR_CENTER} y1={RADAR_CENTER} x2={p.x} y2={p.y} />;
+          const isMissing = radar[axis.key] === null;
+          return (
+            <line
+              key={axis.key}
+              className={isMissing ? styles.radarSpokeMissing : styles.radarSpoke}
+              x1={RADAR_CENTER}
+              y1={RADAR_CENTER}
+              x2={p.x}
+              y2={p.y}
+            />
+          );
         })}
         <polygon className={styles.radarShape} points={shapePoints} />
-        {axisPoints.map((p) => (
-          <circle key={p.key} className={styles.radarVertex} cx={p.x} cy={p.y} r={2.5} />
-        ))}
+        {axisPoints.map((p) =>
+          p.raw === null ? (
+            <circle
+              key={p.key}
+              className={styles.radarVertexMissing}
+              cx={p.x}
+              cy={p.y}
+              r={RADAR_MAX_RADIUS * RADAR_MISSING_MARKER_RADIUS_RATIO}
+            />
+          ) : (
+            <circle key={p.key} className={styles.radarVertex} cx={p.x} cy={p.y} r={4.5} />
+          )
+        )}
         {RADAR_AXES.map((axis, index) => {
           const labelPoint = radarXY(index, 1, RADAR_LABEL_RADIUS);
           const raw = radar[axis.key];
@@ -347,7 +380,11 @@ function PlayerProfileRadarPanel({ openDota }: { openDota: OverlayStateSnapshot[
               dominantBaseline="middle"
             >
               {axis.label}
-              <tspan className={styles.radarLabelValue} x={labelPoint.x} dy="1.15em">
+              <tspan
+                className={raw === null ? styles.radarLabelValueMissing : styles.radarLabelValue}
+                x={labelPoint.x}
+                dy="1.15em"
+              >
                 {raw === null ? "—" : Math.round(raw)}
               </tspan>
             </text>

@@ -13,7 +13,7 @@ afterEach(cleanup);
 
 const baseProps = {
     email: null,
-    gameMode: null as const,
+    gameMode: null,
     rating: null,
     wins: 0,
     losses: 0,
@@ -53,6 +53,7 @@ describe("FavoriteHeroes OpenDota enrichment", () => {
                 openDota={{
                     favoriteHeroes: {
                         patchName: null,
+                        isLatestKnown: false,
                         perHero: { 1: { lifetime: { games: 132, wins: 71, losses: 61, winRate: 53.79 }, patch: null } },
                     },
                     radar: null,
@@ -72,6 +73,7 @@ describe("FavoriteHeroes OpenDota enrichment", () => {
                 openDota={{
                     favoriteHeroes: {
                         patchName: "7.41",
+                        isLatestKnown: true,
                         perHero: {
                             1: {
                                 lifetime: { games: 132, wins: 71, losses: 61, winRate: 53.79 },
@@ -87,6 +89,32 @@ describe("FavoriteHeroes OpenDota enrichment", () => {
         expect(screen.getByText("7.41 · 58%")).toBeTruthy();
     });
 
+    it("prefixes the patch line with 'посл.' when the patch isn't confirmed to be OpenDota's current known patch", () => {
+        render(
+            <FavoriteHeroes
+                {...baseProps}
+                matches={[]}
+                selectedHeroIds={[1]}
+                title="Favorite Heroes"
+                openDota={{
+                    favoriteHeroes: {
+                        patchName: "7.39",
+                        isLatestKnown: false,
+                        perHero: {
+                            1: {
+                                lifetime: { games: 132, wins: 71, losses: 61, winRate: 53.79 },
+                                patch: { games: 12, wins: 7, losses: 5, winRate: 58.3 },
+                            },
+                        },
+                    },
+                    radar: null,
+                }}
+            />
+        );
+        expect(screen.getByText("посл. 7.39 · 58%")).toBeTruthy();
+        expect(screen.queryByText("7.39 · 58%")).toBeNull();
+    });
+
     it("omits the patch line when patch stats exist but the patch name could not be resolved", () => {
         render(
             <FavoriteHeroes
@@ -97,6 +125,7 @@ describe("FavoriteHeroes OpenDota enrichment", () => {
                 openDota={{
                     favoriteHeroes: {
                         patchName: null,
+                        isLatestKnown: false,
                         perHero: {
                             1: {
                                 lifetime: { games: 132, wins: 71, losses: 61, winRate: 53.79 },
@@ -120,7 +149,7 @@ describe("FavoriteHeroes OpenDota enrichment", () => {
                 selectedHeroIds={[]}
                 title="Favorite Heroes"
                 openDota={{
-                    favoriteHeroes: { patchName: "7.41", perHero: {} },
+                    favoriteHeroes: { patchName: "7.41", isLatestKnown: true, perHero: {} },
                     radar: null,
                 }}
             />
@@ -160,10 +189,33 @@ describe("PlayerProfileRadarPanel", () => {
                 }}
             />
         );
-        expect(screen.getByText("Профиль игрока")).toBeTruthy();
+        // English title - Between Matches doesn't mix languages across
+        // panel headings (LAST MATCH/FAVORITE HEROES/RECENT GAMES/PLAYER
+        // PROFILE all render uppercase via CSS from a consistent source
+        // language, see .panelTitle's text-transform).
+        expect(screen.getByText("Player profile")).toBeTruthy();
         expect(screen.getByText("БОЙ")).toBeTruthy();
         expect(screen.getByText("62")).toBeTruthy();
         expect(screen.getByText("75")).toBeTruthy(); // farm rounded from 74.6
         expect(screen.getByText("—")).toBeTruthy(); // objectives: null, not "0"
+    });
+
+    it("marks the missing axis (ОБЪЕКТЫ) with a hollow vertex and dashed spoke, never a solid dot implying a real value", () => {
+        const { container } = render(
+            <PlayerProfileRadarPanel
+                {...baseProps}
+                matches={[]}
+                openDota={{
+                    favoriteHeroes: null,
+                    radar: { combat: 62, farm: 74, support: 41, objectives: null, flexibility: 55, insufficientSample: false },
+                }}
+            />
+        );
+        const missingVertices = container.querySelectorAll(`circle[class*="radarVertexMissing"]`);
+        const missingSpokes = container.querySelectorAll(`line[class*="radarSpokeMissing"]`);
+        const solidVertices = container.querySelectorAll(`circle[class*="radarVertex"]:not([class*="Missing"])`);
+        expect(missingVertices.length).toBe(1);
+        expect(missingSpokes.length).toBe(1);
+        expect(solidVertices.length).toBe(4); // the other four axes have real values
     });
 });

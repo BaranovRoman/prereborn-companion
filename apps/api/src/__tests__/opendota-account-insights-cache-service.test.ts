@@ -97,8 +97,27 @@ describe("resolveCurrentPatchId", () => {
             ],
         });
 
+        // Player's newest observed patch (58) is behind the highest patch id
+        // OpenDota knows about (59) - not confirmed to be the live patch.
         const result = await resolveCurrentPatchId(1);
-        expect(result).toEqual({ status: "ok", patchId: 58, patchName: "7.39" });
+        expect(result).toEqual({ status: "ok", patchId: 58, patchName: "7.39", isLatestKnown: false });
+    });
+
+    it("marks isLatestKnown true when the player's newest observed patch IS the highest known patch id", async () => {
+        vi.spyOn(openDotaMatchProvider, "getPlayerCounts").mockResolvedValue({
+            status: "ok",
+            counts: { patch: { "58": { games: 20, win: 12 }, "59": { games: 4, win: 3 } }, laneRole: {} },
+        });
+        vi.spyOn(openDotaMatchProvider, "getPatchConstants").mockResolvedValue({
+            status: "ok",
+            patches: [
+                { id: 58, name: "7.39" },
+                { id: 59, name: "7.40" },
+            ],
+        });
+
+        const result = await resolveCurrentPatchId(1);
+        expect(result).toEqual({ status: "ok", patchId: 59, patchName: "7.40", isLatestKnown: true });
     });
 
     it("omits patchName rather than showing an incorrect label when the id is unmapped", async () => {
@@ -112,7 +131,7 @@ describe("resolveCurrentPatchId", () => {
         });
 
         const result = await resolveCurrentPatchId(1);
-        expect(result).toEqual({ status: "ok", patchId: 999, patchName: null });
+        expect(result).toEqual({ status: "ok", patchId: 999, patchName: null, isLatestKnown: true });
     });
 
     it("returns no_data when the account has no patch-attributed games", async () => {

@@ -102,7 +102,20 @@ export const getCachedAccountRankings = async (accountId: number): Promise<Cache
 };
 
 export type CurrentPatchResult =
-    | { status: "ok"; patchId: number; patchName: string | null }
+    | {
+          status: "ok";
+          patchId: number;
+          patchName: string | null;
+          // WK-148 polish - true only when patchId is ALSO the highest id in
+          // OpenDota's own /constants/patch list, i.e. we can positively
+          // confirm this is the current live patch, not just "the newest one
+          // this player happens to have played". A player who hasn't queued
+          // since before the last patch shipped will have isLatestKnown:
+          // false - the UI must then say "last observed", never "current"
+          // (задача, "Patch semantics" polish pass - do not imply this is
+          // definitely the current game patch).
+          isLatestKnown: boolean;
+      }
     | { status: "no_data" }
     | { status: SimpleStatus };
 
@@ -110,7 +123,11 @@ export type CurrentPatchResult =
 // максимальный patch id с играми > 0 в лайфтайм-counts аккаунта - это ровно
 // "последний патч, на котором реально играл этот игрок". Не календарная
 // догадка: пока OpenDota не проставил матчам новый patch id, метод
-// продолжает показывать предыдущий (задача, секция 1).
+// продолжает показывать предыдущий (задача, секция 1). isLatestKnown
+// сравнивает это с максимальным id во ВСЁМ списке /constants/patch (уже
+// закэширован, 0 доп. запросов) - единственный способ отличить "это правда
+// текущий патч" от "это просто последний патч, который видел этот игрок",
+// без календарных догадок и без нового апстрим-вызова.
 export const resolveCurrentPatchId = async (accountId: number): Promise<CurrentPatchResult> => {
     const countsResult = await getCachedAccountCounts(accountId);
     if (countsResult.status !== "ok") return countsResult;
@@ -125,7 +142,13 @@ export const resolveCurrentPatchId = async (accountId: number): Promise<CurrentP
     if (patchId === null) return { status: "no_data" };
 
     const patches = await getCachedPatchConstants();
-    return { status: "ok", patchId, patchName: resolvePatchName(patchId, patches) };
+    const highestKnownPatchId = patches.reduce((max, patch) => Math.max(max, patch.id), -Infinity);
+    return {
+        status: "ok",
+        patchId,
+        patchName: resolvePatchName(patchId, patches),
+        isLatestKnown: patches.length > 0 && patchId >= highestKnownPatchId,
+    };
 };
 
 export const __resetOpenDotaAccountInsightsCacheForTests = (): void => {

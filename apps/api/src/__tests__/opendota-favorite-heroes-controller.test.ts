@@ -86,7 +86,7 @@ describe("getOpenDotaFavoriteHeroesController", () => {
                 { heroId: 1, games: 132, wins: 71 },
             ],
         });
-        resolveCurrentPatchId.mockResolvedValue({ status: "ok", patchId: 60, patchName: "7.41" });
+        resolveCurrentPatchId.mockResolvedValue({ status: "ok", patchId: 60, patchName: "7.41", isLatestKnown: true });
         getCachedHeroPatchCounts.mockImplementation(async (_accountId, heroId) => ({
             status: "ok",
             patch: { "60": { games: heroId === 1 ? 12 : 3, win: heroId === 1 ? 7 : 1 } },
@@ -100,6 +100,7 @@ describe("getOpenDotaFavoriteHeroesController", () => {
             expect.objectContaining({
                 status: "ok",
                 patchName: "7.41",
+                isLatestKnown: true,
                 heroes: [
                     {
                         heroId: 1,
@@ -146,5 +147,20 @@ describe("getOpenDotaFavoriteHeroesController", () => {
         await getOpenDotaFavoriteHeroesController(makeReq("1"), res);
 
         expect(res.json).toHaveBeenCalledWith({ status: "rate_limited" });
+    });
+
+    it("reports isLatestKnown false when the player's patch is behind OpenDota's known current patch", async () => {
+        getSteamLink.mockResolvedValue(link);
+        getCachedPlayerHeroes.mockResolvedValue({ status: "ok", heroes: [{ heroId: 1, games: 10, wins: 5 }] });
+        resolveCurrentPatchId.mockResolvedValue({ status: "ok", patchId: 58, patchName: "7.39", isLatestKnown: false });
+        getCachedHeroPatchCounts.mockResolvedValue({ status: "ok", patch: { "58": { games: 3, win: 2 } } });
+
+        const { getOpenDotaFavoriteHeroesController } = await import("../controllers/stream/opendota.js");
+        const res = makeRes();
+        await getOpenDotaFavoriteHeroesController(makeReq("1"), res);
+
+        expect(res.json).toHaveBeenCalledWith(
+            expect.objectContaining({ patchName: "7.39", isLatestKnown: false })
+        );
     });
 });

@@ -62,6 +62,7 @@ describe("getCachedOverlayFavoriteHeroStats", () => {
         const second = await getCachedOverlayFavoriteHeroStats(1, [10]);
         expect(second).toEqual({
             patchName: "7.41",
+            isLatestKnown: true,
             perHero: {
                 10: {
                     lifetime: { games: 132, wins: 71, losses: 61, winRate: (71 / 132) * 100 },
@@ -84,6 +85,7 @@ describe("getCachedOverlayFavoriteHeroStats", () => {
 
         expect(result).toEqual({
             patchName: null,
+            isLatestKnown: false,
             perHero: { 10: { lifetime: { games: 50, wins: 20, losses: 30, winRate: 40 }, patch: null } },
         });
     });

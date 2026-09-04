@@ -416,7 +416,7 @@ describe("HeroDetailPage", () => {
       mockedGetHeroOpenDotaInsights.mockResolvedValueOnce({
         status: "ok", source: "opendota", heroId: 105,
         recentForm: { sample: 12, wins: 8, losses: 4, winRate: 66.7 },
-        patch: { patchId: 60, patchName: "7.41", games: 7, wins: 4, losses: 3, winRate: 57.1 },
+        patch: { patchId: 60, patchName: "7.41", isLatestKnown: true, games: 7, wins: 4, losses: 3, winRate: 57.1 },
         kills: null, deaths: null, assists: null, goldPerMin: null, xpPerMin: null,
         heroDamage: null, towerDamage: null, heroHealing: null, rankPercent: null,
         fetchedAt: new Date().toISOString(),
@@ -429,12 +429,28 @@ describe("HeroDetailPage", () => {
       expect(screen.getByText("4–3 · 57.1%")).toBeTruthy();
     });
 
+    it("labels the patch block 'Последний патч' rather than 'Патч' when the player's patch is not confirmed to be OpenDota's current known patch", async () => {
+      mockedGetHeroOpenDotaStats.mockResolvedValueOnce(OK_STATS);
+      mockedGetHeroOpenDotaInsights.mockResolvedValueOnce({
+        status: "ok", source: "opendota", heroId: 105,
+        recentForm: null,
+        patch: { patchId: 58, patchName: "7.39", isLatestKnown: false, games: 5, wins: 3, losses: 2, winRate: 60 },
+        kills: null, deaths: null, assists: null, goldPerMin: null, xpPerMin: null,
+        heroDamage: null, towerDamage: null, heroHealing: null, rankPercent: null,
+        fetchedAt: new Date().toISOString(),
+      });
+      renderPage({ heroId: 105 });
+
+      expect(await screen.findByText("Последний патч · 7.39")).toBeTruthy();
+      expect(screen.queryByText(/^Патч /)).toBeNull();
+    });
+
     it("omits the patch block when the patch id could not be resolved to a name, rather than showing a raw id", async () => {
       mockedGetHeroOpenDotaStats.mockResolvedValueOnce(OK_STATS);
       mockedGetHeroOpenDotaInsights.mockResolvedValueOnce({
         status: "ok", source: "opendota", heroId: 105,
         recentForm: null,
-        patch: { patchId: 61, patchName: null, games: 3, wins: 2, losses: 1, winRate: 66.7 },
+        patch: { patchId: 61, patchName: null, isLatestKnown: false, games: 3, wins: 2, losses: 1, winRate: 66.7 },
         kills: null, deaths: null, assists: null, goldPerMin: null, xpPerMin: null,
         heroDamage: null, towerDamage: null, heroHealing: null, rankPercent: null,
         fetchedAt: new Date().toISOString(),
