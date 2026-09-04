@@ -8,6 +8,7 @@ mod gsi;
 mod hotkeys;
 mod local_runtime;
 mod obs;
+mod opendota_overlay_cache;
 mod overlay_server;
 mod runtime_health;
 mod secure_storage;
@@ -241,6 +242,7 @@ pub fn run() {
             local_runtime::lifecycle::start_sweep(handle.clone());
             local_runtime::sync::start_sync_worker(handle.clone());
             overlay_server::init(handle.clone());
+            opendota_overlay_cache::init(handle.clone());
 
             build_tray(&handle)?;
 
@@ -296,6 +298,8 @@ pub fn run() {
             commands::connect_donation_alerts,
             commands::disconnect_donation_alerts,
             commands::get_hero_opendota_stats,
+            commands::get_hero_opendota_insights,
+            commands::get_account_opendota_radar,
             commands::resend_current_state,
             commands::save_obs_config,
             commands::test_obs_connection,

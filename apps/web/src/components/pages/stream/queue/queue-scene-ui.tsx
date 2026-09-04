@@ -193,6 +193,12 @@ interface QueueDataProps {
     // от прошлых. null для матчей уже session-scoped публичного оверлея, где
     // это не нужно (см. isMatchFromCurrentSession).
     activeSessionId: string | null;
+    // WK-148 - Favorite Heroes secondary line + "ПРОФИЛЬ ИГРОКА" радар. Null
+    // for the Design preview (see QueueSceneUi: this pass wires it only from
+    // `publicData`, not from a live authenticated hook) - the preview simply
+    // shows Favorite Heroes/radar without OpenDota enrichment, same as
+    // Steam-not-linked.
+    openDota: OverlayData["openDota"];
 }
 
 interface GsiItem {
@@ -383,10 +389,11 @@ const WebcamSlot = ({ webcamImageUrl, title }: QueueDataProps & { title: string 
     </Panel>
 );
 
-const FavoriteHeroes = ({
+export const FavoriteHeroes = ({
     matches,
     selectedHeroIds,
     title,
+    openDota,
 }: QueueDataProps & { selectedHeroIds: number[]; title: string }) => {
     const allMatchCounts = matches.reduce((counts, match) => {
         counts.set(match.heroId, (counts.get(match.heroId) ?? 0) + 1);
@@ -404,6 +411,7 @@ const FavoriteHeroes = ({
             <div className={styles.favoriteList}>
                 {favorites.length ? favorites.map(([heroId]) => {
                     const hero = getHeroById(heroId);
+                    const heroOpenDota = openDota?.favoriteHeroes?.perHero[heroId] ?? null;
                     return (
                         <div key={heroId} className={styles.favorite}>
                             <div className={styles.favoritePortrait}>
@@ -426,6 +434,16 @@ const FavoriteHeroes = ({
                             </div>
                             <div className={styles.favoriteCaption}>
                                 <b>{hero?.localizedName ?? `Hero ${heroId}`}</b>
+                                {heroOpenDota?.lifetime && (
+                                    <small className={styles.favoriteOpenDota}>
+                                        {heroOpenDota.lifetime.games} · {heroOpenDota.lifetime.winRate.toFixed(1)}%
+                                    </small>
+                                )}
+                                {heroOpenDota?.patch && openDota?.favoriteHeroes?.patchName && (
+                                    <small className={styles.favoriteOpenDotaPatch}>
+                                        {openDota.favoriteHeroes.patchName} · {heroOpenDota.patch.winRate.toFixed(0)}%
+                                    </small>
+                                )}
                             </div>
                         </div>
                     );
@@ -433,6 +451,123 @@ const FavoriteHeroes = ({
                     <div className={styles.panelEmpty}>No match history yet</div>
                 )}
             </div>
+        </Panel>
+    );
+};
+
+// WK-148 - "ПРОФИЛЬ ИГРОКА": five-axis account-wide radar, own OpenDota
+// source (see apps/api's opendota-player-profile-radar.ts for the formulas/
+// anchors - values here are 0-100 "% of the way from a weak to a strong
+// reference anchor", NOT a percentile among players, see the task's
+// normalization requirement). Plain SVG, no charting dependency for one
+// pentagon. Axis order (clockwise from top) groups offense (combat/farm) on
+// the right, support/utility (support/flexibility) on the left.
+const RADAR_AXES: ReadonlyArray<{
+    key: "combat" | "farm" | "objectives" | "support" | "flexibility";
+    label: string;
+}> = [
+    { key: "combat", label: "БОЙ" },
+    { key: "farm", label: "ФАРМ" },
+    { key: "objectives", label: "ОБЪЕКТЫ" },
+    { key: "support", label: "ПОДДЕРЖКА" },
+    { key: "flexibility", label: "ГИБКОСТЬ" },
+];
+// Renders in .rightMain (see QueueSceneUi below), NOT .sideStack - that
+// column has no slack left after WK-152's Recent Games density gain, so the
+// radar lives next to Twitch Chat/Friends instead (task's own "do not undo
+// WK-152 density" requirement wins over strict Favorite-Heroes adjacency).
+// Renders at ~1:1 viewBox-to-CSS-px (see .radarChart's max-width) so
+// shrinking/growing this doesn't also distort label legibility the way
+// downscaling a fixed bigger design would. RADAR_SIZE has real margin
+// beyond RADAR_LABEL_RADIUS on every side - axis label text extends past
+// its anchor point (text-anchor start/end), and an SVG clips anything past
+// its own viewBox edges, so ГИБКОСТЬ/ПОДДЕРЖКА (the longest left-side
+// labels) need room to spill left of their anchor without hitting x=0.
+const RADAR_SIZE = 260;
+const RADAR_CENTER = RADAR_SIZE / 2;
+const RADAR_MAX_RADIUS = 48;
+const RADAR_LABEL_RADIUS = 72;
+const RADAR_GRID_RINGS = [0.5, 1];
+
+const radarAngle = (index: number) => (-90 + index * (360 / RADAR_AXES.length)) * (Math.PI / 180);
+const radarXY = (index: number, ratio: number, radius: number) => {
+    const angle = radarAngle(index);
+    return {
+        x: RADAR_CENTER + radius * ratio * Math.cos(angle),
+        y: RADAR_CENTER + radius * ratio * Math.sin(angle),
+    };
+};
+const radarLabelAnchor = (index: number): "start" | "middle" | "end" => {
+    const cos = Math.cos(radarAngle(index));
+    if (cos > 0.3) return "start";
+    if (cos < -0.3) return "end";
+    return "middle";
+};
+
+export const PlayerProfileRadarPanel = ({ openDota }: QueueDataProps) => {
+    const radar = openDota?.radar;
+    // No placeholder/loading state on a live stream surface - the panel
+    // simply doesn't render until there's a real, sufficiently-sampled
+    // profile (задача, секции 10/12).
+    if (!radar || radar.insufficientSample) return null;
+
+    const axisPoints = RADAR_AXES.map((axis, index) => {
+        const raw = radar[axis.key];
+        const ratio = raw === null ? 0 : Math.max(0, Math.min(100, raw)) / 100;
+        return { ...axis, raw, ...radarXY(index, ratio, RADAR_MAX_RADIUS) };
+    });
+    const shapePoints = axisPoints.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
+
+    return (
+        <Panel title="Профиль игрока" className={styles.radarPanel}>
+            <svg className={styles.radarChart} viewBox={`0 0 ${RADAR_SIZE} ${RADAR_SIZE}`}>
+                {RADAR_GRID_RINGS.map((ring) => (
+                    <polygon
+                        key={ring}
+                        className={styles.radarGridRing}
+                        points={RADAR_AXES.map((_, index) => {
+                            const p = radarXY(index, ring, RADAR_MAX_RADIUS);
+                            return `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+                        }).join(" ")}
+                    />
+                ))}
+                {RADAR_AXES.map((axis, index) => {
+                    const p = radarXY(index, 1, RADAR_MAX_RADIUS);
+                    return (
+                        <line
+                            key={axis.key}
+                            className={styles.radarSpoke}
+                            x1={RADAR_CENTER}
+                            y1={RADAR_CENTER}
+                            x2={p.x}
+                            y2={p.y}
+                        />
+                    );
+                })}
+                <polygon className={styles.radarShape} points={shapePoints} />
+                {axisPoints.map((p) => (
+                    <circle key={p.key} className={styles.radarVertex} cx={p.x} cy={p.y} r={2.5} />
+                ))}
+                {RADAR_AXES.map((axis, index) => {
+                    const labelPoint = radarXY(index, 1, RADAR_LABEL_RADIUS);
+                    const raw = radar[axis.key];
+                    return (
+                        <text
+                            key={axis.key}
+                            className={styles.radarLabel}
+                            x={labelPoint.x}
+                            y={labelPoint.y}
+                            textAnchor={radarLabelAnchor(index)}
+                            dominantBaseline="middle"
+                        >
+                            {axis.label}
+                            <tspan className={styles.radarLabelValue} x={labelPoint.x} dy="1.15em">
+                                {raw === null ? "—" : Math.round(raw)}
+                            </tspan>
+                        </text>
+                    );
+                })}
+            </svg>
         </Panel>
     );
 };
@@ -764,6 +899,7 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
         webcamImageUrl: activeSettings.webcamImageUrl,
         channelGoal: activeSettings.channelGoal,
         activeSessionId,
+        openDota: publicData?.openDota ?? null,
     };
     const widgetSettings = activeSettings.widgets;
 
@@ -810,6 +946,7 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
                         title={widgetSettings.titles.friends}
                         settings={widgetSettings.friends}
                     />
+                    <PlayerProfileRadarPanel {...data} />
                 </div>
             </div>
         </div>

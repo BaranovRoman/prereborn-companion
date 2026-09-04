@@ -258,6 +258,15 @@ pub struct InnerState {
     pub overlay_layout_version: u64,
     pub queue_settings: Option<serde_json::Value>,
     pub account_overlay_data: Option<serde_json::Value>,
+    // WK-148 - Between Matches OpenDota enrichment (favorite-hero lifetime/
+    // patch line + "ПРОФИЛЬ ИГРОКА" радар) for the LOCAL renderer
+    // (127.0.0.1:3666/overlay), which has no Tauri IPC access (see
+    // opendota_overlay_cache.rs) - populated by that module's background
+    // poll loop, read synchronously by overlay_server.rs's snapshot builder.
+    // Same "opaque serde_json::Value, Rust never interprets fields" pattern
+    // as queue_settings/account_overlay_data above.
+    pub opendota_favorite_heroes: Option<serde_json::Value>,
+    pub opendota_radar: Option<serde_json::Value>,
     /// Normalized bounded Twitch chat status returned to the existing Chat
     /// UI. The localhost overlay reuses this cache; it never opens another
     /// Twitch connection.

@@ -26,6 +26,10 @@ import {
 } from "../../services/stream-companion-service.js";
 import { logger } from "../../utils/logger.js";
 import { getCachedSteamProfile } from "../../services/steam-profile-cache-service.js";
+import {
+    getCachedOverlayFavoriteHeroStats,
+    getCachedOverlayRadar,
+} from "../../services/opendota-overlay-insights-cache-service.js";
 import { getTwitchStatus, getTwitchViewerEvents } from "../../services/twitch-integration-service.js";
 import { getObsSceneOverride } from "../../services/obs-scene-command-service.js";
 import { getDonationAlertsStatus } from "../../services/donation-alerts-integration-service.js";
@@ -138,6 +142,29 @@ export const getOverlayController = async (req: Request, res: Response) => {
             getViewerAlertsSettings(streamUserId),
             loadIntegrationStatus(streamUserId, req.requestId),
         ]);
+
+        // WK-148 - OpenDota-обогащение Between Matches (Favorite Heroes
+        // secondary line + "ПРОФИЛЬ ИГРОКА" радар). Оба вызова используют
+        // null-и-фоновая-заливка паттерн (см.
+        // opendota-overlay-insights-cache-service.ts) - публичный оверлей
+        // никогда не ждёт OpenDota, на холодном кэше оба поля просто null до
+        // следующего poll-цикла. favoriteHeroes обогащает только вручную
+        // закреплённых героев (favoriteHeroIds непустой) - авто-топ-3 по
+        // локальным матчам считается на клиенте и серверу неизвестен, здесь
+        // сознательно не дублируется эта эвристика; радар account-wide и не
+        // зависит от выбора избранных героев вообще.
+        const openDota = steamLink
+            ? {
+                  favoriteHeroes:
+                      queueSettings.favoriteHeroIds.length > 0
+                          ? await getCachedOverlayFavoriteHeroStats(
+                                steamLink.dotaAccountId,
+                                queueSettings.favoriteHeroIds
+                            )
+                          : null,
+                  radar: await getCachedOverlayRadar(steamLink.dotaAccountId),
+              }
+            : null;
         const { twitch, donationAlerts } = integrations;
         // WK-72 - ensureTwitchChat() already ran inside getTwitchStatus()
         // above (part of `integrations`), so this in-memory read picks up
@@ -256,6 +283,7 @@ export const getOverlayController = async (req: Request, res: Response) => {
                     connected: steamLink !== null,
                     profile: steamProfile,
                 },
+                openDota,
                 twitch,
                 donationAlerts,
                 viewerEvents,
@@ -325,6 +353,7 @@ export const getOverlayController = async (req: Request, res: Response) => {
                 connected: steamLink !== null,
                 profile: steamProfile,
             },
+            openDota,
             twitch,
             donationAlerts,
             viewerEvents,

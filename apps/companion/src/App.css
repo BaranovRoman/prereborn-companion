@@ -1713,6 +1713,17 @@ h1, h2, p { margin-top: 0; }
 .hero-detail__stats-dot--abandon { background: var(--ui-text-muted); }
 .hero-detail__stats-caption { margin: 2px 0 0; color: var(--ui-text-muted); font-size: .68rem; text-shadow: 0 1px 4px #000; }
 
+/* WK-148 - OpenDota Hero Detail enrichment (recent form/патч/KDA-GPM-XPM):
+   compact "insight" sub-sections, not a spreadsheet - a small caps label
+   line + one value line, same typographic language as .hero-detail__stats
+   above but visually lighter (smaller subhead, no dt/dd grid) so the panel
+   stays scannable rather than turning into a table. */
+.hero-detail__stats-group { display: flex; flex-direction: column; gap: 1px; margin-top: 6px; }
+.hero-detail__stats-subhead { margin: 0; color: var(--ui-text-soft); font-size: .68rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; text-shadow: 0 1px 4px #000; }
+.hero-detail__stats-line { margin: 0; color: var(--ui-text); font-size: .92rem; font-weight: 700; font-variant-numeric: tabular-nums; text-shadow: 0 1px 4px #000; }
+.hero-detail__stats-list--compact { margin-top: 6px; }
+.hero-detail__stats-list--compact .hero-detail__stats-row { padding-bottom: 2px; }
+
 /* WK-133 - RIGHT column now stacks two independent sources (local history,
    OpenDota) - see this task's "never merge local + external" requirement.
    A stacking flex column (not a second `.hero-detail__stats` sibling row)

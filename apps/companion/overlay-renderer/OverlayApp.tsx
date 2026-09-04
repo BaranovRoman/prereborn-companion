@@ -201,7 +201,14 @@ export function OverlayApp() {
   // geometry, including the physical webcam aperture.
   if (scene === "betweenMatches") {
     return <>
-      <BetweenMatchesScene session={session} settings={queueSettings} account={snapshot.account} twitchChat={snapshot.twitchChat} />
+      <BetweenMatchesScene
+        session={session}
+        settings={queueSettings}
+        account={snapshot.account}
+        twitchChat={snapshot.twitchChat}
+        openDotaFavoriteHeroes={snapshot.opendotaFavoriteHeroes}
+        openDotaRadar={snapshot.opendotaRadar}
+      />
       {!connected && <div className="ov-anchor ov-anchor--top-right"><span className="ov-reconnecting">Переподключение…</span></div>}
     </>;
   }

@@ -46,6 +46,8 @@ function baseSnapshot(overrides: Partial<OverlayStateSnapshot> = {}): OverlaySta
     account: null,
     twitchChat: null,
     overlayVisible: true,
+    opendotaFavoriteHeroes: null,
+    opendotaRadar: null,
     ...overrides,
   };
 }

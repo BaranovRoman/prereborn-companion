@@ -215,4 +215,76 @@ describe("BetweenMatchesScene", () => {
     expect(screen.getByText("Donaters")).toBeTruthy();
     expect(screen.getByText("TopDonor")).toBeTruthy();
   });
+
+  // WK-148 - OpenDota enrichment on the LOCAL renderer, sourced from
+  // OverlayStateSnapshot.opendotaFavoriteHeroes/opendotaRadar (populated in
+  // the background by opendota_overlay_cache.rs, not Tauri IPC - this
+  // renderer has none). Must degrade to the pre-WK-148 look when null.
+  describe("OpenDota enrichment", () => {
+    it("renders only the hero name when openDota is null", () => {
+      render(<BetweenMatchesScene session={SESSION} settings={{ ...SETTINGS, favoriteHeroIds: [1] }} />);
+      expect(screen.getByText("Anti-Mage")).toBeTruthy();
+      expect(screen.getByLabelText("FAVORITE HEROES").querySelector("small")).toBeNull();
+    });
+
+    it("renders the lifetime line and an optional current-patch line per favorite hero", () => {
+      render(
+        <BetweenMatchesScene
+          session={SESSION}
+          settings={{ ...SETTINGS, favoriteHeroIds: [1] }}
+          openDotaFavoriteHeroes={{
+            status: "ok",
+            source: "opendota",
+            patchName: "7.41",
+            heroes: [
+              {
+                heroId: 1,
+                lifetime: { games: 132, wins: 71, losses: 61, winRate: 53.79 },
+                patch: { games: 12, wins: 7, losses: 5, winRate: 58.3 },
+              },
+            ],
+            fetchedAt: "2026-01-01T00:00:00Z",
+          }}
+        />
+      );
+      expect(screen.getByText("132 · 53.8%")).toBeTruthy();
+      expect(screen.getByText("7.41 · 58%")).toBeTruthy();
+    });
+
+    it("renders nothing for the radar when the sample is insufficient, without breaking the rest of the scene", () => {
+      render(
+        <BetweenMatchesScene
+          session={SESSION}
+          settings={SETTINGS}
+          openDotaRadar={{ status: "insufficient_data" }}
+        />
+      );
+      expect(screen.queryByLabelText("Профиль игрока")).toBeNull();
+      expect(screen.getByLabelText("FAVORITE HEROES")).toBeTruthy();
+    });
+
+    it("renders the radar panel with a value per axis once there's a real profile", () => {
+      render(
+        <BetweenMatchesScene
+          session={SESSION}
+          settings={SETTINGS}
+          openDotaRadar={{
+            status: "ok",
+            source: "opendota",
+            combat: 62,
+            farm: 74.6,
+            support: 41,
+            objectives: null,
+            flexibility: 55,
+            fetchedAt: "2026-01-01T00:00:00Z",
+          }}
+        />
+      );
+      expect(screen.getByLabelText("Профиль игрока")).toBeTruthy();
+      expect(screen.getByText("БОЙ")).toBeTruthy();
+      expect(screen.getByText("62")).toBeTruthy();
+      expect(screen.getByText("75")).toBeTruthy();
+      expect(screen.getByText("—")).toBeTruthy();
+    });
+  });
 });

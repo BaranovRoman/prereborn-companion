@@ -803,6 +803,48 @@
     flex: 1 1 0;
 }
 
+// WK-148 - "ПРОФИЛЬ ИГРОКА": intrinsically sized (like .webcamPanel), NOT
+// flex-growing - deliberately compact so RecentGames (the flexible sibling
+// above) keeps most of the WK-152 density gain. Renders nothing when there's
+// no sufficiently-sampled profile, so this rule only matters once real data
+// exists.
+.radarPanel { height: fit-content; }
+.radarChart {
+    display: block;
+    width: 100%;
+    max-width: 260px;
+    height: auto;
+    margin: 8px auto;
+}
+.radarGridRing {
+    fill: none;
+    stroke: #2d3334;
+    stroke-width: 1;
+}
+.radarSpoke { stroke: #242020; stroke-width: 1; }
+.radarShape {
+    fill: rgba(123, 53, 50, .38);
+    stroke: #c29a69;
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+}
+.radarVertex { fill: #c29a69; }
+.radarLabel {
+    fill: #a6a39d;
+    font-family: var(--font-ui);
+    font-size: 10px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+}
+.radarLabelValue {
+    fill: #c3c0b8;
+    font-family: var(--font-title);
+    font-size: 14px;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
 .featuredMatch {
     display: grid;
     grid-template-rows: 34px minmax(0, 1fr) 264px;
@@ -1219,8 +1261,11 @@
 }
 
 .favoriteCaption {
-    display: grid;
-    place-items: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
     min-height: 39px;
     padding: 3px;
     text-align: center;
@@ -1236,6 +1281,23 @@
     text-overflow: ellipsis;
     text-transform: uppercase;
     white-space: nowrap;
+}
+// WK-148 - OpenDota enrichment: lifetime "matches · winrate" is the primary
+// external signal (задача, секция 4), the current-patch line stays quieter
+// still - both restrained enough not to compete with the hero name above.
+.favoriteOpenDota {
+    color: #9a968c;
+    font-family: var(--font-ui);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .02em;
+}
+.favoriteOpenDotaPatch {
+    color: #726f68;
+    font-family: var(--font-ui);
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .04em;
 }
 // WK-152 - Recent Games no longer renders the hero name (redundant with the
 // portrait); K/D/A is now the row's only primary text, sized up accordingly
@@ -1304,7 +1366,14 @@
 .rightMain {
     min-height: 0;
     display: grid;
-    grid-template-rows: minmax(0, 1.15fr) minmax(0, .85fr);
+    // WK-148 - third row for the radar (see .radarPanel below), sized to its
+    // own compact content rather than another `fr` share - chat/donations
+    // keep roughly their original relative weighting to each other, just
+    // over the space left after the radar's fixed footprint. Placed here
+    // (not in .sideStack) because that column has no slack left after
+    // WK-152's Recent Games density gain - see the task's own "do not undo
+    // WK-152 density" requirement.
+    grid-template-rows: minmax(0, 1.15fr) minmax(0, .85fr) auto;
     gap: 10px;
 }
 
@@ -1826,6 +1895,23 @@
 
     .favoriteCaption {
         min-height: 28px;
+    }
+
+    // WK-148 - this compact breakpoint's 28px caption only fits the hero
+    // name (see .favorite grid-template-rows above) - OpenDota's secondary
+    // lines are a >860px-height enhancement, not shown here at all rather
+    // than overflowing/clipping.
+    .favoriteOpenDota,
+    .favoriteOpenDotaPatch {
+        display: none;
+    }
+
+    // WK-148 - this compact breakpoint is a technical smoke check, not a
+    // design target (see project CLAUDE.md) - the radar simply isn't shown
+    // here rather than fighting the tight webcam/favorites/recentGames
+    // flex-sharing rules above for one more sibling.
+    .radarPanel {
+        display: none;
     }
 
     // This compact row height can't fit the base breakpoint's bigger sizes -

@@ -159,6 +159,64 @@ export type HeroOpenDotaStats =
   | { status: "unavailable" };
 export const getHeroOpenDotaStats = (heroId: number) =>
   invoke<HeroOpenDotaStats>("get_hero_opendota_stats", { heroId });
+
+// WK-148 - additive enrichment atop HeroOpenDotaStats above (recent form /
+// current-patch W-L / KDA-GPM-XPM / best-effort ranking). Each sub-field is
+// independently nullable - a partial upstream failure degrades that one
+// field, not the whole panel (mirrors apps/api's
+// OpenDotaHeroInsightsResponse in controllers/stream/opendota.ts).
+export type HeroOpenDotaInsights =
+  | {
+      status: "ok";
+      source: "opendota";
+      heroId: number;
+      recentForm: { sample: number; wins: number; losses: number; winRate: number } | null;
+      patch: {
+        patchId: number;
+        patchName: string | null;
+        games: number;
+        wins: number;
+        losses: number;
+        winRate: number;
+      } | null;
+      kills: number | null;
+      deaths: number | null;
+      assists: number | null;
+      goldPerMin: number | null;
+      xpPerMin: number | null;
+      heroDamage: number | null;
+      towerDamage: number | null;
+      heroHealing: number | null;
+      rankPercent: number | null;
+      fetchedAt: string;
+    }
+  | { status: "steam_not_connected" }
+  | { status: "no_data" }
+  | { status: "rate_limited" }
+  | { status: "unavailable" };
+export const getHeroOpenDotaInsights = (heroId: number) =>
+  invoke<HeroOpenDotaInsights>("get_hero_opendota_insights", { heroId });
+
+// WK-148 - account-wide "ПРОФИЛЬ ИГРОКА" радар (Between Matches, local
+// Companion renderer only - the public web scene gets this via OverlayData
+// instead, see apps/web's entities/stream-session types).
+export type AccountOpenDotaRadar =
+  | {
+      status: "ok";
+      source: "opendota";
+      combat: number | null;
+      farm: number | null;
+      support: number | null;
+      objectives: number | null;
+      flexibility: number | null;
+      fetchedAt: string;
+    }
+  | { status: "steam_not_connected" }
+  | { status: "insufficient_data" }
+  | { status: "rate_limited" }
+  | { status: "unavailable" };
+export const getAccountOpenDotaRadar = () =>
+  invoke<AccountOpenDotaRadar>("get_account_opendota_radar");
 export const setCurrentMmr = (rating: number) =>
   invoke<LocalSessionSummary>("set_current_mmr", { rating });
 

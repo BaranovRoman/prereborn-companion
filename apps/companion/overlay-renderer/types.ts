@@ -67,6 +67,39 @@ export interface OverlayStateSnapshot {
   // (fully transparent) when this is `false` and the page is not the
   // "Оформление" editor preview (`?editor=1`).
   overlayVisible: boolean;
+  // WK-148 - Between Matches OpenDota enrichment, populated in the
+  // background by opendota_overlay_cache.rs (Rust) since this renderer has
+  // no Tauri IPC (plain browser page served over loopback HTTP+SSE). `null`
+  // until the first successful poll, or if OpenDota/Steam-link is
+  // unavailable - mirrors apps/api's OpenDotaFavoriteHeroesResponse /
+  // OpenDotaProfileRadarResponse discriminated-status shapes.
+  opendotaFavoriteHeroes:
+    | {
+        status: "ok";
+        source: "opendota";
+        patchName: string | null;
+        heroes: Array<{
+          heroId: number;
+          lifetime: { games: number; wins: number; losses: number; winRate: number } | null;
+          patch: { games: number; wins: number; losses: number; winRate: number } | null;
+        }>;
+        fetchedAt: string;
+      }
+    | { status: "steam_not_connected" | "no_data" | "rate_limited" | "unavailable" }
+    | null;
+  opendotaRadar:
+    | {
+        status: "ok";
+        source: "opendota";
+        combat: number | null;
+        farm: number | null;
+        support: number | null;
+        objectives: number | null;
+        flexibility: number | null;
+        fetchedAt: string;
+      }
+    | { status: "steam_not_connected" | "insufficient_data" | "rate_limited" | "unavailable" }
+    | null;
 }
 
 // WK-122 §19 - mirrors apps/api's stream-overlay-layout-service.ts (the
