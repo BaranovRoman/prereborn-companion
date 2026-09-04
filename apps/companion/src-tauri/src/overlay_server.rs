@@ -174,6 +174,18 @@ fn retry_delay(attempt: u32) -> Duration {
 /// logged and retried, never a panic, never taking down the rest of
 /// Companion. Explicitly loopback (`127.0.0.1:{OVERLAY_PORT}`) - never binds
 /// `0.0.0.0`.
+///
+/// WK-153 P0 - production regression fix: this used to only write bind
+/// failures to the rolling text log (app.log), the same as everything else
+/// in this function - nothing queryable told the rest of the app (or the
+/// user) WHY a bind attempt failed, so the Оформление preview's readiness
+/// hook could only ever report "the health endpoint isn't answering",
+/// forcing it to guess at a cause ("проверьте что Companion запущен" -
+/// nonsensical from inside a running Companion). Now mirrors
+/// `server::start`'s own `AppState.server_running`/`gsi_last_error` pattern
+/// exactly, so `runtime_health.rs`'s `overlay_server_component` (and the
+/// frontend, via `get_runtime_health`) can surface the real reason - see
+/// state.rs's `overlay_state`/`overlay_last_error` derivation.
 pub fn init(app: AppHandle) {
     std::thread::spawn(move || {
         let addr = format!("127.0.0.1:{OVERLAY_PORT}");
@@ -182,16 +194,35 @@ pub fn init(app: AppHandle) {
             match tiny_http::Server::http(&addr) {
                 Ok(server) => {
                     attempt = 0;
+                    {
+                        let state = app.state::<AppState>();
+                        let mut inner = state.0.lock().unwrap();
+                        inner.overlay_server_running = true;
+                        inner.overlay_last_error = None;
+                    }
                     storage::append_rolling_log(&app, &format!("Local overlay server listening on http://{addr}/overlay"));
                     for request in server.incoming_requests() {
                         let app_for_request = app.clone();
                         std::thread::spawn(move || handle_request(&app_for_request, request));
                     }
+                    {
+                        let state = app.state::<AppState>();
+                        let mut inner = state.0.lock().unwrap();
+                        inner.overlay_server_running = false;
+                        inner.overlay_last_error = Some("Local overlay server listener stopped; reconnecting".into());
+                    }
                     storage::append_rolling_log(&app, "Local overlay server listener stopped; reconnecting.");
                 }
                 Err(error) => {
                     attempt = attempt.saturating_add(1);
-                    storage::append_rolling_log(&app, &format!("Local overlay server: could not bind {addr}: {error}; retry scheduled."));
+                    let message = format!("Could not bind {addr}: {error}");
+                    {
+                        let state = app.state::<AppState>();
+                        let mut inner = state.0.lock().unwrap();
+                        inner.overlay_server_running = false;
+                        inner.overlay_last_error = Some(message.clone());
+                    }
+                    storage::append_rolling_log(&app, &format!("Local overlay server: {message}; retry scheduled."));
                 }
             }
             std::thread::sleep(retry_delay(attempt));

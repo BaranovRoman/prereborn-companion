@@ -95,6 +95,16 @@ pub struct StatusSnapshot {
     // while this is false, only the renderer's final visibility gate reads
     // it (see overlay-renderer/OverlayApp.tsx).
     pub overlay_visible: bool,
+    // WK-153 P0 - local overlay HTTP server (:3666) bind status, mirroring
+    // server_running/gsi_last_error above field-for-field (see overlay_server.rs's
+    // init(), which now writes here exactly like server/mod.rs's start() already
+    // does for GSI). Read by runtime_health.rs's overlay_server_component and by
+    // the Оформление preview's readiness hook so a bind failure can surface its
+    // REAL reason (port occupied, OS error, ...) instead of the frontend guessing
+    // from a bare fetch failure.
+    pub overlay_server_running: bool,
+    pub overlay_state: ConnectionState,
+    pub overlay_last_error: Option<String>,
     pub companion_version: String,
 }
 
@@ -243,6 +253,11 @@ pub struct InnerState {
     // `false` (Default derive) - unaffected until a real "scene not found"
     // failure is observed.
     pub obs_post_stream_unavailable: bool,
+    // WK-153 P0 - see StatusSnapshot::overlay_server_running/overlay_last_error's
+    // doc comment. Written only by overlay_server.rs's init() (the bind-retry
+    // supervisor), same single-writer shape as server_running/gsi_last_error.
+    pub overlay_server_running: bool,
+    pub overlay_last_error: Option<String>,
     // WK-122 §19 - OverlayLayout cache. Kept as an opaque `serde_json::Value`
     // (same "pass through untyped" pattern `last_gsi_payload`/
     // `get_stream_session`'s return type already use in this codebase) since
@@ -334,6 +349,20 @@ impl AppState {
         } else {
             ConnectionState::Waiting
         };
+        // Same shape as gsi_state above, minus the "packets received"
+        // dimension the overlay server has no equivalent of - it's either
+        // bound (Connected) or it isn't, and if it isn't, whether a real
+        // bind attempt has already failed (Recovering, with the actual OS
+        // error string) or genuinely hasn't run yet (Unavailable, the
+        // sub-millisecond startup window before overlay_server::init's
+        // first attempt completes - see its own doc comment).
+        let overlay_state = if inner.overlay_server_running {
+            ConnectionState::Connected
+        } else if inner.overlay_last_error.is_some() {
+            ConnectionState::Recovering
+        } else {
+            ConnectionState::Unavailable
+        };
         StatusSnapshot {
             dota_found: inner.dota_path.is_some(),
             dota_path: inner.dota_path.clone(),
@@ -366,6 +395,9 @@ impl AppState {
             obs_streaming_confirmed_at: inner.obs_streaming_confirmed_at.clone(),
             obs_manual_summary_active: inner.obs_manual_summary_override,
             overlay_visible: inner.overlay_visible,
+            overlay_server_running: inner.overlay_server_running,
+            overlay_state,
+            overlay_last_error: inner.overlay_last_error.clone(),
             companion_version: COMPANION_VERSION.to_string(),
         }
     }
@@ -588,6 +620,59 @@ mod tests {
             let snapshot = state.snapshot();
             assert_eq!(snapshot.gsi_state, ConnectionState::Connected);
             assert_eq!(snapshot.backend_state, ConnectionState::Waiting);
+        }
+    }
+
+    // WK-153 P0 - production regression: Оформление preview and OBS Browser
+    // Source both stopped updating, and the frontend's only actionable copy
+    // was the nonsensical "проверьте что Companion запущен" (the user was
+    // demonstrably already inside a running Companion). These pin the new
+    // overlay_state/overlay_last_error derivation `overlay_server::init` now
+    // feeds and runtime_health.rs's overlay_server_component consumes, so a
+    // real bind failure reason (not a guess) can reach the UI.
+    mod overlay_state_tests {
+        use super::*;
+
+        #[test]
+        fn unavailable_before_the_local_overlay_server_has_bound_at_all() {
+            let state = AppState::new();
+            // Same sub-millisecond startup window gsi_state's own equivalent
+            // test documents - not something a user is expected to observe.
+            assert_eq!(state.snapshot().overlay_state, ConnectionState::Unavailable);
+            assert!(!state.snapshot().overlay_server_running);
+            assert_eq!(state.snapshot().overlay_last_error, None);
+        }
+
+        #[test]
+        fn recovering_with_the_real_reason_when_the_bind_attempt_itself_failed() {
+            let state = AppState::new();
+            {
+                let mut inner = state.0.lock().unwrap();
+                inner.overlay_server_running = false;
+                inner.overlay_last_error = Some("Could not bind 127.0.0.1:3666: Address already in use (os error 48)".into());
+            }
+            let snapshot = state.snapshot();
+            assert_eq!(snapshot.overlay_state, ConnectionState::Recovering);
+            assert_eq!(
+                snapshot.overlay_last_error.as_deref(),
+                Some("Could not bind 127.0.0.1:3666: Address already in use (os error 48)")
+            );
+        }
+
+        #[test]
+        fn connected_once_the_listener_is_actually_bound() {
+            let state = AppState::new();
+            {
+                let mut inner = state.0.lock().unwrap();
+                inner.overlay_server_running = true;
+                inner.overlay_last_error = Some("stale error from a previous attempt".into());
+            }
+            // A successful bind clears the stale error in the real init()
+            // supervisor (mirrors gsi_last_error's own clear-on-success) -
+            // this test only pins that overlay_state itself reflects
+            // `running` correctly regardless of a stale error field; the
+            // clearing behavior is covered by overlay_server.rs's own tests.
+            assert_eq!(state.snapshot().overlay_state, ConnectionState::Connected);
         }
     }
 

@@ -10,9 +10,6 @@
 // own. See docs/research/wk-126-runtime-health.md for the full source-of-
 // truth mapping and status semantics this file implements.
 
-use std::net::TcpStream;
-use std::time::Duration;
-
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
@@ -24,15 +21,6 @@ use crate::state::{AppState, ConnectionState, COMPANION_VERSION};
 use crate::{game_sounds, local_runtime, silero};
 
 pub const RUNTIME_REPORT_SCHEMA_VERSION: u32 = 1;
-
-// A live loopback TCP connect is cheap (same-host, no DNS, sub-millisecond
-// in practice) and answers "is :3666 actually bound" directly, without
-// adding a second piece of mutable state to overlay_server.rs (which
-// already carries a security-sensitive test suite - see its own `mod
-// security`) just to track the same fact `server::start`'s `server_running`
-// bool tracks for GSI. Bounded short timeout so a probe here can never hang
-// the health snapshot.
-const OVERLAY_PROBE_TIMEOUT: Duration = Duration::from_millis(200);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -222,25 +210,45 @@ fn sqlite_component(local_runtime_open: bool) -> HealthComponent {
 /// C.15 - overlay_visible (WK-124's runtime ON/OFF switch) must never
 /// affect this: it only gates the renderer's final visibility, the HTTP
 /// server underneath keeps running unaffected either way.
-fn overlay_server_component() -> HealthComponent {
-    let addr = format!("127.0.0.1:{OVERLAY_PORT}");
-    match TcpStream::connect_timeout(&addr.parse().expect("loopback addr always parses"), OVERLAY_PROBE_TIMEOUT) {
-        Ok(_) => HealthComponent::healthy(),
-        Err(_) => HealthComponent::unavailable(format!("Local overlay server ({addr}) is not accepting connections")),
+///
+/// WK-153 P0 - this used to do a live loopback TCP probe instead of reading
+/// `AppState` (see the removed doc comment on why - avoiding a second piece
+/// of mutable state). That reasoning was wrong in practice: a bare "is
+/// :3666 accepting connections" probe can only ever report a generic
+/// "not accepting connections", the exact same non-answer the frontend's
+/// own health-endpoint fetch already got - so a real bind failure (port
+/// occupied by another process, OS error, ...) surfaced identically to
+/// "still starting" or "GSI genuinely down", with no way for the user (or
+/// support reading a diagnostics export) to tell them apart. Now mirrors
+/// `gsi_component` exactly - `overlay_server::init` is this field's one
+/// writer (see its own doc comment), and it already logs the real
+/// `io::Error` it got from `tiny_http::Server::http`.
+fn overlay_server_component(overlay_state: ConnectionState, overlay_last_error: Option<String>) -> HealthComponent {
+    match overlay_state {
+        ConnectionState::Connected => HealthComponent::healthy(),
+        ConnectionState::Recovering => HealthComponent::unavailable(
+            overlay_last_error.unwrap_or_else(|| format!("Local overlay server (127.0.0.1:{OVERLAY_PORT}) bind failing, retrying")),
+        ),
+        ConnectionState::Waiting | ConnectionState::Unavailable => {
+            HealthComponent::unavailable(format!("Local overlay server (127.0.0.1:{OVERLAY_PORT}) has not started yet"))
+        }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn local_runtime_health(
     gsi_state: ConnectionState,
     session_state: LifecycleSessionState,
     session_started_at: Option<String>,
     local_runtime_open: bool,
     sqlite_schema_version: Option<i64>,
+    overlay_state: ConnectionState,
+    overlay_last_error: Option<String>,
 ) -> LocalRuntimeHealth {
     let gsi = gsi_component(gsi_state);
     let local_session = local_session_component(session_state, session_started_at);
     let sqlite = sqlite_component(local_runtime_open);
-    let overlay_server = overlay_server_component();
+    let overlay_server = overlay_server_component(overlay_state, overlay_last_error);
     let status = aggregate(&[(&gsi, true), (&local_session, true), (&sqlite, true), (&overlay_server, true)]);
     LocalRuntimeHealth { status, gsi, local_session, sqlite, sqlite_schema_version, overlay_server }
 }
@@ -445,9 +453,8 @@ fn cloud_health(
 /// `AppState`, `local_runtime`, `silero`, `game_sounds` and `backend`, never
 /// writes to any of it. Safe to call at any cadence a caller likes (see
 /// `commands::get_runtime_health` and `diagnostics::export`), including
-/// concurrently, since it never blocks on anything but the brief overlay
-/// TCP probe above and the same short mutex locks every other status
-/// command already takes.
+/// concurrently, since it never blocks on anything but the same short
+/// mutex locks every other status command already takes.
 pub fn compute(app: &AppHandle) -> RuntimeHealth {
     let state = app.state::<AppState>();
     let snapshot = state.snapshot();
@@ -478,6 +485,8 @@ pub fn compute(app: &AppHandle) -> RuntimeHealth {
         lifecycle.session_started_at,
         local_runtime_open,
         sqlite_schema_version,
+        snapshot.overlay_state,
+        snapshot.overlay_last_error,
     );
 
     let tts_status = silero::status(app);
@@ -655,16 +664,61 @@ mod tests {
     // `None`, never a stale/fabricated number.
     #[test]
     fn sqlite_schema_version_is_none_when_the_local_runtime_failed_to_open() {
-        let health = local_runtime_health(ConnectionState::Waiting, LifecycleSessionState::None, None, false, None);
+        let health = local_runtime_health(ConnectionState::Waiting, LifecycleSessionState::None, None, false, None, ConnectionState::Connected, None);
         assert_eq!(health.sqlite_schema_version, None);
         assert_eq!(health.sqlite.status, HealthStatus::Unavailable);
     }
 
     #[test]
     fn sqlite_schema_version_is_reported_when_the_local_runtime_is_open() {
-        let health = local_runtime_health(ConnectionState::Waiting, LifecycleSessionState::None, None, true, Some(6));
+        let health = local_runtime_health(ConnectionState::Waiting, LifecycleSessionState::None, None, true, Some(6), ConnectionState::Connected, None);
         assert_eq!(health.sqlite_schema_version, Some(6));
         assert_eq!(health.sqlite.status, HealthStatus::Healthy);
+    }
+
+    // --- C.2 overlay server (WK-153 P0) --------------------------------
+
+    #[test]
+    fn overlay_server_healthy_once_bound() {
+        assert_eq!(overlay_server_component(ConnectionState::Connected, None).status, HealthStatus::Healthy);
+    }
+
+    #[test]
+    fn overlay_server_surfaces_the_real_bind_failure_reason_not_a_generic_message() {
+        let component = overlay_server_component(
+            ConnectionState::Recovering,
+            Some("Could not bind 127.0.0.1:3666: Address already in use (os error 48)".into()),
+        );
+        assert_eq!(component.status, HealthStatus::Unavailable);
+        assert_eq!(
+            component.reason.as_deref(),
+            Some("Could not bind 127.0.0.1:3666: Address already in use (os error 48)")
+        );
+    }
+
+    #[test]
+    fn overlay_server_before_the_first_bind_attempt_is_unavailable_not_a_guess() {
+        let component = overlay_server_component(ConnectionState::Unavailable, None);
+        assert_eq!(component.status, HealthStatus::Unavailable);
+        assert!(component.reason.is_some(), "must always say something actionable, never a silent Unavailable");
+    }
+
+    // Critical component: the local runtime as a whole must never read
+    // healthy while the overlay server the Оформление preview and OBS
+    // Browser Source both depend on is actually down.
+    #[test]
+    fn local_runtime_group_is_unavailable_when_the_overlay_server_bind_is_failing() {
+        let health = local_runtime_health(
+            ConnectionState::Connected,
+            LifecycleSessionState::None,
+            None,
+            true,
+            Some(6),
+            ConnectionState::Recovering,
+            Some("Could not bind 127.0.0.1:3666: Address already in use (os error 48)".into()),
+        );
+        assert_eq!(health.overlay_server.status, HealthStatus::Unavailable);
+        assert_eq!(health.status, HealthStatus::Unavailable);
     }
 
     // --- D. OBS ------------------------------------------------------------
@@ -769,7 +823,7 @@ mod tests {
             schema_version: RUNTIME_REPORT_SCHEMA_VERSION,
             generated_at: "2026-01-01T00:00:00+00:00".to_string(),
             app: AppInfo { version: "0.5.69".to_string(), platform: "windows".to_string() },
-            local_runtime: local_runtime_health(ConnectionState::Connected, LifecycleSessionState::None, None, true, Some(6)),
+            local_runtime: local_runtime_health(ConnectionState::Connected, LifecycleSessionState::None, None, true, Some(6), ConnectionState::Connected, None),
             integrations: integrations_health(false, false, false, None, None, None, None, false, true, SileroEngineState::NotStarted, None, false),
             cloud: cloud_health(ConnectionState::Connected, Some("t".into()), None, &SyncOutboxStatus::default(), AccountMethod::None),
         };
