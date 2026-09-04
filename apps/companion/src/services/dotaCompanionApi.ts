@@ -121,13 +121,17 @@ export interface TwitchIntegrationStatus {
 }
 export const getTwitchIntegrationStatus = () =>
   invoke<TwitchIntegrationStatus>("get_twitch_integration_status");
+// WK-149 - connect opens the provider's OAuth URL (fetched from the backend)
+// in the system browser, same as Steam's connectSteam/openStreamSettings;
+// disconnect hits the existing DELETE endpoint directly, same as Steam's
+// disconnectSteam.
+export const connectTwitch = () => invoke<void>("connect_twitch");
+export const disconnectTwitch = () => invoke<void>("disconnect_twitch");
 
 // WK-133 follow-up - DonationAlerts, missed by the original audit: a real
 // existing OAuth account integration (apps/api's
 // donation-alerts-integration-service.ts) already consumed by Companion's
 // own overlay renderer (topDonors -> Between Matches "Donaters" panel).
-// Status-only here, same as Twitch - management stays on the website
-// (existing OAuth flow, not reimplemented).
 export interface DonationAlertsIntegrationStatus {
   connected: boolean;
   configured: boolean;
@@ -135,6 +139,8 @@ export interface DonationAlertsIntegrationStatus {
 }
 export const getDonationAlertsIntegrationStatus = () =>
   invoke<DonationAlertsIntegrationStatus>("get_donation_alerts_integration_status");
+export const connectDonationAlerts = () => invoke<void>("connect_donation_alerts");
+export const disconnectDonationAlerts = () => invoke<void>("disconnect_donation_alerts");
 
 export type HeroOpenDotaStats =
   | {

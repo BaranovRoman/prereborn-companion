@@ -1119,6 +1119,116 @@ pub async fn get_donation_alerts_integration_status(app: &AppHandle) -> Result<s
         .map_err(|error| format!("Internal error: {error}"))?
 }
 
+// WK-149 - Twitch/DonationAlerts connect+disconnect from Companion itself,
+// mirroring Steam's existing get/disconnect pair above exactly (same
+// Bearer-token/reqwest::blocking shape). `/connect` returns
+// `{redirectUrl}` (JSON, not a server redirect - see
+// apps/api/src/controllers/stream/twitch.ts:38) precisely so any client that
+// holds a companion token can open it itself; Companion does that via
+// `commands::connect_twitch`'s `app.opener().open_url(...)`, the same call
+// `open_stream_settings` already uses. Completion is picked up by
+// IntegrationsPanel's existing window-focus refetch - no deep-link/callback
+// handling needed here.
+fn fetch_twitch_connect_url(token: &str) -> Result<String, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .get(format!("{DEFAULT_BACKEND_URL}/stream/integrations/twitch/connect"))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("Не удалось получить ссылку для подключения Twitch: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    let body: serde_json::Value = response
+        .json()
+        .map_err(|error| format!("Неверный ответ Twitch connect: {error}"))?;
+    body.get("redirectUrl")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| "Backend не вернул redirectUrl".to_string())
+}
+
+pub async fn connect_twitch(app: &AppHandle) -> Result<String, String> {
+    let token = require_companion_token(app)?;
+    tauri::async_runtime::spawn_blocking(move || fetch_twitch_connect_url(&token))
+        .await
+        .map_err(|error| format!("Internal error: {error}"))?
+}
+
+fn perform_disconnect_twitch(token: &str) -> Result<(), String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .delete(format!("{DEFAULT_BACKEND_URL}/stream/integrations/twitch"))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("Не удалось отвязать Twitch: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    Ok(())
+}
+
+pub async fn disconnect_twitch(app: &AppHandle) -> Result<(), String> {
+    let token = require_companion_token(app)?;
+    tauri::async_runtime::spawn_blocking(move || perform_disconnect_twitch(&token))
+        .await
+        .map_err(|error| format!("Internal error: {error}"))?
+}
+
+fn fetch_donation_alerts_connect_url(token: &str) -> Result<String, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .get(format!("{DEFAULT_BACKEND_URL}/stream/integrations/donation-alerts/connect"))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("Не удалось получить ссылку для подключения DonationAlerts: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    let body: serde_json::Value = response
+        .json()
+        .map_err(|error| format!("Неверный ответ DonationAlerts connect: {error}"))?;
+    body.get("redirectUrl")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| "Backend не вернул redirectUrl".to_string())
+}
+
+pub async fn connect_donation_alerts(app: &AppHandle) -> Result<String, String> {
+    let token = require_companion_token(app)?;
+    tauri::async_runtime::spawn_blocking(move || fetch_donation_alerts_connect_url(&token))
+        .await
+        .map_err(|error| format!("Internal error: {error}"))?
+}
+
+fn perform_disconnect_donation_alerts(token: &str) -> Result<(), String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .delete(format!("{DEFAULT_BACKEND_URL}/stream/integrations/donation-alerts"))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("Не удалось отвязать DonationAlerts: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    Ok(())
+}
+
+pub async fn disconnect_donation_alerts(app: &AppHandle) -> Result<(), String> {
+    let token = require_companion_token(app)?;
+    tauri::async_runtime::spawn_blocking(move || perform_disconnect_donation_alerts(&token))
+        .await
+        .map_err(|error| format!("Internal error: {error}"))?
+}
+
 fn fetch_hero_opendota_stats(token: &str, hero_id: i64) -> Result<serde_json::Value, String> {
     let response = reqwest::blocking::Client::builder()
         .timeout(REQUEST_TIMEOUT)
