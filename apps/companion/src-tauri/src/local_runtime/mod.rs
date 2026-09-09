@@ -44,6 +44,7 @@ mod schema;
 mod store;
 pub mod summary;
 pub mod sync;
+pub mod watchdog;
 
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};

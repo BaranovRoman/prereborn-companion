@@ -117,6 +117,14 @@ pub struct LocalRuntimeHealth {
     pub status: HealthStatus,
     pub gsi: HealthComponent,
     pub local_session: HealthComponent,
+    // WK-146 - match-level watchdog observability: whether the currently
+    // active local match (if any) has gone stale (no GSI for
+    // `local_runtime::watchdog::STALE_THRESHOLD`), independent of
+    // `local_session` above (a match can outlive its own session, see
+    // WK-137). Never itself a trigger for anything - purely a read-only
+    // projection of `local_runtime::watchdog::status`, same "derived, never
+    // written" rule every component in this file follows.
+    pub local_match: HealthComponent,
     pub sqlite: HealthComponent,
     // WK-127 - the local runtime DB's own `PRAGMA user_version`, `None` iff
     // `sqlite` above isn't healthy (no open connection to query it from).
@@ -195,6 +203,24 @@ fn local_session_component(session_state: LifecycleSessionState, session_started
     }
 }
 
+/// WK-146 - mirrors `local_session_component`'s shape exactly: no active
+/// match, or a fresh one, is completely normal and healthy; only a match
+/// the watchdog has recognized as stale is an actionable (but non-fatal -
+/// Companion, GSI, and everything else keep working) diagnostic signal.
+/// Never `Unavailable`/`Unknown` - this is a purely time-derived read, never
+/// an I/O failure.
+fn local_match_component(status: local_runtime::watchdog::WatchdogStatus) -> HealthComponent {
+    use local_runtime::watchdog::WatchdogState;
+    match status.state {
+        WatchdogState::NoActiveMatch => HealthComponent::healthy(),
+        WatchdogState::Fresh => HealthComponent::healthy().with_last_success_at(status.last_seen_at),
+        WatchdogState::Stale => HealthComponent::degraded(
+            "Active match has had no GSI for 20+ minutes; will auto-recover once its session ends or a new match starts, or can be recovered manually",
+        )
+        .with_last_error_at(status.last_seen_at),
+    }
+}
+
 /// C.18 - a successfully opened connection is healthy; `local_runtime::init`
 /// only ever leaves the connection `None` after a real open/migrate
 /// failure (logged to app.log at the time) - see that module's own doc
@@ -240,6 +266,7 @@ fn local_runtime_health(
     gsi_state: ConnectionState,
     session_state: LifecycleSessionState,
     session_started_at: Option<String>,
+    watchdog_status: local_runtime::watchdog::WatchdogStatus,
     local_runtime_open: bool,
     sqlite_schema_version: Option<i64>,
     overlay_state: ConnectionState,
@@ -247,10 +274,17 @@ fn local_runtime_health(
 ) -> LocalRuntimeHealth {
     let gsi = gsi_component(gsi_state);
     let local_session = local_session_component(session_state, session_started_at);
+    let local_match = local_match_component(watchdog_status);
     let sqlite = sqlite_component(local_runtime_open);
     let overlay_server = overlay_server_component(overlay_state, overlay_last_error);
-    let status = aggregate(&[(&gsi, true), (&local_session, true), (&sqlite, true), (&overlay_server, true)]);
-    LocalRuntimeHealth { status, gsi, local_session, sqlite, sqlite_schema_version, overlay_server }
+    let status = aggregate(&[
+        (&gsi, true),
+        (&local_session, true),
+        (&local_match, true),
+        (&sqlite, true),
+        (&overlay_server, true),
+    ]);
+    LocalRuntimeHealth { status, gsi, local_session, local_match, sqlite, sqlite_schema_version, overlay_server }
 }
 
 // --- INTEGRATIONS --------------------------------------------------------
@@ -479,10 +513,12 @@ pub fn compute(app: &AppHandle) -> RuntimeHealth {
             None => (false, None),
         }
     };
+    let watchdog_status = local_runtime::watchdog::status(app);
     let local_runtime = local_runtime_health(
         snapshot.gsi_state,
         lifecycle.session_state,
         lifecycle.session_started_at,
+        watchdog_status,
         local_runtime_open,
         sqlite_schema_version,
         snapshot.overlay_state,
@@ -523,6 +559,11 @@ pub fn compute(app: &AppHandle) -> RuntimeHealth {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use local_runtime::watchdog::{WatchdogState, WatchdogStatus};
+
+    fn no_active_match() -> WatchdogStatus {
+        WatchdogStatus { state: WatchdogState::NoActiveMatch, last_seen_at: None }
+    }
 
     // --- A. status semantics / aggregation ---------------------------
 
@@ -653,6 +694,26 @@ mod tests {
         );
     }
 
+    // WK-146 - match watchdog component.
+    #[test]
+    fn no_active_match_is_healthy() {
+        assert_eq!(local_match_component(no_active_match()).status, HealthStatus::Healthy);
+    }
+
+    #[test]
+    fn a_fresh_active_match_is_healthy() {
+        let status = WatchdogStatus { state: WatchdogState::Fresh, last_seen_at: Some("t".into()) };
+        assert_eq!(local_match_component(status).status, HealthStatus::Healthy);
+    }
+
+    #[test]
+    fn a_stale_active_match_is_degraded_not_unavailable() {
+        let status = WatchdogStatus { state: WatchdogState::Stale, last_seen_at: Some("t".into()) };
+        let component = local_match_component(status);
+        assert_eq!(component.status, HealthStatus::Degraded);
+        assert!(component.reason.is_some(), "must say something actionable, never a silent Degraded");
+    }
+
     #[test]
     fn sqlite_normal_init_is_healthy() {
         assert_eq!(sqlite_component(true).status, HealthStatus::Healthy);
@@ -664,14 +725,14 @@ mod tests {
     // `None`, never a stale/fabricated number.
     #[test]
     fn sqlite_schema_version_is_none_when_the_local_runtime_failed_to_open() {
-        let health = local_runtime_health(ConnectionState::Waiting, LifecycleSessionState::None, None, false, None, ConnectionState::Connected, None);
+        let health = local_runtime_health(ConnectionState::Waiting, LifecycleSessionState::None, None, no_active_match(), false, None, ConnectionState::Connected, None);
         assert_eq!(health.sqlite_schema_version, None);
         assert_eq!(health.sqlite.status, HealthStatus::Unavailable);
     }
 
     #[test]
     fn sqlite_schema_version_is_reported_when_the_local_runtime_is_open() {
-        let health = local_runtime_health(ConnectionState::Waiting, LifecycleSessionState::None, None, true, Some(6), ConnectionState::Connected, None);
+        let health = local_runtime_health(ConnectionState::Waiting, LifecycleSessionState::None, None, no_active_match(), true, Some(6), ConnectionState::Connected, None);
         assert_eq!(health.sqlite_schema_version, Some(6));
         assert_eq!(health.sqlite.status, HealthStatus::Healthy);
     }
@@ -712,6 +773,7 @@ mod tests {
             ConnectionState::Connected,
             LifecycleSessionState::None,
             None,
+            no_active_match(),
             true,
             Some(6),
             ConnectionState::Recovering,
@@ -823,7 +885,7 @@ mod tests {
             schema_version: RUNTIME_REPORT_SCHEMA_VERSION,
             generated_at: "2026-01-01T00:00:00+00:00".to_string(),
             app: AppInfo { version: "0.5.69".to_string(), platform: "windows".to_string() },
-            local_runtime: local_runtime_health(ConnectionState::Connected, LifecycleSessionState::None, None, true, Some(6), ConnectionState::Connected, None),
+            local_runtime: local_runtime_health(ConnectionState::Connected, LifecycleSessionState::None, None, no_active_match(), true, Some(6), ConnectionState::Connected, None),
             integrations: integrations_health(false, false, false, None, None, None, None, false, true, SileroEngineState::NotStarted, None, false),
             cloud: cloud_health(ConnectionState::Connected, Some("t".into()), None, &SyncOutboxStatus::default(), AccountMethod::None),
         };

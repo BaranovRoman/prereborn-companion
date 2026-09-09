@@ -164,6 +164,19 @@ const MIGRATIONS: &[&str] = &[
     ALTER TABLE local_sessions ADD COLUMN stream_started_at TEXT;
     UPDATE local_sessions SET stream_started_at = started_at WHERE is_streamed = 1;
     "#,
+    // v7 -> v8 (WK-146) - a per-match "last GSI activity" timestamp, durable
+    // across a Companion restart. Before this, the only "how long since GSI
+    // last spoke" signal anywhere was `state.rs`'s `gsi_last_received_at`
+    // (`Instant`, process-wide, in-memory, reset on restart) - useless for
+    // detecting a match that's been silently stuck since before the last
+    // restart. Backfilled from the most recent real timestamp each existing
+    // row already has (finalized_at, else interrupted_at, else started_at) -
+    // never a guess, and the exact same "derive from what's already true"
+    // rule the WK-137 migration above used for is_streamed/stream_started_at.
+    r#"
+    ALTER TABLE local_matches ADD COLUMN last_seen_at TEXT;
+    UPDATE local_matches SET last_seen_at = COALESCE(finalized_at, interrupted_at, started_at);
+    "#,
 ];
 
 /// WK-127 - applies one migration's DDL/DML and its `user_version` bump as a
@@ -355,6 +368,45 @@ mod tests {
             .unwrap();
         assert_eq!(is_streamed, 1);
         assert_eq!(stream_started_at.as_deref(), Some("2026-01-01T00:00:00Z"));
+    }
+
+    // WK-146 - a pre-existing row's `last_seen_at` must backfill from
+    // whichever real timestamp it already has, mirroring the WK-137
+    // is_streamed backfill test's own "truthful, not guessed" framing.
+    #[test]
+    fn existing_v7_database_backfills_last_seen_at_from_the_most_recent_real_timestamp() {
+        let conn = Connection::open_in_memory().unwrap();
+        for migration in MIGRATIONS.iter().take(7) {
+            conn.execute_batch(migration).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 7).unwrap();
+        conn.execute(
+            "INSERT INTO local_sessions (local_id, started_at) VALUES ('s1', '2026-01-01T00:00:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO local_matches (local_id, session_local_id, match_key, hero_id, player_team, state, started_at, finalized_at) \
+             VALUES ('m1', 's1', 'gsi:1', 14, 'radiant', 'finalized', '2026-01-01T00:00:00Z', '2026-01-01T00:40:00Z')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO local_matches (local_id, session_local_id, match_key, hero_id, player_team, state, started_at) \
+             VALUES ('m2', 's1', 'gsi:2', 14, 'radiant', 'in_progress', '2026-01-01T01:00:00Z')",
+            [],
+        )
+        .unwrap();
+
+        migrate(&conn).unwrap();
+        let last_seen_finalized: String = conn
+            .query_row("SELECT last_seen_at FROM local_matches WHERE local_id = 'm1'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(last_seen_finalized, "2026-01-01T00:40:00Z", "a finalized row backfills from finalized_at");
+        let last_seen_in_progress: String = conn
+            .query_row("SELECT last_seen_at FROM local_matches WHERE local_id = 'm2'", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(last_seen_in_progress, "2026-01-01T01:00:00Z", "an in-progress row with no finalized/interrupted_at falls back to started_at");
     }
 
     // WK-127 - `migrate` reports the journal mode SQLite actually engaged so

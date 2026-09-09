@@ -56,6 +56,17 @@ pub fn local_lifecycle_stale_end(app: AppHandle) -> Result<(), String> {
     lifecycle::stale_recovery_end(&app)
 }
 
+// WK-146 - match-level watchdog manual recovery. The one escape hatch for a
+// stale match with no automatic corroborating evidence yet (session still
+// open, no new match has arrived) - see local_runtime::watchdog's own doc
+// comment for the full decision model. Refuses (returns Err) unless the
+// currently active match is already stale, so this can never be used to
+// prematurely end a real, ongoing game.
+#[tauri::command]
+pub fn local_match_watchdog_recover(app: AppHandle) -> Result<(), String> {
+    crate::local_runtime::watchdog::manual_recover(&app)
+}
+
 // WK-114 - read-only projection of the local session/match/MMR data for the
 // Home page (current session rating, W/L, current + recent matches) - see
 // local_runtime::summary's doc comment for why this is the first command to
