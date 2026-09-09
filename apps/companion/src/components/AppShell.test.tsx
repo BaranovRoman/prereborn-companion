@@ -467,13 +467,30 @@ describe("ProblemBar sync visibility (WK-119)", () => {
 // WK-115 - the raw GSI/OBS error strings ProblemBar deliberately no longer
 // shows on Главная must still be available somewhere for troubleshooting -
 // Диагностика is that place (parity with the backend's own error line).
+// WK-63 - the raw text is no longer the PRIMARY message here: a short
+// human-readable title/explanation (see utils/gsiErrorCopy, obsErrorCopy)
+// leads, with the raw string kept as a secondary detail line underneath so
+// production troubleshooting isn't made harder.
 describe("Диагностика technical error detail", () => {
-  it("shows the raw GSI/OBS error text when present", () => {
+  it("shows human-readable copy for GSI/OBS errors, with the raw text still available as a secondary detail", () => {
     statusFixture = buildStatusFixture({ gsi_last_error: "bind failed: address in use", obs_last_error: "connection refused (os error 61)" });
     render(<AppShell />);
     clickNav("Диагностика");
+    expect(screen.getByText(/Проблема с локальным GSI-сервисом/)).toBeTruthy();
+    expect(screen.getByText(/Проблема с подключением к OBS/)).toBeTruthy();
     expect(screen.getByText(/bind failed: address in use/)).toBeTruthy();
     expect(screen.getByText(/connection refused \(os error 61\)/)).toBeTruthy();
+  });
+
+  it("maps a real bind-conflict GSI error and a real unreachable-OBS error to their specific categories, not the generic fallback", () => {
+    statusFixture = buildStatusFixture({
+      gsi_last_error: "Could not bind 127.0.0.1:3665: Address already in use (os error 48)",
+      obs_last_error: "Не удалось подключиться к OBS: IO error: Connection refused (os error 61)",
+    });
+    render(<AppShell />);
+    clickNav("Диагностика");
+    expect(screen.getByText(/Порт для приёма данных Dota 2 занят/)).toBeTruthy();
+    expect(screen.getByText(/WebSocket-сервер включён в настройках OBS/)).toBeTruthy();
   });
 
   it("renders nothing when there are no errors to show", () => {

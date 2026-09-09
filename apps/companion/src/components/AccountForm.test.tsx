@@ -59,7 +59,7 @@ describe("AccountForm", () => {
     expect(screen.queryByDisplayValue("correct-horse")).toBeNull();
   });
 
-  it("shows the login error without clearing what the user typed", async () => {
+  it("shows human-readable copy for invalid credentials, not the raw backend error, without clearing what the user typed", async () => {
     mockedStatus.mockResolvedValue({ connected: false, method: "none", email: null });
     mockedLogin.mockRejectedValue(new Error("Неверный email или пароль."));
     render(<AccountForm />);
@@ -69,8 +69,23 @@ describe("AccountForm", () => {
     fireEvent.change(screen.getByPlaceholderText("Пароль"), { target: { value: "wrong" } });
     fireEvent.click(screen.getByRole("button", { name: "Войти" }));
 
-    await waitFor(() => expect(screen.getByText(/Неверный email или пароль/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Не удалось войти/)).toBeTruthy());
+    expect(screen.getByText(/Проверьте логин и пароль/)).toBeTruthy();
     expect((screen.getByPlaceholderText("Email") as HTMLInputElement).value).toBe("roma@example.com");
+  });
+
+  it("distinguishes a network failure from invalid credentials and keeps the raw detail available via the help tooltip", async () => {
+    mockedStatus.mockResolvedValue({ connected: false, method: "none", email: null });
+    mockedLogin.mockRejectedValue(new Error("Не удалось связаться с PreReborn: error sending request"));
+    render(<AccountForm />);
+    await waitFor(() => expect(screen.getByPlaceholderText("Email")).toBeTruthy());
+
+    fireEvent.change(screen.getByPlaceholderText("Email"), { target: { value: "roma@example.com" } });
+    fireEvent.change(screen.getByPlaceholderText("Пароль"), { target: { value: "whatever" } });
+    fireEvent.click(screen.getByRole("button", { name: "Войти" }));
+
+    await waitFor(() => expect(screen.getByText(/Нет связи с сервером PreReborn/)).toBeTruthy());
+    expect(screen.queryByText(/error sending request/)).toBeTruthy();
   });
 
   it("logs out and returns to the login form", async () => {

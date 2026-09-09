@@ -6,6 +6,7 @@ import * as api from "../services/dotaCompanionApi";
 import { getHeroById } from "../services/heroCatalog";
 import type { LocalMatchSummary, LocalSessionSummary, StatusSnapshot } from "../types/status";
 import type { BackendStatusDescription } from "../utils/backendStatus";
+import { describeGsiError } from "../utils/gsiErrorCopy";
 
 type Scene = "betweenMatches" | "draft" | "gameplay";
 
@@ -208,7 +209,7 @@ export function HomePage({
             <button className="button" onClick={() => setSetupOpen(false)}>Продолжить позже</button>
           </div>
           <ol className="setup-steps">
-            <li className={status?.server_running ? "is-complete" : ""}><strong>Companion</strong><span>{status?.server_running ? "Локальный сервис работает" : status?.gsi_state === "recovering" ? "Перезапускает локальный сервис" : "Локальный сервис недоступен"}</span><small>{status?.gsi_last_error ?? "Запускается автоматически"}</small></li>
+            <li className={status?.server_running ? "is-complete" : ""}><strong>Companion</strong><span>{status?.server_running ? "Локальный сервис работает" : status?.gsi_state === "recovering" ? "Перезапускает локальный сервис" : "Локальный сервис недоступен"}</span><small>{describeGsiError(status?.gsi_last_error ?? null)?.message ?? "Запускается автоматически"}</small></li>
             <li className={status?.gsi_installed && hasGsiSignal ? "is-complete" : ""}><strong>Dota 2 / GSI</strong><span>{hasGsiSignal ? "Данные поступают" : status?.gsi_installed ? "Конфигурация готова — запустите Dota 2" : "Нужна конфигурация GSI"}</span><button onClick={provisionGsi} disabled={busy}>{status?.gsi_installed ? "Проверить снова" : "Настроить автоматически"}</button></li>
             <li className={backendStatus.ready ? "is-complete" : ""}><strong>Связь с PreReborn</strong><span>{backendStatus.label}</span><AccountForm compact /></li>
             <li className={status?.obs_connected ? "is-complete" : ""}><strong>OBS</strong><span>{status?.obs_connected ? "WebSocket и сцены доступны" : status?.obs_state === "recovering" ? "Соединение восстанавливается" : "Настройте OBS WebSocket и сцены"}</span><button onClick={checkObs} disabled={busy || !status}>Проверить OBS</button><small>Маппинг сцен настраивается через значок настроек.</small></li>
