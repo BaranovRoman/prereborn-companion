@@ -1051,8 +1051,14 @@ h1, h2, p { margin-top: 0; }
 .runtime-health-group:last-child { margin-bottom: 0; }
 .runtime-health-group__title { display: flex; align-items: baseline; gap: 8px; font-size: .85rem; margin: 0 0 4px; }
 .runtime-health-group__title .check-item__box { width: 1em; height: 1em; }
-.check-item__detail, .last-event dt, .last-event__empty, .event-history__time, .backend-status__line, .account-form__hint, .account-form__status, .diagnostics-panel__hint, .diagnostics-panel__stats dt, .diagnostics-panel__export-path, .obs-panel__hint, .obs-panel__status, .obs-panel__message, .autostart-setting__hint, .hotkey-settings__hint { color: var(--ui-text-soft); }
-.check-item__detail, .event-history, .backend-status__line, .backend-status__error, .account-form__hint, .account-form__status, .diagnostics-panel__hint, .diagnostics-panel__stats, .diagnostics-panel__export-path, .obs-panel__hint, .obs-panel__status, .obs-panel__message, .obs-panel__error, .autostart-setting__hint, .hotkey-settings__hint { font-size: .82rem; }
+.check-item__detail, .last-event dt, .last-event__empty, .event-history__time, .backend-status__line, .account-form__hint, .account-form__status, .diagnostics-panel__hint, .diagnostics-panel__stats dt, .diagnostics-panel__export-path, .obs-panel__hint, .obs-panel__status, .obs-panel__message, .autostart-setting__hint, .hotkey-settings__hint, .tech-error__detail { color: var(--ui-text-soft); }
+.check-item__detail, .event-history, .backend-status__line, .backend-status__error, .account-form__hint, .account-form__status, .diagnostics-panel__hint, .diagnostics-panel__stats, .diagnostics-panel__export-path, .obs-panel__hint, .obs-panel__status, .obs-panel__message, .obs-panel__error, .autostart-setting__hint, .hotkey-settings__hint, .tech-error__detail { font-size: .82rem; }
+/* WK-63 - raw GSI/OBS error text, kept as a secondary line under the mapped
+   human copy in Диагностика's "Технические ошибки" card rather than removed
+   outright, so production troubleshooting isn't made harder. */
+.tech-error { margin-bottom: 10px; }
+.tech-error:last-child { margin-bottom: 0; }
+.tech-error__detail { margin: 2px 0 0; }
 .last-event dl, .diagnostics-panel__stats { display: grid; grid-template-columns: max-content 1fr; gap: 5px 12px; }
 .last-event dd, .diagnostics-panel__stats dd { margin: 0; word-break: break-word; }
 .event-history li { display: flex; gap: 8px; padding: 5px 0; border-bottom: 1px solid var(--border); }

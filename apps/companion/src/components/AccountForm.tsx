@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { AccountStatus } from "../types/status";
-import { Button, Input } from "./ui";
+import type { ErrorDescription } from "../utils/errorDescription";
+import { describeAuthError } from "../utils/authErrorCopy";
+import { Button, Input, Tooltip } from "./ui";
 import * as api from "../services/dotaCompanionApi";
 
 // WK-122 §7 - replaces CompanionTokenForm (the opaque copy/paste-from-website
@@ -21,7 +23,7 @@ export function AccountForm({ compact = false }: Props) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ErrorDescription | null>(null);
 
   useEffect(() => {
     // Never left unhandled: outside a real Tauri webview (Storybook-less
@@ -50,7 +52,7 @@ export function AccountForm({ compact = false }: Props) {
       setMode("view");
       setPassword("");
     } catch (cause) {
-      setError(String(cause));
+      setError(describeAuthError(String(cause)));
     } finally {
       setBusy(false);
     }
@@ -64,7 +66,7 @@ export function AccountForm({ compact = false }: Props) {
       setStatus(result);
       setMode("login");
     } catch (cause) {
-      setError(String(cause));
+      setError(describeAuthError(String(cause)));
     } finally {
       setBusy(false);
     }
@@ -139,7 +141,16 @@ export function AccountForm({ compact = false }: Props) {
         </div>
       )}
 
-      {error && <p className="app__error">Ошибка: {error}</p>}
+      {error && (
+        <p className="app__error">
+          <strong>{error.title}.</strong> {error.message}
+          {error.detail && (
+            <Tooltip content={error.detail}>
+              <span className="error-detail-trigger" aria-label="Технические детали"> ⓘ</span>
+            </Tooltip>
+          )}
+        </p>
+      )}
     </section>
   );
 }

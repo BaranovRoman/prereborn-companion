@@ -302,3 +302,8 @@
   transition: opacity 120ms ease;
 }
 .ui-tooltip:hover .ui-tooltip__bubble, .ui-tooltip:focus-within .ui-tooltip__bubble { opacity: 1; visibility: visible; }
+
+/* WK-63 - small "?"-style trigger for a raw-error detail tooltip, reused
+   wherever a mapped error message hides technical text behind a Tooltip
+   (AccountForm, RuntimeHealthPanel) instead of showing it inline. */
+.error-detail-trigger { cursor: help; opacity: .75; }

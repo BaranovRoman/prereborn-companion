@@ -10,6 +10,8 @@ import { StreamSessionCard } from "../components/StreamSessionCard";
 import type { StreamSessionPromptState } from "../hooks/useStreamSessionPrompt";
 import * as api from "../services/dotaCompanionApi";
 import type { DiagnosticsStatusSnapshot, LastEvent, RuntimeHealth, StatusSnapshot, SyncOutboxStatus } from "../types/status";
+import { describeGsiError } from "../utils/gsiErrorCopy";
+import { describeObsError } from "../utils/obsErrorCopy";
 
 interface Props {
   status: StatusSnapshot | null;
@@ -37,16 +39,28 @@ interface Props {
 export function DiagnosticsPage({
   status, busy, run, history, latestEvent, diagnosticsStatus, diagnosticsRefresh, sessionPrompt, syncStatus, syncRefresh, runtimeHealth,
 }: Props) {
+  const gsiError = describeGsiError(status?.gsi_last_error ?? null);
+  const obsError = describeObsError(status?.obs_last_error ?? null);
   return (
     <div className="diagnostics-view">
       <div className="page-heading"><span className="section-heading__eyebrow">Для разработчика</span><h2>Диагностика</h2><p>Технические данные и восстановление для troubleshooting. Повседневное управление находится на главной, настройки — по значку шестерёнки.</p></div>
       <RuntimeHealthPanel health={runtimeHealth} />
       <section><h2>Базовая настройка</h2><StatusChecklist status={status} /></section>
-      {(status?.gsi_last_error || status?.obs_last_error) && (
+      {(gsiError || obsError) && (
         <div className="diagnostic-card">
           <h2>Технические ошибки</h2>
-          {status?.gsi_last_error && <p className="backend-status__error">GSI: {status.gsi_last_error}</p>}
-          {status?.obs_last_error && <p className="backend-status__error">OBS: {status.obs_last_error}</p>}
+          {gsiError && (
+            <div className="tech-error">
+              <p className="backend-status__error"><strong>GSI: {gsiError.title}.</strong> {gsiError.message}</p>
+              {gsiError.detail && <p className="tech-error__detail">{gsiError.detail}</p>}
+            </div>
+          )}
+          {obsError && (
+            <div className="tech-error">
+              <p className="backend-status__error"><strong>OBS: {obsError.title}.</strong> {obsError.message}</p>
+              {obsError.detail && <p className="tech-error__detail">{obsError.detail}</p>}
+            </div>
+          )}
         </div>
       )}
       <details className="session-fallback">

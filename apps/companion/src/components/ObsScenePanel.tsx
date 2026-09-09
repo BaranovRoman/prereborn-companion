@@ -3,6 +3,7 @@ import type { ObsConfig, StatusSnapshot } from "../types/status";
 import * as api from "../services/dotaCompanionApi";
 import { missingMappedScenes, sceneMappings, sceneOptions } from "./obsSceneMapping";
 import { BrowserSourceMigrationPanel } from "./BrowserSourceMigrationPanel";
+import { describeObsError } from "../utils/obsErrorCopy";
 import { Button, Checkbox, Input, Select } from "./ui";
 
 interface Props {
@@ -62,7 +63,8 @@ export function ObsScenePanel({ status, onStatus }: Props) {
           : "Настройки сохранены локально."
       );
     } catch (error) {
-      setMessage("Ошибка: " + String(error));
+      const described = describeObsError(String(error));
+      setMessage(described ? `${described.title}. ${described.message}` : "Ошибка: " + String(error));
     } finally {
       setBusy(false);
     }
@@ -78,7 +80,10 @@ export function ObsScenePanel({ status, onStatus }: Props) {
       setMessage("OBS подключён. Найдено сцен: " + availableScenes.length + ".");
     } catch (error) {
       setScenes(null);
-      setMessage("OBS сейчас недоступен, сохранённые значения не изменены: " + String(error));
+      const described = describeObsError(String(error));
+      setMessage(described
+        ? `OBS сейчас недоступен, сохранённые значения не изменены. ${described.title}. ${described.message}`
+        : "OBS сейчас недоступен, сохранённые значения не изменены: " + String(error));
     } finally {
       setBusy(false);
     }
@@ -156,11 +161,13 @@ export function ObsScenePanel({ status, onStatus }: Props) {
           : ""}
         {" · режим: " + (config.enabled ? "Automatic" : "Manual")}
       </p>
-      {(message || status.obs_last_error) && (
-        <p className={status.obs_last_error ? "obs-panel__error" : "obs-panel__message"}>
-          {message ?? status.obs_last_error}
-        </p>
-      )}
+      {(() => {
+        const persistedError = describeObsError(status.obs_last_error);
+        const text = message ?? (persistedError ? `${persistedError.title}. ${persistedError.message}` : null);
+        return text ? (
+          <p className={status.obs_last_error ? "obs-panel__error" : "obs-panel__message"}>{text}</p>
+        ) : null;
+      })()}
       <BrowserSourceMigrationPanel />
     </section>
   );
