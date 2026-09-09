@@ -240,6 +240,7 @@ pub fn run() {
             backend::init(handle.clone());
             obs::init(handle.clone());
             local_runtime::lifecycle::start_sweep(handle.clone());
+            local_runtime::watchdog::start_sweep(handle.clone());
             local_runtime::sync::start_sync_worker(handle.clone());
             overlay_server::init(handle.clone());
             opendota_overlay_cache::init(handle.clone());
@@ -261,6 +262,7 @@ pub fn run() {
             commands::get_local_lifecycle_status,
             commands::local_lifecycle_stale_continue,
             commands::local_lifecycle_stale_end,
+            commands::local_match_watchdog_recover,
             commands::get_local_session_summary,
             commands::get_hero_local_stats,
             commands::set_current_mmr,

@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use uuid::Uuid;
 
@@ -342,6 +342,7 @@ fn row_to_match(row: &rusqlite::Row) -> rusqlite::Result<LocalMatch> {
         started_at: row.get(17)?,
         interrupted_at: row.get(18)?,
         finalized_at: row.get(19)?,
+        last_seen_at: row.get(22)?,
         sync_state: SyncState::Pending,
     })
 }
@@ -349,7 +350,7 @@ fn row_to_match(row: &rusqlite::Row) -> rusqlite::Result<LocalMatch> {
 const MATCH_COLUMNS: &str = "local_id, session_local_id, backend_id, match_id, match_key, hero_id, \
      player_team, result, ranked_mode, rating_before, detected_rating_delta, state, rating_after, \
      kills, deaths, assists, inventory, started_at, interrupted_at, finalized_at, \
-     ranked_mode_detected, rating_delta_correction";
+     ranked_mode_detected, rating_delta_correction, last_seen_at";
 
 /// Mirrors `findActiveMatch` (stream-match-service.ts): the current match is
 /// always re-derived from durable storage, never an in-memory tracker - so
@@ -391,6 +392,43 @@ pub fn find_active_match_anywhere(conn: &Connection) -> rusqlite::Result<Option<
     .optional()
 }
 
+/// WK-146 - match-level watchdog candidates: an active match (`in_progress`
+/// or `post_game_pending` - `interrupted` is already MMR-neutral and
+/// reconnectable, nothing further to do to it here) whose own GSI silence
+/// has crossed `threshold` AND whose containing session has *already*
+/// `ended_at` set. The session-ended half is the corroborating evidence
+/// (WK-146's product decision: elapsed silence alone must never trigger
+/// this) - a session ending via the existing OBS-grace path never depends
+/// on GSI at all (see `lifecycle.rs`), so it's a genuinely independent
+/// signal, not just the same timer read twice. Deliberately does NOT join
+/// on `is_streamed`: a gameplay-only (WK-137) session's `ended_at` happens
+/// to never be set by any existing code path today (session-level staleness
+/// is scoped to streamed sessions only, see `lifecycle::decide`), so this
+/// query naturally never fires for one - not a special case, just what the
+/// join already implies; documented so a future change to that invariant
+/// doesn't silently widen this watchdog's behavior too.
+pub fn find_stale_matches_with_ended_session(
+    conn: &Connection,
+    now: DateTime<Utc>,
+    threshold: Duration,
+) -> rusqlite::Result<Vec<LocalMatch>> {
+    let cutoff = (now - threshold).to_rfc3339();
+    let qualified_columns = MATCH_COLUMNS
+        .split(", ")
+        .map(|column| format!("m.{column}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {qualified_columns} FROM local_matches m \
+         JOIN local_sessions s ON s.local_id = m.session_local_id \
+         WHERE m.state IN ('in_progress', 'post_game_pending') \
+           AND s.ended_at IS NOT NULL \
+           AND m.last_seen_at IS NOT NULL AND m.last_seen_at <= ?1"
+    ))?;
+    let rows = stmt.query_map(params![cutoff], row_to_match)?;
+    rows.collect()
+}
+
 pub fn find_match(conn: &Connection, local_id: &str) -> rusqlite::Result<Option<LocalMatch>> {
     conn.query_row(
         &format!("SELECT {MATCH_COLUMNS} FROM local_matches WHERE local_id = ?1"),
@@ -424,10 +462,17 @@ pub fn list_recent_finalized_matches(conn: &Connection, limit: i64) -> rusqlite:
     rows.collect()
 }
 
+/// WK-146 - also bumps `last_seen_at` to `now` on every call: this already
+/// runs on virtually every GSI tick that touches an active match (both the
+/// ordinary in-progress path and the post-game path, see
+/// `detector::handle_snapshot`), so it's the one natural hook point for
+/// "when did GSI last genuinely speak about this match" without threading a
+/// second write through every call site.
 pub fn update_match_telemetry(
     conn: &Connection,
     local_id: &str,
     telemetry: &super::gsi::MatchTelemetry,
+    now: DateTime<Utc>,
 ) -> rusqlite::Result<()> {
     let inventory = if telemetry.inventory.iter().any(Option::is_some) {
         serde_json::to_string(&telemetry.inventory).unwrap_or_else(|_| "[]".to_string())
@@ -437,9 +482,10 @@ pub fn update_match_telemetry(
     conn.execute(
         "UPDATE local_matches SET \
              kills = COALESCE(?2, kills), deaths = COALESCE(?3, deaths), assists = COALESCE(?4, assists), \
-             inventory = CASE WHEN ?5 = '[]' THEN inventory ELSE ?5 END \
+             inventory = CASE WHEN ?5 = '[]' THEN inventory ELSE ?5 END, \
+             last_seen_at = ?6 \
          WHERE local_id = ?1 AND state != 'finalized'",
-        params![local_id, telemetry.kills, telemetry.deaths, telemetry.assists, inventory],
+        params![local_id, telemetry.kills, telemetry.deaths, telemetry.assists, inventory, now.to_rfc3339()],
     )?;
     Ok(())
 }
@@ -539,8 +585,8 @@ pub fn create_match(
     conn.execute(
         "INSERT OR IGNORE INTO local_matches \
             (local_id, session_local_id, match_id, match_key, hero_id, player_team, ranked_mode, \
-             ranked_mode_detected, state, started_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, 'in_progress', ?8)",
+             ranked_mode_detected, state, started_at, last_seen_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7, 'in_progress', ?8, ?8)",
         params![
             local_id,
             session_local_id,
@@ -582,10 +628,23 @@ pub fn mark_needs_review(conn: &Connection, local_id: &str) -> rusqlite::Result<
     Ok(())
 }
 
-/// Mirrors `markInterrupted`.
+/// Mirrors `markInterrupted`. The `state IN (...)` guard originally covered
+/// only `in_progress` (the sole state `detector::decide_leave` ever calls
+/// this from - a live leave tick, no result observed yet). WK-146's watchdog
+/// widens it to also cover `post_game_pending`, since a stale match can be
+/// sitting on a single *unconfirmed* win/loss observation when corroborating
+/// evidence (session already ended, or a genuinely new match arrived)
+/// justifies parking it - `result = NULL` discards that observation rather
+/// than promoting it to a result, exactly like `mark_needs_review`'s
+/// discard-on-ambiguity treatment: watchdog recovery is corroboration of
+/// abandonment, not corroboration of an outcome, so it must never surface a
+/// win/loss (or touch any rating field) the way `finalize_match` does. Every
+/// existing caller (the live in_progress leave path) always has `result =
+/// NULL` already at that point, so this widening changes nothing for them.
 pub fn mark_interrupted(conn: &Connection, local_id: &str, now: DateTime<Utc>) -> rusqlite::Result<()> {
     conn.execute(
-        "UPDATE local_matches SET state = 'interrupted', interrupted_at = ?2 WHERE local_id = ?1 AND state = 'in_progress'",
+        "UPDATE local_matches SET state = 'interrupted', interrupted_at = ?2, result = NULL \
+         WHERE local_id = ?1 AND state IN ('in_progress', 'post_game_pending')",
         params![local_id, now.to_rfc3339()],
     )?;
     Ok(())
@@ -1122,6 +1181,140 @@ mod tests {
         assert_eq!(active.ranked_mode, RankedMode::Ranked);
     }
 
+    // WK-146 - create_match must stamp last_seen_at immediately, not rely on
+    // a follow-up update_match_telemetry call, so a watchdog check running
+    // between the two can never see a NULL freshness signal.
+    #[test]
+    fn create_match_stamps_last_seen_at_immediately() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        create_match(&conn, &session.local_id, Some("1"), 14, "radiant", RankedMode::Unknown, now).unwrap();
+        let active = find_active_match(&conn, &session.local_id).unwrap().unwrap();
+        assert_eq!(active.last_seen_at.as_deref(), Some(now.to_rfc3339().as_str()));
+    }
+
+    // WK-146 - every ordinary tick that touches an active match must keep
+    // last_seen_at fresh; this is the durable signal the watchdog relies on.
+    #[test]
+    fn update_match_telemetry_bumps_last_seen_at() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        create_match(&conn, &session.local_id, Some("1"), 14, "radiant", RankedMode::Unknown, now).unwrap();
+        let active = find_active_match(&conn, &session.local_id).unwrap().unwrap();
+
+        let later = now + chrono::Duration::minutes(5);
+        update_match_telemetry(&conn, &active.local_id, &crate::local_runtime::gsi::MatchTelemetry::default(), later).unwrap();
+
+        let refreshed = find_active_match(&conn, &session.local_id).unwrap().unwrap();
+        assert_eq!(refreshed.last_seen_at.as_deref(), Some(later.to_rfc3339().as_str()));
+    }
+
+    // WK-146 - mark_interrupted's guard was widened from `state = 'in_progress'`
+    // to also cover `post_game_pending`, so the watchdog can park a stale
+    // match sitting on a single unconfirmed observation. Must discard that
+    // observation (result -> NULL), never promote it to a real result.
+    #[test]
+    fn mark_interrupted_covers_post_game_pending_and_discards_the_unconfirmed_result() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        create_match(&conn, &session.local_id, Some("1"), 14, "radiant", RankedMode::Unknown, now).unwrap();
+        let active = find_active_match(&conn, &session.local_id).unwrap().unwrap();
+        set_post_game(&conn, &active.local_id, Some(MatchResult::Win)).unwrap();
+
+        mark_interrupted(&conn, &active.local_id, now).unwrap();
+
+        let (state, result): (String, Option<String>) = conn
+            .query_row("SELECT state, result FROM local_matches WHERE local_id = ?1", params![active.local_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(state, "interrupted");
+        assert_eq!(result, None, "an unconfirmed observation must be discarded, never promoted to a real result");
+    }
+
+    #[test]
+    fn mark_interrupted_never_touches_an_already_finalized_match() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        create_match(&conn, &session.local_id, Some("1"), 14, "radiant", RankedMode::Ranked, now).unwrap();
+        let active = find_active_match(&conn, &session.local_id).unwrap().unwrap();
+        finalize_match(&mut conn, &active.local_id, &session.local_id, RankedMode::Ranked, MatchResult::Win, "confirmed", now).unwrap();
+
+        mark_interrupted(&conn, &active.local_id, now + chrono::Duration::minutes(1)).unwrap();
+
+        let (state, result): (String, String) = conn
+            .query_row("SELECT state, result FROM local_matches WHERE local_id = ?1", params![active.local_id], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(state, "finalized", "a finalized match must never be reopened/reinterrupted");
+        assert_eq!(result, "win");
+    }
+
+    // --- WK-146 find_stale_matches_with_ended_session ---------------------
+
+    #[test]
+    fn find_stale_matches_with_ended_session_ignores_a_stale_match_whose_session_is_still_open() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        create_match(&conn, &session.local_id, Some("1"), 14, "radiant", RankedMode::Unknown, now).unwrap();
+
+        let much_later = now + chrono::Duration::hours(1);
+        let candidates = find_stale_matches_with_ended_session(&conn, much_later, chrono::Duration::minutes(20)).unwrap();
+        assert!(candidates.is_empty(), "no corroboration (session still open) must never be a watchdog candidate");
+    }
+
+    #[test]
+    fn find_stale_matches_with_ended_session_ignores_a_fresh_match_even_if_its_session_ended() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        create_match(&conn, &session.local_id, Some("1"), 14, "radiant", RankedMode::Unknown, now).unwrap();
+        finalize_session_end(&mut conn, &session.local_id, now).unwrap();
+
+        let soon_after = now + chrono::Duration::minutes(2);
+        let candidates = find_stale_matches_with_ended_session(&conn, soon_after, chrono::Duration::minutes(20)).unwrap();
+        assert!(candidates.is_empty(), "elapsed silence under the threshold must never be a watchdog candidate, even with corroboration");
+    }
+
+    #[test]
+    fn find_stale_matches_with_ended_session_returns_a_stale_match_once_its_session_ended() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        create_match(&conn, &session.local_id, Some("1"), 14, "radiant", RankedMode::Unknown, now).unwrap();
+        finalize_session_end(&mut conn, &session.local_id, now).unwrap();
+
+        let stale_moment = now + chrono::Duration::minutes(21);
+        let candidates = find_stale_matches_with_ended_session(&conn, stale_moment, chrono::Duration::minutes(20)).unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].match_id.as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn find_stale_matches_with_ended_session_never_returns_an_already_interrupted_match() {
+        // `interrupted` is already MMR-neutral and still within its own
+        // reconnect window semantics - the watchdog sweep only targets
+        // in_progress/post_game_pending, matching mark_interrupted's own
+        // widened (but still bounded) guard.
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+        create_match(&conn, &session.local_id, Some("1"), 14, "radiant", RankedMode::Unknown, now).unwrap();
+        let active = find_active_match(&conn, &session.local_id).unwrap().unwrap();
+        mark_interrupted(&conn, &active.local_id, now).unwrap();
+        finalize_session_end(&mut conn, &session.local_id, now).unwrap();
+
+        let stale_moment = now + chrono::Duration::minutes(21);
+        let candidates = find_stale_matches_with_ended_session(&conn, stale_moment, chrono::Duration::minutes(20)).unwrap();
+        assert!(candidates.is_empty());
+    }
+
     #[test]
     fn finalize_ranked_win_updates_session_rating() {
         let mut conn = test_conn();
@@ -1362,7 +1555,7 @@ mod tests {
             update_match_telemetry(&conn, &active.local_id, &super::super::gsi::MatchTelemetry {
                 kills: Some(9), deaths: Some(2), assists: Some(11),
                 inventory: vec![Some("item_blink".into()), None, None, None, None, None, Some("item_tpscroll".into()), None, None],
-            }).unwrap();
+            }, now).unwrap();
             finalize_match(&mut conn, &active.local_id, &session.local_id, RankedMode::Ranked, MatchResult::Win, "confirmed", now).unwrap();
         }
         let conn = Connection::open(temp.path()).unwrap();
@@ -2054,6 +2247,7 @@ mod tests {
             &conn,
             &m1.local_id,
             &super::super::gsi::MatchTelemetry { kills: Some(4), deaths: Some(2), assists: Some(6), inventory: vec![] },
+            now,
         )
         .unwrap();
         finalize_match(&mut conn, &m1.local_id, &session.local_id, RankedMode::Unranked, MatchResult::Win, "confirmed", now).unwrap();
@@ -2064,6 +2258,7 @@ mod tests {
             &conn,
             &m2.local_id,
             &super::super::gsi::MatchTelemetry { kills: Some(2), deaths: Some(6), assists: Some(2), inventory: vec![] },
+            now,
         )
         .unwrap();
         finalize_match(&mut conn, &m2.local_id, &session.local_id, RankedMode::Unranked, MatchResult::Loss, "confirmed", now).unwrap();

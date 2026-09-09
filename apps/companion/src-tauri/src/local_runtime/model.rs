@@ -200,5 +200,14 @@ pub struct LocalMatch {
     pub started_at: String,
     pub interrupted_at: Option<String>,
     pub finalized_at: Option<String>,
+    /// WK-146 - timestamp of the most recent GSI tick that actually touched
+    /// this match (set on creation, bumped by `store::update_match_telemetry`
+    /// on every subsequent tick). Durable across a Companion restart, unlike
+    /// `state.rs`'s in-memory, process-wide `gsi_last_received_at` - this is
+    /// what lets the match-level watchdog detect staleness even for a match
+    /// that's been silently stuck since before the last restart. Never set
+    /// for anything other than real GSI activity - a watchdog-driven
+    /// transition (`mark_interrupted`) does not itself count as "seen".
+    pub last_seen_at: Option<String>,
     pub sync_state: SyncState,
 }

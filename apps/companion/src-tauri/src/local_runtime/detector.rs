@@ -180,7 +180,7 @@ pub fn handle_snapshot(
             return Ok(());
         };
 
-        store::update_match_telemetry(conn, &current.local_id, &snapshot.telemetry)?;
+        store::update_match_telemetry(conn, &current.local_id, &snapshot.telemetry, now)?;
 
         if let (Some(observed), Some(tracked)) = (&snapshot.match_id, &current.match_id) {
             if observed != tracked {
@@ -220,7 +220,25 @@ pub fn handle_snapshot(
             store::resume_match(conn, &current.local_id, snapshot.match_id.as_deref(), hero_id)?;
             active = store::find_active_match(conn, session_local_id)?;
         } else {
-            store::mark_needs_review(conn, &current.local_id)?;
+            // WK-146 - a genuinely new, distinct match tick is the strongest
+            // corroborating evidence the watchdog design relies on: two
+            // distinct matches cannot both be the current active match, so
+            // the old row can no longer represent what's happening now
+            // regardless of the reason. If it was ALSO already stale (no
+            // GSI activity for `watchdog::STALE_THRESHOLD`), park it as the
+            // existing MMR-neutral `interrupted` state rather than
+            // `needs_review` - the staleness plus this new-match evidence
+            // together are enough to be confident it was abandoned, not just
+            // an ambiguous blip worth a human look. A fresh (not yet stale)
+            // old match hitting this branch keeps the original, unchanged
+            // `needs_review` treatment - an abrupt identity switch with no
+            // elapsed silence is still exactly the ambiguous case that
+            // deserves review, not an assumed abandonment.
+            if super::watchdog::is_match_stale(parse_rfc3339(current.last_seen_at.as_deref().unwrap_or(&current.started_at)), now) {
+                store::mark_interrupted(conn, &current.local_id, now)?;
+            } else {
+                store::mark_needs_review(conn, &current.local_id)?;
+            }
             active = None;
         }
     }
@@ -231,7 +249,7 @@ pub fn handle_snapshot(
     }
 
     let Some(active) = active else { return Ok(()) }; // creation raced away - next tick picks it up
-    store::update_match_telemetry(conn, &active.local_id, &snapshot.telemetry)?;
+    store::update_match_telemetry(conn, &active.local_id, &snapshot.telemetry, now)?;
 
     Ok(())
 }
@@ -448,6 +466,36 @@ mod tests {
             stmt.query_map([], |row| row.get(0)).unwrap().collect::<Result<_, _>>().unwrap()
         };
         assert_eq!(states, vec!["needs_review".to_string(), "in_progress".to_string()]);
+    }
+
+    // WK-146 - the flip side of
+    // `a_new_match_starting_before_the_previous_one_resolved_sends_the_old_
+    // one_to_needs_review`: when the OLD match was already stale (no GSI
+    // activity for `watchdog::STALE_THRESHOLD`) at the moment the new,
+    // distinct match tick arrives, that combination (staleness + strong
+    // new-match corroborating evidence) is enough to auto-park it as the
+    // existing MMR-neutral `interrupted` state instead of flagging it for
+    // human review - see watchdog.rs's own doc comment for the full
+    // decision model. Must never fabricate a result on the old row.
+    #[test]
+    fn a_new_distinct_match_arriving_after_the_old_one_went_stale_interrupts_it_instead_of_needs_review() {
+        let mut conn = test_conn();
+        let now = Utc::now();
+        let session = ensure_active_session(&mut conn, now).unwrap();
+
+        handle_snapshot(&mut conn, &session.local_id, RankedMode::Unknown, &tick("DOTA_GAMERULES_STATE_GAME_IN_PROGRESS", 14, "radiant", Some("1"), None), now).unwrap();
+
+        let stale_moment = now + crate::local_runtime::watchdog::STALE_THRESHOLD + Duration::minutes(1);
+        handle_snapshot(&mut conn, &session.local_id, RankedMode::Unknown, &tick("DOTA_GAMERULES_STATE_HERO_SELECTION", 8, "radiant", Some("2"), None), stale_moment).unwrap();
+
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM local_matches", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 2);
+        let rows: Vec<(String, Option<String>)> = {
+            let mut stmt = conn.prepare("SELECT state, result FROM local_matches ORDER BY rowid ASC").unwrap();
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?))).unwrap().collect::<Result<_, _>>().unwrap()
+        };
+        assert_eq!(rows[0], ("interrupted".to_string(), None), "a stale old match superseded by a genuinely new one must be parked as interrupted, not needs_review");
+        assert_eq!(rows[1].0, "in_progress");
     }
 
     #[test]
