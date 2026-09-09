@@ -778,10 +778,25 @@
 }
 
 .leftMain[data-featured="false"] { grid-template-columns: 1fr; }
-.leftMain > .panel,
+.leftMain .leftStack > .panel,
 .leftMain .sideStack > .panel {
     border-color: #0a0c0d;
     box-shadow: inset 0 0 0 1px #303637;
+}
+
+// WK-148 layout pass - Live Capture belongs with Last Match, not with
+// Favorite Heroes/Recent Games/Player Radar: this wraps FeaturedMatch +
+// WebcamSlot as .leftMain's first grid column (mirrors .sideStack's flex-
+// column shape for the second column below). FeaturedMatch is the flexible
+// sibling (`flex: 1 1 auto` on .featuredMatch itself) - it fills whatever
+// height Webcam's own intrinsic aspect-ratio size (`.webcamPanel`'s
+// `flex: 0 0 auto`) doesn't need, same "one flexible, one content-sized"
+// pattern used throughout this file.
+.leftStack {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
 }
 
 .sideStack {
@@ -798,49 +813,236 @@
     align-self: start;
 }
 
-.recentGames {
-    min-height: 0;
-    flex: 1 1 0;
+// WK-148 layout pass - FavoriteHeroes no longer relies on flex-shrink for
+// its size: with .radarPanel now sharing .sideStack's budget (Webcam moved
+// out to .leftStack, see queue-scene-ui.tsx - it no longer competes here at
+// all), letting this shrink silently clipped the portrait/caption instead of
+// respecting the task's "taller portraits" requirement - see
+// .favoritePortrait's own height. `flex: 0 0 auto` pins it to that real
+// content size; only .radarPanel (the actual flexible sibling) gives up
+// space when the column is tight.
+.favorites {
+    flex: 0 0 auto;
 }
 
-// WK-148 - "ПРОФИЛЬ ИГРОКА": intrinsically sized (like .webcamPanel), NOT
-// flex-growing - deliberately compact so RecentGames (the flexible sibling
-// above) keeps most of the WK-152 density gain. Renders nothing when there's
-// no sufficiently-sampled profile, so this rule only matters once real data
-// exists.
-.radarPanel { height: fit-content; }
+// WK-148 layout pass - no longer the greedy flex:1 1 0 sibling: that made
+// this panel balloon to fill 100% of .sideStack's leftover height on tall
+// viewports (2560x1440 especially) while .gamesList only ever renders
+// `limit` fixed 42px rows (see .gameRow/.gamesList below) and packs them at
+// the top, leaving dead space inside this panel's own bottom half.
+// `flex: 0 0 auto` (not just content-sized but shrink-proof too) plus the
+// `max-height` cap below is deliberate, not just "content-sized": a
+// content-sized-but-shrinkable panel let a highly-configured
+// `recentGamesLimit` (up to 15, see DesignPage's slider) overflow .sideStack
+// and get silently squeezed by flex-shrink, which clipped mid-row instead of
+// showing whole rows. Capped at 7 whole rows here at the base breakpoint -
+// see .gameRow's 42px row height/.panelTitle's 34px/.gamesList's 5px bottom
+// padding for where this number comes from. Since `flex-basis:auto` sizes
+// to actual content first and `max-height` only ever caps it, a
+// `recentGamesLimit`/match count below 7 just renders smaller, never padded
+// out to the cap - no dead space inside this panel either way.
+//
+// WK-148 visual-QA correction - a single row cap for every viewport made
+// PlayerRadar (the only other flexible sibling, see .radarPanel below)
+// absorb 2560x1440's whole extra vertical budget on its own, ballooning it
+// into an oversized "showcase" panel instead of the compact/secondary one
+// the task calls for. The @media override below gives a materially bigger
+// viewport a materially bigger row cap instead, so growth goes to Recent
+// Games (this task's stated priority over PlayerRadar) rather than to the
+// radar by default.
+.recentGames {
+    min-height: 0;
+    flex: 0 0 auto;
+    max-height: calc(34px + 7 * 42px + 5px);
+}
+
+@media (min-width: 2200px) {
+    .recentGames {
+        max-height: calc(34px + 14 * 42px + 5px);
+    }
+}
+
+// WK-148 layout pass - moved from .rightMain into .sideStack, directly under
+// RecentGames (see queue-scene-ui.tsx's PlayerProfileRadarPanel comment for
+// why). The flexible sibling that uses whatever height RecentGames' capped
+// sizing (above) leaves in the column, instead of RecentGames eating it all
+// - `.radarChart` below fills this panel's body and centers the chart via
+// its own padding + the SVG's default preserveAspectRatio, not margin.
+// Renders nothing when there's no sufficiently-sampled profile, so this
+// only matters once real data exists.
+//
+// WK-148 visual-QA correction - `max-height` added: with RecentGames' cap
+// tuned per-breakpoint above, this shouldn't normally bind (the two caps
+// are sized together so RecentGames absorbs most of a bigger viewport's
+// extra budget - see its own comment) - it's a deliberate ceiling, not the
+// primary mechanism, for whatever this task's own wording asked to prefer
+// explicitly: PlayerRadar must never balloon into "a large showcase panel"
+// just because more .sideStack space exists, even if the numbers above
+// drift out of sync with a future breakpoint/content change.
+.radarPanel {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: 280px;
+}
+// WK-148 - player-summary rows (МАТЧЕЙ/ПОСЛЕДНИЕ N/ОСН. РОЛЬ/ГЕРОЕВ) use the
+// empty horizontal space next to the chart rather than changing the panel's
+// vertical budget again (.radarPanel's own height stays whatever .sideStack
+// gives it, untouched by this row). `.radarChart` below is a row/flex item
+// now instead of the panel's sole body child - see its own `aspect-ratio`
+// rule for why it stays a square instead of stretching into the summary's
+// space.
+.radarBody {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    // WK-148 visual-QA fix - was left-aligned by default (flex-start): with
+    // .radarSummary now content-sized instead of stretching (see its own
+    // `flex: 0 0 auto` below), this centers the combined
+    // [radar chart] + [summary rows] group as one unit in .radarBody's full
+    // width, instead of the group hugging the left edge with unused space
+    // only on the right.
+    justify-content: center;
+    gap: 18px;
+    flex: 1 1 auto;
+    min-height: 0;
+    min-width: 0;
+}
 // Visual-QA polish pass - scaled ~1.8x from the first cut (260px), which
-// read as a tiny island in a ~830px-wide panel. This grows .radarPanel's
-// own (auto-sized) row in .rightMain, NOT .sideStack/Recent Games - see the
-// component's own comment in queue-scene-ui.tsx.
+// read as a tiny island in a ~830px-wide panel.
+// WK-148 layout pass - was `width:100%; max-width:468px; height:auto;
+// margin:auto` - a fixed-cap size letterboxed inside whatever leftover
+// .radarPanel space happened to exist, so at 2560x1440 (a genuinely tall
+// panel) the chart stayed pinned at 468px while the rest of the panel sat
+// empty. Then briefly `flex:1 1 auto; width:100%` (claiming the whole row) -
+// now `aspect-ratio:1` + `height:100%` instead: the chart fills .radarBody's
+// height and stays exactly as wide as it is tall (never stretching into the
+// row's remaining width), which is what actually leaves the "empty
+// horizontal space" the player-summary rows use. Relies on the SVG viewBox's
+// own scaling (every coordinate/font-size
+// inside this element - grid rings, spokes, labels, values - is defined in
+// the same 468-unit viewBox space, see RADAR_SIZE/RADAR_CENTER/etc. in
+// queue-scene-ui.tsx, so it all grows together as the box grows, never just
+// the outline) to actually fill that box. `padding` (not `margin`) is what
+// keeps it off the panel edges now - the SVG's default
+// `preserveAspectRatio="xMidYMid meet"` centers the square viewBox content
+// inside the (possibly non-square) padded box without distorting it,
+// letterboxing evenly rather than stretching.
 .radarChart {
     display: block;
-    width: 100%;
-    max-width: 468px;
-    height: auto;
-    // WK-148 visual-QA fix - trimmed from 6px: every px here comes straight
-    // out of Twitch Chat's budget (see .rightMain above), and the chart
-    // itself (approved size, untouched) doesn't need much breathing room.
-    margin: 2px auto;
+    flex: 0 0 auto;
+    height: 100%;
+    aspect-ratio: 1;
+    // WK-148 composition-scale pass - trimmed from 16px: .radarChart's outer
+    // box is already exactly .radarBody's height (100%, itself
+    // .radarPanel's fixed height minus the title) - it can't get any
+    // bigger, so this padding is the only remaining lever that isn't
+    // RADAR_MAX_RADIUS/RADAR_LABEL_RADIUS (queue-scene-ui.tsx) for the
+    // chart's visible content to reclaim a bit more of that fixed box.
+    padding: 10px;
+    box-sizing: border-box;
+}
+
+// Simple text rows, not a card - muted uppercase label + brighter value,
+// same token pair `.profileStats span`/`.profileStats b` already use for the
+// top-bar RATING/STREAM/WIN RATE rows, reused here for visual consistency
+// rather than inventing a second "stat row" look. Centered vertically in
+// whatever height .radarBody has (no extra header, per the task).
+// WK-148 visual-QA fix - .radarPanel's own height stays whatever .sideStack
+// gives it (task: "keep the current Radar panel height"), which is tight at
+// 1920x1080 (~150px of actual body height after the title) - 4 rows at the
+// first-cut sizing (10px gaps, 18px value) overflowed that and clipped the
+// last row ("ГЕРОЕВ"). Tightened gaps/font-size/line-height here so all four
+// rows fit within the existing budget instead of growing it.
+.radarSummary {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    // WK-148 composition-scale pass - grown from 6px alongside the label/
+    // value font-size below (queue-scene.module.scss's own base sizing
+    // never scaled with .radarPanel's height before this pass, which is why
+    // the summary stayed visually the same size at 2560x1440 as at
+    // 1920x1080 even though the chart next to it did grow - see
+    // `@media (min-width: 2200px)` below for where it grows further).
+    gap: 7px;
+    // WK-148 visual-QA fix - was `flex: 1 1 auto` (stretching to fill
+    // .radarBody's entire remaining width), which is what pinned the
+    // [chart]+[summary] group to the left: the chart's width is fixed
+    // (aspect-ratio), so a flex:1 sibling eating all the rest left no space
+    // for .radarBody's own `justify-content: center` to center the group -
+    // there was nothing left for it to center against. `flex: 0 0 auto`
+    // makes this content-sized instead, so the two children's combined
+    // width is what gets centered, not the panel's full width.
+    flex: 0 0 auto;
+    min-width: 0;
+    padding: 2px 4px;
+}
+.radarSummaryRow {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+.radarSummaryLabel {
+    color: #767c79;
+    font-family: var(--font-ui);
+    font-size: 11px;
+    line-height: 1.2;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+.radarSummaryValue {
+    color: #c9c5bd;
+    font-family: var(--font-title);
+    font-size: 17px;
+    line-height: 1.2;
+    font-weight: 400;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+// WK-148 composition-scale pass - .radarPanel is meaningfully taller at
+// 2560x1440 than at 1920x1080 (.sideStack's own budget grows with viewport
+// height, see .recentGames's own `@media (min-width: 2200px)` row-count
+// bump above for the same shape), so the summary has real spare room here
+// it didn't have at the base size - grows further instead of sitting at the
+// same fixed pixel size both breakpoints share by default.
+@media (min-width: 2200px) {
+    .radarSummary {
+        gap: 10px;
+    }
+    .radarSummaryRow {
+        gap: 2px;
+    }
+    .radarSummaryLabel {
+        font-size: 13px;
+    }
+    .radarSummaryValue {
+        font-size: 21px;
+    }
 }
 .radarGridRing {
     fill: none;
     stroke: #2d3334;
-    stroke-width: 1;
+    stroke-width: 1.3;
 }
-.radarSpoke { stroke: #242020; stroke-width: 1.5; }
+.radarSpoke { stroke: #242020; stroke-width: 2; }
 // Missing axis (e.g. ОБЪЕКТЫ without sufficient parsed tower-damage
 // coverage) - dashed instead of solid so the pinch at that vertex reads as
 // an intentional "not measured" cue, not a rendering glitch.
 .radarSpokeMissing {
     stroke: #4a4442;
-    stroke-width: 1.5;
-    stroke-dasharray: 3 3;
+    stroke-width: 2;
+    stroke-dasharray: 4 4;
 }
 .radarShape {
     fill: rgba(123, 53, 50, .38);
     stroke: #c29a69;
-    stroke-width: 2;
+    stroke-width: 2.5;
     stroke-linejoin: round;
 }
 .radarVertex { fill: #c29a69; }
@@ -850,20 +1052,28 @@
 .radarVertexMissing {
     fill: none;
     stroke: #6b6460;
-    stroke-width: 1.5;
-    stroke-dasharray: 2 2;
+    stroke-width: 2;
+    stroke-dasharray: 3 3;
 }
+// WK-148 visual-QA correction - grown alongside RADAR_MAX_RADIUS (queue-
+// scene-ui.tsx): these are SVG user-unit font sizes, in the same viewBox
+// coordinate space as the pentagon/spokes, so they scale together with the
+// chart's on-screen rendered size rather than staying visually fixed while
+// the shape around them grows. Kept modest (16->18, not a bigger jump) -
+// RADAR_LABEL_RADIUS's own comment explains why label size and label radius
+// are both intentionally constrained by real label text width, not just by
+// how big RADAR_MAX_RADIUS grew.
 .radarLabel {
     fill: #a6a39d;
     font-family: var(--font-ui);
-    font-size: 16px;
+    font-size: 18px;
     letter-spacing: .05em;
     text-transform: uppercase;
 }
 .radarLabelValue {
     fill: #c3c0b8;
     font-family: var(--font-title);
-    font-size: 24px;
+    font-size: 27px;
     font-weight: 400;
     letter-spacing: 0;
     text-transform: none;
@@ -873,15 +1083,23 @@
 .radarLabelValueMissing {
     fill: #726c68;
     font-family: var(--font-title);
-    font-size: 20px;
+    font-size: 23px;
     font-weight: 400;
     letter-spacing: 0;
     text-transform: none;
 }
 
+// WK-148 layout pass - `flex: 1 1 auto` (was implicitly 100% of .leftMain's
+// column via CSS Grid stretch, back when this was the column's only child):
+// now shares .leftStack with WebcamSlot below, so this fills whatever
+// height Webcam's own intrinsic size leaves - its own internal three-row
+// grid (title/hero-art/stats) still governs proportions the same way
+// regardless of the total height it ends up with.
 .featuredMatch {
     display: grid;
     grid-template-rows: 34px minmax(0, 1fr) 264px;
+    flex: 1 1 auto;
+    min-height: 0;
 }
 
 .featuredMatch .panelTitle { grid-row: 1; }
@@ -1175,7 +1393,11 @@
     text-transform: uppercase;
 }
 
-.webcamPanel { height: fit-content; }
+// WK-148 layout pass - lives in .leftStack now (Last Match's column, see
+// queue-scene-ui.tsx), not .sideStack - `flex: 0 0 auto` keeps it pinned to
+// its own aspect-ratio-driven size so it never gets squeezed by
+// .featuredMatch's `flex: 1 1 auto` above it.
+.webcamPanel { height: fit-content; flex: 0 0 auto; }
 .webcam {
     position: relative;
     aspect-ratio: 16 / 9;
@@ -1228,9 +1450,14 @@
         0 2px 5px rgba(0, 0, 0, .55);
 }
 
+// WK-148 layout pass - grown from 210px: RecentGames no longer flex-grows to
+// consume all of .sideStack's leftover height (see .recentGames above), and
+// Webcam moved out to .leftStack (queue-scene-ui.tsx) so it no longer
+// shares this column's budget either - FavoriteHeroes can claim real height
+// back instead of staying pinned to its pre-WK-148 compact size.
 .favoritePortrait {
     position: relative;
-    height: 210px;
+    height: 260px;
     overflow: hidden;
     border-bottom: 1px solid #070909;
     background:
@@ -1400,21 +1627,19 @@
 .rightMain {
     min-height: 0;
     display: grid;
-    // WK-148 visual-QA fix - Friends/Community (row 2) and the radar (row 3)
-    // are BOTH `auto`: sized to their own real content, never clipped,
-    // regardless of resolution - Community especially, since its 3 fixed
-    // sections (Donaters/Subscribers/Recent followers) need a fixed minimum
-    // height that a shrinkable `fr` share can't guarantee (a first cut here
-    // gave it a fr share and it clipped Subscribers/Recent followers at
-    // 1920x1080 - see .friendSection/.friendGrid/.friendEntry below for the
-    // matching spacing tightened to make that `auto` height as small as it
-    // reasonably can be). Twitch Chat (row 1) is the single `1fr` row and
-    // absorbs whatever's left - same "one flexible sibling, the rest
-    // content-sized" shape .sideStack already uses for Recent Games. Placed
-    // here (not in .sideStack) because that column has no slack left after
-    // WK-152's Recent Games density gain - see the task's own "do not undo
-    // WK-152 density" requirement.
-    grid-template-rows: minmax(120px, 1fr) auto auto;
+    // WK-148 visual-QA fix - Community (row 2) is `auto`: sized to its own
+    // real content, never clipped, regardless of resolution - it needs a
+    // fixed minimum height that a shrinkable `fr` share can't guarantee (a
+    // first cut here gave it a fr share and it clipped Subscribers/Recent
+    // followers at 1920x1080 - see .friendSection/.friendGrid/.friendEntry
+    // below for the matching spacing tightened to make that `auto` height as
+    // small as it reasonably can be). Twitch Chat (row 1) is the single
+    // `1fr` row and absorbs whatever's left.
+    // WK-148 layout pass - the radar (formerly row 3 here) moved into
+    // .sideStack, directly under Recent Games (see queue-scene-ui.tsx) - the
+    // height that freed up goes entirely to Twitch Chat's `1fr` row instead
+    // of a third `auto` row here.
+    grid-template-rows: minmax(120px, 1fr) auto;
     gap: 10px;
 }
 
@@ -1813,6 +2038,7 @@
         padding: 6px;
     }
 
+    .leftStack,
     .sideStack,
     .rightMain {
         gap: 8px;
@@ -1898,6 +2124,7 @@
 
     .dashboard,
     .leftMain,
+    .leftStack,
     .sideStack,
     .rightMain {
         gap: 10px;
@@ -1915,6 +2142,13 @@
         flex: 1 1 0;
     }
 
+    // WK-148 layout pass - .webcamPanel now shares .leftStack with
+    // .featuredMatch (a different flex container than .favorites/
+    // .recentGames' .sideStack) - these three flex-grow values are no
+    // longer proportions within one shared budget, just per-container
+    // choices that still work standalone. This breakpoint is a technical
+    // smoke check, not a design target (see project CLAUDE.md), so not
+    // retuned further here.
     .webcamPanel { flex-grow: 1.05; }
     .favorites { flex-grow: 1; }
     .recentGames { flex-grow: .9; }
@@ -2001,6 +2235,7 @@
     }
 
     .leftMain,
+    .leftStack,
     .sideStack {
         gap: 6px;
     }

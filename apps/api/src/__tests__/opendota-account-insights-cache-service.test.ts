@@ -4,6 +4,7 @@ import {
     getCachedAccountCounts,
     getCachedAccountTotals,
     getCachedAccountRankings,
+    getCachedAccountRecentMatches,
     resolveCurrentPatchId,
     __resetOpenDotaAccountInsightsCacheForTests,
 } from "../services/opendota-account-insights-cache-service.js";
@@ -70,6 +71,43 @@ describe("getCachedAccountCounts / getCachedAccountTotals / getCachedAccountRank
 
         await getCachedAccountCounts(7);
         await getCachedAccountCounts(7);
+
+        expect(spy).toHaveBeenCalledTimes(2);
+    });
+});
+
+// WK-148 - "ПОСЛЕДНИЕ N" player-summary row reuses GET /players/{id}/
+// recentMatches, the same endpoint dota-sync-service.ts already calls
+// (uncached, for local match bookkeeping) - this is its own 10-min cache for
+// that row's read access, same createAccountCache contract as counts/
+// totals/rankings above, not a second upstream call path.
+describe("getCachedAccountRecentMatches", () => {
+    it("caches recent matches within the TTL without a second provider call", async () => {
+        const spy = vi.spyOn(openDotaMatchProvider, "getRecentMatches").mockResolvedValue({
+            status: "ok",
+            matches: [
+                { matchId: "1", accountId: 7, heroId: 1, isWin: true, startedAt: new Date() },
+            ],
+        });
+
+        const first = await getCachedAccountRecentMatches(7);
+        const second = await getCachedAccountRecentMatches(7);
+
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(first).toEqual(second);
+        expect(first).toEqual({
+            status: "ok",
+            matches: [{ matchId: "1", accountId: 7, heroId: 1, isWin: true, startedAt: expect.any(Date) }],
+        });
+    });
+
+    it("does not cache a rate_limited result", async () => {
+        const spy = vi
+            .spyOn(openDotaMatchProvider, "getRecentMatches")
+            .mockResolvedValue({ status: "rate_limited" });
+
+        await getCachedAccountRecentMatches(7);
+        await getCachedAccountRecentMatches(7);
 
         expect(spy).toHaveBeenCalledTimes(2);
     });

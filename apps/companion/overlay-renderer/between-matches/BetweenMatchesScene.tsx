@@ -327,7 +327,8 @@ function PlayerProfileRadarPanel({ openDota }: { openDota: OverlayStateSnapshot[
   const shapePoints = axisPoints.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
 
   return (
-    <Panel title="Player radar" className={styles.radarPanel}>
+    <Panel title="Player radar" className={`${styles.radarPanel} ${parity.radarPanel}`}>
+      <div className={styles.radarBody}>
       <svg className={styles.radarChart} viewBox={`0 0 ${RADAR_SIZE} ${RADAR_SIZE}`}>
         {RADAR_GRID_RINGS.map((ring) => (
           <polygon
@@ -391,13 +392,14 @@ function PlayerProfileRadarPanel({ openDota }: { openDota: OverlayStateSnapshot[
           );
         })}
       </svg>
+      </div>
     </Panel>
   );
 }
 
 function RecentGames({ matches, title, limit }: { matches: LocalMatchSummary[]; title: string; limit: number }) {
   return (
-    <Panel title={title} className={styles.recentGames}>
+    <Panel title={title} className={`${styles.recentGames} ${parity.recentGames}`}>
       <div className={`${styles.gamesList} ${parity.gamesList}`} data-short={matches.length < limit ? "true" : undefined}>
         {matches.length ? matches.slice(0, limit).map((match, index) => {
           const hero = getHeroById(match.heroId);

@@ -1,4 +1,4 @@
-import type { DotaCountBucket, DotaHeroMatch, DotaPlayerTotals, DotaStatTotal } from "./dota-match-provider.js";
+import type { DotaCountBucket, DotaPlayerTotals, DotaStatTotal } from "./dota-match-provider.js";
 
 // WK-148 - чистые вычисления над уже полученными данными OpenDota (никакого
 // I/O), задача, секция 2/14: "K/D/A, GPM, XPM ... require ... reliable and
@@ -16,7 +16,11 @@ export interface HeroRecentForm {
 // "ПОСЛЕДНИЕ N" - N = реальное число матчей в выборке (может быть < лимита
 // запроса), никогда не выдаём фиксированное "20", если матчей меньше
 // (задача, секция 2.A: "Do not imply a sample of 20 if fewer matches exist").
-export const computeRecentForm = (matches: DotaHeroMatch[]): HeroRecentForm | null => {
+// Param type widened to structural `{isWin}[]` (was `DotaHeroMatch[]`) so this
+// same formula covers both the hero-scoped recent form (Hero Detail) and the
+// account-wide "ПОСЛЕДНИЕ 20" summary row (opendota-player-summary.ts) - the
+// win/loss math is identical either way, only the source endpoint differs.
+export const computeRecentForm = (matches: { isWin: boolean }[]): HeroRecentForm | null => {
     if (matches.length === 0) return null;
     const wins = matches.filter((match) => match.isWin).length;
     const sample = matches.length;

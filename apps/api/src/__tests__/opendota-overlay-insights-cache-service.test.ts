@@ -3,6 +3,7 @@ import { openDotaMatchProvider } from "../services/dota-match-provider.js";
 import {
     getCachedOverlayFavoriteHeroStats,
     getCachedOverlayRadar,
+    getCachedOverlayPlayerSummary,
     __resetOpenDotaOverlayInsightsCacheForTests,
 } from "../services/opendota-overlay-insights-cache-service.js";
 import { __resetOpenDotaHeroInsightsCacheForTests } from "../services/opendota-hero-insights-cache-service.js";
@@ -172,5 +173,78 @@ describe("getCachedOverlayRadar", () => {
         await getCachedOverlayRadar(1);
 
         expect(totalsSpy).toHaveBeenCalledTimes(1);
+    });
+});
+
+// WK-148 - player-summary rows next to Player Radar (МАТЧЕЙ/ПОСЛЕДНИЕ N/
+// ОСН. РОЛЬ/ГЕРОЕВ). Same null-и-фоновая-заливка contract as
+// favoriteHeroes/radar above - reuses the SAME getCachedPlayerHeroes/
+// getCachedAccountCounts calls the radar already makes, plus
+// getCachedAccountRecentMatches (its own cache, see opendota-account-
+// insights-cache-service.ts).
+describe("getCachedOverlayPlayerSummary", () => {
+    it("returns null on a cold cache without awaiting the upstream fetch", async () => {
+        vi.spyOn(openDotaMatchProvider, "getPlayerHeroes").mockImplementation(
+            () => new Promise(() => {}) // never resolves - would hang the test if awaited
+        );
+
+        const result = await getCachedOverlayPlayerSummary(1);
+        expect(result).toBeNull();
+    });
+
+    it("fills in on a later call once the background fetch resolves, with all four rows", async () => {
+        vi.spyOn(openDotaMatchProvider, "getPlayerHeroes").mockResolvedValue({
+            status: "ok",
+            heroes: [
+                { heroId: 1, games: 100, wins: 60 },
+                { heroId: 2, games: 20, wins: 5 },
+            ],
+        });
+        vi.spyOn(openDotaMatchProvider, "getPlayerCounts").mockResolvedValue({
+            status: "ok",
+            counts: { patch: {}, laneRole: { "1": { games: 90, win: 50 }, "2": { games: 30, win: 15 } } },
+        });
+        vi.spyOn(openDotaMatchProvider, "getRecentMatches").mockResolvedValue({
+            status: "ok",
+            matches: Array.from({ length: 20 }, (_, i) => ({
+                matchId: String(i),
+                accountId: 1,
+                heroId: 1,
+                isWin: i % 2 === 0,
+                startedAt: new Date(),
+            })),
+        });
+
+        const first = await getCachedOverlayPlayerSummary(1);
+        expect(first).toBeNull();
+
+        await flushMicrotasks();
+        const second = await getCachedOverlayPlayerSummary(1);
+        expect(second).toEqual({
+            lifetime: { games: 120, wins: 65, losses: 55, winRate: (65 / 120) * 100 },
+            heroesPlayed: 2,
+            mainRole: { code: 1, label: "Керри", games: 90 },
+            recentForm: { sample: 20, wins: 10, losses: 10, winRate: 50 },
+        });
+    });
+
+    it("still returns lifetime/heroesPlayed when counts and recentMatches are unavailable", async () => {
+        vi.spyOn(openDotaMatchProvider, "getPlayerHeroes").mockResolvedValue({
+            status: "ok",
+            heroes: [{ heroId: 1, games: 10, wins: 4 }],
+        });
+        vi.spyOn(openDotaMatchProvider, "getPlayerCounts").mockResolvedValue({ status: "unavailable" });
+        vi.spyOn(openDotaMatchProvider, "getRecentMatches").mockResolvedValue({ status: "unavailable" });
+
+        await getCachedOverlayPlayerSummary(1);
+        await flushMicrotasks();
+        const result = await getCachedOverlayPlayerSummary(1);
+
+        expect(result).toEqual({
+            lifetime: { games: 10, wins: 4, losses: 6, winRate: 40 },
+            heroesPlayed: 1,
+            mainRole: null,
+            recentForm: null,
+        });
     });
 });

@@ -234,9 +234,29 @@ fn json_header() -> tiny_http::Header {
     tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap()
 }
 
+// Root cause of "OBS renders /overlay fine, but the Оформление preview
+// never loads it": OBS's Browser Source does a top-level navigation to
+// /overlay - never CORS-gated. The preview instead starts with a
+// `fetch()` from useLocalOverlayPreviewReady.ts, made from the Companion
+// window's own origin (tauri://localhost in production, http://localhost:1420
+// in dev) to this server's origin (http://127.0.0.1:3666) - a genuinely
+// cross-origin request, which the browser silently refuses to expose to
+// the caller without this header, no matter how many times it's retried
+// or how many times Companion is restarted (this is not a timing race,
+// see WK-152/WK-153 above for that one - it's a permanently-missing
+// response header). Every GET route here returns the same non-secret
+// payload shape regardless of caller (see this file's top doc comment on
+// why no credential ever flows through this server), so allowing any
+// origin to read it is safe.
+fn cors_header() -> tiny_http::Header {
+    tiny_http::Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap()
+}
+
 fn respond_json<T: Serialize>(request: tiny_http::Request, body: &T) {
     let payload = serde_json::to_string(body).unwrap_or_else(|_| "{}".to_string());
-    let response = tiny_http::Response::from_string(payload).with_header(json_header());
+    let response = tiny_http::Response::from_string(payload)
+        .with_header(json_header())
+        .with_header(cors_header());
     let _ = request.respond(response);
 }
 
@@ -251,12 +271,16 @@ const RENDERER_HTML: &str = include_str!("overlay_server/renderer-dist/index.htm
 
 fn respond_html(request: tiny_http::Request, html: &str) {
     let header = tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..]).unwrap();
-    let response = tiny_http::Response::from_string(html).with_header(header);
+    let response = tiny_http::Response::from_string(html)
+        .with_header(header)
+        .with_header(cors_header());
     let _ = request.respond(response);
 }
 
 fn respond_not_found(request: tiny_http::Request) {
-    let response = tiny_http::Response::from_string("not found").with_status_code(tiny_http::StatusCode(404));
+    let response = tiny_http::Response::from_string("not found")
+        .with_status_code(tiny_http::StatusCode(404))
+        .with_header(cors_header());
     let _ = request.respond(response);
 }
 
@@ -282,7 +306,9 @@ fn respond_not_found(request: tiny_http::Request) {
 /// "live push, not aggressive polling" transport the ticket asks for.
 fn serve_sse<R: Runtime>(app: &AppHandle<R>, request: tiny_http::Request) {
     let header = tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"text/event-stream"[..]).unwrap();
-    let response = tiny_http::Response::empty(tiny_http::StatusCode(200)).with_header(header);
+    let response = tiny_http::Response::empty(tiny_http::StatusCode(200))
+        .with_header(header)
+        .with_header(cors_header());
     let mut stream = request.upgrade("sse", response);
     diagnostic_log(app, "Local overlay SSE client connected.");
 
@@ -379,7 +405,11 @@ fn handle_request<R: Runtime>(app: &AppHandle<R>, request: tiny_http::Request) {
                         else if bytes.starts_with(&[0xff, 0xd8, 0xff]) { "image/jpeg" }
                         else { "image/webp" };
                     let header = tiny_http::Header::from_bytes(&b"Content-Type"[..], mime.as_bytes()).unwrap();
-                    let _ = request.respond(tiny_http::Response::from_data(bytes).with_header(header));
+                    let _ = request.respond(
+                        tiny_http::Response::from_data(bytes)
+                            .with_header(header)
+                            .with_header(cors_header()),
+                    );
                 }
                 Err(_) => respond_not_found(request),
             }
@@ -390,7 +420,11 @@ fn handle_request<R: Runtime>(app: &AppHandle<R>, request: tiny_http::Request) {
                     let mime = if bytes.starts_with(b"\x89PNG\r\n\x1a\n") { "image/png" }
                         else if bytes.starts_with(&[0xff, 0xd8, 0xff]) { "image/jpeg" } else { "image/webp" };
                     let header = tiny_http::Header::from_bytes(&b"Content-Type"[..], mime.as_bytes()).unwrap();
-                    let _ = request.respond(tiny_http::Response::from_data(bytes).with_header(header));
+                    let _ = request.respond(
+                        tiny_http::Response::from_data(bytes)
+                            .with_header(header)
+                            .with_header(cors_header()),
+                    );
                 }
                 Err(_) => respond_not_found(request),
             }
@@ -655,6 +689,31 @@ mod tests {
         let port = start_test_server(app);
         let body = http_get(port, "/overlay/health");
         assert!(body.contains("\"status\":\"ok\""));
+    }
+
+    // Production regression: OBS's Browser Source reaches /overlay fine
+    // (a top-level navigation, never CORS-gated) while the Оформление
+    // preview stays stuck forever, surviving a Companion restart - because
+    // useLocalOverlayPreviewReady.ts probes readiness with `fetch()` from
+    // the Companion window's own origin, and a browser refuses to expose a
+    // cross-origin fetch's response to the caller without an
+    // Access-Control-Allow-Origin header, no matter how many times the
+    // caller retries. This pins the header on every response this server
+    // sends - `/overlay/health` (what the preview's readiness probe reads)
+    // and `/overlay/state` (what the preview reads once mounted) - so a
+    // real browser's fetch() can actually complete instead of only ever
+    // succeeding for top-level navigations like OBS's.
+    #[test]
+    fn overlay_responses_allow_cross_origin_fetch_from_the_companion_window() {
+        let app = test_app();
+        let port = start_test_server(app);
+        for path in ["/overlay/health", "/overlay/state", "/overlay"] {
+            let response = http_get_raw(port, path);
+            assert!(
+                response.to_lowercase().contains("access-control-allow-origin:"),
+                "{path} response missing Access-Control-Allow-Origin, a cross-origin fetch() from the Companion window would be blocked: {response}"
+            );
+        }
     }
 
     // WK-121 - `/overlay` must serve the real production renderer, not any

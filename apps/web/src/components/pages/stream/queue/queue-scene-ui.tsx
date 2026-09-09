@@ -482,29 +482,52 @@ const RADAR_AXES: ReadonlyArray<{
     { key: "support", label: "ПОДДЕРЖКА" },
     { key: "flexibility", label: "ГИБКОСТЬ" },
 ];
-// Renders in .rightMain (see QueueSceneUi below), NOT .sideStack - that
-// column has no slack left after WK-152's Recent Games density gain, so the
-// radar lives next to Twitch Chat/Friends instead (task's own "do not undo
-// WK-152 density" requirement wins over strict Favorite-Heroes adjacency).
-// Renders at ~1:1 viewBox-to-CSS-px (see .radarChart's max-width) so
-// shrinking/growing this doesn't also distort label legibility the way
-// downscaling a fixed bigger design would. RADAR_SIZE has real margin
-// beyond RADAR_LABEL_RADIUS on every side - axis label text extends past
-// its anchor point (text-anchor start/end), and an SVG clips anything past
-// its own viewBox edges, so ГИБКОСТЬ/ПОДДЕРЖКА (the longest left-side
-// labels) need room to spill left of their anchor without hitting x=0.
+// WK-148 layout pass - lives in .sideStack (see QueueSceneUi below),
+// directly under RecentGames: FavoriteHeroes/RecentGames/PlayerRadar as one
+// visual column, with the space that frees in .rightMain going to Twitch
+// Chat instead. RecentGames no longer flex-grows to fill .sideStack on its
+// own (see .recentGames in the scss - it's content-sized/capped now), so
+// this is what actually uses the leftover column space, not dead space
+// below RecentGames - see .radarPanel's flex rule.
 //
-// Visual-QA polish pass: the first cut (260px) read as a tiny island inside
-// a much wider panel (.rightMain columns run ~830px wide at 1920x1080) -
-// scaled ~1.8x here. rightMain's grid row for this panel is `auto` sized
-// (see .rightMain in queue-scene.module.scss), so the panel's own height
-// grows with the chart and Twitch Chat/Friends' `fr` rows absorb the
-// difference automatically - this does NOT touch .sideStack/Recent Games at
-// all, which live in a completely separate grid column.
+// The <svg>'s own rendered box (`.radarChart`, flex:1 1 auto) fills
+// whatever space .radarPanel has - every coordinate and font-size below is
+// defined in the SAME `viewBox="0 0 RADAR_SIZE RADAR_SIZE"` coordinate
+// space, so the whole chart (shape, spokes, labels, values) scales together
+// as that box grows, exactly like any other vector content. RADAR_SIZE
+// itself does NOT need to track the box's on-screen pixel size (it never
+// did) - what actually controls how much of the box the pentagon visually
+// fills is the RADAR_MAX_RADIUS/RADAR_LABEL_RADIUS -to- RADAR_CENTER ratio
+// below.
+//
+// Visual-QA correction: RADAR_MAX_RADIUS used to leave most of RADAR_SIZE as
+// unused margin (86 out of a 234 half-size - the pentagon itself covered
+// barely a third of its own box), which read as a small chart floating in a
+// mostly-empty panel regardless of how big the outer box was. Grown to 132
+// (then again to 132 from an intermediate 110 - see the composition-scale
+// pass below) so the shape is the panel's dominant content. The outer box
+// itself (.radarChart, .radarBody) is NOT allowed to grow beyond
+// .radarPanel's already-fixed height (task: never change the panel's own
+// height) - every bit of "bigger radar" has to come from this ratio, or
+// from .radarChart's own CSS padding (see that rule), not from more space.
+//
+// RADAR_LABEL_RADIUS grew alongside it (130 -> 148) but is deliberately NOT
+// scaled by the same factor as RADAR_MAX_RADIUS - axis label text extends
+// past its anchor point (text-anchor start/end), and an SVG clips anything
+// past its own viewBox edges. ГИБКОСТЬ ("flexibility", the longest left-side
+// label at this font size) is the binding constraint: its anchor sits at
+// `RADAR_CENTER + RADAR_LABEL_RADIUS * cos(198deg)` and the label needs real
+// clearance from x=0 for its own rendered width (measured via getBBox, not
+// estimated) - both values here were re-verified with that same
+// getBBox-at-both-resolutions check after this pass's growth, not just
+// scaled up on the assumption that the old margin would still hold. If
+// RADAR_AXES' labels or .radarLabel's font-size ever change, re-check the
+// same way (read each label `<text>` element's real getBBox() at the
+// largest panel size this renders at, not just visually at one resolution).
 const RADAR_SIZE = 468;
 const RADAR_CENTER = RADAR_SIZE / 2;
-const RADAR_MAX_RADIUS = 86;
-const RADAR_LABEL_RADIUS = 130;
+const RADAR_MAX_RADIUS = 132;
+const RADAR_LABEL_RADIUS = 148;
 const RADAR_GRID_RINGS = [0.5, 1];
 // Missing axis (задача: "ОБЪЕКТЫ" can legitimately be unavailable - parse-
 // dependent tower damage) - the vertex still geometrically sits at the
@@ -528,12 +551,45 @@ const radarLabelAnchor = (index: number): "start" | "middle" | "end" => {
     return "middle";
 };
 
+// Player-summary rows next to the radar chart (задача: "very small player
+// summary... not cards and not explanations of radar axes"). Each row is
+// independently omitted when its own source data isn't available - the
+// panel doesn't wait for all four to be ready, same "show what's real, skip
+// what isn't" contract the radar's own missing-axis handling already uses.
+// ОСН. РОЛЬ/ГЕРОЕВ have no real "unavailable" state once playerSummary
+// itself exists (heroesPlayed is always a real count; mainRole falls back to
+// EMPTY_VALUE), only МАТЧЕЙ/ПОСЛЕДНИЕ N depend on a sub-field that can
+// individually be null.
+const buildPlayerSummaryRows = (
+    summary: NonNullable<QueueDataProps["openDota"]>["playerSummary"]
+): Array<{ label: string; value: string }> => {
+    if (!summary) return [];
+    const rows: Array<{ label: string; value: string }> = [];
+    if (summary.lifetime) {
+        rows.push({
+            label: "МАТЧЕЙ",
+            value: `${summary.lifetime.games} · ${summary.lifetime.winRate.toFixed(1)}%`,
+        });
+    }
+    if (summary.recentForm) {
+        rows.push({
+            label: `ПОСЛЕДНИЕ ${summary.recentForm.sample}`,
+            value: `${summary.recentForm.wins}–${summary.recentForm.losses} · ${summary.recentForm.winRate.toFixed(1)}%`,
+        });
+    }
+    rows.push({ label: "ОСН. РОЛЬ", value: summary.mainRole?.label ?? EMPTY_VALUE });
+    rows.push({ label: "ГЕРОЕВ", value: String(summary.heroesPlayed) });
+    return rows;
+};
+
 export const PlayerProfileRadarPanel = ({ openDota }: QueueDataProps) => {
     const radar = openDota?.radar;
     // No placeholder/loading state on a live stream surface - the panel
     // simply doesn't render until there's a real, sufficiently-sampled
     // profile (задача, секции 10/12).
     if (!radar || radar.insufficientSample) return null;
+
+    const summaryRows = buildPlayerSummaryRows(openDota?.playerSummary ?? null);
 
     const axisPoints = RADAR_AXES.map((axis, index) => {
         const raw = radar[axis.key];
@@ -544,6 +600,7 @@ export const PlayerProfileRadarPanel = ({ openDota }: QueueDataProps) => {
 
     return (
         <Panel title="Player radar" className={styles.radarPanel}>
+            <div className={styles.radarBody}>
             <svg className={styles.radarChart} viewBox={`0 0 ${RADAR_SIZE} ${RADAR_SIZE}`}>
                 {RADAR_GRID_RINGS.map((ring) => (
                     <polygon
@@ -580,7 +637,7 @@ export const PlayerProfileRadarPanel = ({ openDota }: QueueDataProps) => {
                             r={RADAR_MAX_RADIUS * RADAR_MISSING_MARKER_RADIUS_RATIO}
                         />
                     ) : (
-                        <circle key={p.key} className={styles.radarVertex} cx={p.x} cy={p.y} r={4.5} />
+                        <circle key={p.key} className={styles.radarVertex} cx={p.x} cy={p.y} r={6.5} />
                     )
                 )}
                 {RADAR_AXES.map((axis, index) => {
@@ -607,6 +664,17 @@ export const PlayerProfileRadarPanel = ({ openDota }: QueueDataProps) => {
                     );
                 })}
             </svg>
+            {summaryRows.length > 0 && (
+                <div className={styles.radarSummary}>
+                    {summaryRows.map((row) => (
+                        <div key={row.label} className={styles.radarSummaryRow}>
+                            <span className={styles.radarSummaryLabel}>{row.label}</span>
+                            <span className={styles.radarSummaryValue}>{row.value}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
+            </div>
         </Panel>
     );
 };
@@ -960,9 +1028,11 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
                 <PlayerProfile {...data} title={widgetSettings.titles.playerProfile} />
                 <StreamProfile {...data} title={widgetSettings.titles.streamProfile} />
                 <div className={styles.leftMain} data-featured="true">
-                    <FeaturedMatch {...data} title={widgetSettings.titles.featuredMatch} />
-                    <div className={styles.sideStack} data-widget-count={3}>
+                    <div className={styles.leftStack}>
+                        <FeaturedMatch {...data} title={widgetSettings.titles.featuredMatch} />
                         <WebcamSlot {...data} title={widgetSettings.titles.webcam} />
+                    </div>
+                    <div className={styles.sideStack} data-widget-count={3}>
                         <FavoriteHeroes
                             {...data}
                             title={widgetSettings.titles.favoriteHeroes}
@@ -973,6 +1043,7 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
                             title={widgetSettings.titles.recentGames}
                             limit={widgetSettings.recentGamesLimit}
                         />
+                        <PlayerProfileRadarPanel {...data} />
                     </div>
                 </div>
                 <div className={styles.rightMain}>
@@ -985,7 +1056,6 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
                         title={widgetSettings.titles.friends}
                         settings={widgetSettings.friends}
                     />
-                    <PlayerProfileRadarPanel {...data} />
                 </div>
             </div>
         </div>
