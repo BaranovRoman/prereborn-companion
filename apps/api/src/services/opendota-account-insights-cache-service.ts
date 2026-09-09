@@ -3,6 +3,7 @@ import {
     type DotaPlayerCounts,
     type DotaPlayerTotals,
     type DotaHeroRanking,
+    type DotaMatch,
 } from "./dota-match-provider.js";
 import { getCachedPatchConstants, resolvePatchName } from "./opendota-patch-constants-service.js";
 
@@ -77,6 +78,17 @@ const rankingsCache = createAccountCache<DotaHeroRanking[]>(async (accountId) =>
     return result.status === "ok" ? { status: "ok", value: result.rankings } : result;
 });
 
+// WK-148 - player-summary "ПОСЛЕДНИЕ 20" row reuses GET /players/{id}/
+// recentMatches, the exact same endpoint dota-sync-service.ts already calls
+// on every overlay poll (there, uncached, for local-match-history
+// bookkeeping) - this is a separate 10-min cache for the summary row's own
+// read access, not a second upstream call path; same
+// createAccountCache/TTL contract as counts/totals/rankings above.
+const recentMatchesCache = createAccountCache<DotaMatch[]>(async (accountId) => {
+    const result = await openDotaMatchProvider.getRecentMatches(accountId);
+    return result.status === "ok" ? { status: "ok", value: result.matches } : result;
+});
+
 export type CachedCountsResult =
     | { status: "ok"; counts: DotaPlayerCounts }
     | { status: SimpleStatus };
@@ -99,6 +111,16 @@ export type CachedRankingsResult =
 export const getCachedAccountRankings = async (accountId: number): Promise<CachedRankingsResult> => {
     const result = await rankingsCache.get(accountId);
     return result.status === "ok" ? { status: "ok", rankings: result.value } : result;
+};
+
+export type CachedRecentMatchesResult =
+    | { status: "ok"; matches: DotaMatch[] }
+    | { status: SimpleStatus };
+export const getCachedAccountRecentMatches = async (
+    accountId: number
+): Promise<CachedRecentMatchesResult> => {
+    const result = await recentMatchesCache.get(accountId);
+    return result.status === "ok" ? { status: "ok", matches: result.value } : result;
 };
 
 export type CurrentPatchResult =
@@ -155,4 +177,5 @@ export const __resetOpenDotaAccountInsightsCacheForTests = (): void => {
     countsCache.reset();
     totalsCache.reset();
     rankingsCache.reset();
+    recentMatchesCache.reset();
 };

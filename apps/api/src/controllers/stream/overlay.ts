@@ -29,6 +29,7 @@ import { getCachedSteamProfile } from "../../services/steam-profile-cache-servic
 import {
     getCachedOverlayFavoriteHeroStats,
     getCachedOverlayRadar,
+    getCachedOverlayPlayerSummary,
 } from "../../services/opendota-overlay-insights-cache-service.js";
 import { getTwitchStatus, getTwitchViewerEvents } from "../../services/twitch-integration-service.js";
 import { getObsSceneOverride } from "../../services/obs-scene-command-service.js";
@@ -163,6 +164,10 @@ export const getOverlayController = async (req: Request, res: Response) => {
                             )
                           : null,
                   radar: await getCachedOverlayRadar(steamLink.dotaAccountId),
+                  // WK-148 - small player-summary rows next to Player Radar
+                  // (МАТЧЕЙ/ПОСЛЕДНИЕ 20/ОСН. РОЛЬ/ГЕРОЕВ). Same null-и-
+                  // фоновая-заливка cache as favoriteHeroes/radar above.
+                  playerSummary: await getCachedOverlayPlayerSummary(steamLink.dotaAccountId),
               }
             : null;
         const { twitch, donationAlerts } = integrations;

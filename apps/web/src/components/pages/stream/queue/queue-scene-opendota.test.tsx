@@ -57,6 +57,7 @@ describe("FavoriteHeroes OpenDota enrichment", () => {
                         perHero: { 1: { lifetime: { games: 132, wins: 71, losses: 61, winRate: 53.79 }, patch: null } },
                     },
                     radar: null,
+                    playerSummary: null,
                 }}
             />
         );
@@ -82,6 +83,7 @@ describe("FavoriteHeroes OpenDota enrichment", () => {
                         },
                     },
                     radar: null,
+                    playerSummary: null,
                 }}
             />
         );
@@ -108,6 +110,7 @@ describe("FavoriteHeroes OpenDota enrichment", () => {
                         },
                     },
                     radar: null,
+                    playerSummary: null,
                 }}
             />
         );
@@ -134,6 +137,7 @@ describe("FavoriteHeroes OpenDota enrichment", () => {
                         },
                     },
                     radar: null,
+                    playerSummary: null,
                 }}
             />
         );
@@ -151,6 +155,7 @@ describe("FavoriteHeroes OpenDota enrichment", () => {
                 openDota={{
                     favoriteHeroes: { patchName: "7.41", isLatestKnown: true, perHero: {} },
                     radar: null,
+                    playerSummary: null,
                 }}
             />
         );
@@ -172,6 +177,7 @@ describe("PlayerProfileRadarPanel", () => {
                 openDota={{
                     favoriteHeroes: null,
                     radar: { combat: null, farm: null, support: null, objectives: null, flexibility: null, insufficientSample: true },
+                    playerSummary: null,
                 }}
             />
         );
@@ -186,6 +192,7 @@ describe("PlayerProfileRadarPanel", () => {
                 openDota={{
                     favoriteHeroes: null,
                     radar: { combat: 62, farm: 74.6, support: 41, objectives: null, flexibility: 55, insufficientSample: false },
+                    playerSummary: null,
                 }}
             />
         );
@@ -210,6 +217,7 @@ describe("PlayerProfileRadarPanel", () => {
                 openDota={{
                     favoriteHeroes: null,
                     radar: { combat: 62, farm: 74, support: 41, objectives: null, flexibility: 55, insufficientSample: false },
+                    playerSummary: null,
                 }}
             />
         );

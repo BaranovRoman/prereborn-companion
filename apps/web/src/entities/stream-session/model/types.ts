@@ -248,6 +248,17 @@ export interface OverlayData {
             flexibility: number | null;
             insufficientSample: boolean;
         } | null;
+        // WK-148 - small player-summary rows next to Player Radar (МАТЧЕЙ/
+        // ПОСЛЕДНИЕ 20/ОСН. РОЛЬ/ГЕРОЕВ) - not cards, not radar-axis
+        // explanations. Every field independently null/absent when its own
+        // source data is unavailable, same stale-while-refresh contract as
+        // favoriteHeroes/radar above.
+        playerSummary: {
+            lifetime: { games: number; wins: number; losses: number; winRate: number } | null;
+            recentForm: { sample: number; wins: number; losses: number; winRate: number } | null;
+            mainRole: { code: number; label: string; games: number } | null;
+            heroesPlayed: number;
+        } | null;
     } | null;
     twitch: TwitchIntegrationStatus;
     donationAlerts: DonationAlertsIntegrationStatus | null;

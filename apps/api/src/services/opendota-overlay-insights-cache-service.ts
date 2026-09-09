@@ -3,10 +3,23 @@ import { getCachedHeroPatchCounts } from "./opendota-hero-insights-cache-service
 import {
     getCachedAccountCounts,
     getCachedAccountTotals,
+    getCachedAccountRecentMatches,
     resolveCurrentPatchId,
 } from "./opendota-account-insights-cache-service.js";
-import { computeHeroLifetimeStats, computeHeroPatchStats } from "./opendota-hero-insights-formulas.js";
+import {
+    computeHeroLifetimeStats,
+    computeHeroPatchStats,
+    computeRecentForm,
+    type HeroLifetimeStats,
+    type HeroRecentForm,
+} from "./opendota-hero-insights-formulas.js";
 import { computePlayerProfileRadar, type PlayerProfileRadar } from "./opendota-player-profile-radar.js";
+import {
+    computeAccountLifetimeStats,
+    computeHeroesPlayedCount,
+    computeMainRole,
+    type MainRoleSummary,
+} from "./opendota-player-summary.js";
 
 // WK-148 - публичная (неавторизованная) web-сцена Between Matches никогда не
 // ждёт OpenDota (задача, секция 5/12), в отличие от Hero Detail/Companion IPC
@@ -150,9 +163,76 @@ export const getCachedOverlayRadar = async (accountId: number): Promise<PlayerPr
     return cached?.value ?? null;
 };
 
+// Small player-summary rows shown next to Player Radar (задача: "very small
+// player summary... not cards"). Same null-и-фоновая-заливка contract as
+// favCache/radarCache above - reuses the SAME already-cached
+// getCachedPlayerHeroes/getCachedAccountCounts calls the radar makes (no new
+// OpenDota traffic for those two), plus getCachedAccountRecentMatches (a new
+// consumer of an endpoint already called elsewhere - see that cache's own
+// doc comment).
+export interface OverlayPlayerSummary {
+    lifetime: HeroLifetimeStats | null;
+    recentForm: HeroRecentForm | null;
+    mainRole: MainRoleSummary | null;
+    heroesPlayed: number;
+}
+
+interface SummaryCacheEntry {
+    expiresAt: number;
+    value: OverlayPlayerSummary | null;
+}
+
+const summaryCache = new Map<number, SummaryCacheEntry>();
+const summaryInFlight = new Set<number>();
+
+export const getCachedOverlayPlayerSummary = async (
+    accountId: number
+): Promise<OverlayPlayerSummary | null> => {
+    const cached = summaryCache.get(accountId);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+
+    if (!summaryInFlight.has(accountId)) {
+        summaryInFlight.add(accountId);
+        void (async () => {
+            try {
+                const [heroesResult, countsResult, recentMatchesResult] = await Promise.all([
+                    getCachedPlayerHeroes(accountId),
+                    getCachedAccountCounts(accountId),
+                    getCachedAccountRecentMatches(accountId),
+                ]);
+
+                let value: OverlayPlayerSummary | null = null;
+                if (heroesResult.status === "ok") {
+                    value = {
+                        lifetime: computeAccountLifetimeStats(heroesResult.heroes),
+                        heroesPlayed: computeHeroesPlayedCount(heroesResult.heroes),
+                        mainRole:
+                            countsResult.status === "ok"
+                                ? computeMainRole(countsResult.counts.laneRole)
+                                : null,
+                        recentForm:
+                            recentMatchesResult.status === "ok"
+                                ? computeRecentForm(recentMatchesResult.matches)
+                                : null,
+                    };
+                }
+                summaryCache.set(accountId, { value, expiresAt: Date.now() + OVERLAY_TTL_MS });
+            } catch {
+                // См. комментарий выше.
+            } finally {
+                summaryInFlight.delete(accountId);
+            }
+        })();
+    }
+
+    return cached?.value ?? null;
+};
+
 export const __resetOpenDotaOverlayInsightsCacheForTests = (): void => {
     favCache.clear();
     favInFlight.clear();
     radarCache.clear();
     radarInFlight.clear();
+    summaryCache.clear();
+    summaryInFlight.clear();
 };
