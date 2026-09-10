@@ -582,6 +582,128 @@ export const createTables = async (): Promise<void> => {
       CREATE INDEX IF NOT EXISTS idx_stream_sync_events_user ON stream_sync_events(stream_user_id, received_at);
     `);
 
+        // WK-116 - Between Matches quiz. Static question bank: options are a
+        // real child table (not a JSONB array) with their own `is_correct`
+        // flag per row, not a single `correct_option_id` on the question -
+        // that's what lets a future multi-select interaction type ("assemble
+        // the item": pick several correct recipe components among
+        // distractors, see the reconciled future-scope backlog task) reuse
+        // this exact shape instead of a schema change. `interaction_type` is
+        // CHECK-constrained to the one value v1 actually implements, same
+        // house style as stream_matches.result's CHECK - widened later via
+        // DROP/ADD CONSTRAINT when a second type ships, not left open now.
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS quiz_questions (
+        id SERIAL PRIMARY KEY,
+        category VARCHAR(60) NOT NULL,
+        interaction_type VARCHAR(30) NOT NULL DEFAULT 'single_choice_text'
+          CHECK (interaction_type IN ('single_choice_text')),
+        prompt TEXT NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS quiz_question_options (
+        id SERIAL PRIMARY KEY,
+        question_id INTEGER NOT NULL REFERENCES quiz_questions(id) ON DELETE CASCADE,
+        position SMALLINT NOT NULL CHECK (position >= 0),
+        label VARCHAR(120) NOT NULL,
+        asset_url TEXT,
+        is_correct BOOLEAN NOT NULL DEFAULT false
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_quiz_question_options_position
+        ON quiz_question_options(question_id, position);
+    `);
+
+        // Round lifecycle (WK-116 correction: fresh round on every Between
+        // Matches entry, never a resumed one - see quiz-round-service.ts).
+        // `state` is the whole lifecycle: 'active' is the one currently
+        // progressing through question/reveal, 'completed' finished reveal
+        // naturally, 'cancelled' was cut short by leaving Between Matches
+        // mid-round. The partial unique index is what makes "at most one
+        // active round per streamer" a database guarantee, same pattern as
+        // idx_stream_matches_one_active_per_user above. `interactive_regions`
+        // is Companion-measured (getBoundingClientRect against the video
+        // canvas, NOT independently recomputed by the Extension - see the
+        // Phase 0 placement review) and published here once per round;
+        // null until Companion's first report for this round arrives.
+        // `stream_session_id` NOT NULL, not nullable-with-a-fallback: a round
+        // (and therefore the leaderboard it scores into, see
+        // quiz_viewer_scores below) only ever exists tied to a real stream
+        // session, reusing that row's own already-correct survive/reset
+        // lifecycle (persists across Between Matches -> Draft/Gameplay ->
+        // Between Matches within one stream, ends when the stream session
+        // does) instead of inventing a second, parallel "quiz session"
+        // concept - see enterBetweenMatches's getOrCreateActiveSession call.
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS quiz_rounds (
+        id SERIAL PRIMARY KEY,
+        stream_user_id INTEGER NOT NULL REFERENCES stream_users(id) ON DELETE CASCADE,
+        stream_session_id INTEGER NOT NULL REFERENCES stream_sessions(id) ON DELETE CASCADE,
+        question_id INTEGER NOT NULL REFERENCES quiz_questions(id),
+        phase VARCHAR(10) NOT NULL DEFAULT 'question' CHECK (phase IN ('question', 'reveal')),
+        state VARCHAR(10) NOT NULL DEFAULT 'active' CHECK (state IN ('active', 'completed', 'cancelled')),
+        question_started_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        reveal_started_at TIMESTAMP,
+        ended_at TIMESTAMP,
+        interactive_regions JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_quiz_rounds_one_active_per_user
+        ON quiz_rounds(stream_user_id) WHERE state = 'active';
+      CREATE INDEX IF NOT EXISTS idx_quiz_rounds_user_created
+        ON quiz_rounds(stream_user_id, created_at DESC);
+    `);
+
+        // `selected_option_ids` is a JSONB array (not a single scalar column)
+        // even though v1 only ever writes one element - the cheap hook that
+        // keeps a future multi-select answer from needing a schema change.
+        // `is_correct` is computed and stored at submission time (needed by
+        // the one-time scoring pass below) but never returned to a viewer
+        // before reveal - see quiz-round-service.ts's submitAnswer, which
+        // deliberately does NOT touch quiz_viewer_scores at all. Scoring
+        // happens exactly once, at the question->reveal transition, so a
+        // round that gets cancelled (state='cancelled') mid-question never
+        // scores anything even though its answer rows remain (useful for
+        // diagnostics/history) - per the correction: only the round's own
+        // lifecycle is discarded, and only unscored answers are affected.
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS quiz_answers (
+        id SERIAL PRIMARY KEY,
+        round_id INTEGER NOT NULL REFERENCES quiz_rounds(id) ON DELETE CASCADE,
+        twitch_viewer_id VARCHAR(64) NOT NULL,
+        twitch_display_name VARCHAR(128) NOT NULL,
+        selected_option_ids JSONB NOT NULL,
+        is_correct BOOLEAN NOT NULL,
+        answered_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_quiz_answers_round_viewer
+        ON quiz_answers(round_id, twitch_viewer_id);
+    `);
+
+        // Shared TOP 5 leaderboard - scoped to stream_session_id (the
+        // CURRENT stream), not stream_user_id: survives normal Between
+        // Matches <-> Draft/Gameplay transitions within one stream (same
+        // session row throughout) but resets for a new stream, exactly like
+        // wins/losses/rating already do on stream_sessions itself - no new
+        // "quiz session" concept needed, this table just keys off the same
+        // row. A viewer who never participated in a round simply never gets
+        // a row here - streak has no separate "reset on silent non-
+        // participation" path (v1 decision: streak = consecutive CORRECT
+        // answers among rounds the viewer actually answered).
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS quiz_viewer_scores (
+        stream_session_id INTEGER NOT NULL REFERENCES stream_sessions(id) ON DELETE CASCADE,
+        twitch_viewer_id VARCHAR(64) NOT NULL,
+        twitch_display_name VARCHAR(128) NOT NULL,
+        score INTEGER NOT NULL DEFAULT 0 CHECK (score >= 0),
+        streak INTEGER NOT NULL DEFAULT 0 CHECK (streak >= 0),
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (stream_session_id, twitch_viewer_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_quiz_viewer_scores_leaderboard
+        ON quiz_viewer_scores(stream_session_id, score DESC, updated_at ASC);
+    `);
+
         await client.query("COMMIT");
     } catch (error) {
         await client.query("ROLLBACK");

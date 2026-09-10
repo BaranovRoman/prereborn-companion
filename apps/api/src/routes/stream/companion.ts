@@ -10,6 +10,10 @@ import {
 } from "../../controllers/stream/companion.js";
 import { getCompanionObsCommandController } from "../../controllers/stream/obs-scene.js";
 import {
+    getCompanionQuizStateController,
+    putCompanionQuizGeometryController,
+} from "../../controllers/stream/quiz.js";
+import {
     getOverlayLayoutController,
     putOverlayLayoutController,
 } from "../../controllers/stream/overlay-layout.js";
@@ -52,6 +56,21 @@ streamCompanionRouter.get(
     "/commands",
     authenticateCompanionSession,
     getCompanionObsCommandController
+);
+
+// WK-116 - Between Matches quiz. `/quiz/state` is polled the same way
+// `/commands` already is (see backend/mod.rs's poll loop); `/quiz/geometry`
+// is Companion reporting its measured answer-button rects once per round
+// (see quiz.ts's doc comments for both).
+streamCompanionRouter.get(
+    "/quiz/state",
+    authenticateCompanionSession,
+    getCompanionQuizStateController
+);
+streamCompanionRouter.put(
+    "/quiz/geometry",
+    authenticateCompanionSession,
+    putCompanionQuizGeometryController
 );
 
 streamCompanionRouter.put(

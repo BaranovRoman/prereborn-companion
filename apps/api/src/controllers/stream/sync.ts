@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import {
+    applyBetweenMatchesEntered,
+    applyBetweenMatchesLeft,
     applyMatchFinalized,
     applySessionEnded,
     applySessionStarted,
@@ -54,10 +56,21 @@ const matchFinalizedPayloadSchema = z.object({
     finalizedAt: z.string(),
 });
 
+// WK-116 - no payload beyond the discriminant: Companion's BroadcastState
+// (broadcast_state.rs) is a plain enum transition, unlike session/match
+// events there's no data to carry along with "this happened now" (the
+// backend stamps its own CURRENT_TIMESTAMP for question_started_at/
+// ended_at - see quiz-round-service.ts - rather than trusting Companion's
+// clock, same stance the rest of this event set already takes).
+const betweenMatchesEnteredPayloadSchema = z.object({});
+const betweenMatchesLeftPayloadSchema = z.object({});
+
 const syncEventSchema = z.discriminatedUnion("eventType", [
     z.object({ eventId: z.string().uuid(), eventType: z.literal("session_started"), payload: sessionStartedPayloadSchema }),
     z.object({ eventId: z.string().uuid(), eventType: z.literal("session_ended"), payload: sessionEndedPayloadSchema }),
     z.object({ eventId: z.string().uuid(), eventType: z.literal("match_finalized"), payload: matchFinalizedPayloadSchema }),
+    z.object({ eventId: z.string().uuid(), eventType: z.literal("between_matches_entered"), payload: betweenMatchesEnteredPayloadSchema }),
+    z.object({ eventId: z.string().uuid(), eventType: z.literal("between_matches_left"), payload: betweenMatchesLeftPayloadSchema }),
 ]);
 
 // 422 (not 500) for a schema-invalid event - this is the signal the sync
@@ -90,6 +103,14 @@ export const postSyncEventController = async (req: Request, res: Response) => {
             }
             case "match_finalized": {
                 const result = await applyMatchFinalized(streamUserId, eventId, payload);
+                return res.json({ ok: true, result });
+            }
+            case "between_matches_entered": {
+                const result = await applyBetweenMatchesEntered(streamUserId, eventId);
+                return res.json({ ok: true, result });
+            }
+            case "between_matches_left": {
+                const result = await applyBetweenMatchesLeft(streamUserId, eventId);
                 return res.json({ ok: true, result });
             }
         }

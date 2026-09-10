@@ -34,6 +34,7 @@ import {
 import { getTwitchStatus, getTwitchViewerEvents } from "../../services/twitch-integration-service.js";
 import { getObsSceneOverride } from "../../services/obs-scene-command-service.js";
 import { getDonationAlertsStatus } from "../../services/donation-alerts-integration-service.js";
+import { getQuizState } from "../../services/quiz-round-service.js";
 
 const publicTokenSchema = z.string().uuid();
 
@@ -185,6 +186,12 @@ export const getOverlayController = async (req: Request, res: Response) => {
             viewerAlertsSettings
         );
 
+        // WK-116 - shared quiz state for the web fallback renderer. Public/
+        // reveal-gated already at the source (getQuizState never includes
+        // correctOptionId/distribution outside "reveal") - safe to expose on
+        // this unauthenticated endpoint as-is, same as everything else here.
+        const quiz = await getQuizState(streamUserId);
+
         const configuredRecentMatches = Object.values(layout.scenes).map(
             (scene) => scene.widgets.recentMatches.recentMatches
         );
@@ -295,6 +302,7 @@ export const getOverlayController = async (req: Request, res: Response) => {
                 viewerAlertsSettings,
                 layout,
                 queueSettings,
+                quiz,
             });
         }
 
@@ -365,6 +373,7 @@ export const getOverlayController = async (req: Request, res: Response) => {
             viewerAlertsSettings,
             layout,
             queueSettings,
+            quiz,
         });
     } catch (error) {
         if (error instanceof z.ZodError) {

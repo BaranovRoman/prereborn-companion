@@ -97,6 +97,22 @@ export const streamCompanionRateLimiter = rateLimit({
     ),
 });
 
+// WK-116 Phase 4 - viewer answer submissions via the Twitch Extension. Each
+// request is already JWT-authenticated (see authenticate-twitch-extension.ts)
+// and double-answering is already impossible at the DB level - this is
+// purely IP-based defense-in-depth against a compromised/scripted client
+// flooding requests, same stance as streamCompanionRateLimiter above.
+export const twitchExtensionAnswerRateLimiter = rateLimit({
+    windowMs: env.twitchExtensionAnswerRateLimit.windowMs,
+    limit: env.twitchExtensionAnswerRateLimit.max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: rateLimitedResponse(
+        "TOO_MANY_ANSWER_SUBMISSIONS",
+        "Слишком много попыток ответа. Попробуйте позже."
+    ),
+});
+
 // Лимитер для публичной отправки результата солитёра - без авторизации,
 // единственная защита от спама по таблице рекордов - лимит по IP.
 export const solitaireRateLimiter = rateLimit({

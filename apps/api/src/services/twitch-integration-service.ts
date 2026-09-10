@@ -455,3 +455,21 @@ export const disconnectTwitch = async (streamUserId: string) => {
     viewerEvents.delete(streamUserId);
     await pool.query("DELETE FROM stream_twitch_links WHERE stream_user_id = $1", [streamUserId]);
 };
+
+// WK-116 Phase 4 - the reverse of every other lookup in this file: the
+// Twitch Extension JWT's `channel_id` (a real Twitch user id, verified by
+// Twitch's own signature - see authenticate-twitch-extension.ts) identifies
+// the CHANNEL the extension is running on, which we only know as whichever
+// stream_user_id last linked that twitch_user_id via the broadcaster OAuth
+// flow above. Not every channel has ever linked Twitch to a PreReborn
+// account - `null` here means "we can't resolve this to a quiz", the
+// controller's normal "not found" path, not an error.
+export const findStreamUserIdByTwitchChannelId = async (
+    twitchChannelId: string
+): Promise<string | null> => {
+    const result = await pool.query<{ stream_user_id: number }>(
+        `SELECT stream_user_id FROM stream_twitch_links WHERE twitch_user_id = $1`,
+        [twitchChannelId]
+    );
+    return result.rows[0] ? result.rows[0].stream_user_id.toString() : null;
+};
