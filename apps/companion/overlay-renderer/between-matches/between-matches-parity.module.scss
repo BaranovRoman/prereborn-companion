@@ -139,30 +139,15 @@
 // Recent Games to start slightly lower - no structural/column-width change.
 .favoritePortrait { height: 236px; }
 
-// WK-148 parity fix - the production web scene moved Player Radar into
-// .sideStack (its own .recentGames became content-sized/capped there, since
-// PlayerRadar is what now absorbs that column's leftover height - see
-// queue-scene.module.scss's own comment on .recentGames). This renderer's
-// .centerStack never got that same migration (Player Radar stays in
-// .rightMain here, see PlayerProfileRadarPanel below) - it still needs
-// RecentGames to be the one that "takes the rest" of .centerStack, exactly
-// as this file's own comment above already documented BEFORE the web-side
-// change. Restores that pre-existing behavior for this renderer only.
-.recentGames {
-  flex: 1 1 0;
-  max-height: none;
-}
-
-// WK-148 parity fix - the production web scene added this cap because
-// PlayerRadar there is a flex sibling of a tight, fixed-height column
-// (.sideStack) and needed a ceiling to stop it ballooning into that
-// column's leftover space (see queue-scene.module.scss's own comment on
-// .radarPanel). Player Radar here is a CSS Grid item in .rightMain, sized
-// by its own content via `grid-auto-rows: auto` (never a flex sibling
-// fighting for space) - it never had that ballooning problem, so the same
-// cap here would only ever clip it below its natural size instead of
-// protecting anything.
-.radarPanel { max-height: none; }
+// WK-154 parity fix - this renderer's .centerStack now receives the same
+// migration the production web scene already had (Player Radar moved into
+// .sideStack, directly below Recent Games - see BetweenMatchesScene.tsx's
+// render). Both .recentGames and .radarPanel now rely on the shared
+// queue-scene.module.scss rules unmodified (content-sized+capped Recent
+// Games, radar absorbing the column's leftover height) - no local override
+// needed here any more. (Previously this block restored the pre-migration
+// "RecentGames takes the rest of the column" behavior for this renderer
+// only; that divergence is now closed.)
 
 // WK-152 - hero name dropped (redundant with the portrait right next to
 // it); portrait enlarged and row shrunk so more rows fit. Result cell shows

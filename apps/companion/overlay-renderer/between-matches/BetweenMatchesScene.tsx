@@ -295,10 +295,16 @@ const RADAR_AXES: ReadonlyArray<{ key: "combat" | "farm" | "objectives" | "suppo
 // Visual-QA polish pass - scaled ~1.8x from the first cut (260px), which
 // read as a tiny island inside a much wider panel; mirrors the same change
 // in the production web scene's PlayerProfileRadarPanel (queue-scene-ui.tsx).
+// WK-154 parity fix - grown from 86/130 to 132/148 alongside the panel's
+// move into .sideStack (see the render below): this panel now shares the
+// exact same .radarPanel/.radarChart box (max-height:280px) that web's
+// PlayerProfileRadarPanel fills at these values - the old, smaller radius
+// was sized for the wider/shorter .rightMain grid cell this used to live
+// in and would underfill the new box.
 const RADAR_SIZE = 468;
 const RADAR_CENTER = RADAR_SIZE / 2;
-const RADAR_MAX_RADIUS = 86;
-const RADAR_LABEL_RADIUS = 130;
+const RADAR_MAX_RADIUS = 132;
+const RADAR_LABEL_RADIUS = 148;
 const RADAR_GRID_RINGS = [0.5, 1];
 // Missing axis (e.g. ОБЪЕКТЫ without sufficient parsed tower-damage
 // coverage) - no invented score/fake neutral value; the vertex still
@@ -333,7 +339,7 @@ function PlayerProfileRadarPanel({ openDota }: { openDota: OverlayStateSnapshot[
   const shapePoints = axisPoints.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
 
   return (
-    <Panel title="Player radar" className={`${styles.radarPanel} ${parity.radarPanel}`}>
+    <Panel title="Player radar" className={styles.radarPanel}>
       <div className={styles.radarBody}>
       <svg className={styles.radarChart} viewBox={`0 0 ${RADAR_SIZE} ${RADAR_SIZE}`}>
         {RADAR_GRID_RINGS.map((ring) => (
@@ -405,7 +411,7 @@ function PlayerProfileRadarPanel({ openDota }: { openDota: OverlayStateSnapshot[
 
 function RecentGames({ matches, title, limit }: { matches: LocalMatchSummary[]; title: string; limit: number }) {
   return (
-    <Panel title={title} className={`${styles.recentGames} ${parity.recentGames}`}>
+    <Panel title={title} className={styles.recentGames}>
       <div className={`${styles.gamesList} ${parity.gamesList}`} data-short={matches.length < limit ? "true" : undefined}>
         {matches.length ? matches.slice(0, limit).map((match, index) => {
           const hero = getHeroById(match.heroId);
@@ -522,15 +528,15 @@ export function BetweenMatchesScene({
               <FeaturedMatch match={session.recentMatches[0]} />
               <WebcamPanel title="LIVE CAPTURE" imageUrl={settings?.webcamImageUrl ?? null} />
             </div>
-            <div className={`${styles.sideStack} ${parity.centerStack}`} data-widget-count={2}>
+            <div className={`${styles.sideStack} ${parity.centerStack}`} data-widget-count={3}>
               <FavoriteHeroes title="FAVORITE HEROES" matches={session.recentMatches} heroIds={settings?.favoriteHeroIds ?? []} openDota={openDotaFavoriteHeroes} />
               <RecentGames title="RECENT GAMES" matches={session.recentMatches} limit={settings?.widgets.recentGamesLimit ?? 5} />
+              <PlayerProfileRadarPanel openDota={openDotaRadar} />
             </div>
           </div>
           <div className={styles.rightMain}>
             <TwitchChat chat={twitchChat} title="TWITCH CHAT" limit={settings?.widgets.chatMessagesLimit ?? 12} />
             {settings && <CommunityArea title="COMMUNITY" account={account} settings={settings.widgets.friends} />}
-            <PlayerProfileRadarPanel openDota={openDotaRadar} />
             {quiz && (
               <QuizBoard
                 category={quiz.category}

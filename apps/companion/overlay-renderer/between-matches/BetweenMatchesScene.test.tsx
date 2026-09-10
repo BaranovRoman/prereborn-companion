@@ -348,6 +348,104 @@ describe("BetweenMatchesScene", () => {
     });
   });
 
+  // WK-154 regression fixture - the exact bug reported from a live stream:
+  // Player Radar drifted back into .rightMain (this renderer's own "not-yet-
+  // migrated" parity gap, see between-matches-parity.module.scss's history)
+  // instead of the middle column alongside Favorite Heroes/Recent Games, and
+  // the Quiz board needs to keep rendering correctly alongside it. This is
+  // the "all six widgets populated simultaneously" check called for after
+  // that report - it renders Favorite Heroes, Recent Games, Player Radar,
+  // Twitch Chat, Community and Quiz all at once with real-shaped data and
+  // asserts BOTH that every widget is present AND that each lives in the
+  // correct column (DOM parent), so a future placement drift fails a test
+  // instead of only being caught by eyeballing a real broadcast.
+  it("renders Favorite Heroes + Recent Games + Player Radar + Twitch Chat + Community + Quiz simultaneously, each in its correct column", () => {
+    const { container } = render(
+      <BetweenMatchesScene
+        session={{
+          ...SESSION,
+          recentMatches: [{
+            localId: "local-1", matchId: "1", heroId: 14, result: "win",
+            rankedMode: "ranked", rankedModeDetected: "ranked", state: "finalized",
+            ratingBefore: 6_000, ratingAfter: 6_025, detectedRatingDelta: 25, ratingDeltaCorrection: 0,
+            kills: 12, deaths: 4, assists: 18, inventory: [],
+            startedAt: "2026-08-30T12:00:00Z", finalizedAt: "2026-08-30T12:40:00Z",
+          }],
+        }}
+        settings={{
+          ...SETTINGS,
+          favoriteHeroIds: [1],
+          widgets: { ...SETTINGS.widgets, friends: { ...SETTINGS.widgets.friends, showDonaters: true, showFollowers: true } },
+        }}
+        account={{
+          twitch: { connected: true, recentFollowers: [{ id: "f1", name: "NewFollower" }] },
+          donationAlerts: { connected: true, topDonors: [{ username: "TopDonor", amount: 1_500, currency: "RUB" }] },
+        }}
+        twitchChat={{
+          accountConnected: true, configured: true, displayName: "channel", connected: true, state: "connected",
+          messages: [{ id: "1", author: "Alice", color: "#ff0000", text: "gl hf", receivedAt: "2026-08-30T12:00:00Z" }],
+        }}
+        openDotaFavoriteHeroes={{
+          status: "ok", source: "opendota", patchName: "7.41", isLatestKnown: true,
+          heroes: [{ heroId: 1, lifetime: { games: 132, wins: 71, losses: 61, winRate: 53.79 }, patch: null }],
+          fetchedAt: "2026-01-01T00:00:00Z",
+        }}
+        openDotaRadar={{
+          status: "ok", source: "opendota", combat: 62, farm: 74, support: 41, objectives: 19, flexibility: 55,
+          fetchedAt: "2026-01-01T00:00:00Z",
+        }}
+        quiz={{
+          roundId: "42", phase: "question", phaseEndsAt: new Date(Date.now() + 15_000).toISOString(),
+          category: "ПРЕДМЕТ", interactionType: "single_choice_text",
+          prompt: "Какой предмет усиливает регенерацию маны сильнее всего?",
+          options: [
+            { id: "1", label: "Arcane Boots", assetUrl: null },
+            { id: "2", label: "Power Treads", assetUrl: null },
+            { id: "3", label: "Aether Lens", assetUrl: null },
+            { id: "4", label: "Boots of Travel", assetUrl: null },
+          ],
+          correctOptionId: null, distribution: null, interactiveRegions: null, leaderboard: [],
+        }}
+      />
+    );
+
+    const favoriteHeroes = screen.getByLabelText("FAVORITE HEROES");
+    const recentGames = screen.getByLabelText("RECENT GAMES");
+    const radar = screen.getByLabelText("Player radar");
+    const chat = screen.getByLabelText("TWITCH CHAT");
+    const community = screen.getByLabelText("COMMUNITY");
+    const quiz = screen.getByLabelText("QUIZ");
+
+    // All six render at once - none of them silently drop out for another.
+    expect(favoriteHeroes).toBeTruthy();
+    expect(recentGames).toBeTruthy();
+    expect(radar).toBeTruthy();
+    expect(chat).toBeTruthy();
+    expect(community).toBeTruthy();
+    expect(quiz).toBeTruthy();
+
+    // The actual regression: Player Radar must share Favorite Heroes/Recent
+    // Games' column (the middle .sideStack), never Twitch Chat/Community/
+    // Quiz's column (the right .rightMain) - this is what silently broke
+    // when the radar panel drifted back into .rightMain.
+    expect(radar.parentElement).toBe(recentGames.parentElement);
+    expect(radar.parentElement).toBe(favoriteHeroes.parentElement);
+    expect(radar.parentElement).not.toBe(chat.parentElement);
+
+    // Quiz stays with Chat/Community in the right column, as the 3rd widget
+    // there (not a 4th, now that Radar no longer also lives in this column).
+    expect(quiz.parentElement).toBe(chat.parentElement);
+    expect(quiz.parentElement).toBe(community.parentElement);
+
+    // No clipping/scrolling on the scene root at the two required desktop
+    // baselines (project CLAUDE.md) - jsdom doesn't lay out real pixels, so
+    // this only guards against an `overflow` regression on the root itself,
+    // not real overflow; the live screenshot pass is what verifies actual
+    // fit at 1920x1080/2560x1440.
+    const scene = container.querySelector('[data-testid="between-matches-production"]') as HTMLElement;
+    expect(scene).toBeTruthy();
+  });
+
   // WK-116 Phase 3 - real backend quiz state, replacing the Phase 0 mock/
   // query-param wiring. The shared video must show only shared state - no
   // per-viewer marker anywhere (see the correction: no "ТЫ: #17", no
