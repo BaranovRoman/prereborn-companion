@@ -1,0 +1,18 @@
+{
+  "name": "@prereborn/twitch-extension",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.3",
+    "vite": "^7.0.4",
+    "vite-plugin-singlefile": "^2.3.0",
+    "vitest": "^4.1.10"
+  }
+}

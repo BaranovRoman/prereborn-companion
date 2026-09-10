@@ -5,10 +5,10 @@
   "packageManager": "pnpm@10.28.0",
   "scripts": {
     "dev": "pnpm --parallel --recursive dev",
-    "build": "pnpm --filter @prereborn/web build && pnpm --filter @prereborn/api build && pnpm --filter @prereborn/companion build",
+    "build": "pnpm --filter @prereborn/web build && pnpm --filter @prereborn/api build && pnpm --filter @prereborn/companion build && pnpm --filter @prereborn/twitch-extension build",
     "lint": "pnpm --filter @prereborn/web lint",
-    "typecheck": "pnpm --filter @prereborn/web typecheck && pnpm --filter @prereborn/api typecheck",
-    "test": "pnpm --filter @prereborn/web test && pnpm --filter @prereborn/api test",
+    "typecheck": "pnpm --filter @prereborn/web typecheck && pnpm --filter @prereborn/api typecheck && pnpm --filter @prereborn/twitch-extension typecheck",
+    "test": "pnpm --filter @prereborn/web test && pnpm --filter @prereborn/api test && pnpm --filter @prereborn/twitch-extension test",
     "check:rust": "cargo check --manifest-path apps/companion/src-tauri/Cargo.toml"
   }
 }
