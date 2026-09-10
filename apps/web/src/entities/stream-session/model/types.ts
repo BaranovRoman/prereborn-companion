@@ -270,4 +270,46 @@ export interface OverlayData {
     // данные (см. задачу: не заводить отдельный поллинг под layout).
     layout: OverlayLayout;
     queueSettings: QueueSettings;
+    // WK-116 - Between Matches quiz round state, reveal-gated at the source
+    // (apps/api's getQuizState never includes correctOptionId/distribution
+    // outside "reveal" - see quiz-round-service.ts). `null` whenever there
+    // is no active round.
+    quiz: QuizRoundState | null;
+}
+
+export interface QuizOption {
+    id: string;
+    label: string;
+    assetUrl: string | null;
+}
+
+export interface QuizLeaderboardEntry {
+    rank: number;
+    twitchViewerId: string;
+    displayName: string;
+    score: number;
+    streak: number;
+}
+
+export interface QuizInteractiveRegion {
+    id: string;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    value: string;
+}
+
+export interface QuizRoundState {
+    roundId: string;
+    phase: "question" | "reveal";
+    phaseEndsAt: string;
+    category: string;
+    interactionType: "single_choice_text";
+    prompt: string;
+    options: QuizOption[];
+    correctOptionId: string | null;
+    distribution: Record<string, number> | null;
+    interactiveRegions: QuizInteractiveRegion[] | null;
+    leaderboard: QuizLeaderboardEntry[];
 }

@@ -105,6 +105,12 @@ pub struct OverlayStateSnapshot {
     /// OpenDotaFavoriteHeroesResponse/OpenDotaProfileRadarResponse shapes.
     pub opendota_favorite_heroes: Option<serde_json::Value>,
     pub opendota_radar: Option<serde_json::Value>,
+    /// WK-116 - Between Matches quiz round state, populated by
+    /// quiz_overlay.rs's own background poll (same "opaque JSON pass-
+    /// through, no Tauri IPC" reasoning as the two fields above). `null`
+    /// whenever there is no active round - the renderer's own gate for
+    /// whether to mount the quiz board at all.
+    pub quiz: Option<serde_json::Value>,
 }
 
 /// Reads AppState (canonical resolver fields) plus the local runtime's
@@ -129,6 +135,7 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
         overlay_visible,
         opendota_favorite_heroes,
         opendota_radar,
+        quiz,
     ) = {
         let state = app.state::<AppState>();
         let inner = state.0.lock().unwrap();
@@ -142,6 +149,7 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
             inner.overlay_visible,
             inner.opendota_favorite_heroes.clone(),
             inner.opendota_radar.clone(),
+            inner.quiz.clone(),
         )
     };
     let gsi_derived = gsi_derived_source.unwrap_or(BroadcastState::BetweenMatches);
@@ -161,6 +169,7 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
         overlay_visible,
         opendota_favorite_heroes,
         opendota_radar,
+        quiz,
     }
 }
 
@@ -361,7 +370,7 @@ fn scene_changed(last_sent_scene: Option<BroadcastState>, current_scene: Broadca
     last_sent_scene != Some(current_scene)
 }
 
-fn handle_request<R: Runtime>(app: &AppHandle<R>, request: tiny_http::Request) {
+fn handle_request<R: Runtime>(app: &AppHandle<R>, mut request: tiny_http::Request) {
     let request_url = request.url().to_string();
     let path = request_url.split('?').next().unwrap_or("").to_string();
     diagnostic_log(
@@ -383,6 +392,48 @@ fn handle_request<R: Runtime>(app: &AppHandle<R>, request: tiny_http::Request) {
             respond_json(request, &snapshot);
         }
         (tiny_http::Method::Get, "/overlay/events") => serve_sse(app, request),
+        // WK-116 - the React renderer measures its own rendered answer-
+        // button DOM rects (real getBoundingClientRect against the video
+        // canvas) and posts them here. This local endpoint exists ONLY
+        // because the renderer has no Tauri IPC and no companion_token of
+        // its own (same constraint every other field on this server
+        // documents) - it cannot reach the real backend directly. Rust is
+        // the only thing that holds the token, so it's the only thing that
+        // can forward this to PUT /stream/companion/quiz/geometry - see
+        // quiz_overlay::publish_geometry.
+        (tiny_http::Method::Post, "/overlay/quiz-geometry") => {
+            let mut body = String::new();
+            match std::io::Read::read_to_string(request.as_reader(), &mut body) {
+                Ok(_) => match serde_json::from_str::<serde_json::Value>(&body) {
+                    Ok(payload) => match crate::quiz_overlay::publish_geometry(app, payload) {
+                        Ok(applied) => respond_json(request, &serde_json::json!({ "ok": true, "applied": applied })),
+                        Err(error) => {
+                            let response = tiny_http::Response::from_string(
+                                serde_json::json!({ "ok": false, "error": error }).to_string(),
+                            )
+                            .with_status_code(tiny_http::StatusCode(502))
+                            .with_header(json_header())
+                            .with_header(cors_header());
+                            let _ = request.respond(response);
+                        }
+                    },
+                    Err(_) => {
+                        let response = tiny_http::Response::from_string(r#"{"ok":false,"error":"invalid_json"}"#)
+                            .with_status_code(tiny_http::StatusCode(400))
+                            .with_header(json_header())
+                            .with_header(cors_header());
+                        let _ = request.respond(response);
+                    }
+                },
+                Err(_) => {
+                    let response = tiny_http::Response::from_string(r#"{"ok":false,"error":"read_failed"}"#)
+                        .with_status_code(tiny_http::StatusCode(400))
+                        .with_header(json_header())
+                        .with_header(cors_header());
+                    let _ = request.respond(response);
+                }
+            }
+        }
         // WK-122 §19 - serves whatever OverlayLayout backend::init's
         // periodic poll (or a save from the Оформление editor) most
         // recently cached. `null` (not an error) when nothing has been
@@ -1051,6 +1102,7 @@ mod tests {
                 overlay_visible: true,
                 opendota_favorite_heroes: None,
                 opendota_radar: None,
+                quiz: None,
             };
             let json = serde_json::to_string(&snapshot).unwrap().to_lowercase();
             for forbidden in ["token", "secret", "password", "companion_token", "bearer"] {

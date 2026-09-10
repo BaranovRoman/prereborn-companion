@@ -208,6 +208,7 @@ export function OverlayApp() {
         twitchChat={snapshot.twitchChat}
         openDotaFavoriteHeroes={snapshot.opendotaFavoriteHeroes}
         openDotaRadar={snapshot.opendotaRadar}
+        quiz={snapshot.quiz}
       />
       {!connected && <div className="ov-anchor ov-anchor--top-right"><span className="ov-reconnecting">Переподключение…</span></div>}
     </>;

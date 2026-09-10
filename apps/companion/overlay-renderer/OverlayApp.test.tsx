@@ -48,6 +48,7 @@ function baseSnapshot(overrides: Partial<OverlayStateSnapshot> = {}): OverlaySta
     overlayVisible: true,
     opendotaFavoriteHeroes: null,
     opendotaRadar: null,
+    quiz: null,
     ...overrides,
   };
 }
