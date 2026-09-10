@@ -2492,3 +2492,55 @@
             scale(1.118);
     }
 }
+
+// ---------------------------------------------------------------------
+// Phase 0 placement spike (WK-116) - variant scaffolding for the quiz-board
+// placement decision. Everything below is inert unless `.dashboard` carries
+// `data-quiz-variant` (see queue-scene-ui.tsx's `?quizVariant=` param) - the
+// production layout (no attribute) is completely unaffected. Once a variant
+// is chosen, Phase 3 replaces this scaffolding with one permanent, always-on
+// implementation - it does not stay behind a query param.
+// ---------------------------------------------------------------------
+
+// Variant A - dedicated 3rd column, full column height (spans both dashboard
+// rows so it gets the top row's height too, not just row 2's).
+.dashboard[data-quiz-variant="a"] {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, .78fr) minmax(0, 300px);
+}
+.dashboard[data-quiz-variant="a"] > .playerProfile { grid-column: 1; grid-row: 1; }
+.dashboard[data-quiz-variant="a"] > .streamProfile { grid-column: 2; grid-row: 1; }
+.dashboard[data-quiz-variant="a"] > .leftMain { grid-column: 1; grid-row: 2; }
+.dashboard[data-quiz-variant="a"] > .rightMain { grid-column: 2; grid-row: 2; }
+
+.quizColumn {
+    grid-column: 3;
+    grid-row: 1 / 3;
+    min-height: 0;
+}
+
+// Variant B - compact horizontal strip sharing the existing 112px top row
+// with Player Profile/Stream Profile. `.dashboard`'s own column template is
+// untouched (leftMain/rightMain fall into row 2 via normal auto-placement
+// once row 1 is fully occupied by this single spanning wrapper) - rightMain/
+// sideStack are byte-for-byte the base layout in this variant.
+.quizTopRow {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    display: flex;
+    min-width: 0;
+    gap: 10px;
+}
+.quizTopRow > .playerProfile,
+.quizTopRow > .streamProfile {
+    flex: 1 1 0;
+    min-width: 0;
+}
+.quizTopRowSlot {
+    flex: 0 0 480px;
+    min-width: 0;
+}
+
+// Variant C - 4th row inside the existing `.rightMain` column (see
+// `.rightMain`'s own `grid-template-rows: minmax(120px, 1fr) auto` above -
+// this is a 3rd, implicit `auto` row, the same mechanism the companion
+// renderer's radar panel already relies on).

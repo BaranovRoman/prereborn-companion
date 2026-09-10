@@ -10,6 +10,7 @@ mod local_runtime;
 mod obs;
 mod opendota_overlay_cache;
 mod overlay_server;
+mod quiz_overlay;
 mod runtime_health;
 mod secure_storage;
 mod server;
@@ -244,6 +245,7 @@ pub fn run() {
             local_runtime::sync::start_sync_worker(handle.clone());
             overlay_server::init(handle.clone());
             opendota_overlay_cache::init(handle.clone());
+            quiz_overlay::init(handle.clone());
 
             build_tray(&handle)?;
 

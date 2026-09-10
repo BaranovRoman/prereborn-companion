@@ -1,0 +1,247 @@
+// Phase 0 placement spike (WK-116) - visual language matches the shared
+// .panel/.panelTitle idiom from queue-scene.module.scss (imported alongside
+// this module in QuizBoard.tsx), not a second design system.
+
+.quizPanel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+// .panelTitle base (height/border/gradient/color/font) comes from the
+// shared sceneStyles import - this just adds the badge on the right.
+.panelTitle {
+    justify-content: space-between;
+    padding-right: 16px;
+}
+
+.phaseBadge {
+    padding: 3px 10px;
+    border: 1px solid rgba(184, 91, 83, .4);
+    border-radius: 2px;
+    background: rgba(123, 53, 50, .18);
+    color: #d0ccc3;
+    font-family: var(--font-title);
+    font-size: 10px;
+    letter-spacing: .1em;
+}
+
+.phaseBadge[data-phase="reveal"] {
+    border-color: rgba(155, 187, 118, .45);
+    background: rgba(90, 130, 60, .18);
+    color: #c7dcb0;
+}
+
+.body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    gap: 10px;
+    padding: 12px 16px 14px;
+}
+
+.body[data-layout="horizontal"] {
+    flex-direction: row;
+    align-items: center;
+    gap: 16px;
+    padding: 8px 18px;
+}
+
+.timerTrack {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    height: 6px;
+    overflow: hidden;
+    border-radius: 3px;
+    background: #14181a;
+    box-shadow: inset 0 0 0 1px #070909;
+}
+
+.body[data-layout="horizontal"] .timerTrack {
+    flex: 0 0 64px;
+    height: 34px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 2px;
+}
+
+.timerTrack > i {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: linear-gradient(90deg, #6c302e, #a1534d);
+    transition: width 300ms linear;
+}
+
+.timerTrack > i[data-phase="reveal"] {
+    background: linear-gradient(90deg, #3f5c2c, #6c9b3e);
+}
+
+.timerTrack > span {
+    position: relative;
+    z-index: 1;
+    margin-right: 6px;
+    color: #d0ccc3;
+    font-family: var(--font-title);
+    font-size: 10px;
+    letter-spacing: .06em;
+}
+
+.body[data-layout="horizontal"] .timerTrack > span {
+    margin: 0;
+    font-size: 13px;
+}
+
+.question {
+    margin: 0;
+    color: #e5dfd7;
+    font-family: var(--font-title);
+    font-size: 15px;
+    font-weight: 400;
+    line-height: 1.28;
+}
+
+.body[data-layout="horizontal"] .question {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 13px;
+    line-height: 1.2;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.answers {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.answers[data-layout="horizontal"] {
+    flex: 0 0 260px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.answer {
+    position: relative;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    padding: 8px 10px;
+    border: 1px solid #070909;
+    border-radius: 1px;
+    background: linear-gradient(180deg, rgba(40, 45, 46, .9), rgba(16, 20, 21, .9));
+    box-shadow: inset 0 0 0 1px rgba(129, 141, 142, .1);
+    color: #c9c5bd;
+    font-family: var(--font-ui);
+    font-size: 12px;
+    text-align: left;
+}
+
+.answers[data-layout="horizontal"] .answer {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 4px 6px;
+    font-size: 10px;
+}
+
+.answers[data-layout="horizontal"] .answerLabel {
+    overflow: hidden;
+    max-width: 100%;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.answer[data-state="correct"] {
+    border-color: rgba(155, 187, 118, .55);
+    background: linear-gradient(180deg, rgba(60, 84, 42, .55), rgba(24, 34, 20, .85));
+    color: #d3e6bd;
+}
+
+.answer[data-state="wrong"] {
+    opacity: .55;
+}
+
+.answerLabel {
+    position: relative;
+    z-index: 1;
+}
+
+.answerPercent {
+    position: relative;
+    z-index: 1;
+    margin-left: auto;
+    padding-left: 8px;
+    color: #918f88;
+    font-family: var(--font-title);
+    font-size: 11px;
+}
+
+.answer[data-state="correct"] .answerPercent {
+    color: #c7dcb0;
+}
+
+.answerBar {
+    position: absolute;
+    inset: auto 0 0 0;
+    z-index: 0;
+    height: 3px;
+    background: rgba(184, 91, 83, .5);
+}
+
+.answer[data-state="correct"] .answerBar {
+    background: rgba(155, 187, 118, .6);
+}
+
+.leaderboard {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    gap: 4px;
+}
+
+.leaderboardTitle {
+    color: #767c79;
+    font-family: var(--font-title);
+    font-size: 10px;
+    letter-spacing: .16em;
+}
+
+.leaderboard ol {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.leaderboard li {
+    display: grid;
+    grid-template-columns: 16px 1fr auto;
+    gap: 6px;
+    align-items: center;
+    padding: 3px 0;
+    color: #b9b5ad;
+    font-size: 11px;
+}
+
+.leaderboardRank {
+    color: #767c79;
+    font-family: var(--font-title);
+}
+
+.leaderboardName {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.leaderboardScore {
+    color: #c9c5bd;
+    font-family: var(--font-title);
+    font-size: 12px;
+}

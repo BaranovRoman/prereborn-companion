@@ -68,5 +68,6 @@ export const buildOverlayData = (overrides: Partial<OverlayData> = {}): OverlayD
     viewerAlertsSettings: DEFAULT_VIEWER_ALERTS_SETTINGS,
     layout: DEFAULT_OVERLAY_LAYOUT,
     queueSettings: DEFAULT_QUEUE_SETTINGS,
+    quiz: null,
     ...overrides,
 });

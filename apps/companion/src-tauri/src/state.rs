@@ -286,6 +286,14 @@ pub struct InnerState {
     /// UI. The localhost overlay reuses this cache; it never opens another
     /// Twitch connection.
     pub twitch_chat: Option<serde_json::Value>,
+    // WK-116 - Between Matches quiz round state, populated by
+    // quiz_overlay.rs's background poll (same "opaque serde_json::Value,
+    // Rust never interprets fields, the renderer owns the typed DTO"
+    // pattern as opendota_favorite_heroes/opendota_radar above). `None`
+    // whenever there is no active round (never in Between Matches, or the
+    // active round was just cancelled - quiz_overlay.rs clears this
+    // immediately on leaving, not waiting for the next poll response).
+    pub quiz: Option<serde_json::Value>,
     pub last_history_log_signature: Option<String>,
     // WK-124 - global runtime visibility override for the local overlay
     // renderer: OFF makes the final renderer output fully transparent

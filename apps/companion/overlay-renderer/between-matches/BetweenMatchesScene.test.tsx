@@ -1,8 +1,18 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import type { LocalSessionSummary, QueueSettings } from "../types";
+import type { LocalSessionSummary, QueueSettings, QuizRoundState } from "../types";
 import { BetweenMatchesScene } from "./BetweenMatchesScene";
+
+// jsdom doesn't implement ResizeObserver at all - usePublishGeometry (like
+// AnchoredBox/Scene elsewhere in this renderer) uses the real one. Same
+// per-file stub convention as AnchoredBox.test.tsx.
+class StubResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver ??= StubResizeObserver;
 
 const SESSION: LocalSessionSummary = {
   hasSession: true,
@@ -335,6 +345,75 @@ describe("BetweenMatchesScene", () => {
       expect(container.querySelectorAll(`circle[class*="radarVertexMissing"]`).length).toBe(1);
       expect(container.querySelectorAll(`line[class*="radarSpokeMissing"]`).length).toBe(1);
       expect(container.querySelectorAll(`circle[class*="radarVertex"]:not([class*="Missing"])`).length).toBe(4);
+    });
+  });
+
+  // WK-116 Phase 3 - real backend quiz state, replacing the Phase 0 mock/
+  // query-param wiring. The shared video must show only shared state - no
+  // per-viewer marker anywhere (see the correction: no "ТЫ: #17", no
+  // personal score/streak/selection distinguishable from another viewer's).
+  describe("quiz", () => {
+    const QUESTION_STATE: QuizRoundState = {
+      roundId: "42",
+      phase: "question",
+      phaseEndsAt: new Date(Date.now() + 15_000).toISOString(),
+      category: "ПРЕДМЕТ",
+      interactionType: "single_choice_text",
+      prompt: "Какой предмет усиливает регенерацию маны сильнее всего?",
+      options: [
+        { id: "1", label: "Arcane Boots", assetUrl: null },
+        { id: "2", label: "Power Treads", assetUrl: null },
+        { id: "3", label: "Aether Lens", assetUrl: null },
+        { id: "4", label: "Boots of Travel", assetUrl: null },
+      ],
+      correctOptionId: null,
+      distribution: null,
+      interactiveRegions: null,
+      leaderboard: [
+        { rank: 1, twitchViewerId: "u1", displayName: "quiz_lover", score: 400, streak: 2 },
+        { rank: 2, twitchViewerId: "u2", displayName: "dota_fan_92", score: 300, streak: 1 },
+      ],
+    };
+    const REVEAL_STATE: QuizRoundState = {
+      ...QUESTION_STATE,
+      phase: "reveal",
+      correctOptionId: "1",
+      distribution: { "1": 54, "2": 21, "3": 17, "4": 8 },
+    };
+
+    it("does not render a quiz board at all when there is no active round", () => {
+      render(<BetweenMatchesScene session={SESSION} quiz={null} />);
+      expect(screen.queryByLabelText("QUIZ")).toBeNull();
+    });
+
+    it("renders the real question/options during QUESTION, with no correct answer revealed", () => {
+      render(<BetweenMatchesScene session={SESSION} quiz={QUESTION_STATE} />);
+      expect(screen.getByLabelText("QUIZ")).toBeTruthy();
+      expect(screen.getByText(QUESTION_STATE.prompt)).toBeTruthy();
+      for (const option of QUESTION_STATE.options) {
+        expect(screen.getByText(option.label)).toBeTruthy();
+      }
+      // No percent/distribution figures rendered before reveal.
+      expect(screen.queryByText("54%")).toBeNull();
+    });
+
+    it("renders correctness/distribution/leaderboard only once the round is in REVEAL", () => {
+      render(<BetweenMatchesScene session={SESSION} quiz={REVEAL_STATE} />);
+      expect(screen.getByText("54%")).toBeTruthy();
+      expect(screen.getByText("quiz_lover")).toBeTruthy();
+      expect(screen.getByText("dota_fan_92")).toBeTruthy();
+    });
+
+    it("never renders any personalized/per-viewer marker in the shared video", () => {
+      const { container } = render(<BetweenMatchesScene session={SESSION} quiz={REVEAL_STATE} />);
+      const text = container.textContent ?? "";
+      // No "your rank", "you answered", a personal streak/score readout, or
+      // any viewer-id-shaped string leaking into the shared visual - only
+      // the shared TOP 5 (rank/displayName/score) is ever shown.
+      expect(text).not.toMatch(/ты[:\s]/i);
+      expect(text).not.toMatch(/your (rank|score|answer)/i);
+      expect(container.querySelector("[data-viewer-id]")).toBeNull();
+      expect(container.querySelector("[data-personal-selection]")).toBeNull();
     });
   });
 });

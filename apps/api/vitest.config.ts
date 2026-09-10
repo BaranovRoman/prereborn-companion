@@ -14,6 +14,9 @@ export default defineConfig({
             TWITCH_CLIENT_SECRET: "test-twitch-client-secret",
             TWITCH_REDIRECT_URI: "http://localhost/api/stream/twitch/callback",
             TWITCH_FRONTEND_ORIGIN: "http://localhost:3000",
+            // Base64 of a 32-byte test-only key - matches the shape a real
+            // Twitch Extension secret has, not a real credential.
+            TWITCH_EXTENSION_SECRET: "dGVzdC1vbmx5LXR3aXRjaC1leHRlbnNpb24tc2VjcmV0LTMyYg==",
         },
     },
 });

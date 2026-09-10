@@ -1,12 +1,18 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { getHeroById } from "../../src/services/heroCatalog";
 import logoUrl from "../../../web/public/logo-new.png";
 import { Atmosphere } from "../Atmosphere";
 import type { LocalMatchSummary, LocalSessionSummary, OverlayStateSnapshot, QueueSettings } from "../types";
 import styles from "../../../web/src/components/pages/stream/queue/queue-scene.module.scss";
 import parity from "./between-matches-parity.module.scss";
+import { QuizBoard } from "./quiz/QuizBoard";
+import { useCountdown } from "./quiz/useCountdown";
+import { usePublishGeometry } from "./quiz/usePublishGeometry";
 
 const EMPTY_VALUE = "—";
+// useCountdown needs SOME timestamp before the first real quiz state
+// arrives - any already-past instant collapses to 0s without a special case.
+const EMPTY_TIMESTAMP = new Date(0).toISOString();
 const INVENTORY_SLOTS = Array.from({ length: 9 }, (_, index) => index);
 const communityMedals = import.meta.glob("../assets/rank-medals/*.png", { eager: true, import: "default" }) as Record<string, string>;
 const donationRanks = [
@@ -462,6 +468,12 @@ function TwitchChat({ chat, title, limit }: { chat: OverlayStateSnapshot["twitch
   );
 }
 
+// Mirrors apps/api's quiz-round-service.ts QUESTION_DURATION_MS/
+// REVEAL_DURATION_MS (30s/10s) - see queue-scene-ui.tsx's identical
+// constant for why this is display-only, never a phase-transition decision.
+const QUESTION_DURATION_SECONDS = 30;
+const REVEAL_DURATION_SECONDS = 10;
+
 export function BetweenMatchesScene({
   session,
   settings = null,
@@ -469,6 +481,7 @@ export function BetweenMatchesScene({
   twitchChat = null,
   openDotaFavoriteHeroes = null,
   openDotaRadar = null,
+  quiz = null,
 }: {
   session: LocalSessionSummary;
   settings?: QueueSettings | null;
@@ -476,14 +489,29 @@ export function BetweenMatchesScene({
   twitchChat?: OverlayStateSnapshot["twitchChat"];
   openDotaFavoriteHeroes?: OverlayStateSnapshot["opendotaFavoriteHeroes"];
   openDotaRadar?: OverlayStateSnapshot["opendotaRadar"];
+  quiz?: OverlayStateSnapshot["quiz"];
 }) {
   const sceneStyle = {
     width: "100%",
     height: "100%",
     "--queue-logo-url": `url(${logoUrl})`,
   } as React.CSSProperties;
+
+  const sceneRef = useRef<HTMLElement | null>(null);
+  const quizSecondsLeft = useCountdown(quiz?.phaseEndsAt ?? EMPTY_TIMESTAMP);
+  // Companion is the sole geometry producer (locked WK-116 architecture -
+  // web fallback never publishes). Only measures/reports while there's an
+  // actual round to describe; the effect itself is a no-op otherwise.
+  usePublishGeometry(sceneRef, quiz?.roundId, quiz?.phase);
+
   return (
-    <main className={styles.scene} data-testid="between-matches-production" data-coordinate-system="viewport" style={sceneStyle}>
+    <main
+      ref={sceneRef}
+      className={styles.scene}
+      data-testid="between-matches-production"
+      data-coordinate-system="viewport"
+      style={sceneStyle}
+    >
       <Atmosphere />
       <div className={styles.interface}>
         <div className={`${styles.dashboard} ${parity.dashboard}`} data-top-count={2}>
@@ -503,6 +531,20 @@ export function BetweenMatchesScene({
             <TwitchChat chat={twitchChat} title="TWITCH CHAT" limit={settings?.widgets.chatMessagesLimit ?? 12} />
             {settings && <CommunityArea title="COMMUNITY" account={account} settings={settings.widgets.friends} />}
             <PlayerProfileRadarPanel openDota={openDotaRadar} />
+            {quiz && (
+              <QuizBoard
+                category={quiz.category}
+                question={quiz.prompt}
+                options={quiz.options}
+                correctOptionId={quiz.correctOptionId ?? ""}
+                distribution={quiz.distribution ?? {}}
+                leaderboard={quiz.leaderboard}
+                phase={quiz.phase}
+                secondsLeft={quizSecondsLeft}
+                phaseDurationSeconds={quiz.phase === "question" ? QUESTION_DURATION_SECONDS : REVEAL_DURATION_SECONDS}
+                layout="vertical"
+              />
+            )}
           </div>
         </div>
       </div>

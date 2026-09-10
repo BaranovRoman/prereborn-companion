@@ -10,6 +10,26 @@ import {
     YoutubeFilled,
 } from "@ant-design/icons";
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { QuizBoard } from "./quiz/QuizBoard";
+import {
+    MOCK_QUIZ_CATEGORY,
+    MOCK_QUIZ_CORRECT_OPTION_ID,
+    MOCK_QUIZ_DISTRIBUTION,
+    MOCK_QUIZ_LEADERBOARD,
+    MOCK_QUIZ_OPTIONS,
+    MOCK_QUIZ_PHASE_DURATIONS,
+    MOCK_QUIZ_QUESTION,
+} from "./quiz/mock-quiz-content";
+import { useCountdown } from "./quiz/useCountdown";
+
+// Mirrors apps/api's quiz-round-service.ts QUESTION_DURATION_MS/
+// REVEAL_DURATION_MS (30s/10s) - only used here to size the progress bar's
+// fill, never to decide phase transitions (the backend is authoritative for
+// that; this renderer only ever displays whatever phase/phaseEndsAt it was
+// told). Update alongside those constants if they ever change.
+const QUESTION_DURATION_SECONDS = 30;
+const REVEAL_DURATION_SECONDS = 10;
 import { getHeroById } from "@/entities/dota-hero/lib/search";
 import { useAccountMatches } from "@/entities/stream-session/lib/use-account-matches";
 import { useActiveStreamSessionId } from "@/entities/stream-session/lib/use-active-stream-session-id";
@@ -1010,6 +1030,61 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
     };
     const widgetSettings = activeSettings.widgets;
 
+    // Phase 0 placement-spike regression harness (WK-116) - `?quizVariant=
+    // a|b|c` + `?quizPhase=` still render the mock-content spike exactly as
+    // before, kept deliberately (per the accepted Phase 0 review) as a
+    // regression-check fixture for apps/web/e2e/queue-scene-quiz-placement.spec.ts.
+    // Real production pages never carry this param, so it can't collide
+    // with the real-data path below.
+    const searchParams = useSearchParams();
+    const rawQuizVariant = searchParams.get("quizVariant")?.toLowerCase();
+    const quizVariant = rawQuizVariant === "a" || rawQuizVariant === "b" || rawQuizVariant === "c"
+        ? rawQuizVariant
+        : null;
+    const isMockPlacementHarness = quizVariant !== null;
+    const mockQuizPhase = searchParams.get("quizPhase") === "reveal" ? "reveal" : "question";
+    const mockQuizSecondsLeft = mockQuizPhase === "reveal" ? 6 : 18;
+    const renderMockQuizBoard = (layout: "vertical" | "horizontal") => (
+        <QuizBoard
+            category={MOCK_QUIZ_CATEGORY}
+            question={MOCK_QUIZ_QUESTION}
+            options={MOCK_QUIZ_OPTIONS}
+            correctOptionId={MOCK_QUIZ_CORRECT_OPTION_ID}
+            distribution={MOCK_QUIZ_DISTRIBUTION}
+            leaderboard={MOCK_QUIZ_LEADERBOARD}
+            phase={mockQuizPhase}
+            secondsLeft={mockQuizSecondsLeft}
+            phaseDurationSeconds={MOCK_QUIZ_PHASE_DURATIONS[mockQuizPhase]}
+            layout={layout}
+        />
+    );
+
+    // Real production quiz board (Phase 3) - Variant C (4th widget in
+    // rightMain), the only placement approved after the Phase 0 review.
+    // Web is a parity/fallback renderer only: it renders the same shared
+    // state Companion does, but per the locked WK-116 architecture it NEVER
+    // publishes hitbox geometry (Companion is the sole geometry producer -
+    // see the Phase 3 correction) and never handles viewer interaction.
+    const quiz = activeOverlay?.quiz ?? null;
+    const quizSecondsLeft = useCountdown(quiz?.phaseEndsAt ?? new Date().toISOString());
+    const renderRealQuizBoard = () => {
+        if (!quiz) return null;
+        return (
+            <QuizBoard
+                category={quiz.category}
+                question={quiz.prompt}
+                options={quiz.options}
+                correctOptionId={quiz.correctOptionId ?? ""}
+                distribution={quiz.distribution ?? {}}
+                leaderboard={quiz.leaderboard}
+                phase={quiz.phase}
+                secondsLeft={quizSecondsLeft}
+                phaseDurationSeconds={quiz.phase === "question" ? QUESTION_DURATION_SECONDS : REVEAL_DURATION_SECONDS}
+                layout="vertical"
+            />
+        );
+    };
+
     useEffect(() => {
         console.info("[WK-68][Queue Recent Games]", {
             configuredLimit: widgetSettings.recentGamesLimit,
@@ -1024,9 +1099,19 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
 
     return (
         <div className={styles.interface}>
-            <div className={styles.dashboard} data-top-count={2}>
-                <PlayerProfile {...data} title={widgetSettings.titles.playerProfile} />
-                <StreamProfile {...data} title={widgetSettings.titles.streamProfile} />
+            <div className={styles.dashboard} data-top-count={2} data-quiz-variant={quizVariant ?? undefined}>
+                {isMockPlacementHarness && quizVariant === "b" ? (
+                    <div className={styles.quizTopRow}>
+                        <PlayerProfile {...data} title={widgetSettings.titles.playerProfile} />
+                        <StreamProfile {...data} title={widgetSettings.titles.streamProfile} />
+                        <div className={styles.quizTopRowSlot}>{renderMockQuizBoard("horizontal")}</div>
+                    </div>
+                ) : (
+                    <>
+                        <PlayerProfile {...data} title={widgetSettings.titles.playerProfile} />
+                        <StreamProfile {...data} title={widgetSettings.titles.streamProfile} />
+                    </>
+                )}
                 <div className={styles.leftMain} data-featured="true">
                     <div className={styles.leftStack}>
                         <FeaturedMatch {...data} title={widgetSettings.titles.featuredMatch} />
@@ -1056,7 +1141,13 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
                         title={widgetSettings.titles.friends}
                         settings={widgetSettings.friends}
                     />
+                    {isMockPlacementHarness
+                        ? quizVariant === "c" && renderMockQuizBoard("vertical")
+                        : renderRealQuizBoard()}
                 </div>
+                {isMockPlacementHarness && quizVariant === "a" && (
+                    <div className={styles.quizColumn}>{renderMockQuizBoard("vertical")}</div>
+                )}
             </div>
         </div>
     );

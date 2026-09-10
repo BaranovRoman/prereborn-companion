@@ -63,6 +63,19 @@ const donationAlertsClientSecret = process.env.DONATION_ALERTS_CLIENT_SECRET || 
 const donationAlertsRedirectUri = process.env.DONATION_ALERTS_REDIRECT_URI || null;
 const donationAlertsFrontendOrigin = process.env.DONATION_ALERTS_FRONTEND_ORIGIN || steamOpenidRealm;
 
+// WK-116 Phase 4 - the Twitch Extension's own secret (base64, from the
+// Twitch Developer Console's Extension settings - NOT twitchClientSecret
+// above, which is the unrelated broadcaster-OAuth app). Used only to verify
+// the HS256 JWT `window.Twitch.ext.onAuthorized` hands the Extension
+// frontend and that frontend forwards on every request - see
+// middleware/authenticate-twitch-extension.ts. `|| null`, same optional-
+// integration stance as every other external credential here: unset simply
+// means the Extension endpoints reject every request (503-configured, not a
+// crash), matching how twitchClientId/donationAlertsClientId already
+// degrade before those integrations are configured.
+const twitchExtensionSecret = process.env.TWITCH_EXTENSION_SECRET || null;
+const twitchExtensionClientId = process.env.TWITCH_EXTENSION_CLIENT_ID || null;
+
 const nodeEnv = process.env.NODE_ENV || "development";
 const isProduction = nodeEnv === "production";
 const isTest = nodeEnv === "test";
@@ -130,6 +143,8 @@ export const env = {
     donationAlertsClientSecret,
     donationAlertsRedirectUri,
     donationAlertsFrontendOrigin,
+    twitchExtensionSecret,
+    twitchExtensionClientId,
     port: parseInt(process.env.PORT || "3001", 10),
     nodeEnv,
     isProduction,
@@ -213,6 +228,23 @@ export const env = {
         max: parseIntEnv(
             process.env.STREAM_COMPANION_RATE_LIMIT_MAX,
             isTest ? 20 : 20
+        ),
+    },
+    // WK-116 Phase 4 - per-viewer answer submissions, not per-streamer
+    // companion updates - each is JWT-authenticated (one real viewer per
+    // token) but this is still IP-keyed defense-in-depth against a
+    // compromised/scripted client, same stance as streamCompanionRateLimit
+    // above. One submission per round per viewer is already enforced at the
+    // DB level (quiz_answers' unique index) - this only guards against
+    // request-flooding, not double-answering.
+    twitchExtensionAnswerRateLimit: {
+        windowMs: parseIntEnv(
+            process.env.TWITCH_EXTENSION_ANSWER_RATE_LIMIT_WINDOW_MS,
+            isTest ? 1000 : 60 * 1000
+        ),
+        max: parseIntEnv(
+            process.env.TWITCH_EXTENSION_ANSWER_RATE_LIMIT_MAX,
+            isTest ? 20 : 30
         ),
     },
     // Единственный источник правды для лимита размера видео - используется

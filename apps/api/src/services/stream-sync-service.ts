@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { pool } from "../db/client.js";
 import { logger } from "../utils/logger.js";
 import type { MatchResult } from "./stream-match-service.js";
+import { enterBetweenMatches, leaveBetweenMatches } from "./quiz-round-service.js";
 
 // WK-113 - local-first cutover. Companion's local SQLite runtime (WK-111/112)
 // is now authoritative for session/match/MMR state during a stream; this
@@ -347,3 +348,38 @@ export const getCorrectionsSince = async (
         sessionRatingAdjustment: row.session_rating_adjustment,
     }));
 };
+
+// WK-116 - Companion's local BroadcastState (broadcast_state.rs) reaching
+// the backend the same way session/match state already does: a small
+// semantic event over this same channel, not a raw state passthrough. The
+// quiz round lifecycle (quiz-round-service.ts) is entirely driven by these
+// two events - see that module's doc comment for why entering never resumes
+// a suspended round and leaving cancels rather than merely hides the
+// active one.
+export interface BetweenMatchesEnteredResult {
+    ok: true;
+}
+
+export const applyBetweenMatchesEntered = (
+    streamUserId: string,
+    eventId: string
+): Promise<BetweenMatchesEnteredResult> =>
+    withIdempotency(eventId, streamUserId, "between_matches_entered", async () => {
+        await enterBetweenMatches(streamUserId);
+        logger.info("Sync: Between Matches entered - fresh quiz round started", { streamUserId });
+        return { ok: true };
+    });
+
+export interface BetweenMatchesLeftResult {
+    ok: true;
+}
+
+export const applyBetweenMatchesLeft = (
+    streamUserId: string,
+    eventId: string
+): Promise<BetweenMatchesLeftResult> =>
+    withIdempotency(eventId, streamUserId, "between_matches_left", async () => {
+        await leaveBetweenMatches(streamUserId);
+        logger.info("Sync: Between Matches left - active quiz round cancelled", { streamUserId });
+        return { ok: true };
+    });

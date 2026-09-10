@@ -103,6 +103,52 @@ export interface OverlayStateSnapshot {
       }
     | { status: "steam_not_connected" | "insufficient_data" | "rate_limited" | "unavailable" }
     | null;
+  // WK-116 - Between Matches quiz round state, populated by Rust's
+  // quiz_overlay.rs (its own background poll of GET /stream/companion/
+  // quiz/state, same "no Tauri IPC, Rust polls apps/api directly" pattern
+  // as opendotaFavoriteHeroes/opendotaRadar above). Mirrors apps/api's
+  // quiz-round-service.ts QuizRoundState field-for-field. `null` whenever
+  // there is no active round - the renderer's gate for mounting the board.
+  quiz: QuizRoundState | null;
+}
+
+export interface QuizOption {
+  id: string;
+  label: string;
+  assetUrl: string | null;
+}
+
+export interface QuizLeaderboardEntry {
+  rank: number;
+  twitchViewerId: string;
+  displayName: string;
+  score: number;
+  streak: number;
+}
+
+export interface QuizInteractiveRegion {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  value: string;
+}
+
+export interface QuizRoundState {
+  roundId: string;
+  phase: "question" | "reveal";
+  phaseEndsAt: string;
+  category: string;
+  interactionType: "single_choice_text";
+  prompt: string;
+  options: QuizOption[];
+  // Only present during "reveal" - see the backend's own doc comment on why
+  // this is never populated before then.
+  correctOptionId: string | null;
+  distribution: Record<string, number> | null;
+  interactiveRegions: QuizInteractiveRegion[] | null;
+  leaderboard: QuizLeaderboardEntry[];
 }
 
 // WK-122 §19 - mirrors apps/api's stream-overlay-layout-service.ts (the
