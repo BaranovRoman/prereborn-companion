@@ -164,13 +164,21 @@ describe("FavoriteHeroes OpenDota enrichment", () => {
 });
 
 describe("PlayerProfileRadarPanel", () => {
-    it("renders nothing when openDota is null", () => {
-        const { container } = render(<PlayerProfileRadarPanel {...baseProps} matches={[]} openDota={null} />);
-        expect(container.firstChild).toBeNull();
+    // WK-157 item 1 - a real live stream showed Player Radar popping in late
+    // and reflowing the rest of the middle column. Fix: the panel wrapper is
+    // now ALWAYS rendered (same slot reserved from initial paint) with a
+    // restrained placeholder swapped in for its content instead of the
+    // panel itself disappearing - see RadarPlaceholder in queue-scene-ui.tsx.
+    it("renders a restrained placeholder (not nothing) when openDota is null", () => {
+        render(<PlayerProfileRadarPanel {...baseProps} matches={[]} openDota={null} />);
+        const radar = screen.getByLabelText("Player radar");
+        expect(radar).toBeTruthy();
+        expect(screen.getByText("Gathering match data…")).toBeTruthy();
+        expect(radar.querySelector("svg")).toBeNull();
     });
 
-    it("renders nothing when the sample is insufficient", () => {
-        const { container } = render(
+    it("renders a restrained placeholder (not nothing) when the sample is insufficient", () => {
+        render(
             <PlayerProfileRadarPanel
                 {...baseProps}
                 matches={[]}
@@ -181,7 +189,10 @@ describe("PlayerProfileRadarPanel", () => {
                 }}
             />
         );
-        expect(container.firstChild).toBeNull();
+        const radar = screen.getByLabelText("Player radar");
+        expect(radar).toBeTruthy();
+        expect(screen.getByText("Insufficient match sample")).toBeTruthy();
+        expect(radar.querySelector("svg")).toBeNull();
     });
 
     it("renders the panel with a vertex per axis and integer value labels once there's a real profile", () => {

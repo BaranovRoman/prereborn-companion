@@ -101,6 +101,12 @@ const baseOverlayData = (quiz: unknown) => ({
             recentGamesLimit: 15,
             chatMessagesLimit: 12,
             friends: { showDonaters: true, showSubscribers: true, showFollowers: true, socialLinks: [] },
+            // WK-157 - "Viewer Quiz" defaults to OFF in production
+            // (DEFAULT_QUEUE_SETTINGS); this fixture opts in so the existing
+            // "quiz renders on the real path" tests below keep exercising
+            // that path. The dedicated "disabled" test further down
+            // overrides this back to false.
+            viewerQuizEnabled: true,
         },
     },
 });
@@ -113,14 +119,24 @@ const baseOverlayData = (quiz: unknown) => ({
 // swallows the page before the overlay poll's own mocked response ever
 // matters. Match the broad glob first (503, same as the existing spec) and
 // only the overlay endpoint specifically gets the real populated payload.
-const mockOverlayResponse = async (page: import("@playwright/test").Page, quiz: unknown) => {
+const mockOverlayResponse = async (
+    page: import("@playwright/test").Page,
+    quiz: unknown,
+    // WK-157 - lets the "disabled" test below flip queueSettings.widgets.
+    // viewerQuizEnabled back to false without a second fixture function.
+    overrideViewerQuizEnabled?: boolean
+) => {
     await page.route("**/api/stream/**", async (route) => {
         const url = route.request().url();
         if (url.includes("/api/stream/overlay/")) {
+            const data = baseOverlayData(quiz);
+            if (overrideViewerQuizEnabled !== undefined) {
+                data.queueSettings.widgets.viewerQuizEnabled = overrideViewerQuizEnabled;
+            }
             return route.fulfill({
                 status: 200,
                 contentType: "application/json",
-                body: JSON.stringify(baseOverlayData(quiz)),
+                body: JSON.stringify(data),
             });
         }
         await route.fulfill({
@@ -132,7 +148,7 @@ const mockOverlayResponse = async (page: import("@playwright/test").Page, quiz: 
 };
 
 test.describe("WK-116 Phase 5 - real quiz data on the production /overlay/:publicToken route", () => {
-    test("renders the quiz unconditionally in Variant C (4th rightMain widget), no query param needed", async ({ page }) => {
+    test("renders the quiz unconditionally between Twitch Chat and Community, no query param needed", async ({ page }) => {
         await mockOverlayResponse(page, REALISTIC_QUIZ_QUESTION);
         await page.setViewportSize({ width: 1920, height: 1080 });
         await page.goto("/overlay/e2e-fake-token");
@@ -155,6 +171,45 @@ test.describe("WK-116 Phase 5 - real quiz data on the production /overlay/:publi
                 document.documentElement.scrollHeight > document.documentElement.clientHeight
         );
         expect(hasScroll).toBe(false);
+    });
+
+    // WK-157 item 2 - Quiz's approved position is between Chat and
+    // Community, not after both: at the bottom of the right column it sat
+    // too close to Twitch's own player chrome/progress bar on a real
+    // stream. This page is OUR OWN overlay HTML (composited into OBS, no
+    // real Twitch player chrome present here), so the actual chrome-overlap
+    // check needs a real stream - this only verifies the structural DOM
+    // order that fix depends on.
+    test("Quiz sits between Twitch Chat and Community in DOM order, not after both", async ({ page }) => {
+        await mockOverlayResponse(page, REALISTIC_QUIZ_QUESTION);
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        await page.goto("/overlay/e2e-fake-token");
+
+        const order = await page.evaluate(() => {
+            const quiz = document.querySelector('[data-quiz-root]');
+            const rightMain = quiz?.parentElement;
+            if (!rightMain) return null;
+            return Array.from(rightMain.children).map((child) => child.getAttribute("aria-label"));
+        });
+        expect(order).not.toBeNull();
+        const chatIndex = order!.indexOf("Twitch chat");
+        const quizIndex = order!.indexOf("QUIZ");
+        const communityIndex = order!.indexOf("Friends");
+        expect(chatIndex).toBeGreaterThanOrEqual(0);
+        expect(quizIndex).toBeGreaterThan(chatIndex);
+        expect(communityIndex).toBeGreaterThan(quizIndex);
+    });
+
+    // WK-157 item 3 - "Viewer Quiz" setting (default OFF). Disabled must
+    // behave exactly like "no active round": no board, no reserved space,
+    // regardless of an active round server-side.
+    test("does not render the quiz board when Viewer Quiz is disabled, even with an active round", async ({ page }) => {
+        await mockOverlayResponse(page, REALISTIC_QUIZ_QUESTION, false);
+        await page.goto("/overlay/e2e-fake-token");
+
+        await expect(page.getByRole("region", { name: "Twitch chat" })).toBeVisible();
+        await expect(page.getByRole("region", { name: "Friends" })).toBeVisible();
+        await expect(page.getByLabel("QUIZ")).toHaveCount(0);
     });
 
     test("reveals correctness/distribution/leaderboard only once phase is reveal", async ({ page }) => {

@@ -324,11 +324,27 @@ const radarLabelAnchor = (index: number): "start" | "middle" | "end" => {
   return "middle";
 };
 
+// WK-157 - same reasoning as the web renderer's RadarPlaceholder
+// (queue-scene-ui.tsx): the panel wrapper is now ALWAYS rendered so its box
+// in .centerStack is reserved from initial paint - only the interior swaps
+// between this restrained placeholder and the real chart. Fixes the real
+// live-stream reflow this task's evidence showed (see WK-155).
+function RadarPlaceholder({ label }: { label: string }) {
+  return (
+    <Panel title="Player radar" className={styles.radarPanel}>
+      <div className={styles.radarBody}>
+        <div className={`${styles.panelEmpty} ${parity.panelEmpty}`}>{label}</div>
+      </div>
+    </Panel>
+  );
+}
+
 function PlayerProfileRadarPanel({ openDota }: { openDota: OverlayStateSnapshot["opendotaRadar"] }) {
-  // No placeholder/loading state on a live stream surface (задача, секции
-  // 10/12) - renders nothing until there's a real, sufficiently-sampled
-  // profile.
-  if (!openDota || openDota.status !== "ok") return null;
+  if (!openDota) return <RadarPlaceholder label="Gathering match data…" />;
+  if (openDota.status !== "ok") {
+    const label = openDota.status === "insufficient_data" ? "Insufficient match sample" : "Gathering match data…";
+    return <RadarPlaceholder label={label} />;
+  }
   const radar = openDota;
 
   const axisPoints = RADAR_AXES.map((axis, index) => {
@@ -480,6 +496,49 @@ function TwitchChat({ chat, title, limit }: { chat: OverlayStateSnapshot["twitch
 const QUESTION_DURATION_SECONDS = 30;
 const REVEAL_DURATION_SECONDS = 10;
 
+// WK-157 - item 4 (editor/preview parity). DesignPage.tsx's "Между матчами"
+// tab already points this renderer's real `/overlay` route at real snapshot
+// data (see OverlayApp.tsx) - real Twitch/Steam/DonationAlerts credentials
+// aren't required for that (Radar/Favorites already degrade to their own
+// placeholders without them), but a real quiz round needs a live viewer
+// session, which a dev machine won't have. `?previewQuizPhase=question|reveal`
+// (only honored alongside `?editor=1`, mirrors OverlayApp.tsx's own
+// `readPreviewScene`/`isEditorPreview` pattern) swaps in this fixture
+// instead, so QUESTION and REVEAL can both be inspected without a live
+// stream. `correctOptionId`/`distribution` are populated even at rest -
+// QuizBoard only ever surfaces them once `phase === "reveal"` - and
+// `phaseEndsAt` is computed fresh on read, never a fixed string, so it can't
+// read as already-expired.
+function readPreviewQuizPhase(): "question" | "reveal" | null {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("editor") !== "1") return null;
+  const value = params.get("previewQuizPhase");
+  return value === "question" || value === "reveal" ? value : null;
+}
+
+const PREVIEW_QUIZ_FIXTURE = {
+  roundId: "editor-preview-round",
+  category: "ABILITIES",
+  interactionType: "single_choice_text" as const,
+  prompt: "Какая способность показана на этой иконке?",
+  options: [
+    { id: "a", label: "Chaos Bolt", assetUrl: null },
+    { id: "b", label: "Berserker's Call", assetUrl: null },
+    { id: "c", label: "Sunder", assetUrl: null },
+    { id: "d", label: "Reincarnation", assetUrl: null },
+  ],
+  correctOptionId: "b",
+  distribution: { a: 12, b: 61, c: 9, d: 18 },
+  interactiveRegions: null,
+  leaderboard: [
+    { rank: 1, twitchViewerId: "editor-preview-1", displayName: "quiz_lover", score: 420, streak: 3 },
+    { rank: 2, twitchViewerId: "editor-preview-2", displayName: "dota_fan_92", score: 380, streak: 1 },
+    { rank: 3, twitchViewerId: "editor-preview-3", displayName: "another_viewer", score: 310, streak: 0 },
+    { rank: 4, twitchViewerId: "editor-preview-4", displayName: "mmr_watcher", score: 260, streak: 2 },
+    { rank: 5, twitchViewerId: "editor-preview-5", displayName: "regular_chatter", score: 190, streak: 0 },
+  ],
+};
+
 export function BetweenMatchesScene({
   session,
   settings = null,
@@ -504,11 +563,24 @@ export function BetweenMatchesScene({
   } as React.CSSProperties;
 
   const sceneRef = useRef<HTMLElement | null>(null);
-  const quizSecondsLeft = useCountdown(quiz?.phaseEndsAt ?? EMPTY_TIMESTAMP);
+  // WK-157 - "Viewer Quiz" setting gate (item 3): when off, this must render
+  // nothing, reserve no space, and never touch geometry publishing - same as
+  // "no active round" today. Editor-only forced-phase preview (item 4) takes
+  // priority over both the real quiz and the setting, since it's how a
+  // streamer previews the quiz's look WHILE deciding whether to enable it.
+  const previewQuizPhase = readPreviewQuizPhase();
+  const effectiveQuiz = previewQuizPhase
+    ? { ...PREVIEW_QUIZ_FIXTURE, phase: previewQuizPhase, phaseEndsAt: new Date(Date.now() + (previewQuizPhase === "question" ? QUESTION_DURATION_SECONDS : REVEAL_DURATION_SECONDS) * 1000).toISOString() }
+    : settings?.widgets.viewerQuizEnabled
+      ? quiz
+      : null;
+  const quizSecondsLeft = useCountdown(effectiveQuiz?.phaseEndsAt ?? EMPTY_TIMESTAMP);
   // Companion is the sole geometry producer (locked WK-116 architecture -
   // web fallback never publishes). Only measures/reports while there's an
-  // actual round to describe; the effect itself is a no-op otherwise.
-  usePublishGeometry(sceneRef, quiz?.roundId, quiz?.phase);
+  // actual round to describe; the effect itself is a no-op otherwise. Never
+  // publishes for the editor-preview fixture (its roundId can't match any
+  // real backend round anyway - see PREVIEW_QUIZ_FIXTURE's own comment).
+  usePublishGeometry(sceneRef, effectiveQuiz?.roundId, effectiveQuiz?.phase, previewQuizPhase === null);
 
   return (
     <main
@@ -536,21 +608,24 @@ export function BetweenMatchesScene({
           </div>
           <div className={styles.rightMain}>
             <TwitchChat chat={twitchChat} title="TWITCH CHAT" limit={settings?.widgets.chatMessagesLimit ?? 12} />
-            {settings && <CommunityArea title="COMMUNITY" account={account} settings={settings.widgets.friends} />}
-            {quiz && (
+            {/* WK-157 - Quiz moved between Chat and Community, mirroring the
+                same reorder in queue-scene-ui.tsx (production/web renderer) -
+                see that file's comment for why. */}
+            {effectiveQuiz && (
               <QuizBoard
-                category={quiz.category}
-                question={quiz.prompt}
-                options={quiz.options}
-                correctOptionId={quiz.correctOptionId ?? ""}
-                distribution={quiz.distribution ?? {}}
-                leaderboard={quiz.leaderboard}
-                phase={quiz.phase}
+                category={effectiveQuiz.category}
+                question={effectiveQuiz.prompt}
+                options={effectiveQuiz.options}
+                correctOptionId={effectiveQuiz.correctOptionId ?? ""}
+                distribution={effectiveQuiz.distribution ?? {}}
+                leaderboard={effectiveQuiz.leaderboard}
+                phase={effectiveQuiz.phase}
                 secondsLeft={quizSecondsLeft}
-                phaseDurationSeconds={quiz.phase === "question" ? QUESTION_DURATION_SECONDS : REVEAL_DURATION_SECONDS}
+                phaseDurationSeconds={effectiveQuiz.phase === "question" ? QUESTION_DURATION_SECONDS : REVEAL_DURATION_SECONDS}
                 layout="vertical"
               />
             )}
+            {settings && <CommunityArea title="COMMUNITY" account={account} settings={settings.widgets.friends} />}
           </div>
         </div>
       </div>

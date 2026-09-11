@@ -145,12 +145,41 @@ export const MOCK_OVERLAY_DATA: OverlayData = {
         ],
     },
     viewerEvents: [],
-    // The Phase 0 placement-spike variants render their own mock quiz board
-    // directly (see mock-quiz-content.ts), independent of this field - this
-    // fixture's own `quiz` stays null (as a real "no active round" response
-    // would look) so a stray real-data render path is never accidentally
-    // exercised by this regression fixture.
-    quiz: null,
+    // WK-157 - item 4 (editor/preview parity) needs the REAL quiz render
+    // path (renderRealQuizBoard in queue-scene-ui.tsx) to have something to
+    // show under `?mock=1`, not just the separate Phase 0 placement-spike
+    // mock board (mock-quiz-content.ts, still independent of this field).
+    // `correctOptionId`/`distribution` are populated even though `phase`
+    // defaults to "question" - QuizBoard only ever surfaces them once
+    // `phase === "reveal"`, so this is harmless at rest and lets
+    // queue-scene-ui.tsx's `?quizPhase=reveal` override switch straight to
+    // a populated reveal state without a second fixture. `phaseEndsAt` is
+    // computed fresh below (not a fixed string) so it never reads as
+    // already-expired no matter how long the dev server has been running.
+    quiz: {
+        roundId: "mock-preview-round",
+        phase: "question",
+        phaseEndsAt: new Date(Date.now() + 30_000).toISOString(),
+        category: "ABILITIES",
+        interactionType: "single_choice_text",
+        prompt: "Какая способность показана на этой иконке?",
+        options: [
+            { id: "a", label: "Chaos Bolt", assetUrl: null },
+            { id: "b", label: "Berserker's Call", assetUrl: null },
+            { id: "c", label: "Sunder", assetUrl: null },
+            { id: "d", label: "Reincarnation", assetUrl: null },
+        ],
+        correctOptionId: "b",
+        distribution: { a: 12, b: 61, c: 9, d: 18 },
+        interactiveRegions: null,
+        leaderboard: [
+            { rank: 1, twitchViewerId: "mock-1", displayName: "quiz_lover", score: 420, streak: 3 },
+            { rank: 2, twitchViewerId: "mock-2", displayName: "dota_fan_92", score: 380, streak: 1 },
+            { rank: 3, twitchViewerId: "mock-3", displayName: "another_viewer", score: 310, streak: 0 },
+            { rank: 4, twitchViewerId: "mock-4", displayName: "mmr_watcher", score: 260, streak: 2 },
+            { rank: 5, twitchViewerId: "mock-5", displayName: "regular_chatter", score: 190, streak: 0 },
+        ],
+    },
     viewerAlertsSettings: DEFAULT_VIEWER_ALERTS_SETTINGS,
     layout: DEFAULT_OVERLAY_LAYOUT,
     queueSettings: {
@@ -164,6 +193,12 @@ export const MOCK_OVERLAY_DATA: OverlayData = {
                 showSubscribers: true,
                 showFollowers: true,
             },
+            // Preview parity (item 4) needs the quiz actually visible by
+            // default under `?mock=1` - real streamers still default to OFF
+            // (DEFAULT_QUEUE_SETTINGS above), this mock fixture is the one
+            // deliberate exception so `?mock=1` alone (no extra query
+            // params) already shows the full production layout.
+            viewerQuizEnabled: true,
         },
     },
 };

@@ -105,6 +105,12 @@ export function DesignPage() {
   const [savedFlash, setSavedFlash] = useState(false);
   const [queueSettings, setQueueSettings] = useState<QueueSettingsDoc | null>(null);
   const [currentMmr, setCurrentMmr] = useState<number | null>(null);
+  // WK-157 - item 4 (editor/preview parity): dev-only forced Quiz phase for
+  // the preview iframe only (see BetweenMatchesScene.tsx's
+  // readPreviewQuizPhase/PREVIEW_QUIZ_FIXTURE) - never touches real
+  // round/score state, purely a `?previewQuizPhase=` query param on the same
+  // local renderer a real OBS Browser Source already points at.
+  const [previewQuizPhase, setPreviewQuizPhase] = useState<"live" | "question" | "reveal">("live");
   const referenceBackground = useGameplayReferenceBackground();
   const preview = useLocalOverlayPreviewReady();
 
@@ -254,7 +260,7 @@ export function DesignPage() {
             <iframe
               key={tab}
               className="design-page__preview"
-              src={`http://127.0.0.1:3666/overlay?previewScene=${tab}&editor=1`}
+              src={`http://127.0.0.1:3666/overlay?previewScene=${tab}&editor=1${tab === "betweenMatches" && previewQuizPhase !== "live" ? `&previewQuizPhase=${previewQuizPhase}` : ""}`}
               onLoad={(event) => event.currentTarget.contentWindow?.postMessage({ type: "prereborn-overlay-layout-preview", layout, queueSettings, referenceBackground: tab === "gameplay" && referenceBackground.imageUrl ? { url: referenceBackground.imageUrl, opacity: referenceBackground.opacity } : null }, "*")}
               title="Предпросмотр локального оверлея"
             />
@@ -347,6 +353,35 @@ export function DesignPage() {
                 </>}
                 <p className="design-page__hint">Избранные герои выбираются в разделе «Герои» (до трёх). Социальные ссылки сохраняются в существующих настройках аккаунта.</p>
                 <p className="design-page__hint">Twitch Chat, Recent Followers и DonationAlerts используют подключённые интеграции аккаунта и обновляются в локальном OBS renderer.</p>
+              </div>
+              <div className="design-page__widget-settings">
+                <h3>Викторина для зрителей</h3>
+                <Checkbox
+                  label="Показывать викторину (Twitch Extension)"
+                  checked={queueSettings.widgets.viewerQuizEnabled}
+                  onChange={(event) => {
+                    setQueueSettings({ ...queueSettings, widgets: { ...queueSettings.widgets, viewerQuizEnabled: event.target.checked } });
+                    if (!event.target.checked) setPreviewQuizPhase("live");
+                  }}
+                />
+                <p className="design-page__hint">
+                  Интерактивная викторина между матчами через Twitch Extension. Пока работает
+                  нестабильно — по умолчанию выключена.
+                </p>
+                {queueSettings.widgets.viewerQuizEnabled && (
+                  <>
+                    <span className="design-page__field">Предпросмотр в редакторе</span>
+                    <div className="design-page__inline-actions">
+                      <Button variant={previewQuizPhase === "live" ? "primary" : "default"} onClick={() => setPreviewQuizPhase("live")}>Реальные данные</Button>
+                      <Button variant={previewQuizPhase === "question" ? "primary" : "default"} onClick={() => setPreviewQuizPhase("question")}>Вопрос</Button>
+                      <Button variant={previewQuizPhase === "reveal" ? "primary" : "default"} onClick={() => setPreviewQuizPhase("reveal")}>Раскрытие</Button>
+                    </div>
+                    <p className="design-page__hint">
+                      «Вопрос»/«Раскрытие» подставляют тестовые данные только в этом предпросмотре —
+                      реальный раунд/счёт зрителей не затрагиваются.
+                    </p>
+                  </>
+                )}
               </div>
               <div className="design-page__actions"><Button variant="primary" onClick={() => void handleSave()} disabled={saving}>{saving ? "Сохранение…" : "Сохранить"}</Button>{savedFlash && <span className="design-page__saved">Сохранено ✓</span>}</div>
             </>
