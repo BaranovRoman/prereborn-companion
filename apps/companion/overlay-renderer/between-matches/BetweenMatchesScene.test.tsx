@@ -32,7 +32,7 @@ const SETTINGS = {
   visibility: { playerProfile: false, streamProfile: false, featuredMatch: false, webcam: false, favoriteHeroes: false, recentGames: false, twitchChat: false, systemStatus: false },
   favoriteHeroIds: [], webcamImageUrl: null,
   channelGoal: { type: "rating", label: "RATING GOAL", startValue: 5_964, targetValue: 6_200 },
-  widgets: { titles: { playerProfile: "wrong", streamProfile: "wrong", featuredMatch: "wrong", webcam: "wrong", favoriteHeroes: "wrong", recentGames: "wrong", twitchChat: "wrong", friends: "wrong" }, recentGamesLimit: 5, chatMessagesLimit: 5, friends: { showDonaters: false, showSubscribers: false, showFollowers: false, socialLinks: [] } },
+  widgets: { titles: { playerProfile: "wrong", streamProfile: "wrong", featuredMatch: "wrong", webcam: "wrong", favoriteHeroes: "wrong", recentGames: "wrong", twitchChat: "wrong", friends: "wrong" }, recentGamesLimit: 5, chatMessagesLimit: 5, friends: { showDonaters: false, showSubscribers: false, showFollowers: false, socialLinks: [] }, viewerQuizEnabled: true },
 } satisfies QueueSettings;
 
 afterEach(() => cleanup());
@@ -286,7 +286,13 @@ describe("BetweenMatchesScene", () => {
       expect(screen.getByText("посл. 7.39 · 58%")).toBeTruthy();
     });
 
-    it("renders nothing for the radar when the sample is insufficient, without breaking the rest of the scene", () => {
+    // WK-157 item 1 - a real live stream showed Player Radar popping in late
+    // and reflowing the rest of the middle column. Fix: the panel wrapper is
+    // now ALWAYS rendered (same slot reserved from initial paint) with a
+    // restrained placeholder swapped in for its content instead of the
+    // panel itself disappearing - see RadarPlaceholder in
+    // BetweenMatchesScene.tsx.
+    it("renders a restrained placeholder (not nothing) for the radar when the sample is insufficient", () => {
       render(
         <BetweenMatchesScene
           session={SESSION}
@@ -294,8 +300,22 @@ describe("BetweenMatchesScene", () => {
           openDotaRadar={{ status: "insufficient_data" }}
         />
       );
-      expect(screen.queryByLabelText("Player radar")).toBeNull();
-      expect(screen.getByLabelText("FAVORITE HEROES")).toBeTruthy();
+      const radar = screen.getByLabelText("Player radar");
+      expect(radar).toBeTruthy();
+      expect(screen.getByText("Insufficient match sample")).toBeTruthy();
+      // Still the same panel/column as Favorite Heroes/Recent Games, not
+      // dropped from the layout entirely.
+      expect(radar.parentElement).toBe(screen.getByLabelText("FAVORITE HEROES").parentElement);
+      // No real chart content rendered for a placeholder.
+      expect(radar.querySelector("svg")).toBeNull();
+    });
+
+    it("renders the same restrained placeholder before the first successful OpenDota poll (openDotaRadar still null)", () => {
+      render(<BetweenMatchesScene session={SESSION} settings={SETTINGS} openDotaRadar={null} />);
+      const radar = screen.getByLabelText("Player radar");
+      expect(radar).toBeTruthy();
+      expect(screen.getByText("Gathering match data…")).toBeTruthy();
+      expect(radar.querySelector("svg")).toBeNull();
     });
 
     it("renders the radar panel with a value per axis once there's a real profile", () => {
@@ -480,12 +500,12 @@ describe("BetweenMatchesScene", () => {
     };
 
     it("does not render a quiz board at all when there is no active round", () => {
-      render(<BetweenMatchesScene session={SESSION} quiz={null} />);
+      render(<BetweenMatchesScene session={SESSION} settings={SETTINGS} quiz={null} />);
       expect(screen.queryByLabelText("QUIZ")).toBeNull();
     });
 
     it("renders the real question/options during QUESTION, with no correct answer revealed", () => {
-      render(<BetweenMatchesScene session={SESSION} quiz={QUESTION_STATE} />);
+      render(<BetweenMatchesScene session={SESSION} settings={SETTINGS} quiz={QUESTION_STATE} />);
       expect(screen.getByLabelText("QUIZ")).toBeTruthy();
       expect(screen.getByText(QUESTION_STATE.prompt)).toBeTruthy();
       for (const option of QUESTION_STATE.options) {
@@ -496,14 +516,14 @@ describe("BetweenMatchesScene", () => {
     });
 
     it("renders correctness/distribution/leaderboard only once the round is in REVEAL", () => {
-      render(<BetweenMatchesScene session={SESSION} quiz={REVEAL_STATE} />);
+      render(<BetweenMatchesScene session={SESSION} settings={SETTINGS} quiz={REVEAL_STATE} />);
       expect(screen.getByText("54%")).toBeTruthy();
       expect(screen.getByText("quiz_lover")).toBeTruthy();
       expect(screen.getByText("dota_fan_92")).toBeTruthy();
     });
 
     it("never renders any personalized/per-viewer marker in the shared video", () => {
-      const { container } = render(<BetweenMatchesScene session={SESSION} quiz={REVEAL_STATE} />);
+      const { container } = render(<BetweenMatchesScene session={SESSION} settings={SETTINGS} quiz={REVEAL_STATE} />);
       const text = container.textContent ?? "";
       // No "your rank", "you answered", a personal streak/score readout, or
       // any viewer-id-shaped string leaking into the shared visual - only
@@ -512,6 +532,33 @@ describe("BetweenMatchesScene", () => {
       expect(text).not.toMatch(/your (rank|score|answer)/i);
       expect(container.querySelector("[data-viewer-id]")).toBeNull();
       expect(container.querySelector("[data-personal-selection]")).toBeNull();
+    });
+
+    // WK-157 item 2 - Quiz's approved position is between Chat and
+    // Community, not after both (bottom of .rightMain sat too close to
+    // Twitch's own player chrome on a real stream - see the WK-116
+    // follow-up task).
+    it("sits between Twitch Chat and Community in DOM order, not after both", () => {
+      render(<BetweenMatchesScene session={SESSION} settings={SETTINGS} quiz={QUESTION_STATE} />);
+      const rightMain = screen.getByLabelText("TWITCH CHAT").parentElement!;
+      const children = Array.from(rightMain.children).map((child) => child.getAttribute("aria-label"));
+      expect(children.indexOf("TWITCH CHAT")).toBeLessThan(children.indexOf("QUIZ"));
+      expect(children.indexOf("QUIZ")).toBeLessThan(children.indexOf("COMMUNITY"));
+    });
+
+    // WK-157 item 3 - "Viewer Quiz" setting (default OFF). Disabled must
+    // behave exactly like "no active round": no board, no reserved space,
+    // regardless of whether a real round happens to be in progress
+    // server-side.
+    it("does not render the quiz board when the Viewer Quiz setting is off, even with an active round", () => {
+      render(
+        <BetweenMatchesScene
+          session={SESSION}
+          settings={{ ...SETTINGS, widgets: { ...SETTINGS.widgets, viewerQuizEnabled: false } }}
+          quiz={QUESTION_STATE}
+        />
+      );
+      expect(screen.queryByLabelText("QUIZ")).toBeNull();
     });
   });
 });

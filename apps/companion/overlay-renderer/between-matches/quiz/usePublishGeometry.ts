@@ -15,10 +15,18 @@ import type { RefObject } from "react";
 export function usePublishGeometry(
     sceneRef: RefObject<HTMLElement | null>,
     roundId: string | undefined,
-    phase: "question" | "reveal" | undefined
+    phase: "question" | "reveal" | undefined,
+    // WK-157 - false for the Оформление editor's dev-only forced-phase quiz
+    // preview (item 4): that round doesn't exist server-side, so publishing
+    // geometry for it would just be a wasted authenticated POST against a
+    // roundId the backend can never match - not harmful (fail-closed round
+    // matching already rejects it), just pointless noise. Also false
+    // whenever the "Viewer Quiz" setting is off, matching item 3's "no
+    // geometry is published" requirement.
+    enabled: boolean = true
 ) {
     useEffect(() => {
-        if (!roundId) return;
+        if (!enabled || !roundId) return;
         const root = sceneRef.current;
         if (!root) return;
 
@@ -57,5 +65,5 @@ export function usePublishGeometry(
             cancelAnimationFrame(raf);
             observer.disconnect();
         };
-    }, [sceneRef, roundId, phase]);
+    }, [sceneRef, roundId, phase, enabled]);
 }

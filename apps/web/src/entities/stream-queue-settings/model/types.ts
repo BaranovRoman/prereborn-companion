@@ -49,6 +49,10 @@ export interface QueueWidgetSettings {
         showFollowers: boolean;
         socialLinks: QueueSocialLink[];
     };
+    // WK-157 - lets a streamer disable the Between Matches viewer quiz while
+    // the Twitch Extension interaction layer is still being stabilized.
+    // Defaults to false, see DEFAULT_QUEUE_WIDGET_SETTINGS below.
+    viewerQuizEnabled: boolean;
 }
 
 export interface QueueSettings {
@@ -79,6 +83,7 @@ export const DEFAULT_QUEUE_WIDGET_SETTINGS: QueueWidgetSettings = {
         showFollowers: true,
         socialLinks: [],
     },
+    viewerQuizEnabled: false,
 };
 
 export const DEFAULT_QUEUE_SETTINGS: QueueSettings = {

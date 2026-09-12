@@ -73,11 +73,41 @@ fn scene_transition(last_scene: Option<BroadcastState>, scene: BroadcastState) -
     (entered, left)
 }
 
+// WK-157 - "Viewer Quiz" setting (default OFF - see
+// stream-queue-settings-service.ts): while disabled, Companion must not
+// start or report the quiz Between Matches lifecycle at all, not just hide
+// the rendered board - same reasoning/shape as
+// opendota_overlay_cache.rs::extract_favorite_hero_ids reading the same
+// cached queue_settings blob. Missing/malformed defaults to `false` (the
+// schema's own default), never to "on".
+fn viewer_quiz_enabled(queue_settings: Option<&serde_json::Value>) -> bool {
+    queue_settings
+        .and_then(|settings| settings.get("widgets"))
+        .and_then(|widgets| widgets.get("viewerQuizEnabled"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
 fn tick<R: Runtime>(app: &AppHandle<R>, last_scene: &mut Option<BroadcastState>) {
-    let token = app.state::<AppState>().0.lock().unwrap().companion_token.clone();
+    let (token, quiz_enabled) = {
+        let state = app.state::<AppState>();
+        let inner = state.0.lock().unwrap();
+        (inner.companion_token.clone(), viewer_quiz_enabled(inner.queue_settings.as_ref()))
+    };
     let Some(token) = token else { return };
 
-    let scene = current(app).scene;
+    // WK-157 - "Viewer Quiz" disabled is fed through as a synthetic
+    // non-BetweenMatches scene rather than short-circuiting before
+    // scene_transition: this still sends a real between_matches_left (via
+    // the normal branch below) if a round happened to be active the moment
+    // the setting was switched off - closing it cleanly server-side instead
+    // of leaving it dangling - and still sends a real between_matches_entered
+    // if the setting is switched back on while already sitting in Between
+    // Matches. Either way it's a one-time transition, not a repeated event -
+    // same scene_transition idempotency as a real scene change. The specific
+    // non-BetweenMatches variant doesn't matter to scene_transition, only
+    // that it isn't BetweenMatches.
+    let scene = if quiz_enabled { current(app).scene } else { BroadcastState::Gameplay };
     let (entered_between_matches, left_between_matches) = scene_transition(*last_scene, scene);
     *last_scene = Some(scene);
 
@@ -180,6 +210,20 @@ pub fn publish_geometry<R: Runtime>(app: &AppHandle<R>, body: serde_json::Value)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn viewer_quiz_enabled_reads_the_nested_widgets_flag() {
+        let settings = serde_json::json!({ "widgets": { "viewerQuizEnabled": true } });
+        assert!(viewer_quiz_enabled(Some(&settings)));
+    }
+
+    #[test]
+    fn viewer_quiz_enabled_defaults_to_false_when_missing_or_malformed() {
+        assert!(!viewer_quiz_enabled(None));
+        assert!(!viewer_quiz_enabled(Some(&serde_json::json!({}))));
+        assert!(!viewer_quiz_enabled(Some(&serde_json::json!({ "widgets": {} }))));
+        assert!(!viewer_quiz_enabled(Some(&serde_json::json!({ "widgets": { "viewerQuizEnabled": "yes" } }))));
+    }
 
     #[test]
     fn first_tick_ever_entering_between_matches_counts_as_entered() {

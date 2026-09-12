@@ -182,6 +182,9 @@ export interface QueueSettingsDoc {
     recentGamesLimit: number;
     chatMessagesLimit: number;
     friends: { showDonaters: boolean; showSubscribers: boolean; showFollowers: boolean; socialLinks: Array<{ id: string; platform: string; label: string; url: string }> };
+    // WK-157 - lets a streamer disable the Between Matches viewer quiz while
+    // the Twitch Extension interaction layer is still being stabilized.
+    viewerQuizEnabled: boolean;
   };
 }
 

@@ -44,6 +44,16 @@ const widgetSettingsSchema = z.object({
         showFollowers: z.boolean(),
         socialLinks: z.array(socialLinkSchema).max(8),
     }),
+    // WK-157 - lets a streamer disable the Between Matches viewer quiz while
+    // the Twitch Extension interaction layer is still being stabilized.
+    // Defaults to false (see DEFAULT_QUEUE_SETTINGS below) - the feature
+    // doesn't yet work reliably for viewers, so existing users must not be
+    // opted in silently. Missing on any settings blob stored before this
+    // field existed - zod's per-field `.default()` fills it in as `false` on
+    // parse, so no explicit migration step is needed (unlike the v1->v2
+    // recentGamesLimit bump above, which back-filled a field with no
+    // schema-level default).
+    viewerQuizEnabled: z.boolean().default(false),
 });
 
 export const queueSettingsSchema = z.object({
@@ -76,6 +86,7 @@ export const queueSettingsSchema = z.object({
             showFollowers: true,
             socialLinks: [],
         },
+        viewerQuizEnabled: false,
     }),
 });
 
@@ -120,6 +131,7 @@ export const DEFAULT_QUEUE_SETTINGS: QueueSettings = {
             showFollowers: true,
             socialLinks: [],
         },
+        viewerQuizEnabled: false,
     },
 };
 

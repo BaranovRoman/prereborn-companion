@@ -185,6 +185,21 @@ export const QueueWidgetsPanel = ({
         }
     };
 
+    // WK-157 - standalone toggle, not one of WIDGETS above: the quiz isn't a
+    // positionable/visibility-configurable widget in that model (it has no
+    // QueueWidgetId), just a single on/off switch for whether it runs at
+    // all. Saves immediately on change, same as toggleFavoriteHero - a
+    // single boolean doesn't need the draft-then-save modal flow the
+    // multi-field widgets above use.
+    const toggleViewerQuiz = async (enabled: boolean) => {
+        try {
+            await save({ ...settings, widgets: { ...settings.widgets, viewerQuizEnabled: enabled } });
+            messageApi.success(enabled ? "Викторина для зрителей включена" : "Викторина для зрителей выключена");
+        } catch {
+            messageApi.error("Не удалось изменить настройку викторины");
+        }
+    };
+
     return (
         <section className={styles.section}>
             {contextHolder}
@@ -204,6 +219,20 @@ export const QueueWidgetsPanel = ({
                         </Button>
                     </div>
                 ))}
+                <div className={styles.row}>
+                    <span>
+                        <strong>Викторина для зрителей</strong>
+                        <small>
+                            Интерактивная викторина между матчами через Twitch Extension. Пока
+                            работает нестабильно — по умолчанию выключена.
+                        </small>
+                    </span>
+                    <Checkbox
+                        checked={settings.widgets.viewerQuizEnabled}
+                        disabled={loading}
+                        onChange={(event) => void toggleViewerQuiz(event.target.checked)}
+                    />
+                </div>
             </div>
             <Modal
                 title={WIDGETS.find((widget) => widget.id === activeWidget)?.label}

@@ -45,6 +45,17 @@ fn extract_favorite_hero_ids(queue_settings: Option<&serde_json::Value>) -> Vec<
         .unwrap_or_default()
 }
 
+// WK-157 - a real live stream showed Player Radar appearing noticeably later
+// than Favorite Heroes/Recent Games. Root cause: both fetches ran serially on
+// this same tick (favorite-heroes first, radar only after it returned or hit
+// its own 5s timeout), so radar could sit behind up to a full extra timeout
+// window for no reason - the two requests share nothing and don't need to be
+// ordered. `std::thread::scope` runs them concurrently and joins both before
+// this tick ends, capping the worst case at ~5s (one timeout) instead of
+// ~10s (two, back to back) - same "one background tick" shape as before, just
+// no longer artificially serialized. (The remaining "pops in" visual gap
+// while a tick is in flight is a separate, purely-presentational concern -
+// see PlayerProfileRadarPanel/RadarPlaceholder in BetweenMatchesScene.tsx.)
 fn refresh(app: &AppHandle) {
     let (token, favorite_hero_ids) = {
         let state = app.state::<AppState>();
@@ -57,25 +68,31 @@ fn refresh(app: &AppHandle) {
     // no point recording this as a connectivity failure (it isn't one).
     let Some(token) = token else { return };
 
-    // Empty selection (nothing manually pinned yet) - leave any previously
-    // cached bundle in place rather than clearing it; a stale bundle keyed to
-    // heroes no longer favorited is simply never looked up by heroId, so it
-    // is harmless, and this avoids a request with an empty heroIds list.
-    if !favorite_hero_ids.is_empty() {
-        if let Ok(value) = fetch_favorite_heroes(&token, &favorite_hero_ids) {
-            let state = app.state::<AppState>();
-            state.0.lock().unwrap().opendota_favorite_heroes = Some(value);
-        }
-        // A failed fetch (OpenDota rate-limited/down, network hiccup) simply
-        // skips this tick - the previous value (if any) stays put, and the
-        // next tick tries again. No error surfaced anywhere (задача, секция
-        // 12 - "OpenDota outage must simply remove external enrichment").
-    }
+    std::thread::scope(|scope| {
+        // Empty selection (nothing manually pinned yet) - leave any
+        // previously cached bundle in place rather than clearing it; a stale
+        // bundle keyed to heroes no longer favorited is simply never looked
+        // up by heroId, so it is harmless, and this avoids a request with an
+        // empty heroIds list.
+        let favorites_handle = (!favorite_hero_ids.is_empty())
+            .then(|| scope.spawn(|| fetch_favorite_heroes(&token, &favorite_hero_ids)));
+        let radar_handle = scope.spawn(|| fetch_radar(&token));
 
-    if let Ok(value) = fetch_radar(&token) {
-        let state = app.state::<AppState>();
-        state.0.lock().unwrap().opendota_radar = Some(value);
-    }
+        if let Some(handle) = favorites_handle {
+            // A failed fetch (OpenDota rate-limited/down, network hiccup)
+            // simply skips this tick - the previous value (if any) stays
+            // put, and the next tick tries again. No error surfaced anywhere
+            // (задача, секция 12 - "OpenDota outage must simply remove
+            // external enrichment"). A panicked fetch thread (join Err) is
+            // treated the same as a failed fetch, not propagated.
+            if let Ok(Ok(value)) = handle.join() {
+                app.state::<AppState>().0.lock().unwrap().opendota_favorite_heroes = Some(value);
+            }
+        }
+        if let Ok(Ok(value)) = radar_handle.join() {
+            app.state::<AppState>().0.lock().unwrap().opendota_radar = Some(value);
+        }
+    });
 }
 
 fn fetch_favorite_heroes(token: &str, hero_ids: &[i64]) -> Result<serde_json::Value, String> {

@@ -602,12 +602,26 @@ const buildPlayerSummaryRows = (
     return rows;
 };
 
+// WK-157 - the panel wrapper itself is now ALWAYS rendered (same className,
+// same flex slot in .sideStack) so its box is reserved from initial paint;
+// only the interior swaps between this restrained placeholder and the real
+// chart once data arrives. .radarPanel is the sole `flex: 1 1 auto` sibling
+// in .sideStack, whose own height is externally fixed by .leftMain's grid
+// row (not shrink-wrapped) - flexbox already gave this slot the same box
+// size regardless of content, so this costs no extra layout budget and
+// removes the pop-in/reflow a real stream showed (see WK-155).
+const RadarPlaceholder = ({ label }: { label: string }) => (
+    <Panel title="Player radar" className={styles.radarPanel}>
+        <div className={styles.radarBody}>
+            <div className={styles.panelEmpty}>{label}</div>
+        </div>
+    </Panel>
+);
+
 export const PlayerProfileRadarPanel = ({ openDota }: QueueDataProps) => {
     const radar = openDota?.radar;
-    // No placeholder/loading state on a live stream surface - the panel
-    // simply doesn't render until there's a real, sufficiently-sampled
-    // profile (задача, секции 10/12).
-    if (!radar || radar.insufficientSample) return null;
+    if (!radar) return <RadarPlaceholder label="Gathering match data…" />;
+    if (radar.insufficientSample) return <RadarPlaceholder label="Insufficient match sample" />;
 
     const summaryRows = buildPlayerSummaryRows(openDota?.playerSummary ?? null);
 
@@ -1065,8 +1079,48 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
     // state Companion does, but per the locked WK-116 architecture it NEVER
     // publishes hitbox geometry (Companion is the sole geometry producer -
     // see the Phase 3 correction) and never handles viewer interaction.
-    const quiz = activeOverlay?.quiz ?? null;
-    const quizSecondsLeft = useCountdown(quiz?.phaseEndsAt ?? new Date().toISOString());
+    //
+    // WK-157 - two additions to the real path:
+    //  1. Gated on the "Viewer Quiz" setting (default OFF - see
+    //     stream-queue-settings-service.ts) - when disabled, this must not
+    //     render, reserve space, or drive the countdown, same as "no active
+    //     round" today.
+    //  2. Dev/editor-only forced-phase preview (`?quizPhase=`) for THIS real
+    //     render path - Phase 0's quizVariant/quizPhase only ever drove the
+    //     separate mock placement-spike board above. Strictly gated on
+    //     `?mock=1` (publicData is only ever set by that query param, see
+    //     page.tsx) - the real live overlay endpoint never sets it, so a
+    //     viewer appending `?quizPhase=` to a real stream URL can't affect
+    //     anything. Lets the Оформление/editor preview parity task (item 4)
+    //     show both QUESTION and REVEAL without a live stream or mutating
+    //     any real round/score. `?quizEnabled=0` is the same idea applied to
+    //     the "Viewer Quiz" setting itself - the mock fixture always opts
+    //     in (see mock-overlay-data.ts), so this is how
+    //     between-matches-production-preview.spec.ts (item 6) can still
+    //     screenshot-verify the disabled state without a real backend
+    //     settings write.
+    const isMockOverlay = Boolean(publicData);
+    const forcedQuizPhase: "question" | "reveal" | null =
+        isMockOverlay && !isMockPlacementHarness && searchParams.has("quizPhase")
+            ? (searchParams.get("quizPhase") === "reveal" ? "reveal" : "question")
+            : null;
+    const viewerQuizEnabled = isMockOverlay && searchParams.get("quizEnabled") === "0"
+        ? false
+        : widgetSettings.viewerQuizEnabled;
+    const rawQuiz = activeOverlay?.quiz ?? null;
+    const quiz: OverlayData["quiz"] = viewerQuizEnabled && rawQuiz
+        ? (forcedQuizPhase ? { ...rawQuiz, phase: forcedQuizPhase } : rawQuiz)
+        : null;
+    const quizPhaseDurationSeconds = quiz?.phase === "question" ? QUESTION_DURATION_SECONDS : REVEAL_DURATION_SECONDS;
+    // A forced-phase preview needs a phaseEndsAt that's actually still in
+    // the future - the static mock fixture's own timestamp goes stale the
+    // moment the dev server has been running longer than one phase's
+    // duration - recomputed from "now" only while overridden; the real
+    // countdown otherwise still reflects the backend's real phaseEndsAt.
+    const quizPhaseEndsAt = quiz && forcedQuizPhase
+        ? new Date(new Date().getTime() + quizPhaseDurationSeconds * 1000).toISOString()
+        : quiz?.phaseEndsAt ?? new Date().toISOString();
+    const quizSecondsLeft = useCountdown(quizPhaseEndsAt);
     const renderRealQuizBoard = () => {
         if (!quiz) return null;
         return (
@@ -1079,7 +1133,7 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
                 leaderboard={quiz.leaderboard}
                 phase={quiz.phase}
                 secondsLeft={quizSecondsLeft}
-                phaseDurationSeconds={quiz.phase === "question" ? QUESTION_DURATION_SECONDS : REVEAL_DURATION_SECONDS}
+                phaseDurationSeconds={quizPhaseDurationSeconds}
                 layout="vertical"
             />
         );
@@ -1136,14 +1190,20 @@ export const QueueSceneUi = ({ publicData }: { publicData?: OverlayData }) => {
                         {...data}
                         title={widgetSettings.titles.twitchChat}
                     />
+                    {/* WK-157 - Quiz moved between Chat and Community: at the
+                        bottom of .rightMain it sat right next to the Twitch
+                        player's own chrome/progress bar/actions, which is a
+                        real conflict for an interactive element (see WK-116
+                        follow-up). This supersedes the old Chat/Community/Quiz
+                        order. */}
+                    {isMockPlacementHarness
+                        ? quizVariant === "c" && renderMockQuizBoard("vertical")
+                        : renderRealQuizBoard()}
                     <DonationTop
                         {...data}
                         title={widgetSettings.titles.friends}
                         settings={widgetSettings.friends}
                     />
-                    {isMockPlacementHarness
-                        ? quizVariant === "c" && renderMockQuizBoard("vertical")
-                        : renderRealQuizBoard()}
                 </div>
                 {isMockPlacementHarness && quizVariant === "a" && (
                     <div className={styles.quizColumn}>{renderMockQuizBoard("vertical")}</div>
