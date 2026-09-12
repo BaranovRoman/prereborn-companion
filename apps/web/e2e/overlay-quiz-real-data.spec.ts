@@ -184,6 +184,11 @@ test.describe("WK-116 Phase 5 - real quiz data on the production /overlay/:publi
         await mockOverlayResponse(page, REALISTIC_QUIZ_QUESTION);
         await page.setViewportSize({ width: 1920, height: 1080 });
         await page.goto("/overlay/e2e-fake-token");
+        // Wait for the quiz board to actually be in the DOM before reading
+        // its position - overlay data arrives via the mocked poll, not the
+        // initial SSR paint, so evaluating immediately after goto() can race
+        // ahead of it (flaky in CI, not reproducible locally every time).
+        await expect(page.getByLabel("QUIZ")).toBeVisible();
 
         const order = await page.evaluate(() => {
             const quiz = document.querySelector('[data-quiz-root]');
