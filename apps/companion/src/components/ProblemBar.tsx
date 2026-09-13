@@ -1,4 +1,4 @@
-import type { StatusSnapshot, SyncOutboxStatus } from "../types/status";
+import type { LifecycleStatus, StatusSnapshot, SyncOutboxStatus } from "../types/status";
 import type { BackendStatusDescription } from "../utils/backendStatus";
 
 // WK-124 - replaces the old "warning"/"error" tone pair (mustard-yellow
@@ -15,12 +15,34 @@ interface ProblemItem {
   tone: ProblemTone;
   label: string;
   detail: string;
+  // Reliability follow-up - the one interactive affordance ProblemBar items
+  // support: a small dismiss control. Deliberately NOT a general actions
+  // array (Switch/Keep for a default-device change needs two distinct
+  // choices with different outcomes, which doesn't fit a status bar item -
+  // see AudioDeviceChangeBanner.tsx, which reuses the existing
+  // banner-with-buttons pattern from UpdateBanner.tsx/SessionPromptBanner.tsx
+  // for that case instead).
+  onDismiss?: () => void;
+}
+
+// Reliability follow-up - audio-output-device warnings, computed by
+// useAudioOutputDevice.ts (no Rust/StatusSnapshot involvement - this is a
+// frontend/webview-only concern, see audio/outputDevice.ts's doc comment).
+export interface AudioOutputProblemState {
+  selectedDeviceMissing: boolean;
+  selectedDeviceLabel: string | null;
+  defaultDeviceChangedNotice: string | null;
+  onDismissDefaultDeviceChangedNotice: () => void;
 }
 
 interface Props {
   status: StatusSnapshot | null;
   backendStatus: BackendStatusDescription;
   syncStatus: SyncOutboxStatus | null;
+  // Reliability follow-up - both optional so existing callers/tests that
+  // don't pass them keep behaving exactly as before (no items pushed).
+  lifecycle?: LifecycleStatus | null;
+  audioOutput?: AudioOutputProblemState | null;
 }
 
 // WK-114 - replaces the permanent status-grid cards that used to sit on
@@ -33,7 +55,7 @@ interface Props {
 // categorically softer (always "warning", never "error") than GSI/OBS ones,
 // matching utils/backendStatus.ts's WK-113 design: a sync problem never
 // touches the live stream, a GSI/OBS problem can.
-export function ProblemBar({ status, backendStatus, syncStatus }: Props) {
+export function ProblemBar({ status, backendStatus, syncStatus, lifecycle, audioOutput }: Props) {
   if (!status) return null;
   const items: ProblemItem[] = [];
 
@@ -78,6 +100,54 @@ export function ProblemBar({ status, backendStatus, syncStatus }: Props) {
     });
   }
 
+  // Reliability follow-up - "OBS unexpectedly stopped" (pending_end, the
+  // existing 30s grace window before a session finalizes) takes precedence
+  // over "OBS never confirmed streaming" when both happen to be true at once
+  // (OBS drops mid-match, GSI still shows Gameplay) - it's the strictly more
+  // specific/useful message, see local_runtime::lifecycle's field doc on
+  // awaiting_start_confirmation. Neither fires for `session_state === "none"`
+  // after a normal finalize (see the задача's "explicit stop is not a false
+  // alarm" criterion) or for "needs_manual_recovery" (already surfaced as its
+  // own actionable card on Главная, see LocalStreamLifecycleCard.tsx - not
+  // duplicated here).
+  if (lifecycle) {
+    if (lifecycle.session_state === "pending_end") {
+      items.push({
+        key: "stream-pending-end",
+        tone: "recovering",
+        label: "Стрим неожиданно остановился",
+        detail: "OBS перестал стримить. Если не возобновится, сессия завершится через 30 секунд.",
+      });
+    } else if (lifecycle.awaiting_start_confirmation) {
+      items.push({
+        key: "stream-not-confirmed",
+        tone: "critical",
+        label: "OBS не подтвердил трансляцию",
+        detail: "Игра идёт, но OBS не стримит. Проверьте Start Streaming в OBS.",
+      });
+    }
+  }
+
+  // Reliability follow-up - the selected explicit output device disappearing
+  // is the higher-priority audio warning (задача п.1/п.2); a plain
+  // system-default-changed notice is informational only.
+  if (audioOutput?.selectedDeviceMissing) {
+    items.push({
+      key: "audio-device-missing",
+      tone: "critical",
+      label: "Выбранное аудиоустройство недоступно",
+      detail: `«${audioOutput.selectedDeviceLabel ?? "устройство"}» не найдено. TTS и алерты играют на резервном устройстве — выберите другое в Настройках → Чат и TTS.`,
+    });
+  } else if (audioOutput?.defaultDeviceChangedNotice) {
+    items.push({
+      key: "audio-default-changed",
+      tone: "info",
+      label: "Системное аудиоустройство изменилось",
+      detail: audioOutput.defaultDeviceChangedNotice,
+      onDismiss: audioOutput.onDismissDefaultDeviceChangedNotice,
+    });
+  }
+
   if (items.length === 0) return null;
 
   return (
@@ -86,6 +156,9 @@ export function ProblemBar({ status, backendStatus, syncStatus }: Props) {
         <div key={item.key} className={`problem-bar problem-bar--${item.tone}`}>
           <span className="problem-bar__label">{item.label}</span>
           <span className="problem-bar__detail">{item.detail}</span>
+          {item.onDismiss && (
+            <button className="problem-bar__dismiss" onClick={item.onDismiss} aria-label="Скрыть">✕</button>
+          )}
         </div>
       ))}
     </div>

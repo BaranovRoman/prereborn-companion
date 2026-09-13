@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { applySinkId } from "../audio/outputDevice";
 import { BoundedGameSoundQueue, base64ToObjectUrl, type GameSoundPlayback } from "./game-sound-model";
 import * as api from "../services/dotaCompanionApi";
 import type {
@@ -142,6 +143,7 @@ export function useGameSoundEngine(overallVolume: number = 100) {
     };
     audio.onended = cleanup;
     audio.onerror = cleanup;
+    void applySinkId(audio);
     await audio.play().catch(cleanup);
   }, [stopPreview]);
 
@@ -171,6 +173,10 @@ function playPayload(
   audio.onended = cleanup;
   audio.onerror = cleanup;
   logTiming(item, "audio-play-requested");
+  // Reliability follow-up - fire-and-forget: routing to the selected output
+  // device must never delay when playback actually starts (mirrors this
+  // function's own "playback error не ломает listener" no-blocking policy).
+  void applySinkId(audio);
   audio.play()
     .then(() => logTiming(item, "audio-playing"))
     .catch(cleanup);

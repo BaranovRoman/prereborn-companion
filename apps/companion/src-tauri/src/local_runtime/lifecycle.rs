@@ -21,6 +21,7 @@ use rusqlite::Connection;
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
+use crate::broadcast_state::BroadcastState;
 use super::model::LocalSession;
 use super::store;
 use super::LocalRuntimeState;
@@ -313,6 +314,37 @@ pub struct LifecycleStatus {
     pub obs_streaming: Option<bool>,
     // WK-122 P0 diagnostics - see state.rs's field doc.
     pub obs_streaming_confirmed_at: Option<String>,
+    // Reliability follow-up - true while GSI shows an active Draft/Gameplay
+    // (the streamer is clearly playing, presumably intending to be live) but
+    // OBS's own stream-state watcher has confirmed it is NOT streaming. This
+    // is deliberately level-triggered (recomputed fresh on every read, unlike
+    // draft_reminder.rs's edge-triggered one-shot voice ping which reuses the
+    // exact same two facts) so a persistent visual warning can stay up for as
+    // long as the mismatch lasts, not just flash once on entering Draft.
+    // Independent of `session_state`: the frontend gives `session_state ==
+    // pending_end` precedence when both happen to be true at once (OBS drops
+    // mid-match), since that message is strictly more specific - see
+    // ProblemBar.tsx.
+    pub awaiting_start_confirmation: bool,
+}
+
+/// Pure decision the frontend's "start requested but OBS never confirmed
+/// streaming" warning is built on. `last_broadcast_state` is the same
+/// GSI-derived value draft_reminder.rs already tracks in
+/// `InnerState::draft_reminder_last_state` - reused here rather than adding a
+/// second GSI consumer, per that module's own "no second Draft detector"
+/// rule. `obs_watcher_connected` is checked for the same reason
+/// draft_reminder.rs checks it: a stale `Some(false)` from before the
+/// stream-state watcher disconnected must never be read as "confirmed not
+/// streaming".
+fn compute_awaiting_start_confirmation(
+    obs_watcher_connected: bool,
+    obs_streaming: Option<bool>,
+    last_broadcast_state: Option<BroadcastState>,
+) -> bool {
+    obs_watcher_connected
+        && obs_streaming == Some(false)
+        && matches!(last_broadcast_state, Some(BroadcastState::Draft) | Some(BroadcastState::Gameplay))
 }
 
 /// Read-only status for the frontend (see commands.rs). Deliberately
@@ -322,10 +354,15 @@ pub struct LifecycleStatus {
 /// since a suspiciously old open session is worth surfacing regardless of
 /// whatever OBS is doing right now.
 pub fn status(app: &AppHandle) -> LifecycleStatus {
-    let (obs_streaming, obs_streaming_confirmed_at) = {
+    let (obs_streaming, obs_streaming_confirmed_at, awaiting_start_confirmation) = {
         let app_state = app.state::<crate::state::AppState>();
         let inner = app_state.0.lock().unwrap();
-        (inner.obs_streaming, inner.obs_streaming_confirmed_at.clone())
+        let awaiting = compute_awaiting_start_confirmation(
+            inner.obs_watcher_connected,
+            inner.obs_streaming,
+            inner.draft_reminder_last_state,
+        );
+        (inner.obs_streaming, inner.obs_streaming_confirmed_at.clone(), awaiting)
     };
     let state = app.state::<LocalRuntimeState>();
     let mut guard = state.lock();
@@ -336,6 +373,7 @@ pub fn status(app: &AppHandle) -> LifecycleStatus {
             pending_end_at: None,
             obs_streaming,
             obs_streaming_confirmed_at,
+            awaiting_start_confirmation,
         };
     };
     // WK-137 - scoped to a genuine broadcast session only: this feeds the
@@ -350,6 +388,7 @@ pub fn status(app: &AppHandle) -> LifecycleStatus {
             pending_end_at: None,
             obs_streaming,
             obs_streaming_confirmed_at,
+            awaiting_start_confirmation,
         };
     };
     let view = SessionLifecycleView::from_session(&session);
@@ -365,6 +404,7 @@ pub fn status(app: &AppHandle) -> LifecycleStatus {
         pending_end_at: session.pending_end_at.clone(),
         obs_streaming,
         obs_streaming_confirmed_at,
+        awaiting_start_confirmation,
     }
 }
 
@@ -560,6 +600,45 @@ mod tests {
         let ancient = gameplay_view(now - Duration::hours(20));
         assert_eq!(decide(Some(&ancient), true, now), LifecycleDecision::ContinueSession);
         assert_eq!(decide(Some(&ancient), false, now), LifecycleDecision::NoOp);
+    }
+
+    // Reliability follow-up - compute_awaiting_start_confirmation, the pure
+    // decision behind the new persistent "OBS never confirmed streaming"
+    // ProblemBar warning. Mirrors draft_reminder.rs's should_fire test matrix
+    // for the two facts they share (obs_watcher_connected/obs_streaming),
+    // plus the Draft-vs-Gameplay breadth this one adds (level-triggered
+    // for the whole match, not just the moment Draft is entered).
+    #[test]
+    fn awaiting_confirmation_true_while_drafting_and_obs_confirmed_not_streaming() {
+        assert!(compute_awaiting_start_confirmation(true, Some(false), Some(BroadcastState::Draft)));
+    }
+
+    #[test]
+    fn awaiting_confirmation_true_while_playing_and_obs_confirmed_not_streaming() {
+        assert!(compute_awaiting_start_confirmation(true, Some(false), Some(BroadcastState::Gameplay)));
+    }
+
+    #[test]
+    fn awaiting_confirmation_false_once_obs_confirms_streaming() {
+        assert!(!compute_awaiting_start_confirmation(true, Some(true), Some(BroadcastState::Gameplay)));
+    }
+
+    #[test]
+    fn awaiting_confirmation_false_outside_draft_and_gameplay() {
+        for state in [BroadcastState::BetweenMatches, BroadcastState::PostStream] {
+            assert!(!compute_awaiting_start_confirmation(true, Some(false), Some(state)));
+        }
+        assert!(!compute_awaiting_start_confirmation(true, Some(false), None));
+    }
+
+    #[test]
+    fn awaiting_confirmation_false_when_streaming_truth_never_confirmed() {
+        assert!(!compute_awaiting_start_confirmation(true, None, Some(BroadcastState::Draft)));
+    }
+
+    #[test]
+    fn awaiting_confirmation_false_when_watcher_disconnected_even_with_stale_not_streaming() {
+        assert!(!compute_awaiting_start_confirmation(false, Some(false), Some(BroadcastState::Draft)));
     }
 
     // Integration-style tests below drive `decide` + the real store

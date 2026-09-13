@@ -1,4 +1,5 @@
 import type { TwitchChatSession } from "../../chat/useTwitchChatSession";
+import type { AudioOutputDeviceState } from "../../hooks/useAudioOutputDevice";
 import type { useGameSoundEngine } from "../../sounds/useGameSoundEngine";
 import { Slider } from "../ui";
 
@@ -7,6 +8,7 @@ interface Props {
   onOverallVolumeChange: (value: number) => void;
   chatSession: TwitchChatSession;
   gameSoundEngine: ReturnType<typeof useGameSoundEngine>;
+  audioOutputDevice: AudioOutputDeviceState;
 }
 
 // WK-135 - Audio Settings consolidation. Three volume controls in one place
@@ -19,13 +21,49 @@ interface Props {
 // sliders themselves still write through the exact same setters
 // (setMaster/updateSetting) they always did - no new persisted schema for
 // either, only "Общий" is new state.
-export function AudioSettings({ overallVolume, onOverallVolumeChange, chatSession, gameSoundEngine }: Props) {
+export function AudioSettings({ overallVolume, onOverallVolumeChange, chatSession, gameSoundEngine, audioOutputDevice }: Props) {
   const { settings: soundSettings, setMaster } = gameSoundEngine;
   const { settings: chatSettings, updateSetting } = chatSession;
+  const { devices, selection, setSelection, selectedDeviceMissing, selectedDeviceLabel } = audioOutputDevice;
 
   return (
     <div className="chat-settings chat-settings--in-panel audio-settings">
       <h3>Аудио</h3>
+      <label className="tts-volume">
+        <span className="tts-volume__row"><span>Устройство вывода</span></span>
+        <select
+          className="audio-settings__device-select"
+          value={selection.mode === "system-default" ? "system-default" : selection.deviceId}
+          onChange={(event) => {
+            const value = event.target.value;
+            if (value === "system-default") {
+              setSelection({ mode: "system-default" });
+              return;
+            }
+            const device = devices.find((d) => d.deviceId === value);
+            setSelection({ mode: "explicit", deviceId: value, label: device?.label ?? value });
+          }}
+        >
+          <option value="system-default">Системное устройство по умолчанию</option>
+          {devices.map((device) => (
+            <option key={device.deviceId} value={device.deviceId}>{device.label}</option>
+          ))}
+          {/* If the selected device dropped out of the current device list
+              (see the warning below), keep it visible in the <select>
+              instead of silently falling back to a different option. */}
+          {selection.mode === "explicit" && selectedDeviceMissing && (
+            <option value={selection.deviceId}>{selectedDeviceLabel} (недоступно)</option>
+          )}
+        </select>
+        <p className="audio-settings__device-hint">
+          Применяется к TTS Twitch-чата и звукам алертов/предметов. Не влияет на системный звук, OBS или звук игры.
+        </p>
+        {selectedDeviceMissing && (
+          <p className="audio-settings__device-warning">
+            «{selectedDeviceLabel}» сейчас недоступно. TTS и алерты временно играют на резервном устройстве — выберите другое выше.
+          </p>
+        )}
+      </label>
       <label className="tts-volume">
         <span className="tts-volume__row"><span>Общий</span><span className="tts-volume__value">{overallVolume}%</span></span>
         <Slider
