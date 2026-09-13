@@ -9,6 +9,7 @@ import { AudioSettings } from "./settings/AudioSettings";
 import { ChatTtsSettings } from "./settings/ChatTtsSettings";
 import type { TwitchChatSession } from "../chat/useTwitchChatSession";
 import type { AutostartState } from "../hooks/useAutostart";
+import type { AudioOutputDeviceState } from "../hooks/useAudioOutputDevice";
 import { useModalBehavior } from "../hooks/useModalBehavior";
 import type { OverlayToggleHotkeyStatus, SkipHotkeyStatus } from "../services/dotaCompanionApi";
 import type { useGameSoundEngine } from "../sounds/useGameSoundEngine";
@@ -55,6 +56,7 @@ interface Props {
   onUpdateOverlayHotkey: (enabled: boolean, shortcut: string) => Promise<void>;
   overallVolume: number;
   onOverallVolumeChange: (value: number) => void;
+  audioOutputDevice: AudioOutputDeviceState;
   draftStreamReminderEnabled: boolean;
   onDraftStreamReminderChange: (enabled: boolean) => void;
   chatSession: TwitchChatSession;
@@ -74,7 +76,7 @@ interface Props {
 export function SettingsModal({
   open, onClose, status, setStatus, autostart, hotkeyStatus, hotkeyBusy, onUpdateHotkey,
   overlayHotkeyStatus, overlayHotkeyBusy, onUpdateOverlayHotkey,
-  overallVolume, onOverallVolumeChange,
+  overallVolume, onOverallVolumeChange, audioOutputDevice,
   draftStreamReminderEnabled, onDraftStreamReminderChange,
   chatSession, gameSoundEngine, initialCategory,
 }: Props) {
@@ -137,6 +139,7 @@ export function SettingsModal({
                   onOverallVolumeChange={onOverallVolumeChange}
                   chatSession={chatSession}
                   gameSoundEngine={gameSoundEngine}
+                  audioOutputDevice={audioOutputDevice}
                 />
                 <ChatTtsSettings session={chatSession} />
               </>
