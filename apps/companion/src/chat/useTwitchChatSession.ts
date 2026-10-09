@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { applyAudioContextSinkId, applySinkId } from "../audio/outputDevice";
 import { BoundedTtsQueue, DEFAULT_CHAT_SETTINGS, nextUnreadCount, normalizeSpeechVolume, type ChatSettings } from "./chat-model";
 import {
   diagnosticsTraceTtsFrontend, getSileroTtsStatus, getSkipHotkeyStatus, getTwitchChat,
@@ -210,6 +211,13 @@ export function useTwitchChatSession(overallVolume: number = 100): TwitchChatSes
       // doesn't fire onended/onerror on its own) and runs the same
       // cleanup/done() path a natural end would.
       activeCancel.current = () => { audio.pause(); cleanup(); };
+      // Reliability follow-up - fire-and-forget routing to the explicitly
+      // selected output device, if any (see audio/outputDevice.ts). Never
+      // awaited: it must not delay when playback actually starts, and a
+      // missing pinned device just falls through to whatever the browser
+      // resolves as the actual output, surfaced separately via
+      // useAudioOutputDevice's periodic device-list check.
+      void applySinkId(audio);
       trace.stages.playbackRequestedAt = performance.now();
       await audio.play().catch(cleanup);
     } catch {
@@ -281,6 +289,10 @@ export function useTwitchChatSession(overallVolume: number = 100): TwitchChatSes
     const Context = window.AudioContext;
     if (!Context) return;
     const context = new Context();
+    // Reliability follow-up - best-effort, fire-and-forget: AudioContext's
+    // setSinkId support is newer than HTMLMediaElement's and may be missing
+    // on some WebView2 builds - see applyAudioContextSinkId's doc comment.
+    void applyAudioContextSinkId(context);
     const oscillator = context.createOscillator();
     const gain = context.createGain();
     oscillator.frequency.value = 740;
@@ -444,6 +456,7 @@ export function useTwitchChatSession(overallVolume: number = 100): TwitchChatSes
         };
         audio.onended = cleanup;
         audio.onerror = cleanup;
+        void applySinkId(audio);
         void audio.play().catch(cleanup);
       })
       .catch((cause) => {

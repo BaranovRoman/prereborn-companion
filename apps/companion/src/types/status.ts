@@ -79,6 +79,12 @@ export interface LifecycleStatus {
   // WK-122 P0 diagnostics - last time the OBS stream-state watcher actually
   // confirmed streaming truth (event, initial fetch, or heartbeat re-probe).
   obs_streaming_confirmed_at: string | null;
+  // Reliability follow-up - true while GSI shows an active Draft/Gameplay but
+  // OBS is confirmed NOT streaming (see local_runtime::lifecycle's field doc
+  // for the full semantics). Drives ProblemBar's persistent "OBS never
+  // confirmed streaming" warning; given precedence to session_state ===
+  // "pending_end" when both are true, see ProblemBar.tsx.
+  awaiting_start_confirmation: boolean;
 }
 
 // WK-122 §7 - Companion account (email/password login), replacing the

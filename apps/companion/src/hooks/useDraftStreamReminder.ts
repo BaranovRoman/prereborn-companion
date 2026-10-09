@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { applySinkId } from "../audio/outputDevice";
 import { base64ToObjectUrl } from "../sounds/game-sound-model";
 import { synthesizeSileroTts, type SileroVoice } from "../services/dotaCompanionApi";
 
@@ -55,6 +56,7 @@ export function useDraftStreamReminder(voice: SileroVoice) {
           const cleanup = () => URL.revokeObjectURL(url);
           audio.onended = cleanup;
           audio.onerror = cleanup;
+          void applySinkId(audio);
           return audio.play().catch(cleanup);
         })
         .catch(() => {

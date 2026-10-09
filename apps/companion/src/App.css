@@ -754,6 +754,19 @@ h1, h2, p { margin-top: 0; }
 }
 .problem-bar__label { font-weight: 700; text-transform: uppercase; font-size: .68rem; letter-spacing: .08em; flex-shrink: 0; }
 .problem-bar__detail { color: var(--ui-text-muted); }
+/* Reliability follow-up - the one dismissible ProblemBar item (system
+   default audio device changed, informational only - see ProblemBar.tsx). */
+.problem-bar__dismiss {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--ui-text-muted);
+  cursor: pointer;
+  font-size: .8rem;
+  line-height: 1;
+  padding: 0 2px;
+}
+.problem-bar__dismiss:hover { color: var(--ui-text); }
 
 .problem-bar--recovering::after { background: var(--ui-red); box-shadow: 0 0 5px rgba(123, 53, 50, .6); }
 .problem-bar--recovering .problem-bar__label { color: #b3746e; }
@@ -1277,6 +1290,8 @@ h1, h2, p { margin-top: 0; }
 .tts-engine-choice { display: grid; gap: 5px; padding-left: 4px; }
 .tts-engine-choice.is-disabled { color: var(--ui-text-soft); }
 .tts-volume { display: grid; gap: 5px; }
+.audio-settings__device-hint { font-size: .78rem; }
+.audio-settings__device-warning { font-size: .78rem; color: var(--status-critical); }
 .tts-volume__row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .tts-volume__value { color: var(--ui-text-soft); font-variant-numeric: tabular-nums; }
 .tts-piper-status, .tts-license-note { margin: -4px 0 0; font-size: .76rem; color: var(--ui-text-soft); }

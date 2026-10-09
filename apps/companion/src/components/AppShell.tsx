@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { AppAtmosphere } from "./AppAtmosphere";
+import { AudioDeviceChangeBanner } from "./AudioDeviceChangeBanner";
 import { ProblemBar } from "./ProblemBar";
 import { SessionPromptBanner } from "./SessionPromptBanner";
 import { SettingsModal, type Category as SettingsCategory } from "./SettingsModal";
 import { TwitchChatPage } from "./TwitchChatPage";
 import { UpdateBanner } from "./UpdateBanner";
 import { useTwitchChatSession } from "../chat/useTwitchChatSession";
+import { useAudioOutputDevice } from "../hooks/useAudioOutputDevice";
 import { useAutostart } from "../hooks/useAutostart";
 import { useDiagnostics } from "../hooks/useDiagnostics";
 import { useDraftStreamReminder } from "../hooks/useDraftStreamReminder";
@@ -63,6 +65,7 @@ export function AppShell() {
   const chatSession = useTwitchChatSession(overallVolume);
   const gameSoundEngine = useGameSoundEngine(overallVolume);
   const draftStreamReminder = useDraftStreamReminder(chatSession.settings.sileroVoice);
+  const audioOutputDevice = useAudioOutputDevice();
   const sessionPrompt = useStreamSessionPrompt();
   const localLifecycle = useLocalLifecycle();
   const { summary: sessionSummary, refresh: refreshSessionSummary } = useLocalSessionSummary();
@@ -162,7 +165,18 @@ export function AppShell() {
           of game chrome, old-Dota GC-status style, with nav sitting under it -
           not a banner squeezed between the header and page content. Still a
           healthy Companion renders nothing here at all (see ProblemBar.tsx). */}
-      <ProblemBar status={status} backendStatus={backendStatus} syncStatus={syncStatus} />
+      <ProblemBar
+        status={status}
+        backendStatus={backendStatus}
+        syncStatus={syncStatus}
+        lifecycle={localLifecycle.status}
+        audioOutput={{
+          selectedDeviceMissing: audioOutputDevice.selectedDeviceMissing,
+          selectedDeviceLabel: audioOutputDevice.selectedDeviceLabel,
+          defaultDeviceChangedNotice: audioOutputDevice.defaultDeviceChangedNotice,
+          onDismissDefaultDeviceChangedNotice: audioOutputDevice.dismissDefaultDeviceChangedNotice,
+        }}
+      />
       <header className="app-header">
         <div className="app-header__side app-header__side--left">
           <button className="app-header__gear" onClick={() => openSettings()} aria-label="Настройки">
@@ -226,6 +240,12 @@ export function AppShell() {
           onInstall={() => void updater.installUpdate()}
           onRestart={() => void updater.restartToApply()}
           onDismiss={updater.dismiss}
+        />
+
+        <AudioDeviceChangeBanner
+          toLabel={audioOutputDevice.switchPrompt?.toLabel ?? null}
+          onSwitch={audioOutputDevice.onSwitchToNewDefault}
+          onKeep={audioOutputDevice.onKeepCurrentDevice}
         />
 
         <SessionPromptBanner
@@ -325,6 +345,7 @@ export function AppShell() {
         onUpdateOverlayHotkey={overlayHotkey.updateOverlayHotkey}
         overallVolume={overallVolume}
         onOverallVolumeChange={setOverallVolume}
+        audioOutputDevice={audioOutputDevice}
         draftStreamReminderEnabled={draftStreamReminder.enabled}
         onDraftStreamReminderChange={draftStreamReminder.setEnabled}
         chatSession={chatSession}
