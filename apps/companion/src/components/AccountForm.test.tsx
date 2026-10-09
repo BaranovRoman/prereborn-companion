@@ -2,14 +2,14 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../services/dotaCompanionApi", () => ({
+vi.mock("../core/api", () => ({
   getAccountStatus: vi.fn(),
   accountLogin: vi.fn(),
   accountLogout: vi.fn(),
 }));
 
 // eslint-disable-next-line import/order
-import { accountLogin, accountLogout, getAccountStatus } from "../services/dotaCompanionApi";
+import { accountLogin, accountLogout, getAccountStatus } from "../core/api";
 // eslint-disable-next-line import/order
 import { AccountForm } from "./AccountForm";
 

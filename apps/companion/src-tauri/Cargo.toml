@@ -18,6 +18,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+companion-plugin-protocol = { path = "../../../plugins/protocol" }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
@@ -105,4 +106,3 @@ tempfile = "3"
 # affects test builds - "test" is not enabled for the main [dependencies]
 # tauri entry, so the shipped binary is unaffected.
 tauri = { version = "2", features = ["test"] }
-

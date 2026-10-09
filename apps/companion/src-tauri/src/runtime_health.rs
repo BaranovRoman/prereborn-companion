@@ -500,7 +500,7 @@ pub fn compute(app: &AppHandle) -> RuntimeHealth {
             inner.obs_config.enabled,
             inner.obs_last_error.clone(),
             inner.obs_watcher_last_error.clone(),
-            inner.twitch_chat.clone(),
+            inner.core.twitch_chat.clone(),
         )
     };
 

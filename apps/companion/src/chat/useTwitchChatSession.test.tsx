@@ -10,7 +10,7 @@ import { useTwitchChatSession } from "./useTwitchChatSession";
 // consumer mounting/unmounting underneath must not start/stop polling, and
 // must never end up with two pollers running at once.
 
-vi.mock("../services/dotaCompanionApi", () => ({
+vi.mock("../core/api", () => ({
   getTwitchChat: vi.fn(),
   getSileroTtsStatus: vi.fn().mockResolvedValue({ enabled: false, state: "notStarted", lastError: null, resourcesReady: true, voice: "xenia" }),
   setSileroTtsEnabled: vi.fn().mockResolvedValue({ enabled: false, state: "notStarted", lastError: null, resourcesReady: true, voice: "xenia" }),
@@ -32,7 +32,7 @@ import { listen } from "@tauri-apps/api/event";
 // eslint-disable-next-line import/order
 import {
   getSileroTtsStatus, getSkipHotkeyStatus, getTwitchChat, setSkipHotkey, synthesizeSileroTts,
-} from "../services/dotaCompanionApi";
+} from "../core/api";
 // eslint-disable-next-line import/order
 import type { TwitchChatSession } from "./useTwitchChatSession";
 

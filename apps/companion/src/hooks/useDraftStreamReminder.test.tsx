@@ -6,12 +6,12 @@ import { useDraftStreamReminder } from "./useDraftStreamReminder";
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
 }));
-vi.mock("../services/dotaCompanionApi", () => ({
+vi.mock("../core/api", () => ({
   synthesizeSileroTts: vi.fn(),
 }));
 
 import { listen } from "@tauri-apps/api/event";
-import { synthesizeSileroTts } from "../services/dotaCompanionApi";
+import { synthesizeSileroTts } from "../core/api";
 
 const STORAGE_KEY = "companion-system-voice-reminders-v1";
 const DRAFT_STREAM_NOT_STARTED_EVENT = "reminders://draft-stream-not-started";

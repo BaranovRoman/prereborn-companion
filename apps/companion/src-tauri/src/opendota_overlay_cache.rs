@@ -60,7 +60,7 @@ fn refresh(app: &AppHandle) {
     let (token, favorite_hero_ids) = {
         let state = app.state::<AppState>();
         let inner = state.0.lock().unwrap();
-        let token = inner.companion_token.clone();
+        let token = inner.core.companion_token.clone();
         let favorite_hero_ids = extract_favorite_hero_ids(inner.queue_settings.as_ref());
         (token, favorite_hero_ids)
     };

@@ -92,7 +92,7 @@ fn tick<R: Runtime>(app: &AppHandle<R>, last_scene: &mut Option<BroadcastState>)
     let (token, quiz_enabled) = {
         let state = app.state::<AppState>();
         let inner = state.0.lock().unwrap();
-        (inner.companion_token.clone(), viewer_quiz_enabled(inner.queue_settings.as_ref()))
+        (inner.core.companion_token.clone(), viewer_quiz_enabled(inner.queue_settings.as_ref()))
     };
     let Some(token) = token else { return };
 
@@ -188,7 +188,7 @@ pub fn publish_geometry<R: Runtime>(app: &AppHandle<R>, body: serde_json::Value)
         .0
         .lock()
         .unwrap()
-        .companion_token
+        .core.companion_token
         .clone()
         .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())?;
     let response = reqwest::blocking::Client::builder()

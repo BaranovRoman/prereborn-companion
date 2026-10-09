@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { applySinkId } from "../audio/outputDevice";
 import { base64ToObjectUrl } from "../sounds/game-sound-model";
-import { synthesizeSileroTts, type SileroVoice } from "../services/dotaCompanionApi";
+import { synthesizeSileroTts, type SileroVoice } from "../core/api";
 
 // Mirrors the Rust side's draft_reminder.rs constant exactly (hardcoded here
 // rather than imported, the same convention useTwitchChatSession.ts already

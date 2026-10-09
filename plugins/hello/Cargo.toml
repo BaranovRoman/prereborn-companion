@@ -1,0 +1,8 @@
+[package]
+name = "companion-hello-plugin"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+companion-plugin-protocol = { path = "../protocol" }
+serde_json = "1"

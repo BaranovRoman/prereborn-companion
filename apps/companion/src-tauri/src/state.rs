@@ -1,7 +1,7 @@
-use crate::broadcast_state::BroadcastState;
 use crate::obs::{BroadcastScene, ObsConfig};
 use serde::Serialize;
 use std::sync::Mutex;
+#[cfg(test)]
 use std::time::Instant;
 
 pub const GSI_PORT: u16 = 3665;
@@ -118,197 +118,19 @@ pub enum ConnectionState {
     Unavailable,
 }
 
+// Compatibility aggregate: one lock preserves atomic legacy snapshots and lock order.
+// New code uses core/dota explicitly; Deref retains old game callers during migration.
 #[derive(Debug, Default)]
 pub struct InnerState {
-    pub dota_path: Option<String>,
-    pub dota_source: Option<String>,
-    pub gsi_installed: bool,
-    pub gsi_config_path: Option<String>,
-    pub server_running: bool,
-    pub gsi_last_error: Option<String>,
-    pub gsi_last_received_at: Option<Instant>,
-    pub request_count: u32,
-    pub last_event: Option<LastEvent>,
-    pub log_dir: Option<String>,
-
-    pub companion_token: Option<String>,
-    // Whether at least one send attempt has completed (success or failure)
-    // since Companion started or since the token was last (re)saved - lets
-    // `snapshot()` tell "never checked yet" (Waiting) apart from "checked
-    // and it failed" (Recovering/Unavailable), which a single bool cannot.
-    pub backend_attempted: bool,
-    // Consecutive failed send attempts. Reset to 0 on any success or on
-    // token save. Compared against `backend::MAX_RETRY_ATTEMPT` (the same
-    // cap the WK-78 backoff itself uses) to distinguish a transient blip
-    // (still Recovering) from a sustained outage (Unavailable).
-    pub backend_consecutive_failures: u32,
-    pub backend_last_sent_at: Option<String>,
-    pub backend_last_error: Option<String>,
-    // Reliability pass - set the moment `backend_consecutive_failures` goes
-    // from 0 to 1 (see backend::record_connectivity), cleared on the next
-    // success. Lets a recovery log line report how long the backend was
-    // actually degraded, instead of just that it recovered - see the
-    // connectivity report for why `backend_state` needed a connectivity
-    // signal from more than just the legacy gsi-state heartbeat.
-    pub backend_degraded_since: Option<Instant>,
-    // Последнее распарсенное (valid JSON) GSI-состояние - независимо от
-    // того, было ли оно уже отправлено. `dirty` отличает "есть новое,
-    // ещё не отправленное состояние" (используется фоновым троттлингом раз
-    // в ~1с) от "отправить то же самое состояние ещё раз" (ручная кнопка
-    // Resend всегда шлёт last_gsi_payload, даже если dirty=false).
-    pub last_gsi_payload: Option<serde_json::Value>,
-    pub dirty: bool,
-    // Monotonic generation of last_gsi_payload. The sender records the
-    // generation it started sending and only clears dirty if no newer GSI
-    // payload arrived while the HTTP request was in flight.
-    pub payload_version: u64,
-    pub obs_config: ObsConfig,
-    pub obs_connected: bool,
-    pub obs_active_scene: Option<BroadcastScene>,
-    pub obs_active_scene_name: Option<String>,
-    pub obs_switch_pending: Option<BroadcastScene>,
-    pub obs_retry_scene: Option<BroadcastScene>,
-    pub obs_retry_attempt: u32,
-    pub obs_retry_at: Option<Instant>,
-    pub obs_last_checked_at: Option<Instant>,
-    pub obs_check_pending: bool,
-    pub obs_last_error: Option<String>,
-    // WK-126 - RuntimeHealth: the stream-state watcher (obs.rs's
-    // start_stream_state_watcher) is a SECOND, independent OBS WebSocket
-    // connection that runs unconditionally (see its own WK-116 doc comment),
-    // unlike `obs_connected` above, which only ever gets probed when scene
-    // automation is enabled. Without this, RuntimeHealth's OBS component
-    // would incorrectly read "unknown/unavailable" whenever automation is
-    // off even though OBS is actually reachable - these two fields expose
-    // that watcher's own connectivity truth, mirroring `obs_connected`/
-    // `obs_last_error`'s shape but sourced from the other socket.
-    pub obs_watcher_connected: bool,
-    pub obs_watcher_last_error: Option<String>,
-    // WK-99, now set by local_runtime::lifecycle::apply (WK-113) whenever
-    // the local, OBS-driven session lifecycle finalizes an end/start - no
-    // longer by a backend poll (see backend/mod.rs's removed
-    // poll_session_state). Also still set by the legacy manual "Завершить
-    // стрим" button on success (backend::end_stream_session). Read by
-    // obs::resolve_desired_scene. Defaults to `false` (Default derive),
-    // matching "unknown session state behaves like active" - automation
-    // runs normally until told otherwise, never the reverse.
-    pub session_ended: bool,
-    // WK-106 - Custom Game Sounds. Persisted settings/bindings/managed asset
-    // registry (see game_sounds/config.rs), loaded once at startup
-    // (game_sounds::init) and kept here the same way obs_config is. The
-    // detector's diff baseline is deliberately *not* persisted - it lives
-    // only in memory, so every Companion restart (and every hero-swap reset,
-    // see events::hero_identity_changed) starts from `None`/"no previous
-    // snapshot", which is exactly the initial-snapshot-safety the task
-    // requires: nothing on the very first tick is ever treated as a new
-    // item/ability use.
-    pub game_sounds_settings: crate::game_sounds::config::GameSoundSettings,
-    pub game_sounds_previous_gsi: Option<serde_json::Value>,
-    // WK-138 - item-vanish candidates awaiting bounded multi-tick
-    // confirmation (see game_sounds::events::PendingConfirmations). In
-    // memory only, same lifecycle as `game_sounds_previous_gsi` immediately
-    // above: reset on every Companion restart and on every hero-identity
-    // change (see game_sounds::mod's handle_gsi), so a candidate can never
-    // resolve into a ghost event against a different match's inventory.
-    pub game_sounds_pending_item_confirmations: crate::game_sounds::events::PendingConfirmations,
-    // WK-112 - see the field doc on StatusSnapshot::obs_streaming above.
-    pub obs_streaming: Option<bool>,
-    // WK-122 P0 diagnostics - see the field doc on
-    // StatusSnapshot::obs_streaming_confirmed_at above.
-    pub obs_streaming_confirmed_at: Option<String>,
-    // WK-136 - "Стрим не запущен" Draft reminder (see draft_reminder.rs).
-    // `draft_reminder_last_state` is the raw GSI-derived BroadcastState as of
-    // the previous tick (not `broadcast_state::resolve()`'s session-ended/
-    // manual-override-adjusted value - "entered Draft" is a game-state fact,
-    // independent of stream/session bookkeeping), diffed against the current
-    // tick to detect a fresh non-Draft -> Draft transition. `draft_reminder_fired`
-    // latches once the reminder has fired for the current Draft, and is
-    // cleared the moment we leave Draft (any other state), so the very next
-    // real Draft can fire again - see draft_reminder.rs's should_fire.
-    pub draft_reminder_last_state: Option<BroadcastState>,
-    pub draft_reminder_fired: bool,
-    // WK-114 - "Итоги стрима" manual scene pin (see obs.rs's
-    // `resolve_desired_scene`): while true, every automatic scene resolution
-    // (GSI ticks, remote commands, config reapply) resolves to Post Stream
-    // instead of the normally-derived scene, exactly like `session_ended`
-    // already does - this is a second, independent reason to force Post
-    // Stream, not a replacement for it. Cleared automatically whenever a new
-    // local session starts (`obs::handle_session_state(_, false)`) so it can
-    // never leak into the next stream, and manually via `resume_live_scene`.
-    // Defaults to `false` (Default derive) - automation is unaffected until
-    // the user explicitly asks to see the summary scene.
-    pub obs_manual_summary_override: bool,
-    // WK-115 audit - Post Stream is an optional OBS binding: the streamer
-    // may never have created that scene in OBS at all. Set by
-    // obs::schedule_switch when a switch to Post Stream fails specifically
-    // because OBS reports the mapped scene doesn't exist (obs-websocket
-    // RESOURCE_NOT_FOUND, see obs::is_resource_not_found) - from then on,
-    // obs::resolve_desired_scene falls back to BetweenMatches instead of
-    // repeatedly retrying a switch that can only fail the same way, so an
-    // ended/manually-pinned session never leaves OBS stuck on a stale
-    // gameplay/draft scene just because Post Stream isn't set up. Cleared
-    // by obs::handle_session_state on the next local session start and by
-    // commands::save_obs_config, so fixing the scene (or the mapping) gets
-    // a fresh attempt without requiring a Companion restart. Defaults to
-    // `false` (Default derive) - unaffected until a real "scene not found"
-    // failure is observed.
-    pub obs_post_stream_unavailable: bool,
-    // WK-153 P0 - see StatusSnapshot::overlay_server_running/overlay_last_error's
-    // doc comment. Written only by overlay_server.rs's init() (the bind-retry
-    // supervisor), same single-writer shape as server_running/gsi_last_error.
-    pub overlay_server_running: bool,
-    pub overlay_last_error: Option<String>,
-    // WK-122 §19 - OverlayLayout cache. Kept as an opaque `serde_json::Value`
-    // (same "pass through untyped" pattern `last_gsi_payload`/
-    // `get_stream_session`'s return type already use in this codebase) since
-    // Rust never needs to interpret individual widget fields - it only
-    // fetches/caches/serves the same JSON blob apps/api's
-    // `/account/me/overlay-layout` and `/companion/overlay-layout` already
-    // exchange with a real browser editor. `overlay_layout_version` is
-    // bumped on every successful fetch/save so overlay_server.rs's SSE
-    // stream (already pushing OverlayStateSnapshot on every scene change)
-    // can tell the local renderer "the layout changed, re-fetch it" without
-    // a second push channel.
-    pub overlay_layout: Option<serde_json::Value>,
-    pub overlay_layout_version: u64,
-    pub queue_settings: Option<serde_json::Value>,
-    pub account_overlay_data: Option<serde_json::Value>,
-    // WK-148 - Between Matches OpenDota enrichment (favorite-hero lifetime/
-    // patch line + "ПРОФИЛЬ ИГРОКА" радар) for the LOCAL renderer
-    // (127.0.0.1:3666/overlay), which has no Tauri IPC access (see
-    // opendota_overlay_cache.rs) - populated by that module's background
-    // poll loop, read synchronously by overlay_server.rs's snapshot builder.
-    // Same "opaque serde_json::Value, Rust never interprets fields" pattern
-    // as queue_settings/account_overlay_data above.
-    pub opendota_favorite_heroes: Option<serde_json::Value>,
-    pub opendota_radar: Option<serde_json::Value>,
-    /// Normalized bounded Twitch chat status returned to the existing Chat
-    /// UI. The localhost overlay reuses this cache; it never opens another
-    /// Twitch connection.
-    pub twitch_chat: Option<serde_json::Value>,
-    // WK-116 - Between Matches quiz round state, populated by
-    // quiz_overlay.rs's background poll (same "opaque serde_json::Value,
-    // Rust never interprets fields, the renderer owns the typed DTO"
-    // pattern as opendota_favorite_heroes/opendota_radar above). `None`
-    // whenever there is no active round (never in Between Matches, or the
-    // active round was just cancelled - quiz_overlay.rs clears this
-    // immediately on leaving, not waiting for the next poll response).
-    pub quiz: Option<serde_json::Value>,
-    pub last_history_log_signature: Option<String>,
-    // WK-124 - global runtime visibility override for the local overlay
-    // renderer: OFF makes the final renderer output fully transparent
-    // without touching BroadcastState, the local overlay server, SSE, GSI,
-    // LocalSession, OBS scene automation, or any other runtime subsystem -
-    // see overlay_server.rs's OverlayStateSnapshot and
-    // commands::toggle_overlay_visible. Deliberately in-memory only (not
-    // persisted to SQLite/config/localStorage): a fresh Companion process
-    // always starts with the overlay visible, so a streamer can never begin
-    // a new stream with an unexpectedly hidden Browser Source just because
-    // they forgot to turn it back on last time. `#[derive(Default)]` above
-    // gives this `false`; `AppState::new()` below explicitly forces it to
-    // `true` immediately after construction so the derive's per-field
-    // default never has to special-case one bool among many.
-    pub overlay_visible: bool,
+    pub core: crate::core::state::CoreState,
+    pub dota: crate::dota::state::DotaState,
+}
+impl std::ops::Deref for InnerState {
+    type Target = crate::dota::state::DotaState;
+    fn deref(&self) -> &Self::Target { &self.dota }
+}
+impl std::ops::DerefMut for InnerState {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.dota }
 }
 
 pub struct AppState(pub Mutex<InnerState>);
@@ -316,7 +138,7 @@ pub struct AppState(pub Mutex<InnerState>);
 impl AppState {
     pub fn new() -> Self {
         AppState(Mutex::new(InnerState {
-            overlay_visible: true,
+            dota: crate::dota::state::DotaState { overlay_visible: true, ..Default::default() },
             ..InnerState::default()
         }))
     }
@@ -339,11 +161,11 @@ impl AppState {
         } else {
             ConnectionState::Waiting
         };
-        let backend_state = if !inner.backend_attempted {
+        let backend_state = if !inner.core.backend_attempted {
             ConnectionState::Waiting
-        } else if inner.backend_consecutive_failures == 0 {
+        } else if inner.core.backend_consecutive_failures == 0 {
             ConnectionState::Connected
-        } else if inner.backend_consecutive_failures < crate::backend::MAX_RETRY_ATTEMPT {
+        } else if inner.core.backend_consecutive_failures < crate::backend::MAX_RETRY_ATTEMPT {
             ConnectionState::Recovering
         } else {
             ConnectionState::Unavailable
@@ -383,13 +205,13 @@ impl AppState {
             server_port: GSI_PORT,
             request_count: inner.request_count,
             last_event: inner.last_event.clone(),
-            log_dir: inner.log_dir.clone(),
+            log_dir: inner.core.log_dir.clone(),
             legacy_cleanup_in_progress: crate::storage::legacy_cleanup_in_progress(),
             backend_url: DEFAULT_BACKEND_URL.to_string(),
-            companion_token_configured: inner.companion_token.is_some(),
+            companion_token_configured: inner.core.companion_token.is_some(),
             backend_state,
-            backend_last_sent_at: inner.backend_last_sent_at.clone(),
-            backend_last_error: inner.backend_last_error.clone(),
+            backend_last_sent_at: inner.core.backend_last_sent_at.clone(),
+            backend_last_error: inner.core.backend_last_error.clone(),
             obs_config: {
                 let mut config = inner.obs_config.clone();
                 config.password.clear();
@@ -434,7 +256,7 @@ mod tests {
     #[test]
     fn backend_state_is_waiting_once_token_configured_but_unchecked() {
         let state = AppState::new();
-        state.0.lock().unwrap().companion_token = Some("token".to_string());
+        state.0.lock().unwrap().core.companion_token = Some("token".to_string());
         let snapshot = state.snapshot();
         assert!(snapshot.companion_token_configured);
         assert_eq!(snapshot.backend_state, ConnectionState::Waiting);
@@ -445,8 +267,8 @@ mod tests {
         let state = AppState::new();
         {
             let mut inner = state.0.lock().unwrap();
-            inner.backend_attempted = true;
-            inner.backend_consecutive_failures = 0;
+            inner.core.backend_attempted = true;
+            inner.core.backend_consecutive_failures = 0;
         }
         assert_eq!(state.snapshot().backend_state, ConnectionState::Connected);
     }
@@ -456,8 +278,8 @@ mod tests {
         let state = AppState::new();
         {
             let mut inner = state.0.lock().unwrap();
-            inner.backend_attempted = true;
-            inner.backend_consecutive_failures = 1;
+            inner.core.backend_attempted = true;
+            inner.core.backend_consecutive_failures = 1;
         }
         assert_eq!(state.snapshot().backend_state, ConnectionState::Recovering);
     }
@@ -467,8 +289,8 @@ mod tests {
         let state = AppState::new();
         {
             let mut inner = state.0.lock().unwrap();
-            inner.backend_attempted = true;
-            inner.backend_consecutive_failures = crate::backend::MAX_RETRY_ATTEMPT - 1;
+            inner.core.backend_attempted = true;
+            inner.core.backend_consecutive_failures = crate::backend::MAX_RETRY_ATTEMPT - 1;
         }
         assert_eq!(state.snapshot().backend_state, ConnectionState::Recovering);
     }
@@ -478,8 +300,8 @@ mod tests {
         let state = AppState::new();
         {
             let mut inner = state.0.lock().unwrap();
-            inner.backend_attempted = true;
-            inner.backend_consecutive_failures = crate::backend::MAX_RETRY_ATTEMPT;
+            inner.core.backend_attempted = true;
+            inner.core.backend_consecutive_failures = crate::backend::MAX_RETRY_ATTEMPT;
         }
         assert_eq!(state.snapshot().backend_state, ConnectionState::Unavailable);
     }
@@ -489,13 +311,13 @@ mod tests {
         let state = AppState::new();
         {
             let mut inner = state.0.lock().unwrap();
-            inner.backend_attempted = true;
-            inner.backend_consecutive_failures = 3;
+            inner.core.backend_attempted = true;
+            inner.core.backend_consecutive_failures = 3;
         }
         assert_eq!(state.snapshot().backend_state, ConnectionState::Recovering);
         {
             let mut inner = state.0.lock().unwrap();
-            inner.backend_consecutive_failures = 0;
+            inner.core.backend_consecutive_failures = 0;
         }
         assert_eq!(state.snapshot().backend_state, ConnectionState::Connected);
     }
@@ -506,8 +328,8 @@ mod tests {
         {
             let mut inner = state.0.lock().unwrap();
             inner.server_running = true;
-            inner.backend_attempted = true;
-            inner.backend_consecutive_failures = 0;
+            inner.core.backend_attempted = true;
+            inner.core.backend_consecutive_failures = 0;
             // No GSI packets received at all (gsi_last_received_at stays None).
         }
         let snapshot = state.snapshot();

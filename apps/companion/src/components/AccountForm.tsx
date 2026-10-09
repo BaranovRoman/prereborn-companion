@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import type { AccountStatus } from "../types/status";
+import type { AccountStatus } from "../core/contracts";
 import type { ErrorDescription } from "../utils/errorDescription";
 import { describeAuthError } from "../utils/authErrorCopy";
 import { Button, Input, Tooltip } from "./ui";
-import * as api from "../services/dotaCompanionApi";
+import * as api from "../core/api";
 
 // WK-122 §7 - replaces CompanionTokenForm (the opaque copy/paste-from-website
 // token) with a real desktop login: the same email/password session (access +

@@ -3,7 +3,7 @@ import {
   BoundedTtsQueue, DEFAULT_CHAT_SETTINGS, DEFAULT_SPEECH_VOLUME,
   nextUnreadCount, normalizeSpeechVolume, prepareTtsText,
 } from "./chat-model";
-import type { TwitchChatMessage } from "../services/dotaCompanionApi";
+import type { TwitchChatMessage } from "../core/api";
 
 const message = (id: string, text = "hello", messageType = "text"): TwitchChatMessage => ({
   id, text, messageType, author: "Viewer", authorId: null, authorLogin: null, color: null, badges: [],

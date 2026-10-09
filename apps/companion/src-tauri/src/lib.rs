@@ -1,14 +1,17 @@
 mod backend;
-mod broadcast_state;
+// Compatibility aliases while legacy adapters are split incrementally.
+pub(crate) use dota::{broadcast_state, gsi};
 mod commands;
+mod core;
+mod dota;
 mod diagnostics;
 mod draft_reminder;
 mod game_sounds;
-mod gsi;
 mod hotkeys;
 mod local_runtime;
 mod obs;
 mod opendota_overlay_cache;
+mod plugin_lab;
 mod overlay_server;
 mod quiz_overlay;
 mod runtime_health;
@@ -79,47 +82,6 @@ fn launched_hidden<I: IntoIterator<Item = String>>(args: I) -> bool {
     args.into_iter().any(|arg| arg == "--hidden")
 }
 
-/// Runs once at startup: tries to find Dota and write the GSI config with no
-/// user interaction, so the happy path is zero clicks. Failures here are not
-/// fatal — the UI's "Find Dota" / "Install GSI" buttons cover the fallback.
-fn try_auto_provision(app: &tauri::AppHandle) {
-    let Some(dota_path) = gsi::finder::find_dota_auto() else {
-        storage::append_rolling_log(
-            app,
-            "Startup auto-detection found no Dota install; waiting for manual folder pick.",
-        );
-        return;
-    };
-    storage::append_rolling_log(app, &format!("Dota auto-detected at {dota_path}"));
-
-    {
-        let state = app.state::<AppState>();
-        let mut inner = state.0.lock().unwrap();
-        inner.dota_path = Some(dota_path.clone());
-        inner.dota_source = Some("auto".to_string());
-    }
-
-    match gsi::config::install_gsi(&dota_path) {
-        Ok(target) => {
-            let state = app.state::<AppState>();
-            let mut inner = state.0.lock().unwrap();
-            inner.gsi_installed = true;
-            inner.gsi_config_path = Some(target.to_string_lossy().to_string());
-            drop(inner);
-            storage::append_rolling_log(
-                app,
-                &format!("GSI config auto-installed at {}", target.display()),
-            );
-        }
-        Err(e) => {
-            storage::append_rolling_log(
-                app,
-                &format!("GSI auto-install failed, use the Install GSI button: {e}"),
-            );
-        }
-    }
-}
-
 /// Reliability pass - focuses the existing window on a second launch (see
 /// `run()`'s single-instance plugin registration below). A real webview
 /// window can't be constructed outside a running app, so this has no unit
@@ -160,6 +122,9 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             focus_existing_window(app);
         }))
+        .register_uri_scheme_protocol("plugin-ui", |context, request| {
+            plugin_lab::response(context.app_handle(), request.uri().path())
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -198,12 +163,15 @@ pub fn run() {
                 .build(),
         )
         .manage(AppState::new())
+        .manage(dota::BuiltInDotaRuntime::default())
         .manage(diagnostics::DiagnosticsState::new())
         .manage(silero::SileroState::new())
         .manage(hotkeys::HotkeysState::new())
         .manage(local_runtime::LocalRuntimeState::new())
         .setup(|app| {
             let handle = app.handle().clone();
+
+            if plugin_lab::enabled() { return plugin_lab::setup(&handle); }
 
             // Autostart launch (see the `tauri_plugin_autostart::init` call
             // above) - the window already exists at this point (Tauri
@@ -225,33 +193,34 @@ pub fn run() {
             storage::cleanup_legacy_payloads(&handle);
             silero::init(&handle);
             hotkeys::init(&handle);
-            game_sounds::init(&handle);
-            local_runtime::init(&handle);
+            dota::initialize(&handle);
             {
                 let state = handle.state::<AppState>();
                 let mut inner = state.0.lock().unwrap();
-                inner.log_dir = Some(storage::logs_root(&handle).to_string_lossy().to_string());
+                inner.core.log_dir = Some(storage::logs_root(&handle).to_string_lossy().to_string());
             }
             storage::append_rolling_log(&handle, "PreReborn Companion starting up.");
             diagnostics::recover_last_session(&handle);
 
-            server::start(handle.clone());
-
-            try_auto_provision(&handle);
+            dota::start_ingest(&handle);
             backend::init(handle.clone());
             obs::init(handle.clone());
-            local_runtime::lifecycle::start_sweep(handle.clone());
-            local_runtime::watchdog::start_sweep(handle.clone());
-            local_runtime::sync::start_sync_worker(handle.clone());
-            overlay_server::init(handle.clone());
-            opendota_overlay_cache::init(handle.clone());
-            quiz_overlay::init(handle.clone());
+            dota::start_workers(&handle);
 
             build_tray(&handle)?;
 
             Ok(())
         })
         .on_window_event(|window, event| {
+            if plugin_lab::enabled() {
+                if matches!(event, WindowEvent::CloseRequested { .. }) {
+                    if let Some(host) = window.app_handle().try_state::<core::plugin_runtime::PluginHost>() {
+                        if let Ok(mut runtime) = host.0.lock() { let _ = runtime.stop(); }
+                    }
+                    window.app_handle().exit(0);
+                }
+                return;
+            }
             // Keep the app alive in the tray instead of quitting when the
             // window is closed — the GSI server must keep running.
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -260,6 +229,11 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            plugin_lab::plugin_lab_start,
+            plugin_lab::plugin_lab_stop,
+            plugin_lab::plugin_lab_command,
+            plugin_lab::plugin_lab_status,
+            plugin_lab::plugin_lab_ui_result,
             commands::get_status,
             commands::get_local_lifecycle_status,
             commands::local_lifecycle_stale_continue,

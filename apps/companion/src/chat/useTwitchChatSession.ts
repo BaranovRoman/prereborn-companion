@@ -6,7 +6,7 @@ import {
   diagnosticsTraceTtsFrontend, getSileroTtsStatus, getSkipHotkeyStatus, getTwitchChat,
   setSileroTtsEnabled, setSkipHotkey, synthesizeSileroTts,
   type SileroTtsStatus, type SileroVoice, type SkipHotkeyStatus, type TwitchChatStatus,
-} from "../services/dotaCompanionApi";
+} from "../core/api";
 
 // Short, fixed conversational phrase for the settings page's "Прослушать"
 // preview button (WK-81) - deliberately not user-editable text, so preview

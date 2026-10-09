@@ -112,13 +112,13 @@ pub(crate) fn classify_status(status: reqwest::StatusCode) -> ConnectivitySignal
 pub(crate) fn record_connectivity<R: Runtime>(app: &AppHandle<R>, operation: &str, signal: ConnectivitySignal) {
     let state = app.state::<AppState>();
     let mut inner = state.0.lock().unwrap();
-    inner.backend_attempted = true;
+    inner.core.backend_attempted = true;
     match signal {
         ConnectivitySignal::Success => {
-            let was_degraded = inner.backend_consecutive_failures > 0;
-            let degraded_since = inner.backend_degraded_since.take();
-            inner.backend_consecutive_failures = 0;
-            inner.backend_last_error = None;
+            let was_degraded = inner.core.backend_consecutive_failures > 0;
+            let degraded_since = inner.core.backend_degraded_since.take();
+            inner.core.backend_consecutive_failures = 0;
+            inner.core.backend_last_error = None;
             drop(inner);
             if was_degraded {
                 let degraded_secs = degraded_since.map(|since| since.elapsed().as_secs()).unwrap_or(0);
@@ -129,13 +129,13 @@ pub(crate) fn record_connectivity<R: Runtime>(app: &AppHandle<R>, operation: &st
             }
         }
         ConnectivitySignal::Transient(error) => {
-            let first_failure_in_run = inner.backend_consecutive_failures == 0;
+            let first_failure_in_run = inner.core.backend_consecutive_failures == 0;
             if first_failure_in_run {
-                inner.backend_degraded_since = Some(Instant::now());
+                inner.core.backend_degraded_since = Some(Instant::now());
             }
-            inner.backend_consecutive_failures = inner.backend_consecutive_failures.saturating_add(1);
-            let attempt = inner.backend_consecutive_failures;
-            inner.backend_last_error = Some(error.clone());
+            inner.core.backend_consecutive_failures = inner.core.backend_consecutive_failures.saturating_add(1);
+            let attempt = inner.core.backend_consecutive_failures;
+            inner.core.backend_last_error = Some(error.clone());
             drop(inner);
             if first_failure_in_run {
                 storage::append_rolling_log(app, &format!("Backend: degraded ({operation}) — {error}"));
@@ -161,7 +161,7 @@ pub fn init(app: AppHandle) {
     if let Some(token) = storage::load_companion_token(&app) {
         let state = app.state::<AppState>();
         let mut inner = state.0.lock().unwrap();
-        inner.companion_token = Some(token);
+        inner.core.companion_token = Some(token);
     }
     {
         let state = app.state::<AppState>();
@@ -237,7 +237,7 @@ fn poll_obs_command(app: &AppHandle) {
         .0
         .lock()
         .unwrap()
-        .companion_token
+        .core.companion_token
         .clone();
     let Some(token) = token else { return };
     let client = match reqwest::blocking::Client::builder()
@@ -275,13 +275,13 @@ fn try_send_pending(app: &AppHandle) -> SendOutcome {
     let (should_send, payload, token, payload_version) = {
         let state = app.state::<AppState>();
         let inner = state.0.lock().unwrap();
-        if !inner.dirty || inner.companion_token.is_none() {
+        if !inner.dirty || inner.core.companion_token.is_none() {
             (false, None, None, 0)
         } else {
             (
                 true,
                 inner.last_gsi_payload.clone(),
-                inner.companion_token.clone(),
+                inner.core.companion_token.clone(),
                 inner.payload_version,
             )
         }
@@ -318,7 +318,7 @@ pub async fn get_stream_session(app: &AppHandle) -> Result<serde_json::Value, St
         .0
         .lock()
         .unwrap()
-        .companion_token
+        .core.companion_token
         .clone()
         .ok_or_else(|| "Сначала добавьте companion token.".to_string())?;
     tauri::async_runtime::spawn_blocking(move || fetch_stream_session(&token))
@@ -355,7 +355,7 @@ pub async fn reset_stream_session(app: &AppHandle) -> Result<serde_json::Value, 
         .0
         .lock()
         .unwrap()
-        .companion_token
+        .core.companion_token
         .clone()
         .ok_or_else(|| "Сначала добавьте companion token.".to_string())?;
     tauri::async_runtime::spawn_blocking(move || post_reset_stream_session(&token))
@@ -400,7 +400,7 @@ pub async fn end_stream_session(app: &AppHandle) -> Result<serde_json::Value, St
         .0
         .lock()
         .unwrap()
-        .companion_token
+        .core.companion_token
         .clone()
         .ok_or_else(|| "Сначала добавьте companion token.".to_string())?;
     let result = tauri::async_runtime::spawn_blocking(move || post_end_stream_session(&token))
@@ -443,7 +443,7 @@ pub async fn get_favorite_heroes(app: &AppHandle) -> Result<Vec<u32>, String> {
         .0
         .lock()
         .unwrap()
-        .companion_token
+        .core.companion_token
         .clone()
         .ok_or_else(|| "Сначала добавьте companion token.".to_string())?;
     tauri::async_runtime::spawn_blocking(move || fetch_favorite_heroes(&token))
@@ -481,7 +481,7 @@ pub async fn save_favorite_heroes(app: &AppHandle, hero_ids: Vec<u32>) -> Result
         .0
         .lock()
         .unwrap()
-        .companion_token
+        .core.companion_token
         .clone()
         .ok_or_else(|| "Сначала добавьте companion token.".to_string())?;
     tauri::async_runtime::spawn_blocking(move || put_favorite_heroes(&token, hero_ids))
@@ -558,7 +558,7 @@ pub fn account_status(app: &AppHandle) -> AccountStatus {
     if let Some(session) = storage::load_session(app) {
         return AccountStatus { connected: true, method: AccountMethod::Session, email: Some(session.email) };
     }
-    let has_legacy_token = app.state::<AppState>().0.lock().unwrap().companion_token.is_some();
+    let has_legacy_token = app.state::<AppState>().0.lock().unwrap().core.companion_token.is_some();
     if has_legacy_token {
         AccountStatus { connected: true, method: AccountMethod::LegacyToken, email: None }
     } else {
@@ -596,13 +596,13 @@ pub async fn login(app: &AppHandle, email: String, password: String) -> Result<A
     {
         let state = app.state::<AppState>();
         let mut inner = state.0.lock().unwrap();
-        inner.companion_token = Some(response.access_token);
+        inner.core.companion_token = Some(response.access_token);
         // WK-94 - same reasoning as save_companion_token: a fresh login
         // invalidates whatever backend_state a previous failed
         // token/session earned.
-        inner.backend_last_error = None;
-        inner.backend_attempted = false;
-        inner.backend_consecutive_failures = 0;
+        inner.core.backend_last_error = None;
+        inner.core.backend_attempted = false;
+        inner.core.backend_consecutive_failures = 0;
     }
     storage::append_rolling_log(app, "Companion account: logged in.");
     // WK-122 - deliberately does NOT spawn a second refresher thread here:
@@ -652,7 +652,7 @@ pub async fn logout(app: &AppHandle) -> Result<AccountStatus, String> {
     {
         let state = app.state::<AppState>();
         let mut inner = state.0.lock().unwrap();
-        inner.companion_token = None;
+        inner.core.companion_token = None;
     }
     storage::append_rolling_log(app, "Companion account: logged out.");
     Ok(account_status(app))
@@ -728,7 +728,7 @@ fn refresh_session_access_token(app: &AppHandle) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
             let state = app.state::<AppState>();
             let mut inner = state.0.lock().unwrap();
-            inner.companion_token = Some(refreshed.access_token);
+            inner.core.companion_token = Some(refreshed.access_token);
             drop(inner);
             record_connectivity(app, "session-refresh", ConnectivitySignal::Success);
             Ok(())
@@ -742,7 +742,7 @@ fn refresh_session_access_token(app: &AppHandle) -> Result<(), String> {
             let _ = storage::clear_session(app);
             let state = app.state::<AppState>();
             let mut inner = state.0.lock().unwrap();
-            inner.companion_token = None;
+            inner.core.companion_token = None;
             Err("Сессия недействительна — нужно войти заново.".to_string())
         }
         Err(RefreshError::Transient(message)) => {
@@ -781,7 +781,7 @@ pub async fn refresh_overlay_layout(app: &AppHandle) -> Result<serde_json::Value
         .0
         .lock()
         .unwrap()
-        .companion_token
+        .core.companion_token
         .clone()
         .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())?;
     let app_for_fetch = app.clone();
@@ -834,7 +834,7 @@ pub async fn save_overlay_layout(app: &AppHandle, layout: serde_json::Value) -> 
         .0
         .lock()
         .unwrap()
-        .companion_token
+        .core.companion_token
         .clone()
         .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())?;
     let saved = tauri::async_runtime::spawn_blocking(move || put_overlay_layout(&token, layout))
@@ -876,7 +876,7 @@ fn apply_overlay_layout(app: &AppHandle, layout: serde_json::Value) {
 }
 
 pub async fn refresh_queue_settings(app: &AppHandle) -> Result<serde_json::Value, String> {
-    let token = app.state::<AppState>().0.lock().unwrap().companion_token.clone()
+    let token = app.state::<AppState>().0.lock().unwrap().core.companion_token.clone()
         .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())?;
     let app_for_fetch = app.clone();
     let settings = tauri::async_runtime::spawn_blocking(move || request_queue_settings(&app_for_fetch, &token, None))
@@ -886,7 +886,7 @@ pub async fn refresh_queue_settings(app: &AppHandle) -> Result<serde_json::Value
 }
 
 pub async fn save_queue_settings(app: &AppHandle, settings: serde_json::Value) -> Result<serde_json::Value, String> {
-    let token = app.state::<AppState>().0.lock().unwrap().companion_token.clone()
+    let token = app.state::<AppState>().0.lock().unwrap().core.companion_token.clone()
         .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())?;
     let app_for_fetch = app.clone();
     let saved = tauri::async_runtime::spawn_blocking(move || request_queue_settings(&app_for_fetch, &token, Some(settings)))
@@ -927,7 +927,7 @@ fn apply_queue_settings(app: &AppHandle, settings: serde_json::Value) {
 }
 
 pub async fn refresh_account_overlay_data(app: &AppHandle) -> Result<serde_json::Value, String> {
-    let token = app.state::<AppState>().0.lock().unwrap().companion_token.clone()
+    let token = app.state::<AppState>().0.lock().unwrap().core.companion_token.clone()
         .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())?;
     let app_for_fetch = app.clone();
     let data = tauri::async_runtime::spawn_blocking(move || {
@@ -969,7 +969,7 @@ pub async fn get_twitch_chat(app: &AppHandle) -> Result<serde_json::Value, Strin
         .0
         .lock()
         .unwrap()
-        .companion_token
+        .core.companion_token
         .clone()
         .ok_or_else(|| "Сначала добавьте companion token.".to_string())?;
     let response = tauri::async_runtime::spawn_blocking(move || fetch_twitch_chat(&token))
@@ -1012,7 +1012,7 @@ fn require_companion_token<R: Runtime>(app: &AppHandle<R>) -> Result<String, Str
         .0
         .lock()
         .unwrap()
-        .companion_token
+        .core.companion_token
         .clone()
         .ok_or_else(|| "Companion не подключён к аккаунту.".to_string())
 }
@@ -1349,13 +1349,13 @@ fn merge_twitch_chat_status(
 fn cache_twitch_chat_response(app: &AppHandle, incoming: serde_json::Value) -> (serde_json::Value, usize, usize) {
     let state = app.state::<AppState>();
     let mut inner = state.0.lock().unwrap();
-    let previous_count = inner.twitch_chat.as_ref()
+    let previous_count = inner.core.twitch_chat.as_ref()
         .and_then(|value| value.get("messages"))
         .and_then(serde_json::Value::as_array)
         .map_or(0, Vec::len);
-    let merged = merge_twitch_chat_status(inner.twitch_chat.as_ref(), incoming);
+    let merged = merge_twitch_chat_status(inner.core.twitch_chat.as_ref(), incoming);
     let current_count = merged.get("messages").and_then(serde_json::Value::as_array).map_or(0, Vec::len);
-    inner.twitch_chat = Some(merged.clone());
+    inner.core.twitch_chat = Some(merged.clone());
     (merged, previous_count, current_count)
 }
 
@@ -1384,7 +1384,7 @@ pub async fn resend_now(app: &AppHandle) -> Result<(), String> {
     let (payload, token) = {
         let state = app.state::<AppState>();
         let inner = state.0.lock().unwrap();
-        (inner.last_gsi_payload.clone(), inner.companion_token.clone())
+        (inner.last_gsi_payload.clone(), inner.core.companion_token.clone())
     };
 
     let Some(token) = token else {
@@ -1437,7 +1437,7 @@ fn apply_result(app: &AppHandle, result: &Result<(), String>) {
     if result.is_ok() {
         let state = app.state::<AppState>();
         let mut inner = state.0.lock().unwrap();
-        inner.backend_last_sent_at = Some(chrono::Local::now().to_rfc3339());
+        inner.core.backend_last_sent_at = Some(chrono::Local::now().to_rfc3339());
     }
     let signal = match result {
         Ok(()) => ConnectivitySignal::Success,
@@ -1594,7 +1594,7 @@ mod tests {
         let app = tauri::test::mock_app();
         app.manage(AppState::new());
         let handle = app.handle().clone();
-        handle.state::<AppState>().0.lock().unwrap().companion_token = Some("abc123".to_string());
+        handle.state::<AppState>().0.lock().unwrap().core.companion_token = Some("abc123".to_string());
         assert_eq!(require_companion_token(&handle).unwrap(), "abc123");
     }
 

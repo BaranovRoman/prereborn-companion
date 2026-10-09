@@ -1,30 +1,7 @@
-
-export interface TwitchChatMessage {
-  id: string;
-  author: string;
-  // Stable Twitch identity for this chatter, independent of the cosmetic
-  // display name in `author` - see the matching comment in
-  // apps/api's twitch-eventsub-chat.ts. Nullable: older cached
-  // messages/backends may not carry these yet.
-  authorId: string | null;
-  authorLogin: string | null;
-  color: string | null;
-  text: string;
-  badges: string[];
-  messageType: string;
-  receivedAt: string;
-}
-export type TwitchChatState = "connected" | "reconnecting" | "reauth_required" | "unavailable";
-export interface TwitchChatStatus {
-  accountConnected: boolean;
-  configured: boolean;
-  displayName: string | null;
-  connected: boolean;
-  state: TwitchChatState;
-  messages: TwitchChatMessage[];
-}
+// Compatibility facade for existing Dota/UI callers. New shared services import core/api directly.
+export * from "../core/api";
 import { invoke } from "@tauri-apps/api/core";
-import type { AccountStatus, DiagnosticsStatusSnapshot, HeroLocalStats, LifecycleStatus, LocalSessionSummary, ObsConfig, OverlayLayoutDoc, QueueSettingsDoc, RuntimeHealth, StatusSnapshot, SyncOutboxStatus } from "../types/status";
+import type { DiagnosticsStatusSnapshot, HeroLocalStats, LifecycleStatus, LocalSessionSummary, ObsConfig, OverlayLayoutDoc, QueueSettingsDoc, RuntimeHealth, StatusSnapshot, SyncOutboxStatus } from "../types/status";
 import type { StreamSessionSummary } from "../session/session-prompt";
 
 export const getStatus = () => invoke<StatusSnapshot>("get_status");
@@ -38,13 +15,6 @@ export const openDotaFolder = () => invoke<void>("open_dota_folder");
 export const clearLog = () => invoke<StatusSnapshot>("clear_log");
 export const saveCompanionToken = (token: string) =>
   invoke<StatusSnapshot>("save_companion_token", { token });
-
-// WK-122 §7 - Companion account (email/password login), replacing the
-// copy/paste Companion Token as the normal user-facing flow.
-export const getAccountStatus = () => invoke<AccountStatus>("get_account_status");
-export const accountLogin = (email: string, password: string) =>
-  invoke<AccountStatus>("account_login", { email, password });
-export const accountLogout = () => invoke<AccountStatus>("account_logout");
 
 // WK-122 §17-19 - Оформление editor. `layout` is deliberately typed loosely
 // (see types/status.ts's OverlayLayoutDoc) - Companion only interprets the
@@ -65,7 +35,6 @@ export const removeQueueWebcamFallback = () => invoke<void>("remove_queue_webcam
 export const getGameplayReference = () => invoke<string | null>("get_gameplay_reference");
 export const chooseGameplayReference = () => invoke<string>("choose_gameplay_reference");
 export const removeGameplayReference = () => invoke<void>("remove_gameplay_reference");
-export const getTwitchChat = () => invoke<TwitchChatStatus>("get_twitch_chat");
 // WK-133 rename - was `openTwitchSettings`: opens the web dashboard's
 // `/stream` settings page, where Twitch AND Steam account linking both live
 // (see IntegrationsPanel.tsx, which reuses this same call for Steam).
@@ -113,20 +82,6 @@ export interface SteamIntegrationStatus {
 export const getSteamIntegrationStatus = () =>
   invoke<SteamIntegrationStatus>("get_steam_integration_status");
 export const disconnectSteam = () => invoke<void>("disconnect_steam");
-
-export interface TwitchIntegrationStatus {
-  connected: boolean;
-  login?: string;
-  displayName?: string;
-}
-export const getTwitchIntegrationStatus = () =>
-  invoke<TwitchIntegrationStatus>("get_twitch_integration_status");
-// WK-149 - connect opens the provider's OAuth URL (fetched from the backend)
-// in the system browser, same as Steam's connectSteam/openStreamSettings;
-// disconnect hits the existing DELETE endpoint directly, same as Steam's
-// disconnectSteam.
-export const connectTwitch = () => invoke<void>("connect_twitch");
-export const disconnectTwitch = () => invoke<void>("disconnect_twitch");
 
 // WK-133 follow-up - DonationAlerts, missed by the original audit: a real
 // existing OAuth account integration (apps/api's
@@ -241,46 +196,6 @@ export const getSyncOutboxStatus = () => invoke<SyncOutboxStatus>("get_sync_outb
 // poll tick.
 export const triggerSyncDrain = () => invoke<SyncOutboxStatus>("trigger_sync_drain");
 
-// WK-81 - local Silero TTS sidecar, the primary (and, since WK-80 removed
-// Piper, only local) synthesis engine - system speechSynthesis is the
-// fallback, handled entirely on the frontend (see useTwitchChatSession.ts).
-// Returns base64-encoded WAV bytes - Tauri's default JSON IPC would blow up
-// a raw Vec<u8> into one JSON number per byte (~3-4x the payload size for
-// a synthesized clip), base64 is far cheaper to transport for this size.
-// `messageId` is diagnostics-only (see diagnostics_trace_tts_frontend below)
-// - omitting it changes nothing about synthesis itself.
-export type SileroTtsEngineState = "notStarted" | "starting" | "ready" | "crashed" | "unavailable";
-export type SileroVoice = "aidar" | "baya" | "kseniya" | "xenia" | "eugene";
-export interface SileroTtsStatus {
-  enabled: boolean;
-  state: SileroTtsEngineState;
-  lastError: string | null;
-  resourcesReady: boolean;
-  voice: SileroVoice;
-}
-export const getSileroTtsStatus = () => invoke<SileroTtsStatus>("get_silero_status");
-export const setSileroTtsEnabled = (enabled: boolean) =>
-  invoke<SileroTtsStatus>("set_silero_enabled", { enabled });
-export const setSileroVoice = (voice: SileroVoice) =>
-  invoke<SileroTtsStatus>("set_silero_voice", { voice });
-export const synthesizeSileroTts = (text: string, voice: SileroVoice, messageId?: string) =>
-  invoke<string>("synthesize_silero_tts", { text, voice, messageId });
-
-// TTS pipeline diagnostics trace - the frontend-owned half (queue/playback
-// stage timestamps; the Rust/Silero side writes its own half directly from
-// silero.rs). No-op unless a diagnostics session is active
-// (diagnostics::observe_tts_stage), so this is safe to call unconditionally
-// - callers should fire-and-forget it (`void diagnosticsTraceTtsFrontend(...)`)
-// rather than await it, so a diagnostics IPC round-trip can never add
-// latency to the TTS path it's measuring.
-export interface TtsTraceEventInput {
-  messageId: string;
-  engine?: string;
-  stages: Record<string, number>;
-  detail?: unknown;
-}
-export const diagnosticsTraceTtsFrontend = (event: TtsTraceEventInput) =>
-  invoke<void>("diagnostics_trace_tts_frontend", { event });
 export const resendCurrentState = () =>
   invoke<StatusSnapshot>("resend_current_state");
 export const saveObsConfig = (config: ObsConfig) =>
@@ -316,20 +231,6 @@ export const resumeLiveScene = () => invoke<StatusSnapshot>("resume_live_scene")
 // so this same command can later be bound to a hotkey without the caller
 // needing to first read current state.
 export const toggleOverlayVisible = () => invoke<StatusSnapshot>("toggle_overlay_visible");
-
-// Global "skip current TTS" hotkey (WK-83 - see src-tauri/src/hotkeys.rs).
-// The hotkey press itself arrives as a "hotkeys://skip-tts" event (listened
-// for in useTwitchChatSession.ts), not through these commands - these only
-// read/change which combo is registered.
-export interface SkipHotkeyStatus {
-  enabled: boolean;
-  shortcut: string;
-  registered: boolean;
-  lastError: string | null;
-}
-export const getSkipHotkeyStatus = () => invoke<SkipHotkeyStatus>("get_skip_hotkey_status");
-export const setSkipHotkey = (enabled: boolean, shortcut: string) =>
-  invoke<SkipHotkeyStatus>("set_skip_hotkey", { enabled, shortcut });
 
 // WK-135 - global "show/hide overlay" hotkey (see src-tauri/src/hotkeys.rs),
 // the primary control for WK-124's overlay visibility switch. Same shape as

@@ -90,13 +90,7 @@ export interface LifecycleStatus {
 // WK-122 §7 - Companion account (email/password login), replacing the
 // copy/paste Companion Token. Mirrors backend::AccountStatus/AccountMethod
 // field-for-field - never carries the token/refresh-token/password.
-export type AccountMethod = "none" | "session" | "legacy_token";
-
-export interface AccountStatus {
-  connected: boolean;
-  method: AccountMethod;
-  email: string | null;
-}
+export type { AccountMethod, AccountStatus } from "../core/contracts";
 
 // WK-122 §17-19 - mirrors apps/api's stream-overlay-layout-service.ts
 // (OVERLAY_ANCHORS/OverlayWidgetLayout) for the subset Companion's editor

@@ -1,4 +1,4 @@
-import type { SileroVoice, TwitchChatMessage } from "../services/dotaCompanionApi";
+import type { SileroVoice, TwitchChatMessage } from "../core/api";
 import { normalizeMessageForSpeech, parsePronunciationOverrides, resolveSpokenUsername } from "./tts-normalize";
 
 // WK-81 - Silero is the primary engine (see docs/research/wk-81-silero-tts-feasibility.md).

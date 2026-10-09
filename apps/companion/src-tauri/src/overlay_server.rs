@@ -145,7 +145,7 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
             inner.obs_manual_summary_override,
             inner.overlay_layout_version,
             inner.account_overlay_data.clone(),
-            inner.twitch_chat.clone(),
+            inner.core.twitch_chat.clone(),
             inner.overlay_visible,
             inner.opendota_favorite_heroes.clone(),
             inner.opendota_radar.clone(),
@@ -597,7 +597,7 @@ mod tests {
             "state": "connected",
             "messages": [{ "id": "m1", "author": "Viewer", "text": "hello", "receivedAt": "2026-01-01T00:00:00Z" }]
         });
-        app.state::<AppState>().0.lock().unwrap().twitch_chat = Some(chat.clone());
+        app.state::<AppState>().0.lock().unwrap().core.twitch_chat = Some(chat.clone());
         assert_eq!(current(&app).twitch_chat, Some(chat));
     }
 
@@ -946,7 +946,7 @@ mod tests {
                 "player": { "activity": "playing" },
                 "hero": { "id": 14 }
             }));
-            inner.twitch_chat = Some(serde_json::json!({
+            inner.core.twitch_chat = Some(serde_json::json!({
                 "connected": true,
                 "messages": [{ "id": "before", "author": "Viewer", "text": "Before", "receivedAt": "2026-01-01T00:00:00Z" }]
             }));
@@ -962,7 +962,7 @@ mod tests {
 
         {
             let state = app.state::<AppState>();
-            state.0.lock().unwrap().twitch_chat = Some(serde_json::json!({
+            state.0.lock().unwrap().core.twitch_chat = Some(serde_json::json!({
                 "connected": true,
                 "messages": [{ "id": "after", "author": "Viewer", "text": "After", "receivedAt": "2026-01-01T00:00:01Z" }]
             }));

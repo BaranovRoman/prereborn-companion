@@ -348,7 +348,7 @@ static NO_TOKEN_WARNED: AtomicBool = AtomicBool::new(false);
 /// `next_pending`'s query by construction, so this can never resurrect a
 /// permanently-rejected (4xx) event, on-schedule or on-demand alike.
 pub(crate) fn drain_outbox(app: &AppHandle) {
-    let token = { app.state::<AppState>().0.lock().unwrap().companion_token.clone() };
+    let token = { app.state::<AppState>().0.lock().unwrap().core.companion_token.clone() };
     let Some(token) = token else {
         if !NO_TOKEN_WARNED.swap(true, Ordering::Relaxed) {
             crate::storage::append_rolling_log(
@@ -474,7 +474,7 @@ pub fn cached_ranked_mode(conn: &Connection) -> RankedMode {
 }
 
 fn refresh_game_mode(app: &AppHandle) {
-    let token = { app.state::<AppState>().0.lock().unwrap().companion_token.clone() };
+    let token = { app.state::<AppState>().0.lock().unwrap().core.companion_token.clone() };
     let Some(token) = token else { return };
     let client = match reqwest::blocking::Client::builder().timeout(REQUEST_TIMEOUT).build() {
         Ok(client) => client,
@@ -557,7 +557,7 @@ fn apply_one_correction(
 }
 
 fn pull_corrections(app: &AppHandle) {
-    let token = { app.state::<AppState>().0.lock().unwrap().companion_token.clone() };
+    let token = { app.state::<AppState>().0.lock().unwrap().core.companion_token.clone() };
     let Some(token) = token else { return };
 
     let since = {

@@ -352,14 +352,14 @@ pub fn save_companion_token(
     storage::save_companion_token(&app, &token).map_err(|e| e.to_string())?;
     {
         let mut inner = state.0.lock().unwrap();
-        inner.companion_token = Some(token);
+        inner.core.companion_token = Some(token);
         // WK-94 - a (re)saved token invalidates whatever backend_state the
         // previous token earned: clear the old error/failure streak and
         // "have we attempted yet" flag so the UI reads Waiting again
         // instead of carrying over a stale Unavailable/Recovering verdict.
-        inner.backend_last_error = None;
-        inner.backend_attempted = false;
-        inner.backend_consecutive_failures = 0;
+        inner.core.backend_last_error = None;
+        inner.core.backend_attempted = false;
+        inner.core.backend_consecutive_failures = 0;
     }
     storage::append_rolling_log(&app, "Companion token saved locally.");
     Ok(state.snapshot())

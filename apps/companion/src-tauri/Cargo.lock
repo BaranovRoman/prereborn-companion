@@ -539,6 +539,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "companion-plugin-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "concurrent-queue"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -908,6 +916,7 @@ version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
+ "companion-plugin-protocol",
  "keyring",
  "reqwest 0.12.28",
  "rusqlite",
