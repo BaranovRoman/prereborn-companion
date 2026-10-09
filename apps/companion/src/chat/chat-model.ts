@@ -11,6 +11,7 @@ export interface ChatSettings {
   soundEnabled: boolean;
   ttsEnabled: boolean;
   speakAuthor: boolean;
+  // 0 reads the full message; positive values are explicit opt-in limits.
   maxLength: number;
   ttsEngine: TtsEngine;
   // Only meaningful when ttsEngine === "silero" - which of the 5 named
@@ -39,7 +40,7 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   soundEnabled: false,
   ttsEnabled: false,
   speakAuthor: true,
-  maxLength: 180,
+  maxLength: 0,
   ttsEngine: "silero",
   // Confirmed by a human blind-listening test across all 63 available
   // Silero voice/model combinations (WK-82 TTS follow-up) - "xenia"
@@ -90,7 +91,7 @@ const buildSpeechParts = (message: TwitchChatMessage, settings: ChatSettings): S
   if (!ALLOWED_TYPES.has(message.messageType) || REPEATED_PATTERN.test(message.text)) return null;
   let text = message.text.replace(URL_PATTERN, " ссылка ").replace(/\s+/g, " ").trim();
   if (!text || text === "ссылка") return null;
-  if (text.length > settings.maxLength) {
+  if (settings.maxLength > 0 && text.length > settings.maxLength) {
     text = `${text.slice(0, Math.max(1, settings.maxLength - 1)).trimEnd()}…`;
   }
   const speechText = normalizeMessageForSpeech(text);

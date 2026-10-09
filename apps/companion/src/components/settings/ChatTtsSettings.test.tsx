@@ -36,6 +36,15 @@ afterEach(() => cleanup());
 // preference; verifies each control writes through the SAME session
 // instance's updateSetting (no parallel/local state).
 describe("ChatTtsSettings", () => {
+  it("offers full reading by default and allows an explicit limit", () => {
+    const session = buildSession({ settings: { ...DEFAULT_CHAT_SETTINGS, ttsEnabled: true } });
+    render(<ChatTtsSettings session={session} />);
+    const select = screen.getByLabelText("Максимальная длина") as HTMLSelectElement;
+    expect(select.value).toBe("0");
+    expect(screen.getByText("Читать полностью")).toBeTruthy();
+    fireEvent.change(select, { target: { value: "300" } });
+    expect(session.updateSetting).toHaveBeenCalledWith("maxLength", 300);
+  });
   it("reflects current settings", () => {
     render(<ChatTtsSettings session={buildSession({ settings: { ...DEFAULT_CHAT_SETTINGS, ttsEnabled: true } })} />);
     expect((screen.getByLabelText("Озвучивать сообщения (TTS)") as HTMLInputElement).checked).toBe(true);

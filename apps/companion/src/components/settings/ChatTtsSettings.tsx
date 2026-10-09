@@ -89,7 +89,7 @@ export function ChatTtsSettings({ session }: { session: TwitchChatSession }) {
       />
       <label className={!settings.ttsEnabled ? "is-disabled" : ""}>Максимальная длина
         <Select disabled={!settings.ttsEnabled} value={settings.maxLength} onChange={(event) => update("maxLength", Number(event.target.value))}>
-          <option value={80}>80 символов</option><option value={180}>180 символов</option><option value={300}>300 символов</option>
+          <option value={0}>Читать полностью</option><option value={80}>80 символов</option><option value={300}>300 символов</option>
         </Select>
       </label>
       <label className={!settings.ttsEnabled || !settings.speakAuthor ? "is-disabled" : ""}>Произношение никнеймов (по одному на строку: ник=как произносить)

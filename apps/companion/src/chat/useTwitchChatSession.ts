@@ -35,6 +35,12 @@ const STORAGE_KEY = "companion-twitch-chat-settings-v1";
 const loadSettings = (): ChatSettings => {
   try {
     const merged = { ...DEFAULT_CHAT_SETTINGS, ...JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") };
+    // The old default silently cut messages at 180 characters. Existing
+    // installations must also get full reading, not only fresh settings.
+    // Preserve the other explicitly selectable limits (80 and 300).
+    if (merged.maxLength === 180 || !Number.isFinite(merged.maxLength) || merged.maxLength < 0) {
+      merged.maxLength = DEFAULT_CHAT_SETTINGS.maxLength;
+    }
     // WK-80 - Piper was removed; a settings blob saved by an older
     // Companion version may still have ttsEngine: "piper" persisted. Coerce
     // it to "silero" (already the recommended engine) rather than leaving a

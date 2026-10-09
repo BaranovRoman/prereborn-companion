@@ -44,6 +44,17 @@ describe("chat model", () => {
   it("limits length and optionally omits author", () => {
     expect(prepareTtsText(message("1", "abcdefghij"), { ...enabled, speakAuthor: false, maxLength: 6 })).toBe("абкде…");
   });
+  it("reads a long message completely by default and keeps its queue entry intact", () => {
+    const raw = "Это длинное сообщение с несколькими предложениями. ".repeat(8) + "Последние слова тоже должны прозвучать.";
+    expect(raw.length).toBeGreaterThan(300);
+    expect(DEFAULT_CHAT_SETTINGS.maxLength).toBe(0);
+    expect(prepareTtsText(message("long", raw), { ...enabled, speakAuthor: false })).toBe(raw);
+    const queue = new BoundedTtsQueue();
+    queue.enqueue(message("long", raw), { ...enabled, speakAuthor: false }, 0);
+    queue.enqueue(message("next", "Следующее сообщение."), { ...enabled, speakAuthor: false }, 0);
+    expect(queue.takeNext(0)).toEqual({ id: "long", text: raw });
+    expect(queue.takeNext(0)).toEqual({ id: "next", text: "Следующее сообщение." });
+  });
   it("normalizes the username and message for speech without touching the displayed message", () => {
     const raw = message("5", "хахахахахаха го дальше 🔥", "text");
     raw.author = "Roma_Romych_TV";
@@ -141,7 +152,7 @@ describe("chat model", () => {
     // here, since it's measured against the raw length, not the eventual
     // spoken length.
     const raw = "WK-81 RTX 5060";
-    expect(raw.length).toBeLessThan(enabled.maxLength);
+    expect(raw.length).toBeLessThan(180);
     const result = prepareTtsText(message("1", raw), { ...enabled, speakAuthor: false });
     expect(result).toBe("дабл-ю-кей восемьдесят один ар-ти-икс пять тысяч шестьдесят");
     expect(result!.length).toBeGreaterThan(raw.length); // expansion happened, and that's expected/fine

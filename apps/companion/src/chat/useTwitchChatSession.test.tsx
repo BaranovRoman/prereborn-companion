@@ -110,6 +110,39 @@ describe("useTwitchChatSession", () => {
   // the next test asserts on.
   afterEach(() => cleanup());
 
+  it.each([180, 0, 80, 300])("restores length setting %s with full-reading migration", async (maxLength) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ maxLength }));
+    let session: TwitchChatSession | undefined;
+    const { unmount } = render(<Harness showChat={true} onSession={(s) => { session = s; }} />);
+    await waitFor(() => expect(session).toBeDefined());
+    expect(session!.settings.maxLength).toBe(maxLength === 180 ? 0 : maxLength);
+    unmount();
+    localStorage.clear();
+  });
+
+  it("passes the full long message to Silero and waits for audio end before the next message", async () => {
+    const text = "Это длинное сообщение. ".repeat(20) + "Последние слова.";
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ttsEnabled: true, maxLength: 180, speakAuthor: false }));
+    vi.mocked(synthesizeSileroTts).mockResolvedValue(btoa("wav bytes"));
+    let audio: HTMLAudioElement | undefined;
+    vi.spyOn(window.HTMLMediaElement.prototype, "play").mockImplementation(function (this: HTMLAudioElement) {
+      audio = this;
+      return Promise.resolve();
+    });
+    vi.mocked(getTwitchChat).mockResolvedValueOnce(STATUS).mockResolvedValue({
+      ...STATUS, messages: [chatMessage("long", text), chatMessage("next", "Следующее сообщение.")],
+    });
+    const { unmount } = render(<Harness showChat={true} />);
+    await waitFor(() => expect(audio).toBeDefined(), { timeout: 4000 });
+    expect(vi.mocked(synthesizeSileroTts).mock.calls[0][0]).toBe(text);
+    expect(synthesizeSileroTts).toHaveBeenCalledTimes(1);
+    audio!.onended?.(new Event("ended"));
+    await waitFor(() => expect(synthesizeSileroTts).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(synthesizeSileroTts).mock.calls[1][0]).toBe("Следующее сообщение.");
+    unmount();
+    localStorage.clear();
+  });
+
   it("keeps polling after the Chat consumer unmounts, and does not start a second poller on remount", async () => {
     const { rerender, unmount } = render(<Harness showChat={true} />);
 
@@ -271,7 +304,7 @@ describe("useTwitchChatSession", () => {
       expect(vi.mocked(synthesizeSileroTts)).not.toHaveBeenCalled();
     });
 
-    it("stops audio that's already playing and immediately advances to the next queued message", async () => {
+    it.each(["первое", "Длинное сообщение. ".repeat(20) + "Конец сообщения."])("stops playing audio and advances to the next queued message: %s", async (text) => {
       vi.mocked(synthesizeSileroTts).mockReset()
         .mockResolvedValueOnce(btoa("wav bytes for message one"))
         .mockResolvedValueOnce(btoa("wav bytes for message two"));
@@ -285,7 +318,7 @@ describe("useTwitchChatSession", () => {
       // before drainTts() ever runs - message two must stay queued (not
       // dropped) until message one is skipped.
       vi.mocked(getTwitchChat).mockResolvedValue({
-        ...STATUS, messages: [chatMessage("msg-1", "первое"), chatMessage("msg-2", "второе")],
+        ...STATUS, messages: [chatMessage("msg-1", text), chatMessage("msg-2", "второе")],
       });
 
       await waitFor(() => expect(vi.mocked(synthesizeSileroTts)).toHaveBeenCalledTimes(1), { timeout: 4000 });
