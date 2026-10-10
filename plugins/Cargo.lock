@@ -45,6 +45,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "companion-dota-domain"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "companion-dota-plugin"
+version = "0.1.0"
+dependencies = [
+ "companion-dota-domain",
+ "companion-plugin-protocol",
+ "serde_json",
+]
+
+[[package]]
 name = "companion-hello-plugin"
 version = "0.1.0"
 dependencies = [

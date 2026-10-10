@@ -36,6 +36,7 @@ export function errorText(error: unknown): string {
     incompatible_plugin: "Плагин сообщил другую версию или несовместимый API.",
     local_install_disabled: "Локальная установка доступна только в сборке для разработки.",
     use_rollback_for_older_version: "Для предыдущей версии используйте откат установленного плагина.",
+    dota_live_activation_deferred: "Внешняя Dota пока доступна только для изолированного replay. Встроенная интеграция остаётся единственной активной.",
   };
   if (text.includes("download_failed")) return "GitHub недоступен или пакет ещё не опубликован. Установленные плагины продолжают работать.";
   return messages[text] ?? text;

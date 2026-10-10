@@ -1,0 +1,25 @@
+{
+  "manifest": {
+    "schema": 1,
+    "id": "dota2",
+    "name": "Dota 2 — replay prototype",
+    "description": "Изолированный анализ GSI. Live-активация отключена; встроенная Dota остаётся активной.",
+    "version": "0.1.0",
+    "platform": "macos",
+    "arch": "aarch64",
+    "minApi": 1,
+    "maxApi": 1,
+    "executable": "bin/dota-fixture",
+    "ui": "ui/index.html",
+    "permissions": [
+      "ui"
+    ],
+    "files": {
+      "bin/dota-fixture": "14cf3c8944e93d523851a9db33dfb59e4233156405d7b43ddd630722535045c4",
+      "ui/index.html": "0bccbd4e7ca5fa2ba47ccd2b0cc8688fb112eddc221bdcab6e809495fdf03aed"
+    }
+  },
+  "url": "https://github.com/BaranovRoman/prereborn-companion-plugins/releases/download/test/dota2-0.1.0-macos-aarch64.zip",
+  "sha256": "24cd64bf762decb986ee1ad23cad8bf32af5e1a5660a7397fa82d9986ff7d530",
+  "signature": "untrusted comment: signature from tauri secret key\nRUQVdqqLO0SfzZLAmmKxT3Puwqn07t5eQhNT3ZpcNMe7BT46ZzsvjZ3CGXevpXRAjUPP/+g7x99bwv19eXRJSrdBIEF7wKT63QM=\ntrusted comment: timestamp:1791615142\tfile:dota2-0.1.0-macos-aarch64.zip\nAa9pm5124pmjVNF2Bst/dQyPj1t9aAzsrRB/r1Rsf9gaJB4voFXmq4bLpo6GjYMkQEqlzu0EsinHCrgQw66yDg==\n"
+}

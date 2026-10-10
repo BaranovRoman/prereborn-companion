@@ -27,3 +27,6 @@ with tempfile.TemporaryDirectory() as directory:
             archive.with_suffix('.json').write_bytes(pack.encode(meta))
     (output/'catalog.json').write_bytes(pack.encode(dict(schema=1,releases=[release])))
     (output/'catalog.minisig').write_text(pack.sign(output/'catalog.json',key))
+    pack.package(binary, ui, '0.1.0', 'macos', 'aarch64', output, key,
+                 'https://github.com/BaranovRoman/prereborn-companion-plugins/releases/download/test',
+                 manifest_template=root/'plugins/dota/manifest.json')

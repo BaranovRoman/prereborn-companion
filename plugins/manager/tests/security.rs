@@ -102,3 +102,25 @@ fn damaged_pending_update_falls_back_on_restart_and_keeps_error() {
     assert!(s.installed()["hello"].last_error.as_ref().unwrap().starts_with("update_rejected"));
     s.executable("hello", "0.1.0").unwrap();
 }
+#[test]
+fn signed_dota_package_is_installable_but_defaults_to_disabled() {
+    if std::env::consts::OS != "macos" || std::env::consts::ARCH != "aarch64" { return; }
+    let dir = tempfile::tempdir().unwrap(); let mut s = store(&dir);
+    let release: Release = serde_json::from_slice(&fixture("dota2-0.1.0-macos-aarch64.release.json")).unwrap();
+    s.install(&fixture("dota2-0.1.0-macos-aarch64.zip"), &release, false, &AtomicBool::new(false)).unwrap();
+    assert!(!s.installed()["dota2"].enabled);
+    assert!(s.executable("dota2", "0.1.0").is_ok());
+    drop(s); assert!(!store(&dir).installed()["dota2"].enabled);
+}
+#[test]
+#[ignore = "requires locally prepared official signed Dota replay package"]
+fn official_dota_package_integrity_and_overlay_assets() {
+    let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../packages");
+    let release: Release = serde_json::from_slice(&fs::read(base.join("dota2-0.1.0-macos-aarch64.release.json")).unwrap()).unwrap();
+    let bytes = fs::read(base.join("dota2-0.1.0-macos-aarch64.zip")).unwrap();
+    let dir=tempfile::tempdir().unwrap(); let mut s=Store::open(dir.path().join("plugins"),TRUSTED_KEY).unwrap();
+    s.install(&bytes,&release,false,&AtomicBool::new(false)).unwrap();
+    assert!(!s.installed()["dota2"].enabled);
+    s.executable("dota2","0.1.0").unwrap();
+    s.ui_asset("dota2","0.1.0","overlay/index.html").unwrap();
+}

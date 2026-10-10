@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "id": "dota2",
+  "name": "Dota 2 — replay prototype",
+  "description": "Изолированный анализ GSI. Live-активация отключена; встроенная Dota остаётся активной.",
+  "version": "0.1.0",
+  "platform": "macos",
+  "arch": "aarch64",
+  "minApi": 1,
+  "maxApi": 1,
+  "executable": "bin/companion-dota-plugin",
+  "ui": "ui/index.html",
+  "permissions": ["ui"],
+  "files": {}
+}

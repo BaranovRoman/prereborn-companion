@@ -37,6 +37,9 @@ impl Service {
         self.hosts.get(id).is_some_and(|host| host.0.lock().map(|mut r| matches!(r.snapshot().phase, Phase::Running | Phase::Starting)).unwrap_or(true))
     }
     fn start(&mut self, id: &str) -> Result<(), String> {
+        // Iteration 4 packages are replay-only. Built-in Dota owns all live effects/listeners.
+        // Fail closed even if a user edits the registry to enable dota2.
+        if id == "dota2" { return Err("dota_live_activation_deferred".into()); }
         if self.running(id) { return Err("already_running".into()); }
         self.store.activate(id)?;
         let installed = self.store.installed().get(id).cloned().ok_or("not_installed")?;
@@ -187,7 +190,7 @@ impl PluginManager {
         if self.shutting_down.load(Ordering::SeqCst) { return Err("plugin_manager_stopping".into()); }
         let result = match action {
             "start" => service.start(id), "stop" => service.stop(id),
-            "enable" => service.store.enable(id, true).and_then(|_| service.start(id)),
+            "enable" => { if id == "dota2" { Err("dota_live_activation_deferred".into()) } else { service.store.enable(id, true).and_then(|_| service.start(id)) } },
             "disable" => service.store.enable(id, false).and_then(|_| service.stop(id)),
             "remove" => service.stop(id).and_then(|_| service.store.remove(id)).map(|_| { service.hosts.remove(id); service.manifests.remove(id); }),
             "rollback" => { if service.running(id) { Err("stop_before_rollback".into()) } else { service.store.activate(id).and_then(|_| service.store.rollback(id)).map(|_| { if let Ok(m) = service.store.manifest(id, &service.store.installed()[id].active) { service.manifests.insert(id.to_string(), m); } }) } },
@@ -296,6 +299,14 @@ pub async fn plugins_command(app: tauri::AppHandle, id: String, name: String, ar
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn dota_cannot_be_enabled_started_or_restored_as_a_live_runtime() {
+        let dir = tempfile::tempdir().unwrap(); let manager = PluginManager::open(dir.path().join("plugins"));
+        assert_eq!(manager.action("dota2", "enable").unwrap_err(), "dota_live_activation_deferred");
+        assert_eq!(manager.action("dota2", "start").unwrap_err(), "dota_live_activation_deferred");
+        let mut guard = manager.service.lock().unwrap(); let service = guard.as_mut().unwrap();
+        assert_eq!(service.start("dota2").unwrap_err(), "dota_live_activation_deferred");
+        assert!(!service.hosts.contains_key("dota2"));
+    }
     #[test] fn cancel_does_not_wait_for_stalled_network_read() {
         let (tx, rx) = mpsc::sync_channel(2);
         let cancel = Arc::new(AtomicBool::new(false)); let worker = cancel.clone();

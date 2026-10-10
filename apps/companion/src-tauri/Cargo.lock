@@ -539,6 +539,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "companion-dota-domain"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "companion-plugin-manager"
 version = "0.1.0"
 dependencies = [
@@ -929,6 +937,7 @@ version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",
+ "companion-dota-domain",
  "companion-plugin-manager",
  "companion-plugin-protocol",
  "keyring",

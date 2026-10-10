@@ -34,7 +34,7 @@ import { writeFile } from "node:fs/promises";
 const SOURCE_COMMIT = "e7705ee975ebec2a88a59a7b455d4cae5dc69ca1";
 const RAW_BASE = `https://raw.githubusercontent.com/odota/dotaconstants/${SOURCE_COMMIT}/build`;
 const OUTPUT_PATH = new URL(
-  "../apps/companion/src-tauri/src/game_sounds/generated_hero_catalog.json",
+  "../plugins/dota-domain/src/generated_hero_catalog.json",
   import.meta.url
 );
 

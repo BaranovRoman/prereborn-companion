@@ -1,0 +1,8 @@
+//! Canonical Dota rules/types. No Tauri, sockets, account secrets or database.
+pub mod broadcast_state;
+pub mod catalog;
+pub mod events;
+pub mod gsi;
+pub mod model;
+pub mod contracts;
+pub mod replay;

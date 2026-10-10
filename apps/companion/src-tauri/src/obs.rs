@@ -128,11 +128,12 @@ impl ObsConfig {
 // logic below unchanged - only the enum definition and `from_gsi` moved.
 pub type BroadcastScene = broadcast_state::BroadcastState;
 
-// Inherent impl via the alias - legal because `BroadcastState` (what the
-// alias resolves to) is defined in this same crate, not a foreign one; only
-// cross-crate inherent impls are restricted.
-impl BroadcastScene {
-    pub fn obs_scene_name<'a>(&self, config: &'a ObsConfig) -> &'a str {
+// Core adapter: the game enum is now shared, while OBS config/credentials stay here.
+pub trait ObsSceneMapping {
+    fn obs_scene_name<'a>(&self, config: &'a ObsConfig) -> &'a str;
+}
+impl ObsSceneMapping for BroadcastScene {
+    fn obs_scene_name<'a>(&self, config: &'a ObsConfig) -> &'a str {
         match self {
             Self::BetweenMatches => &config.between_matches_scene,
             Self::Draft => &config.draft_scene,

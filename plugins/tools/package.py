@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Independent official plugin packaging. No build, download or publication side effects."""
-import argparse, base64, hashlib, json, os, pathlib, subprocess, tempfile, zipfile
+import argparse, base64, hashlib, json, os, pathlib, re, subprocess, tempfile, zipfile
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 def encode(value):
@@ -22,7 +22,7 @@ def sign(path, key):
 def digest(data):
     return hashlib.sha256(data).hexdigest()
 
-def package(binary, ui, version, platform, arch, output, key, url):
+def package(binary, ui, version, platform, arch, output, key, url, manifest_template=None):
     output = pathlib.Path(output); output.mkdir(parents=True, exist_ok=True)
     binary = pathlib.Path(binary); ui = pathlib.Path(ui)
     files = {'bin/' + binary.name: binary.read_bytes()}
@@ -35,10 +35,18 @@ def package(binary, ui, version, platform, arch, output, key, url):
                     version=version, platform=platform, arch=arch, minApi=1, maxApi=1,
                     executable='bin/' + binary.name, ui='ui/index.html', permissions=['ui'],
                     files={name: digest(data) for name, data in files.items()})
+    if manifest_template:
+        template = json.loads(pathlib.Path(manifest_template).read_text())
+        if template['version'] != version:
+            raise ValueError('Template version must match executable/CLI version')
+        for field in ['schema', 'id', 'name', 'description', 'permissions']:
+            manifest[field] = template[field]
+    if not re.fullmatch(r'[a-z0-9-]{1,64}', manifest['id']) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.-]+)?',version):
+        raise ValueError('Unsafe package identity/version')
     with tempfile.TemporaryDirectory() as directory:
         source = pathlib.Path(directory) / 'manifest.json'; source.write_bytes(encode(manifest))
         files['manifest.json'] = source.read_bytes(); files['manifest.minisig'] = sign(source, key).encode()
-    archive = output / f'hello-{version}-{platform}-{arch}.zip'
+    archive = output / f"{manifest['id']}-{version}-{platform}-{arch}.zip"
     with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as zip:
         for name, data in sorted(files.items()):
             zip.writestr(name, data)
@@ -54,6 +62,7 @@ def main():
     pack = commands.add_parser('package')
     for arg in ['binary', 'ui', 'version', 'platform', 'arch', 'output', 'key', 'url']:
         pack.add_argument('--' + arg, required=True)
+    pack.add_argument('--manifest-template')
     catalog = commands.add_parser('catalog')
     catalog.add_argument('--release', action='append', required=True)
     catalog.add_argument('--output', required=True); catalog.add_argument('--key', required=True)

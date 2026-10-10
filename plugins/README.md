@@ -1,8 +1,10 @@
 # Official plugin packages — iteration 3
 
 Companion's installed plugins use the existing IPC v1 `PluginHost`; the manager adds signed
-files and lifecycle orchestration. Dota is still built in. Its ID is reserved and cannot be
-installed through this manager. Plugin Lab remains a separate debug entry point.
+files and lifecycle orchestration. Dota is still built in. Iteration 4 permits a signed
+`dota2` replay package to be installed disabled, but blocks enable/start/restore. Other
+Dota-like IDs remain reserved. See [Dota replay prototype](dota/README.md).
+Plugin Lab remains a separate debug entry point.
 
 ## Package and trust
 
@@ -141,7 +143,7 @@ Use the **separate planned** repository `BaranovRoman/prereborn-companion-plugin
   client retains its previous verified catalog and never installs mismatched data.
 
 No installer self-update, arbitrary repositories, third-party keys, marketplace backend,
-permission prompts, OS sandbox or Dota extraction is included.
+permission prompts, OS sandbox or live Dota activation is included.
 
 ## Targeted validation
 

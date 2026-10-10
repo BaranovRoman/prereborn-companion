@@ -26,10 +26,11 @@ pub struct Runtime {
     output: Option<Receiver<Result<Message, String>>>,
     next_id: u64,
     snapshot: Snapshot,
+    identity: Option<String>,
 }
 impl Default for Runtime {
     fn default() -> Self {
-        Self { child: None, input: None, output: None, next_id: 0,
+        Self { child: None, input: None, output: None, next_id: 0, identity: None,
             snapshot: Snapshot { phase: Phase::Stopped, plugin_version: None,
                 state: Value::Null, events: Vec::new(), last_error: None } }
     }
@@ -86,6 +87,7 @@ impl Runtime {
         self.poll();
         if matches!(self.snapshot.phase, Phase::Running | Phase::Starting) { return Err("already_running".into()); }
         self.reap();
+        self.identity = None;
         self.snapshot = Snapshot { phase: Phase::Starting, plugin_version: None,
             state: Value::Null, events: Vec::new(), last_error: None };
         // No shell, no inherited credentials/env. Executable must be explicitly supplied locally.
@@ -115,6 +117,7 @@ impl Runtime {
             Message::Ready { id, version, min_core_api, max_core_api }
                 if id == expected_id && expected_version.map_or(true, |v| v == version) && min_core_api <= CORE_API && CORE_API <= max_core_api => {
                     self.snapshot.phase = Phase::Running;
+                    self.identity = Some(id);
                     self.snapshot.plugin_version = Some(version);
                     Ok(self.snapshot.clone())
                 }
@@ -125,7 +128,8 @@ impl Runtime {
     pub fn command(&mut self, name: String, args: Value) -> Result<Value, String> {
         self.poll();
         if self.snapshot.phase != Phase::Running { return Err("not_running".into()); }
-        if name.len() > 64 || serde_json::to_vec(&args).map_err(|e| e.to_string())?.len() > 512 {
+        let limit = if self.identity.as_deref() == Some("dota2") && name == "dota.replay" { companion_plugin_protocol::MAX_FRAME - 256 } else { 512 };
+        if name.len() > 64 || serde_json::to_vec(&args).map_err(|e| e.to_string())?.len() > limit {
             return Err("command_too_large".into());
         }
         self.next_id = self.next_id.checked_add(1).ok_or("request_id_exhausted")?;
@@ -199,6 +203,23 @@ impl PluginHost {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn dota_replay_uses_existing_runtime_and_never_mutates_stream_state() {
+        let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../plugins/target/debug")
+            .join(if cfg!(windows) { "companion-dota-plugin.exe" } else { "companion-dota-plugin" });
+        assert!(path.is_file(), "Build the independent Dota plugin first");
+        let app = crate::state::AppState::new(); let before = serde_json::to_value(app.snapshot()).unwrap();
+        let mut runtime = Runtime::default(); runtime.start_expected(&path, &[], "dota2", Some("0.1.0")).unwrap();
+        let items: serde_json::Map<String, Value> = (0..16).map(|i| (format!("slot{i}"), json!({"name":"item_tango","charges":3}))).collect();
+        let input = json!({"sequence":1,"observedAtMs":100,"snapshot":{"hero":{"id":105},"items":items}});
+        assert!(serde_json::to_vec(&input).unwrap().len() > 512);
+        let result = runtime.command("dota.replay".into(), input.clone()).unwrap();
+        assert_eq!(result["mode"], "replay_only"); assert_eq!(result["sideEffects"], false);
+        assert!(runtime.command("dota.replay".into(), input).unwrap_err().contains("replay_sequence_not_increasing"));
+        assert_eq!(runtime.snapshot().phase, Phase::Running);
+        assert_eq!(runtime.command("obs.switch".into(), json!({})).unwrap_err(), "unsupported_replay_command: Live APIs are not connected");
+        runtime.stop().unwrap();
+        assert_eq!(serde_json::to_value(app.snapshot()).unwrap(), before);
+    }
     fn binary() -> std::path::PathBuf {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../../plugins/target/debug")

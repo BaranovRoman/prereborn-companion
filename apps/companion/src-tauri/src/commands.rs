@@ -15,7 +15,7 @@ use crate::game_sounds::{
 use crate::gsi::{config, finder};
 use crate::hotkeys::{self, OverlayToggleHotkeyStatus, SkipHotkeyStatus};
 use crate::local_runtime::lifecycle::{self, LifecycleStatus};
-use crate::obs::{self, BroadcastScene, ObsConfig};
+use crate::obs::{self, BroadcastScene, ObsConfig, ObsSceneMapping};
 use crate::silero::{self, SileroStatus, SileroVoice};
 use crate::state::{AppState, StatusSnapshot, DEFAULT_WEB_ORIGIN};
 use crate::storage;

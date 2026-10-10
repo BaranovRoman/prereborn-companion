@@ -61,7 +61,7 @@ pub fn safe_path(value: &str) -> Result<()> {
     Ok(())
 }
 fn valid_id(id: &str) -> Result<()> {
-    if id.is_empty() || id.len() > 64 || !id.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-') || id.contains("dota") {
+    if id.is_empty() || id.len() > 64 || !id.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-') || (id.contains("dota") && id != "dota2") {
         return Err("invalid_or_reserved_plugin_id".into());
     }
     Ok(())
@@ -315,7 +315,7 @@ impl Store {
                     if running { installed.pending = Some(version.clone()); }
                     else { installed.previous = Some(installed.active.clone()); installed.active = version.clone(); }
                     installed.last_error = None;
-                } else { registry.plugins.insert(id.clone(), Installed { active: version.clone(), enabled: true, ..Installed::default() }); }
+                } else { registry.plugins.insert(id.clone(), Installed { active: version.clone(), enabled: id != "dota2", ..Installed::default() }); }
                 Ok(())
             }) { let _ = fs::remove_dir_all(destination); return Err(error); }
             self.prune(id);
