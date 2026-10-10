@@ -1,0 +1,4 @@
+.signing/
+packages/
+tools/__pycache__/
+!manager/tests/fixtures/*.zip

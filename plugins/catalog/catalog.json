@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "releases": [
+    {
+      "manifest": {
+        "schema": 1,
+        "id": "hello",
+        "name": "Hello World",
+        "description": "Официальный тестовый плагин Companion.",
+        "version": "0.1.0",
+        "platform": "macos",
+        "arch": "aarch64",
+        "minApi": 1,
+        "maxApi": 1,
+        "executable": "bin/companion-hello-plugin",
+        "ui": "ui/index.html",
+        "permissions": [
+          "ui"
+        ],
+        "files": {
+          "bin/companion-hello-plugin": "67057b8a2d81c84658d1ca95cf3275015698f45dda0fc27a3946d042a6e53f29",
+          "ui/assets/index-BeRqsR6H.js": "9289e6c30c207826690cb3248a18c307272b60798e00e3e66ee3285c04328a7f",
+          "ui/index.html": "757830d19a82a6ded8b300e9200e7100022deb99f08dced4a50aae5bfcba7d98"
+        }
+      },
+      "url": "https://github.com/BaranovRoman/prereborn-companion-plugins/releases/download/hello-v0.1.0/hello-0.1.0-macos-aarch64.zip",
+      "sha256": "aa0ab389e6aa66ea41a91f9fba64a67aead545521354bc6c9e8a737cb12159b4",
+      "signature": "untrusted comment: signature from tauri secret key\nRUSclWQ9TNQrlYB3h2+xc3VBFOSajpr9OCPwJuL5nBrPOE9EY2XOPbGfeXG5POPnzAENRt0F5O5+1dhDWK1KM5LJAZo9IB1Tqg8=\ntrusted comment: timestamp:1791609464\tfile:hello-0.1.0-macos-aarch64.zip\nHXRPiUhqMTwJoKIIczdEkwyX0HRvK8uUjT1gNYH0CQazosBhcVGSgqeT0w8ww8AQOlZbInyvg0dndY5F/0zSCQ==\n"
+    }
+  ]
+}

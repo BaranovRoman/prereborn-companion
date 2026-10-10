@@ -29,13 +29,14 @@ import { HeroDetailPage } from "../pages/HeroDetailPage";
 import { HeroesPage } from "../pages/HeroesPage";
 import { HomePage } from "../pages/HomePage";
 import { SoundsPage } from "../pages/SoundsPage";
+import { PluginsPage } from "../pages/PluginsPage";
 import * as api from "../services/dotaCompanionApi";
 import { getHeroById } from "../services/heroCatalog";
 import { useGameSoundEngine } from "../sounds/useGameSoundEngine";
 import type { StatusSnapshot } from "../types/status";
 import { describeBackendStatus } from "../utils/backendStatus";
 
-type Section = "home" | "heroes" | "design" | "chat" | "sounds" | "diagnostics";
+type Section = "home" | "heroes" | "design" | "chat" | "sounds" | "plugins" | "diagnostics";
 
 const MAIN_NAV_ITEMS: { key: Section; label: string }[] = [
   { key: "home", label: "Главная" },
@@ -43,6 +44,7 @@ const MAIN_NAV_ITEMS: { key: Section; label: string }[] = [
   { key: "design", label: "Оформление" },
   { key: "chat", label: "Чат" },
   { key: "sounds", label: "Предметы" },
+  { key: "plugins", label: "Плагины" },
 ];
 
 // WK-114 - Old Dota Companion shell: a heavy top header (brand + gear +
@@ -312,6 +314,7 @@ export function AppShell() {
         {section === "design" && <DesignPage />}
         {section === "chat" && <TwitchChatPage session={chatSession} onOpenChatSettings={() => openSettings("chat")} />}
         {section === "sounds" && <SoundsPage engine={gameSoundEngine} />}
+        {section === "plugins" && <PluginsPage />}
         {section === "diagnostics" && (
           <DiagnosticsPage
             status={status}

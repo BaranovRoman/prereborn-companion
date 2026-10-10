@@ -83,7 +83,10 @@ pub fn asset(root: &Path, uri_path: &str) -> Result<(Vec<u8>, &'static str), Str
 pub fn response(app: &tauri::AppHandle, path: &str) -> tauri::http::Response<Vec<u8>> {
     let result = if enabled() {
         app.try_state::<LabConfig>().ok_or("disabled".to_string()).and_then(|config: State<LabConfig>| asset(&config.ui, path))
-    } else { Err("disabled".into()) };
+    } else {
+        app.try_state::<crate::core::plugin_manager::PluginManager>()
+            .ok_or("disabled".to_string()).and_then(|manager| manager.asset(path))
+    };
     match result {
         Ok((bytes, mime)) => tauri::http::Response::builder().header("Content-Type", mime)
             // sandbox="allow-scripts" makes the iframe's origin opaque. Module
@@ -93,7 +96,7 @@ pub fn response(app: &tauri::AppHandle, path: &str) -> tauri::http::Response<Vec
             .header("X-Content-Type-Options", "nosniff")
             // 'self' fails against the sandbox's opaque origin in WKWebView.
             // Permit only assets from our bounded local protocol, not inline/eval/HTTP.
-            .header("Content-Security-Policy", "default-src 'none'; script-src plugin-ui:; style-src plugin-ui:; connect-src 'none'")
+            .header("Content-Security-Policy", "default-src 'none'; script-src plugin-ui: http://plugin-ui.localhost; style-src plugin-ui: http://plugin-ui.localhost; connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'")
             .body(bytes).unwrap(),
         Err(_) => tauri::http::Response::builder().status(404).body(Vec::new()).unwrap(),
     }

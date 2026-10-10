@@ -97,6 +97,7 @@ fn focus_existing_window(app: &tauri::AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .invoke_system(core::plugin_ipc::initialization_script())
         // Reliability pass - single instance guard. MUST be the first
         // plugin registered (see this plugin's own README/docs): Tauri
         // runs each plugin's `setup()` in registration order, then the
@@ -207,6 +208,8 @@ pub fn run() {
             obs::init(handle.clone());
             dota::start_workers(&handle);
 
+            core::plugin_manager::setup(&handle);
+
             build_tray(&handle)?;
 
             Ok(())
@@ -229,6 +232,12 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            core::plugin_manager::plugins_view,
+            core::plugin_manager::plugins_refresh,
+            core::plugin_manager::plugins_install,
+            core::plugin_manager::plugins_cancel,
+            core::plugin_manager::plugins_action,
+            core::plugin_manager::plugins_command,
             plugin_lab::plugin_lab_start,
             plugin_lab::plugin_lab_stop,
             plugin_lab::plugin_lab_command,
@@ -316,8 +325,13 @@ pub fn run() {
             commands::preview_game_sound,
             commands::log_game_sound_timing,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit) {
+                if let Some(manager) = app.try_state::<core::plugin_manager::PluginManager>() { manager.shutdown(); }
+            }
+        });
 }
 
 #[cfg(test)]

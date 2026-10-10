@@ -1,0 +1,26 @@
+{
+  "manifest": {
+    "schema": 1,
+    "id": "hello",
+    "name": "Hello World",
+    "description": "Официальный тестовый плагин Companion.",
+    "version": "0.1.0",
+    "platform": "macos",
+    "arch": "aarch64",
+    "minApi": 1,
+    "maxApi": 1,
+    "executable": "bin/hello",
+    "ui": "ui/index.html",
+    "permissions": [
+      "ui"
+    ],
+    "files": {
+      "bin/hello": "c1c53da8c565cebefd3f8c6886401c243c5557a8089879f4dbb87f949217d037",
+      "ui/index.html": "e2c6c0ea7c7900c31f953e48d30d5e839801ab90630d751e7c8426ed5859da47",
+      "ui/main.js": "d2beb58d1bcb606c7002b3dd07b31c6d577ae358cbf98294536c77e09bd955cd"
+    }
+  },
+  "url": "https://github.com/BaranovRoman/prereborn-companion/releases/download/test/hello-0.1.0-macos-aarch64.zip",
+  "sha256": "e9dd64eacf9f31763fea9741e203e6c43a4c8f03da280f8a85f291c2d0b2ad4a",
+  "signature": "untrusted comment: signature from tauri secret key\nRUQVdqqLO0SfzUcTvt017TCom7H8GfCVuUyDbBeLYwFdK/mOX0wpcHkjUJramueYkI7c5kvpZpvcSxs100+eMdCOTGIPdawi7wA=\ntrusted comment: timestamp:1791609307\tfile:symlink.zip\nSawAMztuoopDUA3M/B6tXKzE3M7NC9ch2zJn0B6NYAndrRsVMd5XCwIVU05MGcefFFgdtZz64aKA+o9dS/mHDw==\n"
+}

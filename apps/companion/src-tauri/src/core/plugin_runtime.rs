@@ -80,6 +80,9 @@ impl Runtime {
         Ok(())
     }
     pub fn start(&mut self, executable: &Path, args: &[String]) -> Result<Snapshot, String> {
+        self.start_expected(executable, args, "hello", None)
+    }
+    pub fn start_expected(&mut self, executable: &Path, args: &[String], expected_id: &str, expected_version: Option<&str>) -> Result<Snapshot, String> {
         self.poll();
         if matches!(self.snapshot.phase, Phase::Running | Phase::Starting) { return Err("already_running".into()); }
         self.reap();
@@ -110,7 +113,7 @@ impl Runtime {
         self.send(Message::Hello { core_api: CORE_API })?;
         match self.receive(Instant::now() + TIMEOUT)? {
             Message::Ready { id, version, min_core_api, max_core_api }
-                if id == "hello" && min_core_api <= CORE_API && CORE_API <= max_core_api => {
+                if id == expected_id && expected_version.map_or(true, |v| v == version) && min_core_api <= CORE_API && CORE_API <= max_core_api => {
                     self.snapshot.phase = Phase::Running;
                     self.snapshot.plugin_version = Some(version);
                     Ok(self.snapshot.clone())
@@ -226,6 +229,9 @@ mod tests {
     fn failed_launch_and_handshake_are_reaped_and_restartable() {
         let mut runtime = Runtime::default();
         assert!(runtime.start(Path::new("/nonexistent-companion-plugin"), &[]).unwrap_err().starts_with("spawn_failed"));
+        assert_eq!(runtime.start_expected(&binary(), &[], "wrong-id", None).unwrap_err(), "incompatible_plugin");
+        assert_eq!(runtime.start_expected(&binary(), &[], "hello", Some("9.9.9")).unwrap_err(), "incompatible_plugin");
+        assert!(runtime.child.is_none());
         for (mode, error) in [("incompatible", "incompatible_plugin"), ("protocol", "incompatible_protocol"),
             ("malformed", "invalid_frame"), ("exit", "unexpected_eof"), ("hang", "timeout")] {
             assert_eq!(runtime.start(&binary(), &[mode.into()]).unwrap_err(), error);
