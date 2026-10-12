@@ -108,9 +108,15 @@ fn carried_over_rating(conn: &Connection) -> rusqlite::Result<Option<i64>> {
 /// `is_streamed` (and therefore whether a `session_started` sync event is
 /// true to send) differs between them.
 fn insert_session(conn: &mut Connection, now: DateTime<Utc>, is_streamed: bool) -> rusqlite::Result<LocalSession> {
-    let carried_rating = carried_over_rating(conn)?;
-    let local_id = Uuid::new_v4().to_string();
     let tx = conn.transaction()?;
+    let result = insert_session_in(&tx, now, is_streamed)?;
+    tx.commit()?;
+    Ok(result)
+}
+
+pub(super) fn insert_session_in(tx: &rusqlite::Transaction<'_>, now: DateTime<Utc>, is_streamed: bool) -> rusqlite::Result<LocalSession> {
+    let carried_rating = carried_over_rating(tx)?;
+    let local_id = Uuid::new_v4().to_string();
     tx.execute(
         "INSERT INTO local_sessions (local_id, started_at, rating_start, rating_current, is_streamed, stream_started_at) \
          VALUES (?1, ?2, ?3, ?3, ?4, ?5)",
@@ -133,7 +139,6 @@ fn insert_session(conn: &mut Connection, now: DateTime<Utc>, is_streamed: bool) 
         });
         super::sync::enqueue(&tx, "session", &local_id, "session_started", &payload, now)?;
     }
-    tx.commit()?;
 
     Ok(LocalSession {
         local_id,
@@ -192,6 +197,12 @@ pub fn ensure_gameplay_session(conn: &mut Connection, now: DateTime<Utc>) -> rus
 /// which is now a real stream session.
 pub fn mark_session_streamed(conn: &mut Connection, local_id: &str, now: DateTime<Utc>) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
+    let result = mark_session_streamed_in(&tx, local_id, now)?;
+    tx.commit()?;
+    Ok(result)
+}
+
+pub(super) fn mark_session_streamed_in(tx: &rusqlite::Transaction<'_>, local_id: &str, now: DateTime<Utc>) -> rusqlite::Result<()> {
     let changed = tx.execute(
         "UPDATE local_sessions SET is_streamed = 1, stream_started_at = ?2 WHERE local_id = ?1 AND is_streamed = 0",
         params![local_id, now.to_rfc3339()],
@@ -208,7 +219,7 @@ pub fn mark_session_streamed(conn: &mut Connection, local_id: &str, now: DateTim
         });
         super::sync::enqueue(&tx, "session", local_id, "session_started", &payload, now)?;
     }
-    tx.commit()
+    Ok(())
 }
 
 /// Applies an absolute correction to the open session's Current MMR.
@@ -220,6 +231,12 @@ pub fn mark_session_streamed(conn: &mut Connection, local_id: &str, now: DateTim
 /// session-adjustment semantics, not a second rating model.
 pub fn set_current_rating(conn: &mut Connection, rating: i64) -> rusqlite::Result<Option<LocalSession>> {
     let tx = conn.transaction()?;
+    let result = set_current_rating_in(&tx, rating)?;
+    tx.commit()?;
+    Ok(result)
+}
+
+pub(super) fn set_current_rating_in(tx: &rusqlite::Transaction<'_>, rating: i64) -> rusqlite::Result<Option<LocalSession>> {
     if let Some(session) = find_open_session(&tx)? {
         tx.execute(
             "UPDATE local_sessions \
@@ -232,8 +249,7 @@ pub fn set_current_rating(conn: &mut Connection, rating: i64) -> rusqlite::Resul
         )?;
     }
     persist_current_rating(&tx, rating)?;
-    tx.commit()?;
-    find_open_session(conn)
+    find_open_session(tx)
 }
 
 /// WK-112 - OBS reported "not streaming" for an open session with no
@@ -269,6 +285,12 @@ pub fn cancel_pending_end(conn: &Connection, local_id: &str) -> rusqlite::Result
 /// docs/research/wk-137-match-session-decoupling.md.
 pub fn finalize_session_end(conn: &mut Connection, local_id: &str, now: DateTime<Utc>) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
+    let result = finalize_session_end_in(&tx, local_id, now)?;
+    tx.commit()?;
+    Ok(result)
+}
+
+pub(super) fn finalize_session_end_in(tx: &rusqlite::Transaction<'_>, local_id: &str, now: DateTime<Utc>) -> rusqlite::Result<()> {
     let changed = tx.execute(
         "UPDATE local_sessions SET ended_at = ?2, pending_end_at = NULL WHERE local_id = ?1 AND ended_at IS NULL",
         params![local_id, now.to_rfc3339()],
@@ -284,7 +306,7 @@ pub fn finalize_session_end(conn: &mut Connection, local_id: &str, now: DateTime
             super::sync::enqueue(&tx, "session", local_id, "session_ended", &payload, now)?;
         }
     }
-    tx.commit()
+    Ok(())
 }
 
 /// WK-112 - manual stale-recovery "continue this session" action.
@@ -681,6 +703,20 @@ pub fn finalize_match(
     now: DateTime<Utc>,
 ) -> rusqlite::Result<()> {
     let tx = conn.transaction()?;
+    let result = finalize_match_in(&tx, local_id, session_local_id, ranked_mode, result, confidence, now)?;
+    tx.commit()?;
+    Ok(result)
+}
+
+pub(super) fn finalize_match_in(
+    tx: &rusqlite::Transaction<'_>,
+    local_id: &str,
+    session_local_id: &str,
+    ranked_mode: RankedMode,
+    result: MatchResult,
+    confidence: &str,
+    now: DateTime<Utc>,
+) -> rusqlite::Result<()> {
 
     let rating_current: Option<i64> = tx
         .query_row(
@@ -735,7 +771,7 @@ pub fn finalize_match(
         ],
     )?;
     if changed == 0 {
-        return tx.commit();
+        return Ok(());
     }
 
     if rating_after.is_some() {
@@ -780,7 +816,7 @@ pub fn finalize_match(
     });
     super::sync::enqueue(&tx, "match", local_id, "match_finalized", &payload, now)?;
 
-    tx.commit()
+    Ok(())
 }
 
 /// WK-115 - recomputes `rating_before`/`rating_after` for every finalized
@@ -959,6 +995,16 @@ pub fn correct_match_delta(
     effective_delta: Option<i64>,
 ) -> rusqlite::Result<Option<LocalMatch>> {
     let tx = conn.transaction()?;
+    let result = correct_match_delta_in(&tx, local_id, effective_delta)?;
+    tx.commit()?;
+    Ok(result)
+}
+
+pub(super) fn correct_match_delta_in(
+    tx: &rusqlite::Transaction<'_>,
+    local_id: &str,
+    effective_delta: Option<i64>,
+) -> rusqlite::Result<Option<LocalMatch>> {
     let row: Option<(String, String, Option<i64>)> = tx
         .query_row(
             "SELECT session_local_id, ranked_mode, detected_rating_delta FROM local_matches \
@@ -968,12 +1014,10 @@ pub fn correct_match_delta(
         )
         .optional()?;
     let Some((session_local_id, ranked_raw, detected)) = row else {
-        tx.commit()?;
         return Ok(None);
     };
     let Some(detected) = detected.filter(|_| matches!(RankedMode::from_db_str(&ranked_raw), RankedMode::Ranked)) else {
-        tx.commit()?;
-        return find_match(conn, local_id);
+        return find_match(tx, local_id);
     };
 
     let correction = effective_delta.map(|value| value - detected).unwrap_or(0);
@@ -982,8 +1026,7 @@ pub fn correct_match_delta(
         params![local_id, correction],
     )?;
     cascade_reanchor(&tx, &session_local_id)?;
-    tx.commit()?;
-    find_match(conn, local_id)
+    find_match(tx, local_id)
 }
 
 /// WK-115 - corrects a finalized match's ranked/unranked classification
@@ -1007,6 +1050,16 @@ pub fn correct_match_ranked_mode(
     target: Option<RankedMode>,
 ) -> rusqlite::Result<Option<LocalMatch>> {
     let tx = conn.transaction()?;
+    let result = correct_match_ranked_mode_in(&tx, local_id, target)?;
+    tx.commit()?;
+    Ok(result)
+}
+
+pub(super) fn correct_match_ranked_mode_in(
+    tx: &rusqlite::Transaction<'_>,
+    local_id: &str,
+    target: Option<RankedMode>,
+) -> rusqlite::Result<Option<LocalMatch>> {
     let row: Option<(String, String)> = tx
         .query_row(
             "SELECT session_local_id, ranked_mode_detected FROM local_matches \
@@ -1016,7 +1069,6 @@ pub fn correct_match_ranked_mode(
         )
         .optional()?;
     let Some((session_local_id, detected_raw)) = row else {
-        tx.commit()?;
         return Ok(None);
     };
     let resolved = target.unwrap_or_else(|| RankedMode::from_db_str(&detected_raw));
@@ -1025,8 +1077,7 @@ pub fn correct_match_ranked_mode(
         params![local_id, resolved.as_db_str()],
     )?;
     cascade_reanchor(&tx, &session_local_id)?;
-    tx.commit()?;
-    find_match(conn, local_id)
+    find_match(tx, local_id)
 }
 
 /// A one-line, plain-text summary for the rolling app log (see

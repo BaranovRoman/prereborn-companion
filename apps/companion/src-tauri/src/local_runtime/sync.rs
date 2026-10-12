@@ -526,7 +526,7 @@ fn refresh_game_mode(app: &AppHandle) {
 /// detected-vs-correction split, now mirrored locally: the correction is
 /// computed as a diff against whatever was originally detected, so the
 /// original local detection is preserved forever, not overwritten.
-fn apply_one_correction(
+pub(super) fn apply_one_correction(
     conn: &Connection,
     local_match_id: &str,
     rating_delta: i64,

@@ -42,6 +42,9 @@ pub mod lifecycle;
 mod model;
 mod schema;
 mod store;
+pub(crate) mod transaction_facade;
+#[cfg(test)]
+mod transaction_tests;
 pub mod summary;
 pub mod sync;
 pub mod watchdog;
