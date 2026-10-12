@@ -24,7 +24,7 @@ Only authorized replay fields are supported. Do not forward raw GSI with auth/pr
 
 `LiveCoreRequest` describes candidate semantic OBS, sound, notification, history/transition, sync and overlay operations. No core handler dispatches them. OBS transport, sound playback/assets, SQLite/outbox/detector, backend/auth, actual game UI and overlay server remain built in. Future APIs need complete transactional payloads, exclusive ownership and durable idempotency before activation.
 
-`ui/` builds independently, including `overlay/index.html`. The main page posts versioned `dota-replay-request` and expects parent-sourced `dota-replay-result`. No replay UI host is connected in Companion yet; the page explicitly reports this after timeout. The overlay is a preview renderer, not a replacement for the existing OBS URL. Native WKWebView/Windows iframe smoke is outstanding.
+`ui/` builds independently, including `overlay/index.html`. The main page posts versioned `dota-replay-request` and expects parent-sourced `dota-replay-result` or a bounded error. A debug-only replay host is connected as described below; user-mode activation remains blocked. The overlay is a preview renderer, not a replacement for the existing OBS URL. Native WKWebView/Windows iframe smoke is outstanding.
 
 ## Independent local preparation
 
@@ -62,3 +62,19 @@ pnpm --filter @prereborn/companion exec vitest run src/plugins/dota-ui.test.ts s
 ```
 
 Package tests install in temporary directories, verify signatures/contents, disabled persistence and preview overlay assets. Process tests use cleared environment and synthetic snapshots; they do not use live endpoints, user SQLite or accounts. Native executables have OS user rights: no OS sandbox is implied by these safeguards. See `docs/research/companion-dota-plugin-extraction.md` for remaining boundaries, rollback design and the next safe step.
+
+## Iteration 5: connected diagnostic replay host
+
+The independent UI now connects through the existing sandbox/Plugin Runtime in an explicit debug-only mode. Normal startup and installed Dota activation remain unchanged. Diagnostic startup bypasses live service bootstrap, uses no GSI listener and starts no child until **Start**. **Stop → Start** restarts; **Reset** clears replay memory. Edit synthetic JSON in the iframe, increment `sequence`/`observedAtMs` and submit; results/errors appear there and native events/state/errors in the parent. Production has no active lab commands and omits the Dota lab frontend entry.
+
+Preparation uses the executable and independent development UI above. On a future approved native smoke stage, from repository root:
+
+```bash
+PREREBORN_DOTA_BIN="$PWD/plugins/target/debug/companion-dota-plugin" \
+PREREBORN_DOTA_UI="$PWD/plugins/dota/ui/dist" \
+pnpm --filter @prereborn/companion tauri dev -- --dota-replay-lab
+```
+
+Do not run that command as part of the current economical checks: native WebView/game smoke was explicitly deferred. Bridge tests and typecheck validate wiring, not native rendering. No browser/server fallback replaces the custom-scheme iframe.
+
+Ownership/epoch and bounded effect Request/Ack models are in `dota-domain/{ownership,effects}.rs`. They have no live callers/dispatchers. The in-memory ledger is a contract model; durable fencing, database/outbox atomicity and recovery must precede actual handover. Detailed protocol limits, lifecycle semantics, parity coverage and remaining dependencies: `docs/research/companion-dota-replay-ownership.md`. The earlier sections describe iteration-4 limitations; the previously missing diagnostic UI host is now implemented as described here.

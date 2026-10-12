@@ -55,6 +55,7 @@ pub struct ReplayResult {
     pub mode: &'static str, pub side_effects: bool,
 }
 
+// Legacy iteration-4 candidates. Versioned, bounded envelopes/acknowledgements now live in effects.rs.
 // Proposed capabilities for a later exclusive live handover. NONE are dispatched in iteration 4.
 // The core owns credential lookup, scene mapping/transport, SQLite transactions/outbox,
 // deduplication and endpoint serialization. No raw SQL, URL, password or bearer token crosses IPC.

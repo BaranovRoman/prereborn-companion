@@ -24,6 +24,8 @@ impl Drop for Process {fn drop(&mut self){let _=self.child.kill();let _=self.chi
         let Message::Reply{id,result}=p.receive() else {panic!("expected reply")}; assert_eq!(id,seq);
         assert_eq!(result["soundSignals"].as_array().unwrap().len(),if seq==2 {1}else{0});
     }
+    p.send(Message::Command{id:8,name:"dota.replay".into(),args:json!({"sequence":3,"observedAtMs":300,"snapshot":{"auth":{"token":"redacted"}}})});
+    assert!(matches!(p.receive(),Message::Error{code,..} if code=="invalid_replay_input"));
     p.send(Message::Command{id:3,name:"obs.switch".into(),args:json!({})});
     assert!(matches!(p.receive(),Message::Error{code,..} if code=="unsupported_replay_command"));
     p.send(Message::Command{id:4,name:"dota.replay".into(),args:json!({"sequence":2,"observedAtMs":200,"snapshot":{}})});
@@ -34,4 +36,38 @@ impl Drop for Process {fn drop(&mut self){let _=self.child.kill();let _=self.chi
 #[test] fn no_live_mode_or_incompatible_core_handshake() {
     let mut live=Process::new(&["--live"]); assert!(!live.child.wait().unwrap().success());
     let mut p=Process::new(&[]); p.send(Message::Hello{core_api:99}); assert!(!p.child.wait().unwrap().success());
+}
+
+#[test] fn worker_results_equal_builtin_pure_rules_across_reconnect_and_invalid_order() {
+    use companion_dota_domain::{broadcast_state::{BroadcastState,resolve},contracts::{ReplayInput,ReplayResult,SoundSignal},events::{self,PendingConfirmations},gsi};
+    let frames:Vec<ReplayInput>=serde_json::from_str(include_str!("fixtures/replay.json")).unwrap();
+    // A fresh process models reconnect. Each run establishes a fresh baseline.
+    for _ in 0..2 {
+        let mut p=Process::new(&["--replay"]); p.send(Message::Hello{core_api:CORE_API}); p.receive(); p.receive();
+        let mut previous=None; let mut pending=PendingConfirmations::default();
+        for frame in &frames {
+            let snapshot=serde_json::to_value(&frame.snapshot).unwrap();
+            let effective=match &previous {Some(prev) if !events::hero_identity_changed(prev,&snapshot)=>Some(prev),_=>{pending=PendingConfirmations::default();None}};
+            // Direct calls used by built-in adapters, NOT Replay::apply as the oracle.
+            let (sounds,_)=events::detect_events_with_state(effective,&snapshot,frame.observed_at_ms,&mut pending);
+            let parsed=gsi::parse(&snapshot);
+            let expected=ReplayResult {sequence:frame.sequence,broadcast_state:resolve(BroadcastState::from_gsi(&snapshot),frame.context.session_ended,frame.context.manual_summary_override),sound_signals:sounds.into_iter().map(|e|SoundSignal{kind:e.kind,id:e.id}).collect(),in_match:parsed.as_ref().is_some_and(|s|s.is_in_match()),post_game:parsed.as_ref().is_some_and(|s|s.is_post_game()),hero_id:parsed.as_ref().and_then(|s|s.hero_id),match_id:parsed.and_then(|s|s.match_id),mode:"replay_only",side_effects:false};
+            p.send(Message::Command{id:frame.sequence,name:"dota.replay".into(),args:serde_json::to_value(frame).unwrap()});
+            let expected=serde_json::to_value(expected).unwrap();
+            assert!(matches!(p.receive(),Message::Event{data,..} if data==expected));
+            assert!(matches!(p.receive(),Message::State{data} if data==expected));
+            let Message::Reply{result,..}=p.receive() else {panic!("reply")}; assert_eq!(result,expected,"sequence {}",frame.sequence);
+            previous=Some(snapshot);
+        }
+        for seq in [7,1] {
+            p.send(Message::Command{id:20+seq,name:"dota.replay".into(),args:json!({"sequence":seq,"observedAtMs":800,"snapshot":{}})});
+            assert!(matches!(p.receive(),Message::Error{code,..} if code=="replay_sequence_not_increasing"));
+        }
+        p.send(Message::Command{id:30,name:"dota.replay".into(),args:json!({"sequence":8,"observedAtMs":1,"snapshot":{}})});
+        assert!(matches!(p.receive(),Message::Error{code,..} if code=="replay_time_went_backwards"));
+        p.send(Message::Command{id:31,name:"dota.reset".into(),args:json!({})}); p.receive();
+        p.send(Message::Command{id:32,name:"dota.replay".into(),args:serde_json::to_value(&frames[3]).unwrap()}); p.receive();p.receive();
+        assert!(matches!(p.receive(),Message::Reply{result,..} if result["soundSignals"].as_array().unwrap().is_empty()));
+        p.send(Message::Stop); assert!(matches!(p.receive(),Message::Stopped)); assert!(p.child.wait().unwrap().success());
+    }
 }

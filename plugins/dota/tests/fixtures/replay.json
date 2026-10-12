@@ -1,0 +1,9 @@
+[
+ {"sequence":1,"observedAtMs":100,"snapshot":{}},
+ {"sequence":2,"observedAtMs":200,"snapshot":{"player":{"activity":"playing"},"map":{"game_state":"DOTA_GAMERULES_STATE_HERO_SELECTION","matchid":42}}},
+ {"sequence":3,"observedAtMs":300,"snapshot":{"player":{"activity":"playing"},"map":{"game_state":"DOTA_GAMERULES_STATE_GAME_IN_PROGRESS","matchid":42},"hero":{"id":105},"items":{"slot0":{"name":"item_tango","charges":3}}}},
+ {"sequence":4,"observedAtMs":400,"snapshot":{"player":{"activity":"playing"},"map":{"game_state":"DOTA_GAMERULES_STATE_GAME_IN_PROGRESS","matchid":42},"hero":{"id":105},"items":{"slot0":{"name":"item_tango","charges":2}}}},
+ {"sequence":5,"observedAtMs":500,"snapshot":{"hero":{"id":106},"items":{"slot0":{"name":"item_tango","charges":1}}}},
+ {"sequence":6,"observedAtMs":600,"snapshot":{"player":{},"map":{"game_state":"DOTA_GAMERULES_STATE_POST_GAME","matchid":42,"win_team":"radiant"},"hero":{"id":106}}},
+ {"sequence":7,"observedAtMs":700,"snapshot":{"map":{"game_state":"DOTA_GAMERULES_STATE_POST_GAME"}},"context":{"sessionEnded":true,"manualSummaryOverride":false}}
+]
