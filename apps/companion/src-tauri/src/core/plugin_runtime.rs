@@ -2,7 +2,7 @@
 use companion_plugin_protocol::{read_frame, write_frame, Message, CORE_API};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::{io::{BufReader, Read}, path::Path, process::{Child, ChildStdin, Command, Stdio},
+use std::{io::{BufReader, Read}, path::Path, process::{Child, Command, Stdio},
     sync::{mpsc::{self, Receiver, RecvTimeoutError}, Arc, Mutex}, time::{Duration, Instant}};
 
 const TIMEOUT: Duration = Duration::from_secs(2);
@@ -22,7 +22,7 @@ pub struct Snapshot {
 
 pub struct Runtime {
     child: Option<Child>,
-    input: Option<ChildStdin>,
+    input: Option<mpsc::SyncSender<(Message, mpsc::Sender<Result<(), String>>)>>,
     output: Option<Receiver<Result<Message, String>>>,
     next_id: u64,
     snapshot: Snapshot,
@@ -52,12 +52,16 @@ impl Runtime {
         error
     }
     fn send(&mut self, message: Message) -> Result<(), String> {
-        let result = match self.input.as_mut() {
-            Some(input) => write_frame(input, message),
+        let (ack, received) = mpsc::channel();
+        let result = match self.input.as_ref() {
+            Some(input) => input.try_send((message, ack)).map_err(|_| "writer_unavailable".to_string())
+                .and_then(|_| received.recv_timeout(TIMEOUT).map_err(|_| "write_timeout".to_string()))
+                .and_then(|result| result),
             None => Err("not_running".into()),
         };
         result.map_err(|error| self.fail(format!("write_failed: {error}")))
     }
+
     fn receive(&mut self, deadline: Instant) -> Result<Message, String> {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() { return Err(self.fail("timeout")); }
@@ -94,7 +98,17 @@ impl Runtime {
         let mut child = Command::new(executable).args(args).env_clear()
             .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
             .spawn().map_err(|e| self.fail(format!("spawn_failed: {e}")))?;
-        self.input = child.stdin.take();
+        let mut stdin = child.stdin.take().unwrap();
+        let (writes, receiver) = mpsc::sync_channel::<(Message, mpsc::Sender<Result<(), String>>)>(1);
+        std::thread::spawn(move || {
+            while let Ok((message, ack)) = receiver.recv() {
+                let result = write_frame(&mut stdin, message);
+                let failed = result.is_err();
+                let _ = ack.send(result);
+                if failed { break; }
+            }
+        });
+        self.input = Some(writes);
         let stdout = child.stdout.take().unwrap();
         let mut stderr = child.stderr.take().unwrap();
         let (tx, rx) = mpsc::sync_channel(64);
@@ -305,5 +319,29 @@ mod tests {
         assert_eq!(host.0.lock().unwrap().snapshot.phase, Phase::Failed);
         assert_eq!(serde_json::to_value(app.snapshot()).unwrap(), before);
         assert_eq!(app.0.lock().unwrap().core.twitch_chat, Some(json!({"connected":true})));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod writer_deadline_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    #[test]
+    fn child_not_reading_stdin_cannot_hold_writer_forever() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("blocked-reader");
+        std::fs::write(&path, "#!/bin/sh\nprintf '%s\\n' '{\"protocol\":1,\"message\":{\"type\":\"ready\",\"id\":\"dota2\",\"version\":\"0.1.0\",\"min_core_api\":1,\"max_core_api\":1}}'\nexec /bin/sleep 30\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut runtime = Runtime::default();
+        runtime.start_expected(&path, &[], "dota2", Some("0.1.0")).unwrap();
+        let started = Instant::now();
+        let mut error = None;
+        for id in 0..16 {
+            if let Err(e) = runtime.send(Message::Command { id, name:"dota.replay".into(), args:json!({"fixture":"x".repeat(60_000)}) }) { error = Some(e); break; }
+        }
+        assert!(error.unwrap().contains("write_timeout"));
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(runtime.child.is_none());
+        assert_eq!(runtime.snapshot().phase, Phase::Failed);
     }
 }

@@ -41,3 +41,16 @@ fn frame(sequence: u64, charges: i64, hero: i64) -> ReplayInput {
     assert_eq!(replay.apply(oversized).unwrap_err(), "replay_field_too_long");
     assert_eq!(replay.apply(frame(2,2,105)).unwrap().sound_signals[0].id, "item_tango");
 }
+
+#[test]
+fn real_custom_game_field_and_legacy_alias_have_the_same_projection() {
+    for name in ["customgamename", "custom_game_name"] {
+        let mut value=serde_json::to_value(frame(1,3,105)).unwrap();
+        value["snapshot"]["map"].as_object_mut().unwrap().remove("customgamename");
+        value["snapshot"]["map"][name]=json!("fixture_custom_game");
+        let typed:ReplayInput=serde_json::from_value(value).unwrap();
+        let projected=serde_json::to_value(typed.snapshot).unwrap();
+        assert_eq!(projected["map"]["customgamename"],"fixture_custom_game");
+        assert_eq!(companion_dota_domain::gsi::parse(&projected).unwrap().custom_game_name.as_deref(),Some("fixture_custom_game"));
+    }
+}

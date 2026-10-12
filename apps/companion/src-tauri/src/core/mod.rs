@@ -9,3 +9,5 @@ pub(crate) mod plugin_durable;
 // Iteration 7 is deliberately executable only against test fixtures, never application data.
 #[cfg(test)]
 mod plugin_match_transactions;
+
+pub(crate) mod dota_observer;

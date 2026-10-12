@@ -80,6 +80,7 @@ fn process_gsi_body(app: &AppHandle, remote_addr: &str, body: &str) -> LastEvent
     };
     if let Some(parsed) = result.parsed.as_ref() {
         dota::handle_gsi(app, parsed);
+        crate::core::dota_observer::forward(app, parsed);
     }
 
     {

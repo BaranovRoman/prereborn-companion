@@ -9,7 +9,7 @@ pub const REPLAY_COMMAND: &str = "dota.replay";
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct ReplayContext { pub session_ended: bool, pub manual_summary_override: bool }
+pub struct ReplayContext { #[serde(default, skip_serializing_if = "Option::is_none")] pub observer_session: Option<u64>, pub session_ended: bool, pub manual_summary_override: bool }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ReplayInput {
@@ -31,7 +31,7 @@ pub struct ReplayGsi {
 pub struct Player { pub activity: Option<String>, pub team_name: Option<String>, pub kills: Option<i64>, pub deaths: Option<i64>, pub assists: Option<i64> }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Map { pub game_state: Option<String>, pub matchid: Option<ScalarId>, pub custom_game_name: Option<String>, pub win_team: Option<String> }
+pub struct Map { pub game_state: Option<String>, pub matchid: Option<ScalarId>, #[serde(rename = "customgamename", alias = "custom_game_name")] pub custom_game_name: Option<String>, pub win_team: Option<String> }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ScalarId { Text(String), Number(u64) }

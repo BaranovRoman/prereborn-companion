@@ -49,6 +49,9 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             "quit" => {
                 silero::stop(app);
                 hotkeys::stop(app);
+                if let Some(observer) = app.try_state::<core::dota_observer::Observer>() {
+                    observer.shutdown();
+                }
                 app.exit(0);
             }
             _ => {}
@@ -173,6 +176,7 @@ pub fn run() {
             let handle = app.handle().clone();
 
             if plugin_lab::enabled() { return plugin_lab::setup(&handle); }
+            core::dota_observer::setup(&handle)?;
 
             // Autostart launch (see the `tauri_plugin_autostart::init` call
             // above) - the window already exists at this point (Tauri
@@ -232,6 +236,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            core::dota_observer::dota_observer_status,
+            core::dota_observer::dota_observer_control,
             core::plugin_manager::plugins_view,
             core::plugin_manager::plugins_refresh,
             core::plugin_manager::plugins_install,
