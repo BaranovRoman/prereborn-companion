@@ -86,3 +86,17 @@ The debug parent now offers **Read core** queries (`obs`, `scenes`, `stream`, `s
 Dota diagnostic setup opens app-data `plugins/infrastructure/dota-control.sqlite3`, separate from existing history. Its singleton ownership record and durable ledger/acks use SQLite FULL transactions, checksum validation and an exclusive coordinator lock. On reopen Active is blocked as Draining, Accepted becomes Unknown; old Draining/Vacant never auto-activates. Host-only fencing/recovery methods are **not exposed to plugins** and do not affect live GSI/bootstrap. No effects run and no automatic key eviction occurs; the prototype retains at most 256 operations.
 
 The trusted-core transaction hook can atomically combine future local match/outbox writes with ledger admission only in its own SQLite transaction. It does not make today's separate history DB atomic; that storage decision remains required before live writes. Detailed recovery semantics and focused checks: `docs/research/companion-read-only-durable-ownership.md`.
+
+## Iteration 7: match transaction and recovery prototype
+
+`dota-domain/match_transactions.rs` defines bounded IPC v1 DTOs for match lifecycle/reconciliation, history, outbox, sync intents and cached overlay state. They are **not routed to the external worker**; its replay/read-only behavior and user activation block remain unchanged.
+
+The executable prototype is `core/plugin_match_transactions.rs`, compiled only in Rust tests and using temporary SQLite fixtures. Match writes, outbox UUID/payload, terminal ledger/ack and immutable reply receipt share one transaction. Semantic rejection has a savepoint; storage failure rolls everything back. Backend intents remain Unknown without network execution. Local Unknown recovery requires a matching checksum-valid committed receipt. No production/history schema or app-data file is migrated.
+
+```bash
+cargo test --manifest-path apps/companion/src-tauri/Cargo.toml --lib core::plugin_match_transactions --offline
+cargo test --manifest-path apps/companion/src-tauri/Cargo.toml --lib core::plugin_durable --offline
+cargo test --manifest-path plugins/Cargo.toml -p companion-dota-domain --lib effects --offline
+```
+
+The 256-operation cap fails closed; no automatic cleanup/archival occurs. The migration/rollback and retention plan is in `docs/research/companion-match-transactions-recovery.md`. The next step uses temporary copies of the actual schema and existing algorithms; this simplified storage prototype is not a replacement for production session/MMR/watchdog behavior.

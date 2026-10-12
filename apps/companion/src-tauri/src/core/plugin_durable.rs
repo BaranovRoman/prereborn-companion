@@ -95,6 +95,22 @@ impl DurableStore {
  pub fn acknowledge(&mut self,req:&Request,status:Status)->Result<Ack> {
   self.transaction(|_,r|{let owners=Ownership::restore(r.phase).map_err(str::to_string)?;let ack=r.ledger.acknowledge(&owners,req,status).map_err(str::to_string)?;r.acks.insert(req.idempotency_key.clone(),ack.clone());Ok(ack)})
  }
+ // Isolated prototype hooks: no IPC dispatch; caller must own this same transaction.
+ #[cfg(test)]
+ pub(super) fn inspect<T>(&mut self,f:impl FnOnce(&Transaction<'_>)->Result<T>)->Result<T> {self.transaction(|tx,_|f(tx))}
+ #[cfg(test)]
+ pub(super) fn settle_local(&mut self,grants:&[Capability],req:&Request,now:u64,write:impl FnOnce(&Transaction<'_>)->Result<Status>)->Result<Admission> {
+  self.transaction(|tx,r| {
+   let owners=Ownership::restore(r.phase).map_err(str::to_string)?;
+   let mut admission=r.ledger.admit(&owners,grants,req,now).map_err(str::to_string)?;
+   if !admission.duplicate {
+    let status=write(tx)?;
+    if !matches!(status,Status::Completed|Status::Rejected) {return Err("invalid_local_settlement".into());}
+    let ack=r.ledger.acknowledge(&owners,req,status).map_err(str::to_string)?;
+    r.acks.insert(req.idempotency_key.clone(),ack);admission.status=status;
+   } Ok(admission)
+  })
+ }
  pub fn last_ack(&mut self,key:&str)->Result<Option<Ack>> {self.transaction(|_,r|Ok(r.acks.get(key).cloned()))}
 }
 #[cfg(test)] mod tests {

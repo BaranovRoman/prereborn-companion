@@ -7,13 +7,15 @@ pub enum Capability { Obs, Sound, Notification, History, Sync, Overlay }
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag="operation",rename_all="snake_case",deny_unknown_fields)]
 pub enum Effect {
+ MatchTransaction {identity:String,capability:Capability},
  ObsScene {state:BroadcastState}, Sound {event_id:String}, Notification {text:String},
  MatchTransition {match_id:String,transition:MatchTransition}, HistoryRead {limit:u16},
  BackendSync {match_id:String}, Overlay {state:BroadcastState},
 }
 impl Effect {
- fn capability(&self)->Capability {match self {Self::ObsScene{..}=>Capability::Obs,Self::Sound{..}=>Capability::Sound,Self::Notification{..}=>Capability::Notification,Self::MatchTransition{..}|Self::HistoryRead{..}=>Capability::History,Self::BackendSync{..}=>Capability::Sync,Self::Overlay{..}=>Capability::Overlay}}
+ fn capability(&self)->Capability {match self {Self::MatchTransaction{capability,..}=>*capability,Self::ObsScene{..}=>Capability::Obs,Self::Sound{..}=>Capability::Sound,Self::Notification{..}=>Capability::Notification,Self::MatchTransition{..}|Self::HistoryRead{..}=>Capability::History,Self::BackendSync{..}=>Capability::Sync,Self::Overlay{..}=>Capability::Overlay}}
  fn validate(&self)->bool {match self {
+  Self::MatchTransaction{identity,..}=>identity.len()==64&&identity.bytes().all(|c|c.is_ascii_hexdigit()),
   Self::Sound{event_id}=>identifier(event_id), Self::Notification{text}=>!text.is_empty()&&text.len()<=512,
   Self::MatchTransition{match_id,..}|Self::BackendSync{match_id}=>identifier(match_id),
   Self::HistoryRead{limit}=>*limit>0&&*limit<=100, _=>true,
