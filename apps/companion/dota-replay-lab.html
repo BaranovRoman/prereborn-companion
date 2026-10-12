@@ -1,6 +1,7 @@
 <!doctype html><html lang="ru"><meta charset="utf-8"><title>Dota Replay Lab</title>
 <h1>Dota Replay Lab · debug only</h1><p>Изолированные кадры. Live GSI и эффекты не подключены.</p>
 <button id="start">Start</button><button id="stop">Stop</button><button id="reset">Reset</button>
+<select id="read-query"><option>obs</option><option>scenes</option><option>stream</option><option>sounds</option><option>history</option><option>backend</option></select><button id="read">Read core (no effects)</button><pre id="read-result"></pre>
 <pre id="status"></pre><pre id="state"></pre>
 <iframe id="plugin" title="Dota replay UI" sandbox="allow-scripts" width="800" height="500"></iframe>
 <script type="module" src="/src/plugin-lab/dota.ts"></script></html>

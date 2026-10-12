@@ -26,16 +26,29 @@ pub struct Request {pub api:u32,pub lease:Lease,pub correlation_id:String,pub id
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all="snake_case")]
 pub enum Status { Accepted, Completed, Rejected, Unknown }
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 pub struct Ack {pub correlation_id:String,pub idempotency_key:String,pub lease:Lease,pub status:Status}
 // Bounded in-memory contract model. Production needs a durable transaction/outbox ledger.
 // Never evict an entry silently: saturation fails closed; timeout keeps Unknown pending.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Admission { pub status: Status, pub duplicate: bool }
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Ledger { entries:std::collections::BTreeMap<String,(String,Status)> }
 impl Default for Ledger {fn default()->Self {Self {entries:Default::default()}}}
 impl Ledger {
+ pub fn validate_stored(&self)->Result<(), &'static str> {
+  if self.entries.len()>256 {return Err("ledger_full");}
+  for (key,(identity,_)) in &self.entries {
+   if !identifier(key)||identity.len()>4096 {return Err("corrupt_ledger");}
+   let effect:Effect=serde_json::from_str(identity).map_err(|_|"corrupt_ledger")?;
+   if !effect.validate()||serde_json::to_string(&effect).map_err(|_|"corrupt_ledger")?!=*identity {return Err("corrupt_ledger");}
+  } Ok(())
+ }
+ pub fn uncertain_after_restart(&mut self) {for (_,status) in self.entries.values_mut() {if *status==Status::Accepted {*status=Status::Unknown;}}}
+ pub fn len(&self)->usize {self.entries.len()}
+ pub fn status(&self,key:&str)->Option<Status> {self.entries.get(key).map(|e|e.1)}
  pub fn admit(&mut self, owners:&Ownership, grants:&[Capability], req:&Request, now:u64)->Result<Admission,&'static str> {
   owners.authorize(req.lease)?;
   if req.api!=1||!identifier(&req.correlation_id)||!identifier(&req.idempotency_key)||!req.effect.validate() {return Err("invalid_effect_request");}

@@ -17,6 +17,13 @@ async function action(command: string, args?: unknown) {
 for (const [id, command, args] of [["start", "plugin_lab_start", undefined], ["stop", "plugin_lab_stop", undefined], ["reset", "plugin_lab_command", {name:"dota.reset",args:{}}]] as const) {
   document.querySelector(`#${id}`)!.addEventListener("click", () => { void action(command,args).catch(() => {}); });
 }
+document.querySelector("#read")!.addEventListener("click", () => {
+  const query=document.querySelector<HTMLSelectElement>("#read-query")!.value;
+  const args=query==="history" ? {query,limit:20} : {query};
+  void action("plugin_lab_command", {name:"dota.core_read",args}).then(result => {
+    document.querySelector("#read-result")!.textContent=JSON.stringify(result,null,2);
+  }).catch(() => {});
+});
 window.addEventListener("message", async event => {
   const input = replayRequest(event, frame.contentWindow); if (input === null) return;
   try {

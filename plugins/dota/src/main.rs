@@ -25,6 +25,18 @@ fn run() -> Result<(), String> {
                     Err(error) => write_frame(&mut output, Message::Error { id: Some(id), code: error, message: "Replay rejected; no effects applied".into() })?,
                 }
             },
+            Message::Command { id, name, args } if name == "dota.core_read" => {
+                match serde_json::from_value::<companion_dota_domain::core_read::ReadRequest>(args) {
+                    Ok(request) if request.validate() => {
+                        write_frame(&mut output, Message::CoreRead {id,request:serde_json::to_value(request).map_err(|e|e.to_string())?})?;
+                        let Some(Message::CoreReadReply {id:reply_id,response})=read_frame(&mut input)? else {return Err("expected_core_read_reply".into());};
+                        if reply_id!=id {return Err("core_read_correlation_mismatch".into());}
+                        let typed:companion_dota_domain::core_read::ReadResponse=serde_json::from_value(response).map_err(|_|"invalid_core_read_response")?;
+                        write_frame(&mut output, Message::Reply {id,result:serde_json::to_value(typed).map_err(|e|e.to_string())?})?;
+                    },
+                    _=>write_frame(&mut output,Message::Error {id:Some(id),code:"invalid_read_request".into(),message:"Read request rejected".into()})?,
+                }
+            },
             Message::Command { id, name, .. } if name == "dota.reset" => { replay = Replay::default(); write_frame(&mut output, Message::Reply { id, result: json!({"reset":true,"sideEffects":false}) })?; },
             Message::Command { id, .. } => write_frame(&mut output, Message::Error { id: Some(id), code: "unsupported_replay_command".into(), message: "Live APIs are not connected".into() })?,
             Message::Stop => { write_frame(&mut output, Message::Stopped)?; return Ok(()); },

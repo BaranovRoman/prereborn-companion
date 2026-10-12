@@ -71,3 +71,16 @@ impl Drop for Process {fn drop(&mut self){let _=self.child.kill();let _=self.chi
         p.send(Message::Stop); assert!(matches!(p.receive(),Message::Stopped)); assert!(p.child.wait().unwrap().success());
     }
 }
+
+#[test] fn typed_core_read_uses_correlated_reverse_ipc_and_rejects_bad_queries() {
+ let mut p=Process::new(&[]);p.send(Message::Hello{core_api:CORE_API});p.receive();p.receive();
+ p.send(Message::Command{id:1,name:"dota.core_read".into(),args:json!({"query":"obs"})});
+ assert!(matches!(p.receive(),Message::CoreRead{id:1,request} if request==json!({"query":"obs"})));
+ p.send(Message::CoreReadReply{id:1,response:json!({"kind":"obs","connected":true})});
+ assert!(matches!(p.receive(),Message::Reply{id:1,result} if result==json!({"kind":"obs","connected":true})));
+ p.send(Message::Command{id:2,name:"dota.core_read".into(),args:json!({"query":"history","limit":21})});
+ assert!(matches!(p.receive(),Message::Error{code,..} if code=="invalid_read_request"));
+ p.send(Message::Command{id:3,name:"dota.core_read".into(),args:json!({"query":"http","url":"https://invalid"})});
+ assert!(matches!(p.receive(),Message::Error{code,..} if code=="invalid_read_request"));
+ p.send(Message::Stop);assert!(matches!(p.receive(),Message::Stopped));assert!(p.child.wait().unwrap().success());
+}

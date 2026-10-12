@@ -66,6 +66,11 @@ impl LocalRuntimeState {
     pub fn lock(&self) -> MutexGuard<'_, Option<Connection>> {
         self.0.lock().unwrap()
     }
+
+    /// Fallible access for bounded read-only plugin projections; legacy callers unchanged.
+    pub fn try_lock(&self) -> Result<MutexGuard<'_, Option<Connection>>, &'static str> {
+        self.0.lock().map_err(|_| "local_runtime_lock_poisoned")
+    }
 }
 
 impl Default for LocalRuntimeState {

@@ -6,11 +6,20 @@ pub enum Owner { BuiltIn, External }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Lease { pub owner: Owner, pub epoch: u64 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag="phase", rename_all="snake_case", deny_unknown_fields)]
 pub enum Phase { Active(Lease), Draining { old: Lease, target: Owner }, Vacant { epoch: u64 } }
 pub struct Ownership { phase: Phase }
 impl Default for Ownership { fn default()->Self { Self {phase:Phase::Active(Lease {owner:Owner::BuiltIn,epoch:1})} } }
 impl Ownership {
+    pub fn restore(phase: Phase) -> Result<Self, &'static str> {
+        let epoch = match phase { Phase::Active(l) => l.epoch, Phase::Draining {old,..} => old.epoch, Phase::Vacant {epoch} => epoch };
+        if epoch == 0 { return Err("invalid_epoch"); }
+        Ok(Self {phase})
+    }
+    pub fn uncertain_restart(&mut self) {
+        if let Phase::Active(old)=self.phase { self.phase=Phase::Draining {old,target:old.owner}; }
+    }
     pub fn phase(&self)->Phase {self.phase}
     pub fn authorize(&self, lease:Lease)->Result<(), &'static str> {
         if self.phase==Phase::Active(lease) {Ok(())} else {Err("stale_or_inactive_owner")}

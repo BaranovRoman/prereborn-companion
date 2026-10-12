@@ -16,6 +16,10 @@ pub fn setup(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let executable = PathBuf::from(std::env::var(if dota { "PREREBORN_DOTA_BIN" } else { "PREREBORN_HELLO_BIN" })?).canonicalize()?;
     let ui = PathBuf::from(std::env::var(if dota { "PREREBORN_DOTA_UI" } else { "PREREBORN_HELLO_UI" })?).canonicalize()?;
     if !executable.is_file() || !ui.join("index.html").is_file() { return Err("Build selected plugin binary/UI first".into()); }
+    if dota {
+        let path=app.path().app_data_dir()?.join("plugins/infrastructure/dota-control.sqlite3");
+        app.manage(std::sync::Mutex::new(crate::core::plugin_durable::DurableStore::open(&path)?));
+    }
     app.manage(LabConfig { executable, ui, dota });
     app.manage(PluginHost::new());
     let window = app.get_webview_window("main").ok_or("Missing main window")?;
@@ -27,7 +31,7 @@ pub fn setup(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn allowed(dota: bool, name: &str) -> bool {
-    if dota { matches!(name, "dota.replay" | "dota.reset") } else { matches!(name, "greet" | "crash") }
+    if dota { matches!(name, "dota.replay" | "dota.reset" | "dota.core_read") } else { matches!(name, "greet" | "crash") }
 }
 
 fn active(app: &tauri::AppHandle) -> Result<(), String> {
@@ -60,7 +64,16 @@ pub async fn plugin_lab_command(app: tauri::AppHandle, name: String, args: Value
         serde_json::from_value::<companion_dota_domain::contracts::ReplayInput>(args.clone()).map_err(|_| "invalid_replay_input")?;
     }
     let host = app.state::<PluginHost>().inner().clone();
-    tauri::async_runtime::spawn_blocking(move || host.0.lock().map_err(|_| "plugin_lock_poisoned")?.command(name, args))
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut runtime=host.0.lock().map_err(|_| "plugin_lock_poisoned")?;
+        if name=="dota.core_read" {
+            runtime.command_with_reader(name,args,|query| {
+                let query=serde_json::from_value(query).map_err(|_|"invalid_read_request")?;
+                let response=crate::core::plugin_read::read(&app.state::<crate::state::AppState>(),&app.state::<crate::local_runtime::LocalRuntimeState>(),companion_dota_domain::core_read::DOTA_READ_GRANTS,query);
+                serde_json::to_value(response).map_err(|_|"invalid_read_response".into())
+            })
+        } else {runtime.command(name,args)}
+    })
         .await.map_err(|e| e.to_string())?
 }
 #[tauri::command]
@@ -129,6 +142,7 @@ mod tests {
         assert!(allowed(true, "dota.replay")); assert!(allowed(true, "dota.reset"));
         for name in ["crash", "greet", "obs.switch", "sql", "http"] { assert!(!allowed(true, name)); }
         assert!(!allowed(false, "dota.replay"));
+        assert!(allowed(true,"dota.core_read")); assert!(!allowed(false,"dota.core_read"));
     }
     #[test]
     fn only_plugin_assets_are_served() {

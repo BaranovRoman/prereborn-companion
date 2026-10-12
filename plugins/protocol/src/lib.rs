@@ -22,6 +22,8 @@ pub enum Message {
     Reply { id: u64, result: Value },
     Event { name: String, data: Value },
     State { data: Value },
+    CoreRead { id: u64, request: Value },
+    CoreReadReply { id: u64, response: Value },
     Stop,
     Stopped,
     Error { id: Option<u64>, code: String, message: String },

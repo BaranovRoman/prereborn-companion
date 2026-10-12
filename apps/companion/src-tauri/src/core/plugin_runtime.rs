@@ -126,6 +126,9 @@ impl Runtime {
         }
     }
     pub fn command(&mut self, name: String, args: Value) -> Result<Value, String> {
+        self.command_with_reader(name, args, |_| Err("capability_denied".into()))
+    }
+    pub fn command_with_reader(&mut self, name: String, args: Value, mut reader: impl FnMut(Value)->Result<Value,String>) -> Result<Value, String> {
         self.poll();
         if self.snapshot.phase != Phase::Running { return Err("not_running".into()); }
         let limit = if self.identity.as_deref() == Some("dota2") && name == "dota.replay" { companion_plugin_protocol::MAX_FRAME - 256 } else { 512 };
@@ -134,10 +137,20 @@ impl Runtime {
         }
         self.next_id = self.next_id.checked_add(1).ok_or("request_id_exhausted")?;
         let id = self.next_id;
-        self.send(Message::Command { id, name, args })?;
+        self.send(Message::Command { id, name: name.clone(), args })?;
         let deadline = Instant::now() + TIMEOUT;
+        let mut read_seen = false;
         loop {
             match self.receive(deadline)? {
+                Message::CoreRead { id: read_id, request } => {
+                    if self.identity.as_deref()!=Some("dota2") || name!="dota.core_read" || read_id!=id || read_seen {
+                        return Err(self.fail("core_read_not_allowed"));
+                    }
+                    read_seen=true;
+                    let response=reader(request).unwrap_or_else(|_| serde_json::json!({"kind":"error","code":"capability_denied"}));
+                    if serde_json::to_vec(&response).map_err(|e|e.to_string())?.len()>8192 {return Err(self.fail("core_read_response_too_large"));}
+                    self.send(Message::CoreReadReply {id:read_id,response})?;
+                },
                 Message::Reply { id: response_id, result } if response_id == id => return Ok(result),
                 Message::Error { id: Some(response_id), code, message } if response_id == id => return Err(format!("{code}: {message}")),
                 message => self.update(message)?,
@@ -219,6 +232,21 @@ mod tests {
         assert_eq!(runtime.command("obs.switch".into(), json!({})).unwrap_err(), "unsupported_replay_command: Live APIs are not connected");
         runtime.stop().unwrap();
         assert_eq!(serde_json::to_value(app.snapshot()).unwrap(), before);
+    }
+    #[test] fn dota_read_api_round_trip_is_gated_and_sanitized() {
+        use companion_dota_domain::core_read::*;
+        let path=std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../plugins/target/debug").join(if cfg!(windows){"companion-dota-plugin.exe"}else{"companion-dota-plugin"});
+        let app=crate::state::AppState::new(); let history=crate::local_runtime::LocalRuntimeState::new();
+        {let mut inner=app.0.lock().unwrap();inner.core.companion_token=Some("SECRET".into());inner.dota.obs_config.password="SECRET".into();inner.dota.obs_connected=true;}
+        let mut runtime=Runtime::default();runtime.start_expected(&path,&[],"dota2",Some("0.1.0")).unwrap();
+        let denied=runtime.command("dota.core_read".into(),json!({"query":"obs"})).unwrap();assert_eq!(denied["code"],"capability_denied");
+        for query in [ReadRequest::Obs,ReadRequest::Scenes,ReadRequest::Stream,ReadRequest::Sounds,ReadRequest::Backend,ReadRequest::History{limit:1}] {
+            let result=runtime.command_with_reader("dota.core_read".into(),serde_json::to_value(query).unwrap(),|q|Ok(serde_json::to_value(crate::core::plugin_read::read(&app,&history,DOTA_READ_GRANTS,serde_json::from_value(q).unwrap())).unwrap())).unwrap();
+            assert!(!result.to_string().contains("SECRET"));assert!(result.to_string().len()<8192);
+        }
+        assert!(runtime.command("dota.core_read".into(),json!({"query":"history","limit":21})).unwrap_err().contains("invalid_read_request"));runtime.stop().unwrap();
+        runtime.start(&binary(),&[]).unwrap();
+        assert!(runtime.command_with_reader("dota.core_read".into(),json!({"query":"obs"}),|_|panic!("Hello gained access")).is_err());runtime.stop().unwrap();
     }
     fn binary() -> std::path::PathBuf {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
