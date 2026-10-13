@@ -219,7 +219,11 @@ mod tests {
     #[test] fn native_job_stop_and_missing_generation(){
         let generation=uuid::Uuid::new_v4().to_string();let mut child=worker(&generation,false);
         assert!(child.try_wait().unwrap().is_none());fence_generation(&generation).unwrap();
-        assert!(child.try_wait().unwrap().is_some());drop(child);fence_generation(&generation).unwrap();
+        // Recovery captured its own current witness; it does not update the old Runtime's
+        // initial membership snapshot. Assert actual owned-kernel termination directly.
+        assert_eq!(unsafe{WaitForSingleObject(child.process.as_raw_handle(),0)},WAIT_OBJECT_0);
+        assert_eq!(accounting(child.job.as_raw_handle()).unwrap().ActiveProcesses,0);
+        drop(child);fence_generation(&generation).unwrap();
     }
     #[test] fn native_descendant_tree_waits_for_kernel_handles(){
         let generation=uuid::Uuid::new_v4().to_string();let mut child=worker(&generation,true);
