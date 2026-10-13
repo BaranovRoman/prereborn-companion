@@ -22,6 +22,7 @@ export function useUpdater() {
   const pendingUpdate = useRef<Update | null>(null);
 
   const checkForUpdate = useCallback(async () => {
+    pendingUpdate.current = null;
     setState({ phase: "checking" });
     try {
       const update = await check();
@@ -55,10 +56,11 @@ export function useUpdater() {
             setState({ phase: "downloading", version, downloaded, total });
             break;
           case "Finished":
-            setState({ phase: "ready", version });
+            // Download complete; signature verification and installation still follow.
             break;
         }
       });
+      setState({ phase: "ready", version });
     } catch (cause) {
       setState({ phase: "error", message: String(cause) });
     }
