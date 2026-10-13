@@ -77,6 +77,7 @@ tauri-plugin-single-instance = "2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+windows-sys = { version = "0.60.2", features = ["Win32_Foundation", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_Threading", "Win32_System_SystemServices"] }
 # WK-125 - OS-backed secure storage for real reusable credentials (PreReborn
 # refresh token, legacy companion token, OBS WebSocket password) instead of
 # plaintext JSON, backed by Windows Credential Manager here. `keyring` 4.x

@@ -223,3 +223,16 @@ pub(crate) fn handover_external(manager:&PluginManager,history:&LocalRuntimeStat
 #[cfg(test)]
 #[path="tests.rs"]
 mod tests;
+
+// Explicit startup recovery primitive, not normal startup / an activation entrypoint.
+// Proof of process termination alone does NOT prove audio/OBS fences or grant ownership.
+#[cfg(windows)]
+pub(crate) fn fence_previous_windows_process(history:&LocalRuntimeState,gate:&LiveDota)->Result<(),String> {
+ // Same transition lock as handover: job absence cannot race a later spawn.
+ let _transition=gate.0.transition.lock().map_err(|_|"transition_poisoned")?;
+ {let i=gate.0.inner.lock().map_err(|_|"admission_poisoned")?;
+  if i.mode!=Mode::Draining||i.in_flight!=0{return Err("process_recovery_requires_drained_gate".into());}}
+ let generation=history.with_transaction_adapter(|_,c|crate::local_runtime::transaction_authorization::pending_windows_generation(c))?;
+ crate::core::plugin_runtime::windows::fence_generation(&generation)?;
+ history.with_transaction_adapter(|_,c|crate::local_runtime::transaction_authorization::process_stopped(c,&generation))
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "id": "dota2",
+  "name": "Dota 2 — Windows beta",
+  "description": "External live worker. Ручная активация закрыта до native fencing и smoke-проверок.",
+  "version": "0.1.0",
+  "platform": "windows",
+  "arch": "x86_64",
+  "minApi": 1,
+  "maxApi": 1,
+  "executable": "bin/companion-dota-plugin.exe",
+  "ui": "ui/index.html",
+  "execution": "live",
+  "permissions": ["ui", "dota.match.execute", "dota.sound.play", "dota.obs.scene", "dota.overlay.update"],
+  "files": {}
+}

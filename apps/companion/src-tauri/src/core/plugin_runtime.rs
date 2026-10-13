@@ -2,8 +2,15 @@
 use companion_plugin_protocol::{read_frame, write_frame, Message, CORE_API};
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::{io::{BufReader, Read}, path::Path, process::{Child, Command, Stdio},
+use std::{io::{BufReader, Read}, path::Path, process::{Command, Stdio},
     sync::{mpsc::{self, Receiver, RecvTimeoutError}, Arc, Mutex}, time::{Duration, Instant}};
+
+#[cfg(not(windows))]
+use std::process::Child;
+#[cfg(windows)]
+pub(crate) mod windows;
+#[cfg(windows)]
+use windows::Child;
 
 const TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -28,6 +35,8 @@ pub struct Runtime {
     snapshot: Snapshot,
     identity: Option<String>,
     process: Option<ProcessBinding>,
+    #[cfg(windows)]
+    spawn_generation: Option<String>,
 }
 #[derive(Clone,Debug,PartialEq)]
 pub(crate) struct ProcessBinding {
@@ -37,6 +46,7 @@ pub(crate) struct ProcessBinding {
 impl Default for Runtime {
     fn default() -> Self {
         Self { child: None, input: None, output: None, next_id: 0, identity: None, process:None,
+            #[cfg(windows)] spawn_generation:None,
             snapshot: Snapshot { phase: Phase::Stopped, plugin_version: None,
                 state: Value::Null, events: Vec::new(), last_error: None } }
     }
@@ -108,9 +118,13 @@ impl Runtime {
         self.snapshot = Snapshot { phase: Phase::Starting, plugin_version: None,
             state: Value::Null, events: Vec::new(), last_error: None };
         // No shell, no inherited credentials/env. Executable must be explicitly supplied locally.
-        let mut child = Command::new(executable).args(args).env_clear()
-            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
-            .spawn().map_err(|e| self.fail(format!("spawn_failed: {e}")))?;
+        let mut command = Command::new(executable);
+        command.args(args).env_clear().stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        #[cfg(not(windows))]
+        let spawned = command.spawn();
+        #[cfg(windows)]
+        let spawned = windows::spawn(&command, &self.spawn_generation.take().unwrap_or_else(||uuid::Uuid::new_v4().to_string()));
+        let mut child = spawned.map_err(|e| self.fail(format!("spawn_failed: {e}")))?;
         let mut stdin = child.stdin.take().unwrap();
         let (writes, receiver) = mpsc::sync_channel::<(Message, mpsc::Sender<Result<(), String>>)>(1);
         std::thread::spawn(move || {
@@ -159,6 +173,7 @@ impl Runtime {
     pub(crate) fn start_verified_generation(&mut self,pin:&super::plugin_manager::VerifiedMatchGrant<'_>,generation:String)->Result<ProcessBinding,String> {
         if uuid::Uuid::parse_str(&generation).is_err(){return Err("invalid_process_generation".into());}
         let grant=pin.grant();
+        #[cfg(windows)] {self.spawn_generation=Some(generation.clone());}
         self.start_expected(grant.executable(),&["--live".into()],&grant.binding().id,Some(&grant.binding().version))?;
         let binding=ProcessBinding{generation,package:grant.binding().clone()};
         self.process=Some(binding.clone());Ok(binding)

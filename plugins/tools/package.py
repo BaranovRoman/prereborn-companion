@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Independent official plugin packaging. No build, download or publication side effects."""
-import argparse, base64, hashlib, json, os, pathlib, re, subprocess, tempfile, zipfile
+import argparse, sys, base64, hashlib, json, os, pathlib, re, subprocess, tempfile, zipfile
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
 def encode(value):
@@ -11,7 +11,7 @@ def sign(path, key):
     for name in ['TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PATH', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD']:
         env.pop(name, None)
     env['TAURI_SIGNING_PRIVATE_KEY_PASSWORD'] = os.environ.get('PLUGIN_KEY_PASSWORD', '')
-    subprocess.run(['pnpm', '--filter', '@prereborn/companion', 'exec', 'tauri', 'signer', 'sign',
+    subprocess.run(['pnpm.cmd' if sys.platform == 'win32' else 'pnpm', '--filter', '@prereborn/companion', 'exec', 'tauri', 'signer', 'sign',
                     '-f', str(pathlib.Path(key).resolve()), str(path.resolve())],
                    cwd=ROOT, env=env, check=True, stdout=subprocess.DEVNULL)
     result = pathlib.Path(str(path) + '.sig')
@@ -25,6 +25,10 @@ def digest(data):
 def package(binary, ui, version, platform, arch, output, key, url, manifest_template=None):
     output = pathlib.Path(output); output.mkdir(parents=True, exist_ok=True)
     binary = pathlib.Path(binary); ui = pathlib.Path(ui)
+    if binary.is_symlink() or binary.resolve() == pathlib.Path(key).resolve() or pathlib.Path(key).resolve().is_relative_to(ui.resolve()):
+        raise ValueError('Signing key / symlink must not enter package input')
+    if output.resolve().is_relative_to(ui.resolve()):
+        raise ValueError('Package output must be outside UI input')
     files = {'bin/' + binary.name: binary.read_bytes()}
     for path in sorted(ui.rglob('*')):
         if path.is_symlink():
@@ -39,8 +43,10 @@ def package(binary, ui, version, platform, arch, output, key, url, manifest_temp
         template = json.loads(pathlib.Path(manifest_template).read_text())
         if template['version'] != version:
             raise ValueError('Template version must match executable/CLI version')
-        for field in ['schema', 'id', 'name', 'description', 'permissions']:
+        for field in ['schema', 'id', 'name', 'description', 'permissions', 'minApi', 'maxApi']:
             manifest[field] = template[field]
+        if 'execution' in template:
+            manifest['execution'] = template['execution']
     if not re.fullmatch(r'[a-z0-9-]{1,64}', manifest['id']) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.-]+)?',version):
         raise ValueError('Unsafe package identity/version')
     with tempfile.TemporaryDirectory() as directory:

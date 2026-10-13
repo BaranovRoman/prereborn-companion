@@ -8,7 +8,7 @@ use super::host_execution::{Result,sql,encode,hash,Ticket};
 pub(super) struct Record {pub(super) phase:Phase,pub(super) session:Option<String>,pub(super) package:Option<PackageBinding>,#[serde(default,skip_serializing_if="Option::is_none")] process:Option<ProcessRecord>}
 #[derive(Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
-struct ProcessRecord {generation:String,pid:Option<u32>,stopped:bool,package:PackageBinding}
+struct ProcessRecord {generation:String,pid:Option<u32>,stopped:bool,package:PackageBinding,#[serde(default,skip_serializing_if="Option::is_none")] supervision:Option<String>}
 
 pub(super) fn install(c:&Connection)->Result<()> {
     sql(c.execute_batch("CREATE TABLE pc_tx_owner(id INTEGER PRIMARY KEY CHECK(id=1),doc TEXT NOT NULL,checksum TEXT NOT NULL CHECK(length(checksum)=64));"))?;
@@ -18,7 +18,7 @@ pub(super) fn load(c:&Connection)->Result<Record> {
     let (doc,checksum):(Option<String>,String)=sql(c.query_row("SELECT CASE WHEN length(CAST(doc AS BLOB))<=2048 THEN doc ELSE NULL END,checksum FROM pc_tx_owner WHERE id=1",[],|r|Ok((r.get(0)?,r.get(1)?))))?;
     let doc=doc.ok_or("ownership_corrupt")?;if hash(&doc)!=checksum{return Err("ownership_corrupt".into());}
     let record:Record=serde_json::from_str(&doc).map_err(|_|"ownership_corrupt")?;
-    if record.process.as_ref().is_some_and(|p|uuid::Uuid::parse_str(&p.generation).is_err()||p.pid==Some(0)){return Err("process_identity_corrupt".into());}Ownership::restore(record.phase).map_err(str::to_string)?;
+    if record.process.as_ref().is_some_and(|p|uuid::Uuid::parse_str(&p.generation).is_err()||p.pid==Some(0)||p.supervision.as_deref().is_some_and(|v|v!="windows-job-list-v1")){return Err("process_identity_corrupt".into());}Ownership::restore(record.phase).map_err(str::to_string)?;
     if record.session.as_ref().is_some_and(|s|s.is_empty()||s.len()>128)||record.package.as_ref().into_iter().chain(record.process.as_ref().map(|p|&p.package)).any(|p|p.id!="dota2"||p.version.is_empty()||p.version.len()>240||[&p.executable_hash,&p.manifest_hash].iter().any(|h|h.len()!=64||!h.bytes().all(|b|b.is_ascii_hexdigit()))){return Err("ownership_corrupt".into());}Ok(record)
 }
 fn save(c:&Connection,r:&Record)->Result<()> {
@@ -59,12 +59,13 @@ pub(super) fn authorize(c:&Connection,lease:Lease,session:&str,package:Option<&P
 }
 
 // The journal is written before spawn. PID is diagnostic, NEVER an exit proof.
-// Only the Runtime retaining the original Child handle can record confirmed stop.
+// Original Runtime handles or explicit generation-job recovery can confirm stop.
+// The supervision marker is committed BEFORE atomic Windows job-list spawn.
 pub(crate) fn process_starting(c:&mut Connection,lease:Lease,package:&PackageBinding,generation:&str)->Result<()> {
  if uuid::Uuid::parse_str(generation).is_err(){return Err("invalid_process_generation".into());}
  change(c,|_,r,_|{
   if !matches!(r.phase,Phase::Draining{old,target:Owner::External} if old.epoch.checked_add(1)==Some(lease.epoch))||r.package.as_ref()!=Some(package)||r.process.as_ref().is_some_and(|p|!p.stopped){return Err("process_start_fenced".into());}
-  r.process=Some(ProcessRecord{generation:generation.into(),pid:None,stopped:false,package:package.clone()});Ok(())
+  r.process=Some(ProcessRecord{generation:generation.into(),pid:None,stopped:false,package:package.clone(),supervision:if cfg!(windows){Some("windows-job-list-v1".into())}else{None}});Ok(())
  })
 }
 pub(crate) fn process_spawned(c:&mut Connection,generation:&str,pid:u32)->Result<()> {change(c,|_,r,_|{
@@ -85,4 +86,57 @@ pub(super) fn rebind_session_in(c:&Connection,lease:Lease,old:&str,package:Optio
  if old==resolved{return Ok(());}
  if super::store::find_session(c,resolved).map_err(|_|"storage_unavailable")?.is_none(){return Err("session_mismatch".into());}
  let mut record=load(c)?;record.session=Some(resolved.into());save(c,&record)
+}
+
+// Read under history lock; perform OS fencing OUTSIDE it; then process_stopped exact generation.
+// Missing / legacy marker cannot authorize a recovery based on job absence.
+#[cfg(windows)]
+pub(crate) fn pending_windows_generation(c:&Connection)->Result<String> {
+ let r=load(c)?;let p=r.process.ok_or("process_journal_missing")?;
+ if p.stopped||p.supervision.as_deref()!=Some("windows-job-list-v1"){return Err("process_fence_unproven".into());}
+ Ok(p.generation)
+}
+
+#[cfg(test)]
+mod supervision_tests {
+ use super::*;
+ fn starting()->(Connection,String,Lease) {
+  let mut c=Connection::open_in_memory().unwrap();install(&c).unwrap();
+  let Phase::Active(old)=phase(&c).unwrap()else{panic!()};
+  let next=Lease{owner:Owner::External,epoch:old.epoch+1};
+  let package=PackageBinding{id:"dota2".into(),version:"0.1.0".into(),executable_hash:"a".repeat(64),manifest_hash:"b".repeat(64)};
+  begin(&mut c,old,Owner::External,"session",Some(package.clone())).unwrap();
+  let generation=uuid::Uuid::new_v4().to_string();process_starting(&mut c,next,&package,&generation).unwrap();(c,generation,old)
+ }
+ #[test] fn journal_precedes_spawn_and_never_uses_pid_as_stop_proof(){
+  let(mut c,generation,old)=starting();assert!(process_restart_fence(&c).is_err());
+  process_spawned(&mut c,&generation,12345).unwrap();assert!(process_restart_fence(&c).is_err());
+  assert!(confirm_fenced(&mut c,old).is_ok()); // ready-process transition, not a restart takeover
+  uncertain_restart(&mut c).unwrap();assert!(recover(&mut c,Owner::BuiltIn).is_err());
+  assert!(process_stopped(&mut c,&uuid::Uuid::new_v4().to_string()).is_err());
+  process_stopped(&mut c,&generation).unwrap();process_restart_fence(&c).unwrap();
+ }
+ #[test] fn journal_roundtrip_and_unknown_supervisor_fail_closed(){
+  let(c,_,_)=starting();let mut record=load(&c).unwrap();
+  let expected=if cfg!(windows){Some("windows-job-list-v1")}else{None};assert_eq!(record.process.as_ref().unwrap().supervision.as_deref(),expected);
+  record.process.as_mut().unwrap().supervision=Some("untrusted-pid-proof".into());save(&c,&record).unwrap();
+  assert_eq!(load(&c).err().unwrap(),"process_identity_corrupt");
+ }
+ #[test] fn journal_reopen_and_legacy_marker_preserve_uncertainty(){
+  let(c,generation,_)=starting();let root=tempfile::tempdir().unwrap();let path=root.path().join("journal.sqlite3");
+  let disk=Connection::open(&path).unwrap();install(&disk).unwrap();let mut r=load(&c).unwrap();save(&disk,&r).unwrap();drop(disk);
+  let disk=Connection::open(&path).unwrap();assert_eq!(load(&disk).unwrap().process.as_ref().unwrap().generation,generation);
+  assert!(process_restart_fence(&disk).is_err());
+  // Old journals have no atomic-spawn evidence and must remain fenced.
+  r.process.as_mut().unwrap().supervision=None;save(&disk,&r).unwrap();assert!(process_restart_fence(&disk).is_err());
+  #[cfg(windows)] assert!(pending_windows_generation(&disk).is_err());
+ }
+ #[cfg(windows)]
+ #[test] fn pre_spawn_recovery_is_explicit_and_keeps_draining(){
+  let(mut c,generation,_)=starting();assert_eq!(pending_windows_generation(&c).unwrap(),generation);
+  crate::core::plugin_runtime::windows::fence_generation(&generation).unwrap();
+  process_stopped(&mut c,&generation).unwrap();assert!(matches!(phase(&c).unwrap(),Phase::Draining{..}));
+  // Native process proof alone does not admit BuiltIn or prove frontend/OBS fences.
+  process_restart_fence(&c).unwrap();
+ }
 }
