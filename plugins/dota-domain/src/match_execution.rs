@@ -1,4 +1,4 @@
-//! Diagnostic execution contracts only. No live dispatcher or SQL capability.
+//! Typed match execution/receipt contracts shared by diagnostic and production hosts; no SQL capability.
 use serde::{Serialize,Deserialize};
 use crate::{match_shadow::Decision, model::{LocalMatchState,MatchResult,RankedMode}, effects::Status};
 pub const EXECUTION_API:u32=1;
@@ -83,3 +83,22 @@ impl DiagnosticRequest {
 #[derive(Clone,Debug,Serialize,Deserialize)]
 #[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
 pub enum DiagnosticReply {Result {response:Response},Denied {code:String}}
+
+// Same validated contracts in both hosts; separate wire variants prevent replay escalation.
+pub type ExecutionScope = DiagnosticScope;
+pub type ExecutionFrame = DiagnosticFrame;
+pub type ExecutionRequest = DiagnosticRequest;
+pub type ExecutionReply = DiagnosticReply;
+#[derive(Clone,Debug,Serialize,Deserialize)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+pub struct LiveEffectsFrame {
+    pub deadline_ms:u64,
+    pub scope:ExecutionScope,
+    pub input:crate::contracts::ReplayInput,
+}
+#[derive(Debug,Serialize,Deserialize)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+pub struct LiveEffectRequest {
+    pub scope:ExecutionScope,
+    pub request:crate::effects::Request,
+}

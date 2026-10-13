@@ -27,10 +27,16 @@ pub struct Runtime {
     next_id: u64,
     snapshot: Snapshot,
     identity: Option<String>,
+    process: Option<ProcessBinding>,
+}
+#[derive(Clone,Debug,PartialEq)]
+pub(crate) struct ProcessBinding {
+    pub(crate) generation:String,
+    pub(crate) package:companion_dota_domain::match_execution::PackageBinding,
 }
 impl Default for Runtime {
     fn default() -> Self {
-        Self { child: None, input: None, output: None, next_id: 0, identity: None,
+        Self { child: None, input: None, output: None, next_id: 0, identity: None, process:None,
             snapshot: Snapshot { phase: Phase::Stopped, plugin_version: None,
                 state: Value::Null, events: Vec::new(), last_error: None } }
     }
@@ -40,11 +46,16 @@ impl Runtime {
     pub(crate) fn diagnostic_process_id(&self)->Option<u32>{self.child.as_ref().map(Child::id)}
     fn reap(&mut self) {
         self.input.take();
-        if let Some(mut child) = self.child.take() {
+        if let Some(child) = self.child.as_mut() {
             let _ = child.kill();
-            let _ = child.wait();
+            // Bounded reap. Retain the owned handle when exit cannot be confirmed.
+            let deadline=Instant::now()+Duration::from_millis(250);
+            loop {match child.try_wait(){Ok(Some(_))=>{self.child.take();break;},Err(_)=>break,Ok(None)=>{
+                if Instant::now()>=deadline{break;}std::thread::sleep(Duration::from_millis(5));
+            }}}
         }
         self.output.take();
+        self.process=None;
     }
     fn fail(&mut self, error: impl Into<String>) -> String {
         let error = error.into();
@@ -93,6 +104,7 @@ impl Runtime {
         self.poll();
         if matches!(self.snapshot.phase, Phase::Running | Phase::Starting) { return Err("already_running".into()); }
         self.reap();
+        if self.child.is_some(){return Err("process_fence_unproven".into());}
         self.identity = None;
         self.snapshot = Snapshot { phase: Phase::Starting, plugin_version: None,
             state: Value::Null, events: Vec::new(), last_error: None };
@@ -141,6 +153,25 @@ impl Runtime {
             _ => Err(self.fail("expected_ready")),
         }
     }
+    // Called while the verified manager pin is held. No public start can create this binding.
+    pub(crate) fn start_verified(&mut self,pin:&super::plugin_manager::VerifiedMatchGrant<'_>)->Result<ProcessBinding,String> {
+        let grant=pin.grant();
+        self.start_expected(grant.executable(),&["--live".into()],&grant.binding().id,Some(&grant.binding().version))?;
+        let binding=ProcessBinding{generation:uuid::Uuid::new_v4().to_string(),package:grant.binding().clone()};
+        self.process=Some(binding.clone());Ok(binding)
+    }
+    pub(crate) fn stopped_confirmed(&mut self)->Result<(),String> {
+        if let Some(child)=self.child.as_mut() {
+            match child.try_wait(){Ok(Some(_))=>self.reap(),Ok(None)=>return Err("process_not_fenced".into()),Err(_)=>return Err("process_fence_unproven".into())}
+        }
+        Ok(())
+    }
+    pub(crate) fn command_live(&mut self,pin:&super::plugin_manager::VerifiedMatchGrant<'_>,binding:&ProcessBinding,name:String,args:Value,mut executor:impl FnMut(Value)->Result<Value,String>)->Result<Value,String> {
+        if self.identity.as_deref()!=Some("dota2")||self.process.as_ref()!=Some(binding)||&binding.package!=pin.grant().binding()
+            ||!pin.grant().permits(companion_dota_domain::match_execution::MATCH_EXECUTION_CAPABILITY)
+            ||!matches!(name.as_str(),"dota.live_frame"|"dota.live_recover"|"dota.live_effects"){return Err("process_binding_denied".into());}
+        self.command_with_handlers(name,args,&mut |_|Err("capability_denied".into()),Some(&mut executor))
+    }
     pub fn command(&mut self, name: String, args: Value) -> Result<Value, String> {
         self.command_with_reader(name, args, |_| Err("capability_denied".into()))
     }
@@ -167,8 +198,25 @@ impl Runtime {
         let deadline = Instant::now() + TIMEOUT;
         let mut read_seen = false;
         let mut execution_seen = false;
+        let mut effect_count=0;
         loop {
             match self.receive(deadline)? {
+                Message::MatchExecute{id:request_id,request} => {
+                    if self.process.is_none()||executor.is_none()||request_id!=id||execution_seen||!matches!(name.as_str(),"dota.live_frame"|"dota.live_recover") {return Err(self.fail("live_execution_not_allowed"));}
+                    execution_seen=true;
+                    if serde_json::to_vec(&request).map_err(|_|"invalid_execution")?.len()>20000{return Err(self.fail("live_request_too_large"));}
+                    let response=match executor.as_mut().unwrap()(request){Ok(v)=>v,Err(e)=>return Err(self.fail(e))};
+                    if serde_json::to_vec(&response).map_err(|_|"invalid_receipt")?.len()>40000{return Err(self.fail("live_receipt_too_large"));}
+                    self.send(Message::MatchReceipt{id,response})?;
+                },
+                Message::GameEffect{id:request_id,request} => {
+                    if self.process.is_none()||executor.is_none()||request_id!=id||name!="dota.live_effects"||effect_count>=32 {return Err(self.fail("live_effect_not_allowed"));}
+                    effect_count+=1;
+                    if serde_json::to_vec(&request).map_err(|_|"invalid_effect")?.len()>2048{return Err(self.fail("effect_too_large"));}
+                    let response=match executor.as_mut().unwrap()(request){Ok(v)=>v,Err(e)=>return Err(self.fail(e))};
+                    if serde_json::to_vec(&response).map_err(|_|"invalid_ack")?.len()>2048{return Err(self.fail("effect_ack_too_large"));}
+                    self.send(Message::GameEffectAck{id,response})?;
+                },
                 Message::DiagnosticExecute {id:request_id,request} => {
                     if self.identity.as_deref()!=Some("dota2") || executor.is_none() || request_id!=id || execution_seen
                         || !matches!(name.as_str(),"dota.diagnostic_frame"|"dota.diagnostic_recover") {return Err(self.fail("diagnostic_execution_not_allowed"));}
@@ -215,7 +263,7 @@ impl Runtime {
     pub fn snapshot(&mut self) -> Snapshot { self.poll(); self.snapshot.clone() }
     pub fn stop(&mut self) -> Result<Snapshot, String> {
         if self.snapshot.phase != Phase::Running {
-            self.reap(); self.snapshot.phase = Phase::Stopped; return Ok(self.snapshot.clone());
+            self.reap(); self.stopped_confirmed()?; self.snapshot.phase = Phase::Stopped; return Ok(self.snapshot.clone());
         }
         self.send(Message::Stop)?;
         let deadline = Instant::now() + TIMEOUT;
@@ -223,7 +271,7 @@ impl Runtime {
             match self.receive(deadline)? {
                 Message::Stopped => {
                     // Reap even a child that acknowledges but forgets to exit.
-                    self.reap(); self.snapshot.phase = Phase::Stopped;
+                    self.reap(); self.stopped_confirmed()?; self.snapshot.phase = Phase::Stopped;
                     return Ok(self.snapshot.clone());
                 }
                 message => self.update(message)?,

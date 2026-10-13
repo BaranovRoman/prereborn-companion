@@ -35,8 +35,13 @@ fn locked() -> String { "plugin_manager_lock_poisoned".into() }
 pub(crate) struct MatchExecutionGrant {
     binding:companion_dota_domain::match_execution::PackageBinding,executable:PathBuf,
     pub(crate) session:String,pub(crate) lease:companion_dota_domain::ownership::Lease,
+    capabilities:Vec<String>,
 }
-impl MatchExecutionGrant {pub(crate) fn binding(&self)->&companion_dota_domain::match_execution::PackageBinding{&self.binding}}
+impl MatchExecutionGrant {
+ pub(crate) fn binding(&self)->&companion_dota_domain::match_execution::PackageBinding{&self.binding}
+ pub(crate) fn executable(&self)->&std::path::Path{&self.executable}
+ pub(crate) fn permits(&self,cap:&str)->bool{self.capabilities.iter().any(|c|c==cap)}
+}
 pub(crate) struct VerifiedMatchGrant<'a>(&'a MatchExecutionGrant);
 impl VerifiedMatchGrant<'_> {pub(crate) fn grant(&self)->&MatchExecutionGrant{self.0}}
 fn execution_binding(store:&Store,explicit:&[&str])->Result<(companion_dota_domain::match_execution::PackageBinding,PathBuf),String> {
@@ -44,7 +49,7 @@ fn execution_binding(store:&Store,explicit:&[&str])->Result<(companion_dota_doma
     if !explicit.contains(&MATCH_EXECUTION_CAPABILITY){return Err("capability_denied".into());}
     let installed=store.installed().get("dota2").cloned().ok_or("not_installed")?;
     let (path,manifest)=store.executable("dota2",&installed.active)?;
-    if manifest.execution!=packages::ExecutionMode::Live||!manifest.permissions.iter().any(|p|p==MATCH_EXECUTION_CAPABILITY){return Err("replay_only_execution_denied".into());}
+    if manifest.execution!=packages::ExecutionMode::Live||explicit.iter().any(|cap|!manifest.permissions.iter().any(|p|p==cap)){return Err("replay_only_execution_denied".into());}
     let executable_hash=manifest.files.get(&manifest.executable).cloned().ok_or("executable_unbound")?;
     let manifest_hash=packages::hash(&serde_json::to_vec(&manifest).map_err(|_|"invalid_manifest")?);
     Ok((PackageBinding{id:manifest.id,version:manifest.version,executable_hash,manifest_hash},path))
@@ -54,7 +59,7 @@ impl Service {
         self.hosts.get(id).is_some_and(|host| host.0.lock().map(|mut r| matches!(r.snapshot().phase, Phase::Running | Phase::Starting)).unwrap_or(true))
     }
     fn start(&mut self, id: &str) -> Result<(), String> {
-        // Iteration 4 packages are replay-only. Built-in Dota owns all live effects/listeners.
+        // User activation remains closed, including signed Live packages. BuiltIn is the default owner.
         // Fail closed even if a user edits the registry to enable dota2.
         if id == "dota2" { return Err("dota_live_activation_deferred".into()); }
         if self.running(id) { return Err("already_running".into()); }
@@ -78,18 +83,19 @@ impl Service {
     }
 }
 impl PluginManager {
+    pub(crate) fn stopping(&self)->bool{self.shutting_down.load(Ordering::SeqCst)}
     pub(crate) fn match_execution_grant(&self,explicit:&[&str],session:&str,lease:companion_dota_domain::ownership::Lease)->Result<MatchExecutionGrant,String> {
         if self.shutting_down.load(Ordering::SeqCst){return Err("plugin_manager_stopping".into());}
         if lease.owner!=companion_dota_domain::ownership::Owner::External||session.is_empty()||session.len()>128{return Err("invalid_execution_scope".into());}
         let guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_ref().map_err(Clone::clone)?;
-        let (binding,executable)=execution_binding(&service.store,explicit)?;Ok(MatchExecutionGrant{binding,executable,session:session.into(),lease})
+        let (binding,executable)=execution_binding(&service.store,explicit)?;Ok(MatchExecutionGrant{binding,executable,session:session.into(),lease,capabilities:explicit.iter().map(|s|(*s).into()).collect()})
     }
     // Lock order: manager verification/pin -> existing LocalRuntimeState connection mutex.
     // Never acquire this pin from a caller already holding the runtime process mutex.
     pub(crate) fn with_verified_match_grant<T>(&self,grant:&MatchExecutionGrant,write:impl FnOnce(&VerifiedMatchGrant<'_>)->Result<T,String>)->Result<T,String> {
         if self.shutting_down.load(Ordering::SeqCst){return Err("plugin_manager_stopping".into());}
         let guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_ref().map_err(Clone::clone)?;
-        let (binding,path)=execution_binding(&service.store,&[companion_dota_domain::match_execution::MATCH_EXECUTION_CAPABILITY])?;
+        let (binding,path)=execution_binding(&service.store,&grant.capabilities.iter().map(String::as_str).collect::<Vec<_>>())?;
         if binding!=grant.binding||path!=grant.executable{return Err("installed_execution_binding_changed".into());}write(&VerifiedMatchGrant(grant))
     }
     fn unavailable(error: String) -> Self {
@@ -418,4 +424,10 @@ mod tests {
         manager.shutdown();
         assert!(manager.action("hello", "start").is_err());
     }
+}
+
+#[cfg(test)]
+pub(crate) fn fixture_installed(root:PathBuf,key:&str,release:&Release,bytes:&[u8])->PluginManager {
+    let mut store=Store::open(root,key).unwrap();store.install(bytes,release,false,&AtomicBool::new(false)).unwrap();
+    PluginManager{service:Arc::new(Mutex::new(Ok(Service{store,catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default()}
 }

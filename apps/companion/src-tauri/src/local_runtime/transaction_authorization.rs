@@ -41,9 +41,12 @@ pub(super) fn rollback_builtin_in(c:&Connection)->Result<Lease> {
     let Phase::Draining{old,..}=o.phase()else{return Err("rollback_requires_fence".into());};let next=o.confirm_fenced(old).map_err(str::to_string)?;
     r.phase=o.phase();r.package=None;save(c,&r)?;Ok(next)
 }
-pub(super) fn authorize(c:&Connection,lease:Lease,session:&str,package:Option<&PackageBinding>,request:&Request)->Result<()> {
+pub(super) fn authorize_scope(c:&Connection,lease:Lease,session:&str,package:Option<&PackageBinding>)->Result<()> {
     let record=load(c)?;Ownership::restore(record.phase).map_err(str::to_string)?.authorize(lease).map_err(|_|"ownership_fenced")?;
-    if record.session.as_deref()!=Some(session)||record.package.as_ref()!=package{return Err("execution_scope_mismatch".into());}
+    if record.session.as_deref()!=Some(session)||record.package.as_ref()!=package{return Err("execution_scope_mismatch".into());}Ok(())
+}
+pub(super) fn authorize(c:&Connection,lease:Lease,session:&str,package:Option<&PackageBinding>,request:&Request)->Result<()> {
+    authorize_scope(c,lease,session,package)?;
     let (doc,checksum):(Option<String>,String)=sql(c.query_row("SELECT CASE WHEN length(CAST(doc AS BLOB))<=16384 THEN doc ELSE NULL END,checksum FROM pc_tx_ticket WHERE id=?1",[&request.ticket],|r|Ok((r.get(0)?,r.get(1)?))))?;
     let doc=doc.ok_or("context_corrupt")?;if hash(&doc)!=checksum||request.binding!=checksum{return Err("context_corrupt".into());}
     let ticket:Ticket=serde_json::from_str(&doc).map_err(|_|"context_corrupt")?;

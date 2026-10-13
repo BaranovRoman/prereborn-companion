@@ -1,4 +1,4 @@
-//! Debug IPC only: compute a plan; the worker never opens a database or performs effects.
+//! Shared receipt-driven IPC state: compute a plan; the worker never opens a database or performs effects.
 use companion_dota_domain::{match_execution::*,match_shadow,effects::Status};
 use companion_plugin_protocol::{Message,read_frame,write_frame};
 use std::io::{BufRead,Write};
@@ -25,15 +25,24 @@ impl State {
         if !request.bounded(){return Err("invalid_request".into());}
         Ok(DiagnosticRequest::Execute{scope:input.scope,sequence:input.context.frame_sequence,snapshot_identity:input.context.snapshot_identity,request})
     }
+    #[cfg(debug_assertions)]
     pub fn exchange(&mut self,id:u64,request:DiagnosticRequest,input:&mut impl BufRead,output:&mut impl Write)->Result<(),String> {
+        self.exchange_mode(id,request,input,output,false)
+    }
+    pub fn exchange_mode(&mut self,id:u64,request:ExecutionRequest,input:&mut impl BufRead,output:&mut impl Write,live:bool)->Result<(),String> {
         if !request.bounded(){return Err("invalid_diagnostic_request".into());}
         let (scope,operation,sequence)=match &request {
             DiagnosticRequest::Execute{scope,request,sequence,..}=>(scope,request,Some(*sequence)),
             DiagnosticRequest::Recover{scope,request}=>(scope,request,None),
         };
         if !operation.bounded(){return Err("invalid_request".into());}
-        write_frame(output,Message::DiagnosticExecute{id,request:serde_json::to_value(&request).map_err(|_|"invalid_request")?})?;
-        let Some(Message::DiagnosticReceipt{id:reply_id,response})=read_frame(input)? else{return Err("expected_diagnostic_receipt".into());};
+        let payload=serde_json::to_value(&request).map_err(|_|"invalid_request")?;
+        write_frame(output,if live {Message::MatchExecute{id,request:payload}}else{Message::DiagnosticExecute{id,request:payload}})?;
+        let (reply_id,response)=match read_frame(input)? {
+            Some(Message::MatchReceipt{id,response}) if live=>(id,response),
+            Some(Message::DiagnosticReceipt{id,response}) if !live=>(id,response),
+            _=>return Err("expected_execution_receipt".into()),
+        };
         if reply_id!=id{return Err("diagnostic_correlation_mismatch".into());}
         let reply:DiagnosticReply=serde_json::from_value(response).map_err(|_|"invalid_diagnostic_receipt")?;
         self.blocked=true;

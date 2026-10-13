@@ -104,9 +104,9 @@ fn integrity_scope(c:&Connection,session:&str)->Result<()> {
 pub(crate) struct Adapter {expected_schema:Vec<(String,String)>,path:PathBuf,_coordinator:std::fs::File}
 #[derive(Clone,Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct Ticket {pub(super) context:Context,pub(super) snapshot:ReplayGsi,pub(super) preconditions:Preconditions}
+pub(crate) struct Ticket {pub(crate) context:Context,pub(crate) snapshot:ReplayGsi,pub(crate) preconditions:Preconditions}
 #[derive(Clone)]
-pub(crate) struct Prepared {pub(super) ticket:String,pub(super) binding:String,pub(super) data:Ticket}
+pub(crate) struct Prepared {pub(crate) ticket:String,pub(crate) binding:String,pub(crate) data:Ticket}
 impl Prepared {
     pub(crate) fn core_request(&self,key:&str,correlation:&str)->Result<Request> {
         let analysis=rules::analyze(&self.data.context,&self.data.snapshot,self.data.context.frame_sequence);
@@ -157,6 +157,9 @@ impl Adapter {
     pub(crate) fn execute_plugin(&mut self,conn:&mut Connection,pin:&crate::core::plugin_manager::VerifiedMatchGrant<'_>,req:&Request)->Result<Response> {
         let grant=pin.grant();self.execute_guarded(conn,req,Fault::None,&|tx|super::transaction_authorization::authorize(tx,grant.lease,&grant.session,Some(grant.binding()),req))
     }
+    pub(crate) fn record_unknown_plugin(&mut self,conn:&mut Connection,pin:&crate::core::plugin_manager::VerifiedMatchGrant<'_>,req:&Request)->Result<()> {
+        let grant=pin.grant();self.retain_unknown_guarded(conn,req,&|tx|super::transaction_authorization::authorize(tx,grant.lease,&grant.session,Some(grant.binding()),req))
+    }
     pub(crate) fn recover_plugin(&mut self,conn:&mut Connection,pin:&crate::core::plugin_manager::VerifiedMatchGrant<'_>,req:&Request)->Result<Response> {
         let grant=pin.grant();self.recover_guarded(conn,req,&|tx|super::transaction_authorization::authorize(tx,grant.lease,&grant.session,Some(grant.binding()),req))
     }
@@ -172,16 +175,32 @@ impl Adapter {
     fn verify(c:&Connection,expected:&[(String,String)])->Result<()> {
         if signature(c,false)?!=expected{return Err("schema_incompatible".into());}super::transaction_schema::version(c)
     }
+    pub(crate) fn prepare_plugin_operation(&mut self,conn:&mut Connection,pin:&crate::core::plugin_manager::VerifiedMatchGrant<'_>,snapshot:ReplayGsi,now:DateTime<Utc>,sequence:u64)->Result<Option<Prepared>> {
+        let grant=pin.grant();let mode=super::sync::cached_ranked_mode(conn);
+        self.prepare_internal(conn,&grant.session,snapshot,mode,now,sequence,true,&|tx|super::transaction_authorization::authorize_scope(tx,grant.lease,&grant.session,Some(grant.binding())))
+    }
+    pub(crate) fn prepare_live_operation(&mut self,conn:&mut Connection,session:&str,snapshot:ReplayGsi,now:DateTime<Utc>,sequence:u64)->Result<Option<Prepared>> {
+        let mode=super::sync::cached_ranked_mode(conn);
+        self.prepare_operation(conn,session,snapshot,mode,now,sequence)
+    }
+    pub(crate) fn prepare_operation(&mut self,conn:&mut Connection,session:&str,snapshot:ReplayGsi,mode:RankedMode,now:DateTime<Utc>,sequence:u64)->Result<Option<Prepared>> {
+        self.prepare_internal(conn,session,snapshot,mode,now,sequence,true,&|_|Ok(()))
+    }
     pub(crate) fn prepare(&mut self,conn:&mut Connection,session:&str,snapshot:ReplayGsi,mode:RankedMode,now:DateTime<Utc>,sequence:u64)->Result<Prepared> {
+        self.prepare_internal(conn,session,snapshot,mode,now,sequence,false,&|_|Ok(()))?.ok_or("missing_plan".into())
+    }
+    fn prepare_internal(&mut self,conn:&mut Connection,session:&str,snapshot:ReplayGsi,mode:RankedMode,now:DateTime<Utc>,sequence:u64,skip_noop:bool,guard:&dyn Fn(&Connection)->Result<()>)->Result<Option<Prepared>> {
         self.bound(conn)?;let tx=sql(conn.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::verify(&tx,&self.expected_schema)?;
-        integrity_scope(&tx,session)?;
+        guard(&tx)?;integrity_scope(&tx,session)?;
         let mut context=sql(detector::context(&tx,session,mode,now))?;let row=sql(store::find_session(&tx,session))?.ok_or("session_missing")?;
         context.frame_sequence=sequence;context.snapshot_identity=rules::snapshot_identity(&snapshot);context.session.ended=row.ended_at.is_some();context.session.streamed=row.is_streamed;
-        if !rules::analyze(&context,&snapshot,sequence).conclusive{return Err("context_inconclusive".into());}
+        let analysis=rules::analyze(&context,&snapshot,sequence);
+        if !analysis.conclusive{return Err("context_inconclusive".into());}
+        if skip_noop&&(analysis.detector.is_none()||analysis.detector.as_ref().is_some_and(|p|p.actions.is_empty()&&!p.end_gameplay_session)){return Ok(None);}
         let data=Ticket{preconditions:preconditions(&tx,session)?,context,snapshot};let encoded=encode(&data)?;if encoded.len()>16384{return Err("context_too_large".into());}
         let ticket=uuid::Uuid::new_v4().to_string();let binding=hash(&encoded);
         sql(tx.execute("INSERT INTO pc_tx_ticket VALUES(?1,?2,?3)",params![ticket,encoded,binding]))?;sql(tx.commit())?;
-        Ok(Prepared{ticket,binding,data})
+        Ok(Some(Prepared{ticket,binding,data}))
     }
     #[cfg(test)]
     fn execute(&mut self,conn:&mut Connection,req:&Request)->Result<Response>{self.execute_fault(conn,req,Fault::None)}
@@ -190,7 +209,7 @@ impl Adapter {
         self.execute_guarded(conn,req,fault,&|_|Ok(()))
     }
     fn execute_guarded(&mut self,conn:&mut Connection,req:&Request,_fault:Fault,guard:&dyn Fn(&Connection)->Result<()>)->Result<Response> {
-        if !req.bounded(){return Err("invalid_request".into());}
+        if !req.bounded()||req.operation_key.starts_with("effect:"){return Err("invalid_request".into());}
         self.bound(conn)?;let tx=sql(conn.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::verify(&tx,&self.expected_schema)?;
         guard(&tx)?;
         if let Some(saved)=saved(&tx,req)? {integrity(&tx)?;return Ok(saved);}
@@ -224,14 +243,14 @@ impl Adapter {
         self.recover_guarded(conn,req,&|_|Ok(()))
     }
     fn recover_guarded(&mut self,conn:&mut Connection,req:&Request,guard:&dyn Fn(&Connection)->Result<()>)->Result<Response> {
-        if !req.bounded(){return Err("invalid_request".into());}
+        if !req.bounded()||req.operation_key.starts_with("effect:"){return Err("invalid_request".into());}
         self.bound(conn)?;let tx=sql(conn.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::verify(&tx,&self.expected_schema)?;integrity(&tx)?;guard(&tx)?;
         Ok(saved(&tx,req)?.unwrap_or(Response{correlation_id:req.correlation_id.clone(),status:Status::Unknown,receipt:None}))
     }
     #[cfg(test)]
     fn retain_unknown(&mut self,conn:&mut Connection,req:&Request)->Result<()> {self.retain_unknown_guarded(conn,req,&|_|Ok(()))}
     fn retain_unknown_guarded(&mut self,conn:&mut Connection,req:&Request,guard:&dyn Fn(&Connection)->Result<()>)->Result<()> {
-        if !req.bounded(){return Err("invalid_request".into());}
+        if !req.bounded()||req.operation_key.starts_with("effect:"){return Err("invalid_request".into());}
         self.bound(conn)?;let tx=sql(conn.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::verify(&tx,&self.expected_schema)?;
         guard(&tx)?;if let Some(response)=saved(&tx,req)? {return if response.status==Status::Unknown{Ok(())}else{Err("terminal_receipt_is_immutable".into())};}
         sql(tx.execute("INSERT INTO pc_tx_ledger VALUES(?1,?2,'unknown')",params![req.operation_key,identity(req)?]))?;sql(tx.commit())
@@ -286,10 +305,12 @@ fn apply(tx:&Transaction<'_>,ticket:&Ticket,plan:&rules::Decision,receipt:&mut R
     receipt.after=Some(preconditions(tx,session)?);receipt.outbox=outbox(tx,session,&touched)?;Ok(())
 }
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 #[cfg(test)]
 mod bridge;
 #[cfg(test)]
 mod fixture;
 #[cfg(test)]
 use fixture::FixtureAdapter;
+
+pub(crate) mod live_effects;

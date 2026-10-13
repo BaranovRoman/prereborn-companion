@@ -146,6 +146,7 @@ pub fn init(app: &AppHandle) {
                     &format!("Local runtime: journal_mode is '{journal_mode}', not WAL - this environment may not support WAL (e.g. a network-redirected data directory); crash-safety guarantees are reduced."),
                 );
             }
+            if let Some(gate)=app.try_state::<crate::core::dota_live::LiveDota>(){gate.observe_storage(&conn);}
             *app.state::<LocalRuntimeState>().0.lock().unwrap() = Some(conn);
         }
         Err(error) => {
@@ -158,6 +159,7 @@ pub fn init(app: &AppHandle) {
                 app,
                 &format!("Local runtime: failed to open/migrate {path:?} ({error}); shadow mirror disabled this run."),
             );
+            if let Some(gate)=app.try_state::<crate::core::dota_live::LiveDota>(){gate.storage_open_failed(&path);}
         }
     }
 }

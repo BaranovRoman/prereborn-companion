@@ -11,3 +11,5 @@ pub(crate) mod plugin_durable;
 mod plugin_match_transactions;
 
 pub(crate) mod dota_observer;
+
+pub(crate) mod dota_live;

@@ -223,3 +223,36 @@ mod tests {
         assert_eq!(mime_for_extension("wav"), "audio/wav");
     }
 }
+
+// IPC chooses an event id, never a path. Even a malformed local binding cannot expose another file.
+pub(crate) fn read_plugin_file(app:&AppHandle,asset:&ManagedSoundAsset)->Result<Vec<u8>,String> {
+    read_plugin_file_from(&sounds_dir(app),asset)
+}
+fn read_plugin_file_from(directory:&Path,asset:&ManagedSoundAsset)->Result<Vec<u8>,String> {
+    use std::io::Read;
+    let name=Path::new(&asset.file_name);
+    if name.components().count()!=1||!matches!(name.components().next(),Some(std::path::Component::Normal(_))){return Err("invalid_managed_asset".into());}
+    let root=std::fs::canonicalize(directory).map_err(|_|"invalid_managed_asset")?;
+    let path=root.join(name);let meta=path.symlink_metadata().map_err(|_|"invalid_managed_asset")?;
+    if !meta.is_file()||meta.file_type().is_symlink()||meta.len()>MAX_FILE_SIZE_BYTES{return Err("invalid_managed_asset".into());}
+    if std::fs::canonicalize(&path).map_err(|_|"invalid_managed_asset")?.parent()!=Some(root.as_path()){return Err("invalid_managed_asset".into());}
+    let mut bytes=Vec::new();std::fs::File::open(path).map_err(|_|"invalid_managed_asset")?.take(MAX_FILE_SIZE_BYTES+1).read_to_end(&mut bytes).map_err(|_|"invalid_managed_asset")?;
+    if bytes.len() as u64>MAX_FILE_SIZE_BYTES{return Err("invalid_managed_asset".into());}Ok(bytes)
+}
+
+#[cfg(test)]
+mod plugin_read_tests {
+    use super::*;
+    #[test]
+    fn managed_event_audio_cannot_read_parent_symlink_or_unbounded_files() {
+        let root=tempfile::tempdir().unwrap();let sounds=root.path().join("sounds");std::fs::create_dir(&sounds).unwrap();
+        std::fs::write(sounds.join("safe.wav"),b"fixture").unwrap();std::fs::write(root.path().join("secret"),b"not audio").unwrap();
+        let mut asset=ManagedSoundAsset{id:"fixture".into(),file_name:"safe.wav".into(),original_name:"safe.wav".into(),size_bytes:7};
+        assert_eq!(read_plugin_file_from(&sounds,&asset).unwrap(),b"fixture");
+        asset.file_name="../secret".into();assert!(read_plugin_file_from(&sounds,&asset).is_err());
+        asset.file_name=root.path().join("secret").to_string_lossy().into();assert!(read_plugin_file_from(&sounds,&asset).is_err());
+        asset.file_name="large.wav".into();std::fs::File::create(sounds.join(&asset.file_name)).unwrap().set_len(MAX_FILE_SIZE_BYTES+1).unwrap();
+        assert!(read_plugin_file_from(&sounds,&asset).is_err());
+        #[cfg(unix)] {std::os::unix::fs::symlink(root.path().join("secret"),sounds.join("link.wav")).unwrap();asset.file_name="link.wav".into();assert!(read_plugin_file_from(&sounds,&asset).is_err());}
+    }
+}

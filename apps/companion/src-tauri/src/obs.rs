@@ -673,6 +673,8 @@ pub fn handle_session_state(app: &AppHandle, ended: bool) {
 }
 
 fn schedule_switch(app: &AppHandle, requested: BroadcastScene, require_enabled: bool) {
+    let gate=app.try_state::<crate::core::dota_live::LiveDota>();
+    let admission=match &gate {Some(g)=>match g.builtin(){Some(a)=>Some(a),None=>return},None=>None};
     // WK-99 - resolved once, here, and shadowed for the rest of the
     // function (including the spawned thread below) - every caller
     // (handle_gsi, handle_remote_command, reapply_current_mapping,
@@ -717,6 +719,7 @@ fn schedule_switch(app: &AppHandle, requested: BroadcastScene, require_enabled: 
 
     let app_for_switch = app.clone();
     std::thread::spawn(move || {
+        let _admission=admission;
         let result = switch_scene(&config, desired);
         {
             let state = app_for_switch.state::<AppState>();
@@ -1663,5 +1666,21 @@ mod tests {
                 "no StreamStateChanged event was ever sent by the fake server; the correction must come from the heartbeat"
             );
         }
+    }
+}
+
+// One attempt only. The durable ledger has already retained Unknown before this call.
+// Reuse the existing semantic resolver/mappings/transport without the legacy retry scheduler.
+pub(crate) fn dispatch_plugin_scene(app:&AppHandle,requested:BroadcastScene)->companion_dota_domain::effects::Status {
+    use companion_dota_domain::effects::Status;
+    let (desired,config)={let state=app.state::<AppState>();let inner=state.0.lock().unwrap();
+        if !inner.obs_config.enabled{return Status::Rejected;}
+        let desired=resolve_desired_scene(requested,inner.session_ended,inner.obs_manual_summary_override,inner.obs_post_stream_unavailable);
+        if inner.obs_config.is_active_mapping(desired,inner.obs_active_scene,inner.obs_active_scene_name.as_deref()){return Status::Completed;}
+        (desired,inner.obs_config.clone())};
+    if desired.obs_scene_name(&config).trim().is_empty(){return Status::Rejected;}
+    match switch_scene(&config,desired) {
+        Ok(())=>{let state=app.state::<AppState>();let mut inner=state.0.lock().unwrap();inner.obs_active_scene=Some(desired);inner.obs_active_scene_name=Some(desired.obs_scene_name(&config).into());inner.obs_connected=true;Status::Completed},
+        Err(_)=>Status::Unknown,
     }
 }

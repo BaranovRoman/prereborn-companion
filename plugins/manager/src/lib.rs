@@ -85,7 +85,9 @@ impl Manifest {
         if !matches!(self.platform.as_str(), "macos" | "windows" | "linux") || !matches!(self.arch.as_str(), "aarch64" | "x86_64") {
             return Err("unsupported_target".into());
         }
-        let live=self.id=="dota2"&&self.execution==ExecutionMode::Live&&self.permissions==["ui","dota.match.execute"];
+        let live=self.id=="dota2"&&self.execution==ExecutionMode::Live&&self.permissions.contains(&"ui".into())&&self.permissions.contains(&"dota.match.execute".into())
+            &&self.permissions.iter().all(|p|matches!(p.as_str(),"ui"|"dota.match.execute"|"dota.sound.play"|"dota.obs.scene"|"dota.overlay.update"))
+            &&self.permissions.iter().collect::<std::collections::BTreeSet<_>>().len()==self.permissions.len();
         if !live && (self.execution!=ExecutionMode::ReplayOnly||self.permissions != ["ui"]) { return Err("unsupported_permissions".into()); }
         safe_path(&self.executable)?; safe_path(&self.ui)?;
         if !self.executable.starts_with("bin/") || !self.ui.starts_with("ui/") || !self.ui.ends_with(".html") ||

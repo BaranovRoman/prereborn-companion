@@ -116,7 +116,7 @@ impl DurableStore {
 #[cfg(test)] mod tests {
  use super::*; use companion_dota_domain::effects::Effect;
  fn lease(s:&mut DurableStore)->Lease {let Phase::Active(l)=s.phase().unwrap() else {panic!("not active")};l}
- fn req(lease:Lease)->Request {Request{api:1,lease,correlation_id:"corr".into(),idempotency_key:"operation".into(),deadline_ms:1000,effect:Effect::Sound{event_id:"item_tango".into()}}}
+ fn req(lease:Lease)->Request {Request{api:1,lease,correlation_id:"corr".into(),idempotency_key:"operation".into(),deadline_ms:1000,effect:Effect::Sound{event_id:"item_tango".into(),kind:None}}}
  #[test] fn reopen_draining_stale_epoch_and_exclusive_connection() {
   let dir=tempfile::tempdir().unwrap();let path=dir.path().join("infra.sqlite3");let mut store=DurableStore::open(&path).unwrap();let old=lease(&mut store);
   assert!(DurableStore::open(&path).is_err());store.begin(old,Owner::External).unwrap();drop(store);
@@ -129,7 +129,7 @@ impl DurableStore {
  #[test] fn duplicate_payload_conflict_unknown_and_ack_survive_restart() {
   let dir=tempfile::tempdir().unwrap();let path=dir.path().join("infra.sqlite3");let mut s=DurableStore::open(&path).unwrap();let mut r=req(lease(&mut s));
   assert!(!s.admit(&[Capability::Sound],&r,0).unwrap().duplicate);assert!(s.admit(&[Capability::Sound],&r,0).unwrap().duplicate);
-  r.effect=Effect::Sound{event_id:"other".into()};assert_eq!(s.admit(&[Capability::Sound],&r,0).unwrap_err(),"idempotency_conflict");r.effect=Effect::Sound{event_id:"item_tango".into()};drop(s);
+  r.effect=Effect::Sound{event_id:"other".into(),kind:None};assert_eq!(s.admit(&[Capability::Sound],&r,0).unwrap_err(),"idempotency_conflict");r.effect=Effect::Sound{event_id:"item_tango".into(),kind:None};drop(s);
   let mut s=DurableStore::open(&path).unwrap();assert_eq!(s.last_ack("operation").unwrap().unwrap().status,Status::Unknown);
   r.lease=s.confirm_fenced(r.lease).unwrap();let admitted=s.admit(&[Capability::Sound],&r,1001).unwrap();assert!(admitted.duplicate);assert_eq!(admitted.status,Status::Unknown);
   s.acknowledge(&r,Status::Completed).unwrap();drop(s);
@@ -160,7 +160,7 @@ impl DurableStore {
  fn abrupt_exit_fixture() {
   let path=std::env::var_os("PREREBORN_DURABLE_CRASH_FIXTURE").expect("fixture path");let mut s=DurableStore::open(Path::new(&path)).unwrap();
   let Phase::Active(lease)=s.phase().unwrap() else {panic!()};
-  let req=Request{api:1,lease,correlation_id:"crash".into(),idempotency_key:"crash-operation".into(),deadline_ms:1000,effect:Effect::Sound{event_id:"item_tango".into()}};
+  let req=Request{api:1,lease,correlation_id:"crash".into(),idempotency_key:"crash-operation".into(),deadline_ms:1000,effect:Effect::Sound{event_id:"item_tango".into(),kind:None}};
   s.admit(&[Capability::Sound],&req,0).unwrap();s.begin(lease,Owner::External).unwrap();
   // Crash with uncommitted corruption: the last committed phase/ledger must survive.
   s.conn.execute_batch("BEGIN IMMEDIATE; UPDATE plugin_control SET record='{}';").unwrap();

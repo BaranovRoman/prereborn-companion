@@ -8,16 +8,16 @@ use std::collections::{BTreeMap,BTreeSet};
 #[allow(dead_code)] mod legacy {include!("fixtures/legacy_store_9d46cc5.rs");}
 fn now(n:i64)->DateTime<Utc> {DateTime::from_timestamp(1700000000+n,0).unwrap()}
 fn tables(conn:&Connection)->Vec<String> {conn.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'pc8_%' AND name NOT LIKE 'pc_tx_%' ORDER BY name").unwrap().query_map([],|r|r.get(0)).unwrap().collect::<Result<_,_>>().unwrap()}
-pub(super) fn dump(conn:&Connection)->BTreeMap<String,Vec<Vec<Value>>> {
+pub(crate) fn dump(conn:&Connection)->BTreeMap<String,Vec<Vec<Value>>> {
  tables(conn).into_iter().map(|table| {
   let mut stmt=conn.prepare(&format!("SELECT * FROM {table} ORDER BY rowid")).unwrap();let width=stmt.column_count();
   let rows=stmt.query_map([],|r|Ok((0..width).map(|i|match r.get_ref(i).unwrap() {ValueRef::Null=>Value::Null,ValueRef::Integer(n)=>json!(n),ValueRef::Real(n)=>json!(n),ValueRef::Text(t)=>Value::String(std::str::from_utf8(t).unwrap().into()),ValueRef::Blob(_)=>panic!("unexpected blob")}).collect())).unwrap().collect::<Result<Vec<_>,_>>().unwrap();(table,rows)
  }).collect()
 }
-pub(super) fn ids(conn:&Connection)->BTreeSet<String> {
+pub(crate) fn ids(conn:&Connection)->BTreeSet<String> {
  ["local_sessions","local_matches","sync_outbox"].into_iter().flat_map(|table|{let col=if table=="sync_outbox"{"id"}else{"local_id"};conn.prepare(&format!("SELECT {col} FROM {table} ORDER BY rowid")).unwrap().query_map([],|r|r.get::<_,String>(0)).unwrap().collect::<Result<Vec<_>,_>>().unwrap()}).collect()
 }
-pub(super) fn normalized(conn:&Connection,seed:&BTreeSet<String>)->Value {
+pub(crate) fn normalized(conn:&Connection,seed:&BTreeSet<String>)->Value {
  let mut mappings=BTreeMap::new();
  for table in ["local_sessions","local_matches","sync_outbox"] {let col=if table=="sync_outbox"{"id"}else{"local_id"};let generated=conn.prepare(&format!("SELECT {col} FROM {table} ORDER BY rowid")).unwrap().query_map([],|r|r.get::<_,String>(0)).unwrap().collect::<Result<Vec<_>,_>>().unwrap();for(i,id)in generated.iter().enumerate(){assert!(uuid::Uuid::parse_str(id).is_ok());if !seed.contains(id){mappings.insert(id.clone(),format!("generated:{table}:{i}"));}}}
  fn walk(value:&mut Value,map:&BTreeMap<String,String>){match value {Value::String(s)=>{for(id,label)in map { *s=s.replace(id,label); }},Value::Array(a)=>for v in a {walk(v,map)},Value::Object(o)=>for v in o.values_mut(){walk(v,map)},_=>{}}}

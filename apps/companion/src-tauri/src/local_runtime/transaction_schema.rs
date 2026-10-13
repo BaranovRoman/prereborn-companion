@@ -76,4 +76,10 @@ pub(crate) fn restore_before_writes(conn:&mut Connection,backup_path:&Path)->Res
     // The retained ownership epoch advances; runtime rollback also retains every receipt/key.
     super::transaction_authorization::rollback_builtin_in(&tx)?;sql(tx.commit())
 }
+pub(crate) fn activation_preflight(conn:&Connection,backup_path:&Path)->Result<()> {
+    validate(conn)?;
+    let copy=backup(backup_path)?;
+    let baseline:String=sql(conn.query_row("SELECT baseline FROM pc_tx_meta WHERE id=1",[],|r|r.get(0)))?;
+    if data_identity(&copy)?!=baseline{return Err("backup_identity_mismatch".into());}Ok(())
+}
 #[cfg(test)] mod tests;

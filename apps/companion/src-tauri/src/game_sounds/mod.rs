@@ -121,6 +121,8 @@ fn resolve_playback<'a>(
 /// `Value` - "sound subsystem не должен сам сравнивать raw GSI snapshots"
 /// per the task.
 pub fn handle_gsi(app: &AppHandle, payload: &Value) {
+    let gate=app.try_state::<crate::core::dota_live::LiveDota>();
+    let _admission=match &gate {Some(g)=>match g.builtin(){Some(a)=>Some(a),None=>return},None=>None};
     // WK-108 latency addendum - as close as this process gets to "Companion
     // received this GSI snapshot" (stage C in the pipeline this is meant to
     // make measurable: player action in Dota -> GSI sent -> Companion
@@ -255,7 +257,10 @@ pub fn handle_gsi(app: &AppHandle, payload: &Value) {
         // encoding happen off it, the same "spawn a thread, don't await it
         // here" shape every other GSI-triggered side effect in this
         // codebase already uses (see obs::schedule_switch).
+        let admission=_admission.as_ref().map(|a|a.fork());
+        // The surrounding admission prevents a switch while this task is queued.
         std::thread::spawn(move || {
+            let _admission=admission;
             let Ok(bytes) = assets::read_file(&app_for_thread, &asset) else { return };
             let ext = asset.file_name.rsplit('.').next().unwrap_or("wav");
             let emitted_at_ms = now_ms();
@@ -700,4 +705,19 @@ mod tests {
             "charges 3\u{2192}2"
         );
     }
+}
+
+// Same binding/asset/volume rules as the built-in path. No path comes from IPC.
+// WebView emit confirms dispatch, not playback; without a playback acknowledgement it stays Unknown.
+pub(crate) fn dispatch_plugin_sound(app:&AppHandle,event_id:&str,kind:GameSoundEventKind,correlation:&str)->companion_dota_domain::effects::Status {
+    use companion_dota_domain::effects::Status;
+    let settings=app.state::<AppState>().0.lock().unwrap().game_sounds_settings.clone();
+    if !settings.enabled{return Status::Rejected;}
+    let detected=[GameSoundEvent{kind,id:event_id.into()}];
+    let resolved=resolve_playback(&detected,&settings.bindings,&settings.assets);
+    let Some((_,asset))=resolved.first()else{return Status::Rejected;};
+    let Ok(bytes)=assets::read_plugin_file(app,asset)else{return Status::Rejected;};
+    let ext=asset.file_name.rsplit('.').next().unwrap_or("wav");
+    let _=app.emit("game-sound-play",GameSoundPlayPayload{event_id:event_id.into(),base64:BASE64.encode(bytes),mime:assets::mime_for_extension(ext).into(),volume:settings.master_volume,correlation_id:correlation.into(),emitted_at_ms:now_ms()});
+    Status::Unknown
 }

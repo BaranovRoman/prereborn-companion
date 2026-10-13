@@ -92,6 +92,8 @@ pub fn start_sweep(app: AppHandle) {
 // `is_match_stale` check underneath it. Every real call site (`start_sweep`,
 // `AppHandle` unparameterized = `AppHandle<Wry>`) keeps compiling unchanged.
 pub fn sweep<R: Runtime>(app: &AppHandle<R>, now: DateTime<Utc>) {
+    let gate=app.try_state::<crate::core::dota_live::LiveDota>();
+    let _admission=match &gate {Some(g)=>match g.builtin(){Some(a)=>Some(a),None=>return},None=>None};
     let state = app.state::<LocalRuntimeState>();
     let mut guard = state.lock();
     let Some(conn) = guard.as_mut() else { return };

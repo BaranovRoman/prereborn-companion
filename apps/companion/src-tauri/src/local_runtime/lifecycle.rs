@@ -239,6 +239,8 @@ fn log_error(app: &AppHandle, op: &str, error: &rusqlite::Error) {
 /// duplicate sessions" and "sweep vs event race" are the same guarantee,
 /// not two separately-maintained ones.
 pub fn reconcile(app: &AppHandle, streaming: bool, now: DateTime<Utc>) {
+    let gate=app.try_state::<crate::core::dota_live::LiveDota>();
+    let _admission=match &gate {Some(g)=>match g.builtin(){Some(a)=>Some(a),None=>return},None=>None};
     let state = app.state::<LocalRuntimeState>();
     let mut guard = state.lock();
     let Some(conn) = guard.as_mut() else { return };

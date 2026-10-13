@@ -54,11 +54,28 @@ pub(crate) fn start_workers(app: &AppHandle) {
 // Same synchronous fan-out and order as the original GSI request path.
 // Diagnostics, HTTP acknowledgement, last payload and forwarding stay with ingest.
 pub(crate) fn handle_gsi(app: &AppHandle, payload: &Value) {
+    let gate=app.state::<crate::core::dota_live::LiveDota>();
+    let Some(_admission)=gate.builtin() else {
+        let context={let state=app.state::<AppState>();let i=state.0.lock().unwrap();companion_dota_domain::contracts::ReplayContext{observer_session:None,session_ended:i.session_ended,manual_summary_override:i.obs_manual_summary_override}};
+        gate.enqueue_with_context(payload,context);return;
+    };
+    let legacy_scene={let state=app.state::<AppState>();let i=state.0.lock().unwrap();companion_dota_domain::broadcast_state::resolve(companion_dota_domain::broadcast_state::BroadcastState::from_gsi(payload),i.session_ended,i.obs_manual_summary_override)};
+    gate.resolve_overlay(legacy_scene);
     obs::handle_gsi(app, payload);
     game_sounds::handle_gsi(app, payload);
     let shadow=local_runtime::handle_gsi_shadow(app, payload);
     draft_reminder::handle_gsi(app, payload);
     crate::core::dota_observer::forward_with_context(app, payload, shadow);
+}
+
+// Called while both admissions remain closed, after the external process/effects are fenced.
+// Do not diff the first BuiltIn frame against a pre-handover inventory/cooldown snapshot.
+pub(crate) fn reset_after_external_fence(app:&AppHandle)->Result<(),String> {
+    let state=app.state::<AppState>();let mut inner=state.0.lock().map_err(|_|"dota_state_poisoned")?;
+    inner.game_sounds_previous_gsi=None;
+    inner.game_sounds_pending_item_confirmations=Default::default();
+    inner.obs_retry_scene=None;inner.obs_retry_at=None;inner.obs_retry_attempt=0;
+    Ok(())
 }
 
 /// Runs once at startup: tries to find Dota and write the GSI config with no

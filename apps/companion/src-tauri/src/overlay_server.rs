@@ -158,7 +158,8 @@ pub fn current<R: Runtime>(app: &AppHandle<R>) -> OverlayStateSnapshot {
     // below keeps reflecting the real GSI/session-derived state even while
     // the overlay is hidden, so turning it back on shows the current state,
     // not whatever was showing right before it was turned off.
-    let scene = broadcast_state::resolve(gsi_derived, session_ended, obs_manual_summary_override);
+    let legacy_scene = broadcast_state::resolve(gsi_derived, session_ended, obs_manual_summary_override);
+    let scene = app.try_state::<crate::core::dota_live::LiveDota>().map(|g|g.resolve_overlay(legacy_scene)).unwrap_or(legacy_scene);
     OverlayStateSnapshot {
         scene,
         updated_at: chrono::Utc::now().to_rfc3339(),

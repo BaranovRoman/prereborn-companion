@@ -1,6 +1,6 @@
 //! Test-only owning adapter; all execution delegates to the production implementation.
 use super::*;
-pub(super) struct FixtureAdapter {pub(super) conn:Connection,adapter:Adapter,_fixture:Fixture}
+pub(super) struct FixtureAdapter {pub(super) conn:Connection,pub(super) adapter:Adapter,_fixture:Fixture}
 impl Adapter {
     pub(super) fn install(fixture:Fixture)->Result<FixtureAdapter>{FixtureAdapter::install(fixture)}
 }

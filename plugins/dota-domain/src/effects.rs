@@ -1,22 +1,28 @@
-//! Proposed IPC v1 payloads only; no effect dispatch, SQL, network or secrets.
+//! Typed IPC v1 effects; only the core executes storage/transports. No SQL, URLs or secrets.
 use serde::{Deserialize, Serialize};
 use crate::{broadcast_state::BroadcastState, contracts::MatchTransition, ownership::{Lease,Ownership}};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all="snake_case")]
 pub enum Capability { Obs, Sound, Notification, History, Sync, Overlay }
+impl Capability {
+ pub fn permission(self)->&'static str {match self {
+  Self::Obs=>"dota.obs.scene",Self::Sound=>"dota.sound.play",Self::Overlay=>"dota.overlay.update",
+  Self::Notification=>"dota.notification",Self::History=>"dota.history",Self::Sync=>"dota.sync",
+ }}
+}
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag="operation",rename_all="snake_case",deny_unknown_fields)]
 pub enum Effect {
  MatchTransaction {identity:String,capability:Capability},
- ObsScene {state:BroadcastState}, Sound {event_id:String}, Notification {text:String},
+ ObsScene {state:BroadcastState}, Sound {event_id:String,#[serde(default,skip_serializing_if="Option::is_none")] kind:Option<crate::events::GameSoundEventKind>}, Notification {text:String},
  MatchTransition {match_id:String,transition:MatchTransition}, HistoryRead {limit:u16},
  BackendSync {match_id:String}, Overlay {state:BroadcastState},
 }
 impl Effect {
- fn capability(&self)->Capability {match self {Self::MatchTransaction{capability,..}=>*capability,Self::ObsScene{..}=>Capability::Obs,Self::Sound{..}=>Capability::Sound,Self::Notification{..}=>Capability::Notification,Self::MatchTransition{..}|Self::HistoryRead{..}=>Capability::History,Self::BackendSync{..}=>Capability::Sync,Self::Overlay{..}=>Capability::Overlay}}
- fn validate(&self)->bool {match self {
+ pub fn capability(&self)->Capability {match self {Self::MatchTransaction{capability,..}=>*capability,Self::ObsScene{..}=>Capability::Obs,Self::Sound{..}=>Capability::Sound,Self::Notification{..}=>Capability::Notification,Self::MatchTransition{..}|Self::HistoryRead{..}=>Capability::History,Self::BackendSync{..}=>Capability::Sync,Self::Overlay{..}=>Capability::Overlay}}
+ pub fn validate(&self)->bool {match self {
   Self::MatchTransaction{identity,..}=>identity.len()==64&&identity.bytes().all(|c|c.is_ascii_hexdigit()),
-  Self::Sound{event_id}=>identifier(event_id), Self::Notification{text}=>!text.is_empty()&&text.len()<=512,
+  Self::Sound{event_id,..}=>identifier(event_id), Self::Notification{text}=>!text.is_empty()&&text.len()<=512,
   Self::MatchTransition{match_id,..}|Self::BackendSync{match_id}=>identifier(match_id),
   Self::HistoryRead{limit}=>*limit>0&&*limit<=100, _=>true,
  }}
@@ -74,7 +80,7 @@ impl Ledger {
 }
 #[cfg(test)] mod tests {
  use super::*; use crate::ownership::{Phase,Owner};
- fn request(lease:Lease)->Request {Request {api:1,lease,correlation_id:"c1".into(),idempotency_key:"e1".into(),deadline_ms:1000,effect:Effect::Sound{event_id:"item_tango".into()}}}
+ fn request(lease:Lease)->Request {Request {api:1,lease,correlation_id:"c1".into(),idempotency_key:"e1".into(),deadline_ms:1000,effect:Effect::Sound{event_id:"item_tango".into(),kind:None}}}
  #[test] fn bounds_rights_dedupe_conflicts_timeout_and_stale_owner() {
   let mut owners=Ownership::default(); let Phase::Active(lease)=owners.phase() else {panic!()}; let mut l=Ledger::default(); let mut r=request(lease);
   assert_eq!(l.admit(&owners,&[],&r,0),Err("capability_denied"));
@@ -82,9 +88,9 @@ impl Ledger {
   l.acknowledge(&owners,&r,Status::Unknown).unwrap(); assert_eq!(l.admit(&owners,&[Capability::Sound],&r,1001),Ok(Admission {status:Status::Unknown,duplicate:true}));
   l.acknowledge(&owners,&r,Status::Completed).unwrap(); assert_eq!(l.admit(&owners,&[Capability::Sound],&r,1001),Ok(Admission {status:Status::Completed,duplicate:true}));
   assert!(l.acknowledge(&owners,&r,Status::Unknown).is_err());
-  r.effect=Effect::Sound{event_id:"other".into()}; assert_eq!(l.admit(&owners,&[Capability::Sound],&r,0),Err("idempotency_conflict"));
+  r.effect=Effect::Sound{event_id:"other".into(),kind:None}; assert_eq!(l.admit(&owners,&[Capability::Sound],&r,0),Err("idempotency_conflict"));
   owners.begin(lease,Owner::External).unwrap(); assert!(l.admit(&owners,&[Capability::Sound],&r,0).is_err());
-  r.lease=owners.confirm_fenced(lease).unwrap(); r.effect=Effect::Sound{event_id:"item_tango".into()};
+  r.lease=owners.confirm_fenced(lease).unwrap(); r.effect=Effect::Sound{event_id:"item_tango".into(),kind:None};
   assert_eq!(l.admit(&owners,&[Capability::Sound],&r,1001),Ok(Admission {status:Status::Completed,duplicate:true}));
  }
  #[test] fn arbitrary_operations_secrets_and_large_payloads_rejected() {
