@@ -12,7 +12,8 @@
 - latest.json.version=0.5.90; windows-x86_64 URL ведёт к installer 24 714 080 bytes.
 - SHA256 installer: 237a7c9afe85d7523d955e5c1b952bc70819104b14f30afcdeed9ae5faedf30a.
 - Tag/release 0.5.91 отсутствует на момент проверки. Следующий patch: 0.5.91; не prerelease.
-- Установленная Windows-версия не доступна с Mac: запрошена у пользователя, pending.
+- Установленная Windows-версия подтверждена пользователем: **0.5.89**.
+  Её updater 2.10.1, key, endpoint и весь tauri.conf.json совпадают с feature; 0.5.91 > 0.5.89.
   Source version 0.4.0 не означает installed/published version: CI stamp из tag меняет три metadata.
 
 ## Findings
@@ -38,7 +39,7 @@ UI исправлен: ready только после successful downloadAndInsta
 ### Release preparation
 RC job/inputs удалены. Существующий windows-release.yml:
 1. Manual validation_version=0.5.91, signing_validation=false — обычный build-windows, без secrets,
-   native supervisor/journal/IPC tests, keyring smoke, NSIS metadata/payload inventory и existing GSI/overlay smoke.
+   native supervisor tests, keyring smoke, NSIS metadata/payload inventory и existing GSI/overlay smoke.
 2. **Только после отдельного разрешения:** тот же workflow, signing_validation=true на feature ref:
    existing release-windows build/sign pipeline, manifest/signature/sha verification, Actions artifact;
    GitHub Release/deploy steps skipped on branch. Это dry-run workflow, не update channel.
@@ -75,10 +76,14 @@ installer: unsigned CI не проверяет новую подпись или 
 Временные SQLite только; реальные БД/.gitignore не изменяются.
 
 ## Follow-up
-- Получить installed Windows version.
-- Unsigned feature Windows CI: push отклонён automatic approval review как неподтверждённый
-  source egress в GitHub; запрошено отдельное разрешение push + unsigned CI. Предыдущий success
-  0.5.90 не является proof feature. Signing/publication/tag/merge не запускались.
+- Installed Windows version: 0.5.89, подтверждена; metadata/key/endpoint сверены с tag.
+- Пользователь явно разрешил push + unsigned CI; a873b54 отправлен, run 38422658969.
+  release-windows skipped. Первый run failed: combined Rust lib-test не загрузился,
+  STATUS_ENTRYPOINT_NOT_FOUND, до тестов/installer. Известный framework test-harness loader
+  issue также описан existing keyring_smoke example; не считается успешной проверкой продукта.
+  OS-тесты переведены в точечный integration target с exact production windows.rs (без копии
+  реализации/нового runtime/mock OS); повторный Windows run pending. Durable journal Mac tests
+  passed; Windows journal/lifecycle combined lib-test не выполнены и не объявляются passed.
 - Signing rehearsal/новые updater signatures: требуется отдельное разрешение.
 - Native 0.5.90 → 0.5.91 NSIS /UPDATE, история/settings/credentials/Twitch/TTS/OBS/реальный GSI:
   manual pending. Полный check через живой latest endpoint возможен после публикации;

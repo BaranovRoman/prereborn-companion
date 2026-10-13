@@ -98,15 +98,12 @@ jobs:
           p.write_text(re.sub(r'^version = "[^"]+"', 'version = "'+version+'"',p.read_text(),count=1,flags=re.M))
           PY
 
-      - name: Windows supervision and durable journal tests
+      - name: Windows process supervision tests
         if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''
         shell: bash
         timeout-minutes: 15
         run: |
-          cargo build --manifest-path plugins/Cargo.toml -p companion-hello-plugin
-          cargo test --manifest-path apps/companion/src-tauri/Cargo.toml --lib core::plugin_runtime::windows::tests:: -- --test-threads=1
-          cargo test --manifest-path apps/companion/src-tauri/Cargo.toml --lib transaction_authorization::supervision_tests -- --test-threads=1
-          cargo test --manifest-path apps/companion/src-tauri/Cargo.toml --lib core::plugin_runtime::tests::lifecycle_commands_events_errors_stop_and_restart -- --exact --test-threads=1
+          cargo test --manifest-path apps/companion/src-tauri/Cargo.toml --test windows_supervisor -- --test-threads=1
 
       - name: Secure storage smoke test (real Windows Credential Manager)
         run: cargo run --manifest-path apps/companion/src-tauri/Cargo.toml --example keyring_smoke

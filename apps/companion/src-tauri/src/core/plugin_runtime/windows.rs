@@ -118,7 +118,8 @@ mod tests {
     }
     #[test] fn owner_crash_kills_worker_without_pid_recovery(){
         use std::io::{BufRead,Write};
-        let mut parent=Command::new(std::env::current_exe().unwrap()).args(["--ignored","--exact","core::plugin_runtime::windows::tests::crash_fixture","--nocapture"])
+        let fixture=format!("{}::crash_fixture",module_path!().split_once("::").unwrap().1);
+        let mut parent=Command::new(std::env::current_exe().unwrap()).args(["--ignored","--exact",&fixture,"--nocapture"])
             .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
         let mut reader=std::io::BufReader::new(parent.stdout.take().unwrap());let mut line=String::new();
         loop {line.clear();assert!(reader.read_line(&mut line).unwrap()>0);if let Some(at)=line.find("WORKER "){line=line[at..].to_string();break;}}
