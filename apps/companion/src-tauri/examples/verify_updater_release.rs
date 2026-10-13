@@ -30,3 +30,16 @@ fn main()->Result<(),Box<dyn std::error::Error>> {
  if platform["url"].as_str()!=Some(&expected){return Err("manifest URL mismatch".into());}
  println!("Verified {}: configured-key signature, manifest URL/version/sidecar, SHA256",args[3]);Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+ fn release(version:&str)->tauri_plugin_updater::RemoteRelease {
+  serde_json::from_value(serde_json::json!({"version":version,"platforms":{"windows-x86_64":{"url":"https://github.com/BaranovRoman/prereborn-companion/releases/download/test/setup.exe","signature":"test"}}})).unwrap()
+ }
+ #[test] fn actual_updater_semver_orders_next_stable_numerically(){
+  let next=release("0.5.91");
+  for version in ["0.5.9","0.5.89","0.5.90"] {assert!(next.version>release(version).version);}
+  assert_eq!(next.version,release("0.5.91").version);
+  assert!(next.version<release("0.5.92").version);
+ }
+}

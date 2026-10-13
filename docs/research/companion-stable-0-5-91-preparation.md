@@ -76,7 +76,9 @@ installer: unsigned CI не проверяет новую подпись или 
 
 ## Follow-up
 - Получить installed Windows version.
-- Unsigned feature Windows CI: pending launch/results; предыдущий success 0.5.90 не proof feature.
+- Unsigned feature Windows CI: push отклонён automatic approval review как неподтверждённый
+  source egress в GitHub; запрошено отдельное разрешение push + unsigned CI. Предыдущий success
+  0.5.90 не является proof feature. Signing/publication/tag/merge не запускались.
 - Signing rehearsal/новые updater signatures: требуется отдельное разрешение.
 - Native 0.5.90 → 0.5.91 NSIS /UPDATE, история/settings/credentials/Twitch/TTS/OBS/реальный GSI:
   manual pending. Полный check через живой latest endpoint возможен после публикации;
@@ -91,3 +93,10 @@ installer: unsigned CI не проверяет новую подпись или 
   commands.rs (Finished before verification).
 - .github/workflows/windows-release.yml; tauri.conf.json; useUpdater.ts; AppShell.tsx;
   scripts/companion-generate-update-manifest.ps1 / companion-verify-release-assets.ps1.
+
+## Local validation
+3 targeted updater Vitest tests passed; TypeScript passed. Published 0.5.90 installer configured-key
+signature/hash/URL verified; tampered binary rejected, equal-version rejected. Actual SDK RemoteRelease
+SemVer unit test checks 0.5.91 > 0.5.9/0.5.89/0.5.90 and no equal/newer offer. Release contract guard,
+workflow YAML/embedded Python and git diff --check passed. Windows PS scripts/7-Zip inventory/native
+supervision/new installer/signature/manual upgrade остаются pending Windows CI/разрешений.
