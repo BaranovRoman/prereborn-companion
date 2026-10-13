@@ -127,3 +127,23 @@ supervision/new installer/signature/manual upgrade остаются pending Wind
 - Subsequent full unsigned CI still pending, including packaged GSI/overlay smoke and artifact.
 - Source evidence: https://github.com/tauri-apps/tauri/blob/dev/crates/tauri-bundler/src/bundle.rs
   and cached tauri-utils SDK platform.rs (NSS selection).
+
+## Final unsigned Windows result
+Authorized unsigned run **38432855886** completed SUCCESS on runtime/build source
+**eef27f392d37ae5e4d9eaf3190046a7a0a65d314**. release-windows SKIPPED.
+Passed: 5 native supervisor tests (3 explicit subprocess fixtures ignored), real Windows
+Credential Manager, TypeScript/Vite + Rust release/NSIS build, PE 0.5.91 metadata, unchanged
+identifier/endpoint, installer inventory with no separate Dota worker/package/private key,
+strict exact UNK->NSS payload verification, packaged app startup + GSI 3665/canonical overlay
+HTML/state/initial SSE, Draft/Gameplay synthetic states, second-instance rejection without
+interrupting original runtime, checksums and upload.
+Artifact `prereborn-companion-windows`: 25,174,805 bytes, unsigned; not an updater/public release.
+https://github.com/BaranovRoman/prereborn-companion/actions/runs/38432855886
+
+Published stable still 0.5.90 after CI, installed version 0.5.89. No signing run, merge, tag,
+GitHub Release or updater publication performed. User .gitignore and real SQLite untouched.
+Next permission: signing rehearsal `validation_version=0.5.91`, `signing_validation=true`
+on approved feature ref, no publication. Then verify NEW configured-key signature/manifest,
+installer upgrade preservation and manual Twitch/TTS/OBS/real GSI smoke. Publication remains
+separate explicit permission; ordinary stable tag pipeline creates latest.json for existing endpoint.
+No developer gate/External activation or auto SQLite migration.
