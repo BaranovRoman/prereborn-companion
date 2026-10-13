@@ -34,7 +34,7 @@ pub struct MatchState {
 pub struct OperationReceipt {pub index:u8,pub disposition:Disposition,pub post_state:Option<MatchState>}
 #[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
-pub struct SessionReceipt {pub local_id:String,pub ended_at:Option<String>,pub rating_current:Option<i64>,pub disposition:Disposition,pub diagnostic_revision:u64}
+pub struct SessionReceipt {pub local_id:String,pub ended_at:Option<String>,pub streamed:bool,pub rating_current:Option<i64>,pub disposition:Disposition,pub diagnostic_revision:u64}
 #[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
 #[serde(rename_all="snake_case")]
 pub enum Delivery {Pending,Delivered,Failed}
@@ -46,8 +46,36 @@ pub struct OutboxReceipt {pub id:String,pub entity_local_id:String,pub event_typ
 pub struct Receipt {
     pub api:u32,pub operation_key:String,pub committed_correlation_id:String,pub status:Status,pub error:Option<String>,
     pub precondition_outcome:PreconditionOutcome,pub before:Preconditions,pub after:Option<Preconditions>,
-    pub operations:Vec<OperationReceipt>,pub session:Option<SessionReceipt>,pub current_match:Option<MatchState>,pub outbox:Vec<OutboxReceipt>,
+    pub operations:Vec<OperationReceipt>,pub session:Option<SessionReceipt>,pub current_match:Option<MatchState>,pub current_context:Option<crate::match_shadow::MatchContext>,pub outbox:Vec<OutboxReceipt>,
 }
 #[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 pub struct Response {pub correlation_id:String,pub status:Status,pub receipt:Option<Receipt>}
+
+pub const DIAGNOSTIC_CAPABILITY:&str="dota.diagnostic.execute";
+#[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+pub struct DiagnosticScope {pub session:String,pub epoch:u64,pub run:String}
+#[derive(Clone,Debug,Serialize,Deserialize)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+pub struct DiagnosticFrame {
+    pub scope:DiagnosticScope,pub ticket:String,pub binding:String,pub preconditions:Preconditions,
+    pub operation_key:String,pub correlation_id:String,pub context:crate::match_shadow::Context,
+    pub snapshot:crate::contracts::ReplayGsi,
+}
+#[derive(Clone,Debug,Serialize,Deserialize)]
+#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
+pub enum DiagnosticRequest {
+    Execute {scope:DiagnosticScope,sequence:u64,snapshot_identity:String,request:Request},
+    Recover {scope:DiagnosticScope,request:Request},
+}
+impl DiagnosticRequest {
+    pub fn bounded(&self)->bool {
+        let (scope,request)=match self {Self::Execute{scope,request,..}|Self::Recover{scope,request}=>(scope,request)};
+        scope.epoch>0&&!scope.session.is_empty()&&scope.session.len()<=128&&!scope.run.is_empty()&&scope.run.len()<=128
+            &&request.bounded()&&match self {Self::Execute{sequence,snapshot_identity,..}=>*sequence>0&&snapshot_identity.len()==64&&snapshot_identity.bytes().all(|b|b.is_ascii_hexdigit()),Self::Recover{..}=>true}
+    }
+}
+#[derive(Clone,Debug,Serialize,Deserialize)]
+#[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
+pub enum DiagnosticReply {Result {response:Response},Denied {code:String}}

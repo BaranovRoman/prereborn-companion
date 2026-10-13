@@ -3,6 +3,8 @@ use companion_plugin_protocol::{read_frame, write_frame, Message, CORE_API};
 use companion_dota_domain::{contracts::{ReplayInput, DOTA_API, PLUGIN_ID, REPLAY_COMMAND}, replay::Replay};
 use serde_json::json;
 use std::io::{self, BufReader};
+#[cfg(debug_assertions)]
+mod diagnostic;
 
 fn run() -> Result<(), String> {
     if std::env::args().skip(1).any(|arg| arg != "--replay") { return Err("live_mode_not_implemented".into()); }
@@ -11,8 +13,22 @@ fn run() -> Result<(), String> {
     write_frame(&mut output, Message::Ready { id: PLUGIN_ID.into(), version: env!("CARGO_PKG_VERSION").into(), min_core_api: CORE_API, max_core_api: CORE_API })?;
     write_frame(&mut output, Message::State { data: json!({"mode":"replay_only","dotaApi":DOTA_API,"sideEffects":false,"liveCapabilities":[]}) })?;
     let mut replay = Replay::default();
+    #[cfg(debug_assertions)]
+    let mut diagnostic=diagnostic::State::default();
     while let Some(message) = read_frame(&mut input)? {
         match message {
+            #[cfg(debug_assertions)]
+            Message::Command{id,name,args} if name=="dota.diagnostic_frame"||name=="dota.diagnostic_recover" => {
+                let request=if name=="dota.diagnostic_frame" {
+                    serde_json::from_value::<companion_dota_domain::match_execution::DiagnosticFrame>(args).map_err(|_|"invalid_diagnostic_frame".to_string()).and_then(|frame|diagnostic.frame(frame))
+                } else {
+                    serde_json::from_value::<companion_dota_domain::match_execution::DiagnosticRequest>(args).map_err(|_|"invalid_recovery_request".to_string()).and_then(|req|if matches!(req,companion_dota_domain::match_execution::DiagnosticRequest::Recover{..}){Ok(req)}else{Err("invalid_recovery_request".into())})
+                };
+                match request {
+                    Ok(request)=>diagnostic.exchange(id,request,&mut input,&mut output)?,
+                    Err(code)=>write_frame(&mut output,Message::Error{id:Some(id),code,message:"Diagnostic request rejected".into()})?,
+                }
+            },
             Message::Command { id, name, args } if name == REPLAY_COMMAND => {
                 let result = serde_json::from_value::<ReplayInput>(args).map_err(|_| "invalid_replay_input".to_string()).and_then(|input| replay.apply(input));
                 match result {
@@ -46,7 +62,12 @@ fn run() -> Result<(), String> {
                     _=>write_frame(&mut output,Message::Error {id:Some(id),code:"invalid_read_request".into(),message:"Read request rejected".into()})?,
                 }
             },
-            Message::Command { id, name, .. } if name == "dota.reset" => { replay = Replay::default(); write_frame(&mut output, Message::Reply { id, result: json!({"reset":true,"sideEffects":false}) })?; },
+            Message::Command { id, name, .. } if name == "dota.reset" => {
+                replay = Replay::default();
+                #[cfg(debug_assertions)]
+                {diagnostic=diagnostic::State::default();}
+                write_frame(&mut output, Message::Reply { id, result: json!({"reset":true,"sideEffects":false}) })?;
+            },
             Message::Command { id, .. } => write_frame(&mut output, Message::Error { id: Some(id), code: "unsupported_replay_command".into(), message: "Live APIs are not connected".into() })?,
             Message::Stop => { write_frame(&mut output, Message::Stopped)?; return Ok(()); },
             _ => return Err("unexpected_message".into()),

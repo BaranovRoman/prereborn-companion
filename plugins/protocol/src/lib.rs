@@ -24,6 +24,8 @@ pub enum Message {
     State { data: Value },
     CoreRead { id: u64, request: Value },
     CoreReadReply { id: u64, response: Value },
+    DiagnosticExecute { id: u64, request: Value },
+    DiagnosticReceipt { id: u64, response: Value },
     Stop,
     Stopped,
     Error { id: Option<u64>, code: String, message: String },
@@ -60,5 +62,12 @@ mod tests {
         assert_eq!(read_frame(&mut &vec![b'x'; MAX_FRAME + 1][..]).unwrap_err(), "frame_too_large");
         assert_eq!(read_frame(&mut &b"{\"protocol\":1,\"message\":{\"type\":\"unknown\"}}\n"[..]).unwrap_err(), "invalid_frame");
         assert!(read_frame(&mut &b""[..]).unwrap().is_none());
+    }
+    #[test]
+    fn diagnostic_reverse_frames_use_v1_and_cannot_add_hello_capabilities() {
+        for message in [Message::DiagnosticExecute{id:9,request:serde_json::json!({"kind":"recover"})},Message::DiagnosticReceipt{id:9,response:serde_json::json!({"kind":"denied","code":"ownership_fenced"})}] {
+            let mut bytes=Vec::new();write_frame(&mut bytes,message).unwrap();assert!(matches!(read_frame(&mut &bytes[..]).unwrap(),Some(Message::DiagnosticExecute{id:9,..}|Message::DiagnosticReceipt{id:9,..})));
+        }
+        assert_eq!(read_frame(&mut &b"{\"protocol\":1,\"message\":{\"type\":\"hello\",\"core_api\":1,\"capabilities\":[\"dota.diagnostic.execute\"]}}\n"[..]).unwrap_err(),"invalid_frame");
     }
 }

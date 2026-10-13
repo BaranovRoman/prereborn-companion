@@ -36,6 +36,8 @@ impl Default for Runtime {
     }
 }
 impl Runtime {
+    #[cfg(test)]
+    pub(crate) fn diagnostic_process_id(&self)->Option<u32>{self.child.as_ref().map(Child::id)}
     fn reap(&mut self) {
         self.input.take();
         if let Some(mut child) = self.child.take() {
@@ -143,9 +145,19 @@ impl Runtime {
         self.command_with_reader(name, args, |_| Err("capability_denied".into()))
     }
     pub fn command_with_reader(&mut self, name: String, args: Value, mut reader: impl FnMut(Value)->Result<Value,String>) -> Result<Value, String> {
+        self.command_with_handlers(name,args,&mut reader,None)
+    }
+    // Fixture-only capability: never exposed through PluginManager or Tauri commands.
+    #[cfg(test)]
+    pub(crate) fn command_diagnostic(&mut self,name:String,args:Value,capabilities:&[&str],mut executor:impl FnMut(Value)->Result<Value,String>)->Result<Value,String> {
+        if self.identity.as_deref()!=Some("dota2") || !capabilities.contains(&companion_dota_domain::match_execution::DIAGNOSTIC_CAPABILITY)
+            || !matches!(name.as_str(),"dota.diagnostic_frame"|"dota.diagnostic_recover") {return Err("capability_denied".into());}
+        self.command_with_handlers(name,args,&mut |_|Err("capability_denied".into()),Some(&mut executor))
+    }
+    fn command_with_handlers(&mut self,name:String,args:Value,reader:&mut dyn FnMut(Value)->Result<Value,String>,mut executor:Option<&mut dyn FnMut(Value)->Result<Value,String>>)->Result<Value,String> {
         self.poll();
         if self.snapshot.phase != Phase::Running { return Err("not_running".into()); }
-        let limit = if self.identity.as_deref() == Some("dota2") && matches!(name.as_str(), "dota.replay" | "dota.watchdog_shadow") { companion_plugin_protocol::MAX_FRAME - 256 } else { 512 };
+        let limit = if executor.is_some() {32768} else if self.identity.as_deref() == Some("dota2") && matches!(name.as_str(), "dota.replay" | "dota.watchdog_shadow") { companion_plugin_protocol::MAX_FRAME - 256 } else { 512 };
         if name.len() > 64 || serde_json::to_vec(&args).map_err(|e| e.to_string())?.len() > limit {
             return Err("command_too_large".into());
         }
@@ -154,8 +166,18 @@ impl Runtime {
         self.send(Message::Command { id, name: name.clone(), args })?;
         let deadline = Instant::now() + TIMEOUT;
         let mut read_seen = false;
+        let mut execution_seen = false;
         loop {
             match self.receive(deadline)? {
+                Message::DiagnosticExecute {id:request_id,request} => {
+                    if self.identity.as_deref()!=Some("dota2") || executor.is_none() || request_id!=id || execution_seen
+                        || !matches!(name.as_str(),"dota.diagnostic_frame"|"dota.diagnostic_recover") {return Err(self.fail("diagnostic_execution_not_allowed"));}
+                    execution_seen=true;
+                    if serde_json::to_vec(&request).map_err(|e|e.to_string())?.len()>20000 {return Err(self.fail("diagnostic_request_too_large"));}
+                    let response=executor.as_mut().unwrap()(request)?;
+                    if serde_json::to_vec(&response).map_err(|e|e.to_string())?.len()>40000 {return Err(self.fail("diagnostic_receipt_too_large"));}
+                    self.send(Message::DiagnosticReceipt{id:request_id,response})?;
+                },
                 Message::CoreRead { id: read_id, request } => {
                     if self.identity.as_deref()!=Some("dota2") || name!="dota.core_read" || read_id!=id || read_seen {
                         return Err(self.fail("core_read_not_allowed"));
@@ -343,5 +365,42 @@ mod writer_deadline_tests {
         assert!(started.elapsed() < Duration::from_secs(5));
         assert!(runtime.child.is_none());
         assert_eq!(runtime.snapshot().phase, Phase::Failed);
+    }
+}
+
+#[cfg(all(test,unix))]
+mod diagnostic_security_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    const CAP:&str=companion_dota_domain::match_execution::DIAGNOSTIC_CAPABILITY;
+    fn attacker(dir:&tempfile::TempDir,identity:&str,reverse_id:u64,repeat:bool)->std::path::PathBuf {
+        let path=dir.path().join("adversarial-ipc");
+        let ready=json!({"protocol":1,"message":{"type":"ready","id":identity,"version":"0.1.0","min_core_api":1,"max_core_api":1}});
+        let request=json!({"protocol":1,"message":{"type":"diagnostic_execute","id":reverse_id,"request":{}}});
+        let repeat=if repeat{format!("read line\nprintf '%s\\n' '{request}'\n")}else{String::new()};
+        std::fs::write(&path,format!("#!/bin/sh\nread line\nprintf '%s\\n' '{ready}'\nread line\nprintf '%s\\n' '{request}'\n{repeat}read line\n")).unwrap();std::fs::set_permissions(&path,std::fs::Permissions::from_mode(0o700)).unwrap();path
+    }
+    #[test]
+    fn reverse_execution_requires_host_capability_identity_command_and_single_correlation() {
+        for (identity,name,grant,id,repeat,calls) in [
+            ("hello","dota.diagnostic_frame",true,1,false,0),
+            ("dota2","dota.diagnostic_frame",false,1,false,0),
+            ("dota2","dota.replay",false,1,false,0),
+            ("dota2","dota.diagnostic_frame",true,99,false,0),
+            ("dota2","dota.diagnostic_frame",true,1,true,1),
+        ] {
+            let dir=tempfile::tempdir().unwrap();let path=attacker(&dir,identity,id,repeat);let mut runtime=Runtime::default();runtime.start_expected(&path,&[],identity,Some("0.1.0")).unwrap();let mut observed=0;
+            let result=if grant {runtime.command_diagnostic(name.into(),json!({}),&[CAP],|_|{observed+=1;Ok(json!({"kind":"denied","code":"fixture_denied"}))})}
+                else if name=="dota.replay" {runtime.command(name.into(),json!({}))}
+                else {runtime.command_diagnostic(name.into(),json!({}),&[],|_|panic!("missing capability invoked executor"))};
+            assert!(result.is_err());assert_eq!(observed,calls);let _=runtime.stop();runtime.stop().unwrap();assert!(runtime.child.is_none());
+        }
+    }
+    #[test]
+    fn hello_cannot_negotiate_execution_rights_or_send_reverse_request() {
+        let dir=tempfile::tempdir().unwrap();let path=dir.path().join("invalid-handshake");
+        for message in [json!({"type":"diagnostic_execute","id":1,"request":{}}),json!({"type":"ready","id":"dota2","version":"0.1.0","min_core_api":1,"max_core_api":1,"capabilities":[CAP]})] {
+            std::fs::write(&path,format!("#!/bin/sh\nread line\nprintf '%s\\n' '{}'\nread line\n",json!({"protocol":1,"message":message}))).unwrap();std::fs::set_permissions(&path,std::fs::Permissions::from_mode(0o700)).unwrap();let mut runtime=Runtime::default();assert!(runtime.start_expected(&path,&[],"dota2",Some("0.1.0")).is_err());assert!(runtime.child.is_none());
+        }
     }
 }

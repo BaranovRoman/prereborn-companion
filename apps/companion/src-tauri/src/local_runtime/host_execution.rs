@@ -37,6 +37,7 @@ fn reserved(c:&Connection)->Result<()> {
     CREATE TABLE pc11_revision(kind TEXT NOT NULL,id TEXT NOT NULL,value INTEGER NOT NULL CHECK(typeof(value)='integer' AND value>=0),deleted INTEGER NOT NULL CHECK(deleted IN (0,1)),PRIMARY KEY(kind,id));
     CREATE TABLE pc11_ticket(id TEXT PRIMARY KEY,doc TEXT NOT NULL,checksum TEXT NOT NULL);
     CREATE TABLE pc11_ledger(operation_key TEXT PRIMARY KEY,identity TEXT NOT NULL,status TEXT NOT NULL CHECK(status IN ('completed','rejected','unknown')),receipt TEXT,checksum TEXT);") )?;
+    sql(c.execute_batch("CREATE TABLE pc11_diagnostic_owner(id INTEGER PRIMARY KEY CHECK(id=1),doc TEXT NOT NULL);"))?;
     for (table,key) in TABLES {
         if matches!(table,"local_matches"|"local_sessions") {
             sql(c.execute(&format!("INSERT INTO pc11_revision SELECT ?1,{key},0,0 FROM {table}"),[table]))?;
@@ -124,8 +125,12 @@ impl Adapter {
     }
     fn execute(&mut self,req:&Request)->Result<Response>{self.execute_fault(req,Fault::None)}
     fn execute_fault(&mut self,req:&Request,fault:Fault)->Result<Response> {
+        self.execute_guarded(req,fault,&|_|Ok(()))
+    }
+    fn execute_guarded(&mut self,req:&Request,fault:Fault,guard:&dyn Fn(&Connection)->Result<()>)->Result<Response> {
         if !req.bounded(){return Err("invalid_request".into());}
         let tx=sql(self.conn.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::verify(&tx,&self.expected_schema)?;
+        guard(&tx)?;
         if let Some(saved)=saved(&tx,req)? {return Ok(saved);}
         let oversized:bool=sql(tx.query_row("SELECT EXISTS(SELECT 1 FROM pc11_ticket WHERE id=?1 AND (length(CAST(doc AS BLOB))>16384 OR length(checksum)>64))",[&req.ticket],|r|r.get(0)))?;
         if oversized{return Err("context_corrupt".into());}
@@ -137,7 +142,7 @@ impl Adapter {
             else if preconditions(&tx,&ticket.context.session.local_id)?!=ticket.preconditions{Some("stale_precondition")}
             else if !expected.conclusive||expected.detector.as_ref()!=Some(&req.plan){Some("invalid_plan")}
             else{None};
-        let mut receipt=Receipt{api:1,operation_key:req.operation_key.clone(),committed_correlation_id:req.correlation_id.clone(),status:if error.is_some(){Status::Rejected}else{Status::Completed},error:error.map(str::to_string),precondition_outcome:if error.is_some(){PreconditionOutcome::Rejected}else{PreconditionOutcome::Satisfied},before:ticket.preconditions.clone(),after:None,operations:Vec::new(),session:None,current_match:None,outbox:Vec::new()};
+        let mut receipt=Receipt{api:1,operation_key:req.operation_key.clone(),committed_correlation_id:req.correlation_id.clone(),status:if error.is_some(){Status::Rejected}else{Status::Completed},error:error.map(str::to_string),precondition_outcome:if error.is_some(){PreconditionOutcome::Rejected}else{PreconditionOutcome::Satisfied},before:ticket.preconditions.clone(),after:None,operations:Vec::new(),session:None,current_match:None,current_context:None,outbox:Vec::new()};
         if error.is_none(){apply(&tx,&ticket,&req.plan,&mut receipt)?;}
         if fault==Fault::RollbackAfterWrites{return Err("injected_rollback".into());}
         let encoded=encode(&receipt)?;if encoded.len()>32768{return Err("receipt_too_large".into());}
@@ -148,8 +153,12 @@ impl Adapter {
         Ok(Response{correlation_id:req.correlation_id.clone(),status:receipt.status,receipt:Some(receipt)})
     }
     fn recover(&mut self,req:&Request)->Result<Response> {
-        if !req.bounded(){return Err("invalid_request".into());}Self::verify(&self.conn,&self.expected_schema)?;
-        Ok(saved(&self.conn,req)?.unwrap_or(Response{correlation_id:req.correlation_id.clone(),status:Status::Unknown,receipt:None}))
+        self.recover_guarded(req,&|_|Ok(()))
+    }
+    fn recover_guarded(&mut self,req:&Request,guard:&dyn Fn(&Connection)->Result<()>)->Result<Response> {
+        if !req.bounded(){return Err("invalid_request".into());}
+        let tx=sql(self.conn.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::verify(&tx,&self.expected_schema)?;guard(&tx)?;
+        Ok(saved(&tx,req)?.unwrap_or(Response{correlation_id:req.correlation_id.clone(),status:Status::Unknown,receipt:None}))
     }
     fn retain_unknown(&mut self,req:&Request)->Result<()> {
         if !req.bounded(){return Err("invalid_request".into());}
@@ -200,9 +209,11 @@ fn apply(tx:&Transaction<'_>,ticket:&Ticket,plan:&rules::Decision,receipt:&mut R
     let before_session=sql(f.lookup_session(session))?.ok_or("session_missing")?;
     if rules::should_end_gameplay(before_session.is_streamed,terminal.is_some()){sql(f.end_session(session,now))?;}
     let after_session=sql(f.lookup_session(session))?.ok_or("session_missing")?;
-    receipt.session=Some(SessionReceipt{local_id:after_session.local_id,ended_at:after_session.ended_at.clone(),rating_current:after_session.rating_current,disposition:if before_session.ended_at!=after_session.ended_at{Disposition::Applied}else{Disposition::Skipped},diagnostic_revision:revision(tx,"local_sessions",session)?});
+    receipt.session=Some(SessionReceipt{local_id:after_session.local_id,ended_at:after_session.ended_at.clone(),streamed:after_session.is_streamed,rating_current:after_session.rating_current,disposition:if before_session.ended_at!=after_session.ended_at{Disposition::Applied}else{Disposition::Skipped},diagnostic_revision:revision(tx,"local_sessions",session)?});
     receipt.current_match=current.as_ref().map(|a|state(tx,a)).transpose()?;
+    receipt.current_context=current.as_ref().map(detector::match_context);
     receipt.after=Some(preconditions(tx,session)?);receipt.outbox=outbox(tx,session,&touched)?;Ok(())
 }
 #[cfg(test)]
 mod tests;
+mod bridge;

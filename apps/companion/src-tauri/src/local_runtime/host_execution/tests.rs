@@ -13,7 +13,7 @@ fn worker()->crate::core::plugin_runtime::Runtime {
     let path=std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../plugins/target/debug").join(if cfg!(windows){"companion-dota-plugin.exe"}else{"companion-dota-plugin"});
     let mut w=crate::core::plugin_runtime::Runtime::default();w.start_expected(&path,&[],"dota2",Some("0.1.0")).unwrap();w
 }
-fn legacy_apply(c:&mut Connection,s:&str,raw:&ReplayGsi,at:i64) {
+pub(super) fn legacy_apply(c:&mut Connection,s:&str,raw:&ReplayGsi,at:i64) {
     let before=store::find_active_match(c,s).unwrap();let parsed=gsi::parse(&serde_json::to_value(raw).unwrap()).unwrap();
     detector::handle_snapshot(c,s,RankedMode::Ranked,&parsed,now(at)).unwrap();
     let after=store::find_active_match(c,s).unwrap();let terminal=before.filter(|_|after.is_none()).and_then(|a|store::find_match(c,&a.local_id).unwrap());
