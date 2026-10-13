@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDraftStreamReminder } from "./useDraftStreamReminder";
 
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
 }));
@@ -11,6 +12,7 @@ vi.mock("../core/api", () => ({
 }));
 
 import { listen } from "@tauri-apps/api/event";
+import { gameAudioFence } from "../sounds/game-audio-fence";
 import { synthesizeSileroTts } from "../core/api";
 
 const STORAGE_KEY = "companion-system-voice-reminders-v1";
@@ -99,6 +101,21 @@ describe("useDraftStreamReminder", () => {
     await waitFor(() => expect(vi.mocked(listen)).toHaveBeenCalled());
 
     await expect(act(async () => { await fireDraftReminderEvent(); })).resolves.not.toThrow();
+  });
+
+
+  it("fences a pending game-only synthesis before a late result can create Audio", async () => {
+    let resolve!: (value: string) => void;
+    vi.mocked(synthesizeSileroTts).mockReturnValue(new Promise((done) => { resolve = done; }));
+    renderHook(() => useDraftStreamReminder("xenia"));
+    await waitFor(() => expect(vi.mocked(listen)).toHaveBeenCalled());
+    const call = vi.mocked(listen).mock.calls.find(([name]) => name === DRAFT_STREAM_NOT_STARTED_EVENT)!;
+    const token = { id: "late-reminder", scope: { instance: "reminder-test", generation: 1, epoch: 4, session: "session" } };
+    (call[1] as (event: unknown) => void)({ payload: { playback: token } });
+    expect(gameAudioFence.fence({ instance: "reminder-test", generation: 1, requestId: "stop" })).toBe(true);
+    await act(async () => { resolve("AAAA"); });
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(window.HTMLMediaElement.prototype.play).not.toHaveBeenCalled();
   });
 
   it("unsubscribes on unmount", async () => {

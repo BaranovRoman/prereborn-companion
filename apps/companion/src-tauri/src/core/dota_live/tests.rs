@@ -55,7 +55,7 @@ fn missing_migration_backup_capabilities_and_developer_gate_refuse_activation() 
  assert!(developer_activation_preflight(&c,&f.backup).is_err());
  let guard=f.history.lock();let c=guard.as_ref().unwrap();
  assert!(developer_activation_preflight(c,&f._root.path().join("missing")).is_err());
- assert_eq!(developer_activation_preflight(c,&f.backup).unwrap_err(),"frontend_audio_and_legacy_writers_not_fenced");drop(guard);
+ assert_eq!(developer_activation_preflight(c,&f.backup).unwrap_err(),ACTIVATION_BLOCKER);drop(guard);
  assert!(handover_external(&f.manager,&f.history,&f.gate,&f.session,&f.backup,&[],||Ok(())).is_err());assert!(f.gate.builtin().is_some());
 }
 #[test]
@@ -127,4 +127,17 @@ fn typed_effect_rights_are_explicit_and_ledger_exhaustion_does_not_dispatch() {
  f.history.lock().as_ref().unwrap().execute("UPDATE pc_tx_limits SET max_operations=2",[]).unwrap();
  assert!(p.process(&f.manager,&f.history,&f.gate,f.frame(2,"DOTA_GAMERULES_STATE_GAME_IN_PROGRESS"),ReplayContext::default(),|_,_|panic!("exhausted ledger dispatched")).unwrap_err().contains("safety_quota_exhausted"));
  assert_eq!(crate::local_runtime::host_execution::live_effects::quota(f.history.lock().as_ref().unwrap()).unwrap().remaining_operations,0);
+}
+
+#[test]
+fn real_ipc_ordinary_frames_reuse_telemetry_slot_with_receipt_driven_context() {
+ let f=Fixture::new();let p=f.start();let game="DOTA_GAMERULES_STATE_GAME_IN_PROGRESS";
+ for sequence in 1..=12 {
+  p.process(&f.manager,&f.history,&f.gate,f.frame(sequence,game),ReplayContext::default(),|_,_|EffectStatus::Completed).unwrap();
+ }
+ let guard=f.history.lock();let c=guard.as_ref().unwrap();
+ assert_eq!(c.query_row("SELECT count(*) FROM pc_tx_ticket",[],|r|r.get::<_,u64>(0)).unwrap(),2);
+ assert_eq!(c.query_row("SELECT count(*) FROM pc_tx_ledger WHERE operation_key LIKE 'telemetry:%'",[],|r|r.get::<_,u64>(0)).unwrap(),1);
+ assert_eq!(c.query_row("SELECT count(*) FROM local_sessions",[],|r|r.get::<_,u64>(0)).unwrap(),1);
+ drop(guard);p.fallback(&f.history,&f.gate,||Ok(())).unwrap();
 }

@@ -4,6 +4,7 @@ use std::{collections::VecDeque,sync::{Arc,Mutex,Condvar,atomic::{AtomicBool,Ord
 use companion_dota_domain::{ownership::{Owner,Lease},contracts::ReplayGsi};
 use serde::Serialize;
 const CAPACITY:usize=8;
+const ACTIVATION_BLOCKER:&str="external_lifecycle_audio_receipts_obs_and_restart_fencing_incomplete";
 #[derive(Clone,Copy,Debug,PartialEq,Serialize)]
 #[serde(rename_all="snake_case")]
 pub(crate) enum Mode {BuiltIn,Draining,External,Fallback}
@@ -49,7 +50,8 @@ impl LiveDota {
   if i.mode==Mode::BuiltIn {i.overlay=Some(legacy);legacy}else{i.overlay.unwrap_or(BroadcastState::BetweenMatches)}
  }
  pub(crate) fn publish_overlay(&self,lease:Lease,state:companion_dota_domain::broadcast_state::BroadcastState)->Result<(),String>{let mut i=self.0.inner.lock().map_err(|_|"admission_poisoned")?;if i.mode!=Mode::External||i.lease!=Some(lease){return Err("ownership_fenced".into());}i.overlay=Some(state);Ok(())}
- pub(crate) fn status(&self)->Status {let i=self.0.inner.lock().unwrap();Status{mode:i.mode,epoch:i.lease.map(|l|l.epoch),queued:i.queue.len(),in_flight:i.in_flight,lost:i.lost,error:i.error.clone(),activation_blocker:"frontend_audio_and_legacy_writers_not_fenced"}}
+ pub(crate) fn status(&self)->Status {let i=self.0.inner.lock().unwrap();Status{mode:i.mode,epoch:i.lease.map(|l|l.epoch),queued:i.queue.len(),in_flight:i.in_flight,lost:i.lost,error:i.error.clone(),activation_blocker:ACTIVATION_BLOCKER}}
+ pub(crate) fn lease(&self)->Option<Lease>{self.0.inner.lock().ok().and_then(|i|i.lease)}
  pub(crate) fn builtin(&self)->Option<Admission> {let mut i=self.0.inner.lock().ok()?;if i.mode!=Mode::BuiltIn{return None;}i.in_flight+=1;Some(Admission{shared:self.0.clone()})}
  pub(crate) fn external(&self,lease:Lease)->Result<Admission,String> {let mut i=self.0.inner.lock().map_err(|_|"admission_poisoned")?;if i.mode!=Mode::External||i.lease!=Some(lease){return Err("ownership_fenced".into());}i.in_flight+=1;Ok(Admission{shared:self.0.clone()})}
  #[cfg(test)]
@@ -101,7 +103,7 @@ impl LiveDota {
 // Check storage read-only first; never attach/migrate as a side effect of a refused activation.
 pub(crate) fn developer_activation_preflight(conn:&rusqlite::Connection,backup:&std::path::Path)->Result<(),String> {
  crate::local_runtime::transaction_schema::activation_preflight(conn,backup)?;
- Err("frontend_audio_and_legacy_writers_not_fenced".into())
+ Err(ACTIVATION_BLOCKER.into())
 }
 
 #[cfg(test)]

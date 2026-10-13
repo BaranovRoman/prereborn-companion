@@ -1,3 +1,4 @@
+pub(crate) mod audio_fence;
 pub mod assets;
 pub mod catalog;
 pub mod config;
@@ -61,6 +62,7 @@ struct GameSoundEventPayload {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct GameSoundPlayPayload {
+    playback: Option<audio_fence::Token>,
     event_id: String,
     base64: String,
     mime: String,
@@ -257,11 +259,17 @@ pub fn handle_gsi(app: &AppHandle, payload: &Value) {
         // encoding happen off it, the same "spawn a thread, don't await it
         // here" shape every other GSI-triggered side effect in this
         // codebase already uses (see obs::schedule_switch).
+        let playback=match app.try_state::<audio_fence::AudioFence>() {
+            Some(_)=>match audio_fence::builtin_token(app){Ok(token)=>Some(token),Err(_)=>continue},None=>None,
+        };
         let admission=_admission.as_ref().map(|a|a.fork());
         // The surrounding admission prevents a switch while this task is queued.
         std::thread::spawn(move || {
             let _admission=admission;
-            let Ok(bytes) = assets::read_file(&app_for_thread, &asset) else { return };
+            let Ok(bytes) = assets::read_file(&app_for_thread, &asset) else {
+                if let Some(token)=playback {let _=app_for_thread.state::<audio_fence::AudioFence>().ack(token,audio_fence::Status::Cancelled);}return
+            };
+            if playback.as_ref().is_some_and(|token|!app_for_thread.state::<audio_fence::AudioFence>().accepts(token)){return;}
             let ext = asset.file_name.rsplit('.').next().unwrap_or("wav");
             let emitted_at_ms = now_ms();
             storage::append_rolling_log(
@@ -274,6 +282,7 @@ pub fn handle_gsi(app: &AppHandle, payload: &Value) {
             let _ = app_for_thread.emit(
                 "game-sound-play",
                 GameSoundPlayPayload {
+                    playback,
                     event_id,
                     base64: BASE64.encode(bytes),
                     mime: assets::mime_for_extension(ext).to_string(),
@@ -709,15 +718,18 @@ mod tests {
 
 // Same binding/asset/volume rules as the built-in path. No path comes from IPC.
 // WebView emit confirms dispatch, not playback; without a playback acknowledgement it stays Unknown.
-pub(crate) fn dispatch_plugin_sound(app:&AppHandle,event_id:&str,kind:GameSoundEventKind,correlation:&str)->companion_dota_domain::effects::Status {
+pub(crate) fn dispatch_plugin_sound(app:&AppHandle,event_id:&str,kind:GameSoundEventKind,correlation:&str,lease:companion_dota_domain::ownership::Lease,session:&str)->companion_dota_domain::effects::Status {
     use companion_dota_domain::effects::Status;
     let settings=app.state::<AppState>().0.lock().unwrap().game_sounds_settings.clone();
     if !settings.enabled{return Status::Rejected;}
     let detected=[GameSoundEvent{kind,id:event_id.into()}];
     let resolved=resolve_playback(&detected,&settings.bindings,&settings.assets);
     let Some((_,asset))=resolved.first()else{return Status::Rejected;};
-    let Ok(bytes)=assets::read_plugin_file(app,asset)else{return Status::Rejected;};
+    let fence=app.state::<audio_fence::AudioFence>();
+    let Ok(playback)=fence.admit(Some(lease),Some(session))else{return Status::Rejected;};
+    let Ok(bytes)=assets::read_plugin_file(app,asset)else{let _=fence.ack(playback,audio_fence::Status::Cancelled);return Status::Rejected;};
+    if !fence.accepts(&playback){return Status::Rejected;}
     let ext=asset.file_name.rsplit('.').next().unwrap_or("wav");
-    let _=app.emit("game-sound-play",GameSoundPlayPayload{event_id:event_id.into(),base64:BASE64.encode(bytes),mime:assets::mime_for_extension(ext).into(),volume:settings.master_volume,correlation_id:correlation.into(),emitted_at_ms:now_ms()});
+    let _=app.emit("game-sound-play",GameSoundPlayPayload{playback:Some(playback),event_id:event_id.into(),base64:BASE64.encode(bytes),mime:assets::mime_for_extension(ext).into(),volume:settings.master_volume,correlation_id:correlation.into(),emitted_at_ms:now_ms()});
     Status::Unknown
 }

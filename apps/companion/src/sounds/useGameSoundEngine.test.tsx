@@ -17,6 +17,7 @@ vi.mock("../services/dotaCompanionApi", () => ({
 // calling whatever handler useGameSoundEngine.ts registered for it, instead
 // of needing a real Tauri event bridge - same idiom as
 // chat/useTwitchChatSession.test.tsx's SKIP_TTS_EVENT simulation.
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
 }));
@@ -67,7 +68,11 @@ class MockAudio {
     this.playCalls += 1;
     return MockAudio.playImpl();
   }
-  pause() {}
+  paused = false;
+  pause() { this.paused = true; }
+  removeAttribute() { this.src = ""; }
+  getAttribute() { return this.src || null; }
+  load() {}
 }
 
 const getPlayNotifyHandler = () => {
@@ -230,6 +235,33 @@ describe("useGameSoundEngine", () => {
     MockAudio.instances[1].onended?.();
     await Promise.resolve();
     expect(MockAudio.instances).toHaveLength(3);
+  });
+
+
+  it("confirms stop only after pausing game audio and rejects delayed commands from the fenced generation", async () => {
+    let engine!: ReturnType<typeof useGameSoundEngine>;
+    render(<Harness onEngine={(e) => { engine = e; }} />);
+    await waitFor(() => expect(engine.settings).not.toBeNull());
+    const scope = { instance: "engine-test", generation: 1, epoch: 2, session: "session" };
+    const payload = { ...playEvent("a"), playback: { id: "sound-a", scope } };
+    getPlayNotifyHandler()({ payload });
+    const pause = vi.spyOn(MockAudio.instances[0], "pause");
+    const fence = vi.mocked(listen).mock.calls.find(([name]) => name === "game-audio-fence")!;
+    (fence[1] as (event: unknown) => void)({ payload: { instance: scope.instance, generation: 1, requestId: "stop" } });
+    expect(pause).toHaveBeenCalledTimes(1);
+    getPlayNotifyHandler()({ payload: { ...payload, playback: { id: "late", scope } } });
+    expect(MockAudio.instances).toHaveLength(1);
+  });
+
+
+  it("an invalid queued payload cannot leave playback stuck after decoding fails", async () => {
+    let engine!: ReturnType<typeof useGameSoundEngine>;
+    render(<Harness onEngine={(e) => { engine = e; }} />);
+    await waitFor(() => expect(engine.settings).not.toBeNull());
+    const handler = getPlayNotifyHandler();
+    expect(() => handler({ payload: { ...playEvent("bad"), base64: "#" } })).not.toThrow();
+    handler({ payload: playEvent("good") });
+    expect(MockAudio.instances).toHaveLength(1);
   });
 
   it("setMaster/setBinding/removeBinding/chooseAndBindFile call through to the API", async () => {

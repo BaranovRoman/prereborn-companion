@@ -64,6 +64,11 @@ use tauri::{AppHandle, Manager, Runtime};
 pub struct LocalRuntimeState(Mutex<Option<Connection>>,Mutex<Option<host_execution::Adapter>>);
 
 impl LocalRuntimeState {
+    pub(crate) fn audio_session(&self)->Option<String> {
+        let guard=self.0.try_lock().ok()?;let c=guard.as_ref()?;
+        store::find_active_match_anywhere(c).ok().flatten().map(|m|m.session_local_id)
+            .or_else(||store::find_open_session(c).ok().flatten().map(|s|s.local_id))
+    }
     pub fn new() -> Self {
         Self(Mutex::new(None),Mutex::new(None))
     }

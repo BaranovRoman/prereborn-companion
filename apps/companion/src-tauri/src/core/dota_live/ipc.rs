@@ -20,7 +20,7 @@ impl LiveProcess {
    // Short history lock; RELEASED before sending or waiting for any IPC.
    let prepared=history.with_transaction_adapter(|adapter,c|adapter.prepare_plugin_operation(c,pin,frame.snapshot.clone(),frame.at,frame.sequence))?;
    if let Some(prepared)=prepared {
-    let key=format!("match:{}:{}",scope.run,frame.sequence);
+    let key=if prepared.ticket.starts_with("telemetry:"){prepared.ticket.clone()}else{format!("match:{}:{}",scope.run,frame.sequence)};
     let input=execution_frame(&scope,&prepared,&key);
     let mut committed=None;
     let reply=runtime.command_live(pin,&self.binding,"dota.live_frame".into(),serde_json::to_value(&input).map_err(|_|"invalid_frame")?,|payload|{
@@ -42,10 +42,14 @@ impl LiveProcess {
    let input=LiveEffectsFrame{deadline_ms:(chrono::Utc::now().timestamp_millis().max(0) as u64).saturating_add(2000),scope:scope.clone(),input:ReplayInput{sequence:frame.sequence,observed_at_ms:frame.at.timestamp_millis().max(0) as u64,snapshot:frame.snapshot,context,match_context:None}};
    // Only real scene transitions/sound detections create effect keys, never idle snapshots.
    let mut uncertain=false;
+   let mut effect_indices=std::collections::HashSet::new();
    let result=runtime.command_live(pin,&self.binding,"dota.live_effects".into(),serde_json::to_value(&input).map_err(|_|"invalid_frame")?,|payload|{
     let _effect_admission=gate.external(self.grant.lease)?;
     if uncertain{return Err("effect_result_unknown".into());}
     let request:LiveEffectRequest=serde_json::from_value(payload).map_err(|_|"invalid_effect")?;
+    let prefix=format!("effect:{}:{}:",scope.run,frame.sequence);
+    let index=request.request.idempotency_key.strip_prefix(&prefix).and_then(|s|s.parse::<u8>().ok());
+    if index.is_none_or(|n|n>=32||request.request.idempotency_key!=format!("{prefix}{n}")||!effect_indices.insert(n))||request.request.correlation_id!=request.request.idempotency_key{return Err("unsolicited_effect_request".into());}
     if request.scope!=scope||request.request.lease!=self.grant.lease{return Err("execution_scope_mismatch".into());}
     let admission=history.with_transaction_adapter(|adapter,c|adapter.admit_effect(c,pin,&request.request,chrono::Utc::now().timestamp_millis().max(0) as u64))?;
     let ack=if admission.fresh {
@@ -79,15 +83,16 @@ impl LiveProcess {
    }
   })
  }
- pub(crate) fn fallback(&self,history:&LocalRuntimeState,gate:&LiveDota,reset_builtin:impl FnOnce()->Result<(),String>)->Result<Lease,String> {
+ pub(crate) fn fallback(&self,history:&LocalRuntimeState,gate:&LiveDota,fence_and_reset_builtin:impl FnOnce()->Result<(),String>)->Result<Lease,String> {
   let old=self.grant.lease;let session=&self.grant.session;
   gate.switch(old,Owner::BuiltIn,Duration::from_secs(5),
    ||history.with_transaction_adapter(|_,c|crate::local_runtime::transaction_authorization::begin(c,old,Owner::BuiltIn,session,None)),
    ||{let mut runtime=self.runtime.lock().map_err(|_|"process_lock_poisoned")?;let _=runtime.stop();runtime.stopped_confirmed()?;
+      fence_and_reset_builtin()?;
       // Unknown audio may still be playing in WebView. A dead plugin is insufficient proof.
       let mut guard=history.try_lock().map_err(str::to_string)?;let c=guard.as_mut().ok_or("local_runtime_unavailable")?;
       if crate::local_runtime::host_execution::live_effects::quota(c)?.unknown!=0{return Err("unknown_effects_require_explicit_reconciliation".into());}Ok(())},
-   ||history.with_transaction_adapter(|_,c|crate::local_runtime::transaction_authorization::confirm_fenced(c,old)),|_|reset_builtin())
+   ||history.with_transaction_adapter(|_,c|crate::local_runtime::transaction_authorization::confirm_fenced(c,old)),|_|Ok(()))
  }
  pub(crate) fn consume(self,app:AppHandle) {
   std::thread::spawn(move||{
@@ -98,7 +103,7 @@ impl LiveProcess {
      Mode::External=>if let Some(frame)=gate.next(){
       let context=frame.context.clone();
       if let Err(e)=self.process(&manager,&history,&gate,frame,context,|effect,correlation|match effect{
-       Effect::Sound{event_id,kind:Some(kind)}=>crate::game_sounds::dispatch_plugin_sound(&app,event_id,*kind,correlation),
+       Effect::Sound{event_id,kind:Some(kind)}=>crate::game_sounds::dispatch_plugin_sound(&app,event_id,*kind,correlation,self.grant.lease,&self.grant.session),
        Effect::ObsScene{state}=>crate::obs::dispatch_plugin_scene(&app,*state),
        Effect::Overlay{state}=>if gate.publish_overlay(self.grant.lease,*state).is_ok(){EffectStatus::Completed}else{EffectStatus::Rejected},
        _=>EffectStatus::Rejected,
@@ -107,7 +112,7 @@ impl LiveProcess {
       let running=self.runtime.lock().map(|mut r|r.snapshot().phase==crate::core::plugin_runtime::Phase::Running).unwrap_or(false);
       if !running{gate.failed(self.grant.lease,"process_crashed");}std::thread::sleep(Duration::from_millis(50));
      },
-     Mode::Fallback=>{let _=self.fallback(&history,&gate,||crate::dota::reset_after_external_fence(&app));break;},
+     Mode::Fallback=>{let _=self.fallback(&history,&gate,||{let audio=app.state::<crate::game_sounds::audio_fence::AudioFence>();audio.fence(&app)?;crate::dota::reset_after_external_fence(&app)?;audio.reopen()});break;},
      _=>break,
     }
    }

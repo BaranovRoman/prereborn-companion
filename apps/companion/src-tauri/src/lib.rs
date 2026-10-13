@@ -169,6 +169,7 @@ pub fn run() {
         .manage(AppState::new())
         .manage(dota::BuiltInDotaRuntime::default())
         .manage(core::dota_live::LiveDota::default())
+        .manage(game_sounds::audio_fence::AudioFence::default())
         .manage(diagnostics::DiagnosticsState::new())
         .manage(silero::SileroState::new())
         .manage(hotkeys::HotkeysState::new())
@@ -332,6 +333,8 @@ pub fn run() {
             commands::import_and_bind_game_sound,
             commands::preview_game_sound,
             commands::log_game_sound_timing,
+            game_sounds::audio_fence::game_audio_ack,
+            game_sounds::audio_fence::game_audio_fence_ack,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

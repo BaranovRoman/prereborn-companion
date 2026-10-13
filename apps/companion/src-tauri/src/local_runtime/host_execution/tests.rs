@@ -162,3 +162,105 @@ fn real_process_crash_before_commit_and_after_commit_before_reply() {
         else{assert_eq!(recovered.status,Status::Completed);let committed=parity::dump(&reopened.conn);assert_eq!(reopened.execute(&req).unwrap(),recovered);assert_eq!(parity::dump(&reopened.conn),committed);}
     }
 }
+
+#[test]
+fn rolling_telemetry_preserves_writes_and_rejects_old_sequence_pending_and_unknown() {
+ use companion_dota_domain::ownership::{Owner,Lease};
+ use crate::local_runtime::transaction_authorization as auth;
+ let (fixture,s,m)=Fixture::seeded().unwrap();let mut h=Adapter::install(fixture).unwrap();
+ let lease=auth::confirm_fenced(&mut h.conn,Lease{owner:Owner::BuiltIn,epoch:1}).unwrap();auth::bind_builtin_session(&mut h.conn,lease,&s).unwrap();
+ let snapshot=frame("42","DOTA_GAMERULES_STATE_GAME_IN_PROGRESS",None);
+ let initial=h.prepare(&s,snapshot.clone(),RankedMode::Ranked,now(1),1).unwrap();let req=initial.core_request("initial","initial").unwrap();h.adapter.execute_builtin(&mut h.conn,lease,&s,&req).unwrap();
+ let before=revision(&h.conn,"local_matches",&m).unwrap();
+ let mut previous=None;
+ for sequence in 2..=20 {
+  let prepared=h.adapter.prepare_internal(&mut h.conn,&s,snapshot.clone(),RankedMode::Ranked,now(sequence as i64),sequence,true,Some(lease),&|tx|auth::authorize_scope(tx,lease,&s,None)).unwrap().unwrap();
+  assert!(prepared.ticket.starts_with("telemetry:"));
+  let request=prepared.core_request(&prepared.ticket,"telemetry").unwrap();
+  if let Some(old)=&previous {assert!(h.adapter.execute_builtin(&mut h.conn,lease,&s,old).is_err());}
+  let result=h.adapter.execute_builtin(&mut h.conn,lease,&s,&request).unwrap();assert_eq!(result.status,Status::Completed);
+  assert_eq!(h.adapter.execute_builtin(&mut h.conn,lease,&s,&request).unwrap().receipt,result.receipt);
+  previous=Some(request);
+ }
+ assert_eq!(h.conn.query_row("SELECT count(*) FROM pc_tx_ledger",[],|r|r.get::<_,u64>(0)).unwrap(),2);
+ assert!(revision(&h.conn,"local_matches",&m).unwrap()>before+18); // resume + telemetry on every tick
+ assert!(h.adapter.prepare_internal(&mut h.conn,&s,snapshot.clone(),RankedMode::Ranked,now(20),20,true,Some(lease),&|tx|auth::authorize_scope(tx,lease,&s,None)).is_err());
+ let prepared=h.adapter.prepare_internal(&mut h.conn,&s,snapshot.clone(),RankedMode::Ranked,now(21),21,true,Some(lease),&|tx|auth::authorize_scope(tx,lease,&s,None)).unwrap().unwrap();
+ assert!(h.adapter.prepare_internal(&mut h.conn,&s,snapshot,RankedMode::Ranked,now(22),22,true,Some(lease),&|tx|auth::authorize_scope(tx,lease,&s,None)).is_err());
+ let req=prepared.core_request(&prepared.ticket,"telemetry").unwrap();
+ h.conn.execute("UPDATE pc_tx_ledger SET status='unknown' WHERE operation_key=?1",[&req.operation_key]).unwrap();
+ assert!(h.adapter.execute_builtin(&mut h.conn,lease,&s,&req).is_err());
+}
+
+#[test]
+#[ignore = "explicit long-stream budget check; targeted invocation only"]
+fn eight_hour_telemetry_storage_budget() {
+ use companion_dota_domain::ownership::{Owner,Lease};
+ use crate::local_runtime::transaction_authorization as auth;
+ let (fixture,s,m)=Fixture::seeded().unwrap();let mut h=Adapter::install(fixture).unwrap();
+ let lease=auth::confirm_fenced(&mut h.conn,Lease{owner:Owner::BuiltIn,epoch:1}).unwrap();auth::bind_builtin_session(&mut h.conn,lease,&s).unwrap();
+ let snapshot=frame("42","DOTA_GAMERULES_STATE_GAME_IN_PROGRESS",None);
+ let initial=h.prepare(&s,snapshot.clone(),RankedMode::Ranked,now(1),1).unwrap();let req=initial.core_request("initial","initial").unwrap();h.adapter.execute_builtin(&mut h.conn,lease,&s,&req).unwrap();
+ // WAL stays enabled. Both production preparation and execution run on EVERY frame.
+ let frames=std::env::var("COMPANION_TELEMETRY_FRAMES").ok().map(|v|v.parse::<u64>().unwrap()).unwrap_or(288000);
+ let started=std::time::Instant::now();let before=revision(&h.conn,"local_matches",&m).unwrap();
+ for sequence in 2..=frames+1 {
+  let at=now(1)+chrono::Duration::milliseconds(sequence as i64*100);
+  let prepared=h.adapter.prepare_internal(&mut h.conn,&s,snapshot.clone(),RankedMode::Ranked,at,sequence,true,Some(lease),&|tx|auth::authorize_scope(tx,lease,&s,None)).unwrap().unwrap();
+  let req=prepared.core_request(&prepared.ticket,"telemetry-budget").unwrap();
+  assert_eq!(h.adapter.execute_builtin(&mut h.conn,lease,&s,&req).unwrap().status,Status::Completed);
+  if sequence%10000==0 {println!("frames={sequence} elapsed={:?}",started.elapsed());}
+ }
+ let quota=super::live_effects::quota(&h.conn).unwrap();
+ let rows:u64=h.conn.query_row("SELECT count(*) FROM pc_tx_ledger",[],|r|r.get(0)).unwrap();
+ let receipt_bytes:u64=h.conn.query_row("SELECT bytes FROM pc_tx_usage WHERE kind='pc_tx_receipts'",[],|r|r.get(0)).unwrap();
+ let ticket_bytes:u64=h.conn.query_row("SELECT bytes FROM pc_tx_usage WHERE kind='pc_tx_ticket'",[],|r|r.get(0)).unwrap();
+ println!("frames={frames} ledger_rows={rows} receipt_bytes={receipt_bytes} ticket_bytes={ticket_bytes} quota={quota:?} elapsed={:?}",started.elapsed());
+ assert_eq!(rows,2);assert_eq!(quota.remaining_operations,9998);assert_eq!(quota.remaining_tickets,9998);assert_eq!(quota.unknown,0);
+ assert!(receipt_bytes<32768);assert!(ticket_bytes<16384);
+ assert_eq!(revision(&h.conn,"local_matches",&m).unwrap(),before+frames*2);
+ crate::local_runtime::transaction_schema::validate(&h.conn).unwrap();
+}
+
+#[test]
+fn rolling_telemetry_restart_fences_old_slots_and_aba_changes_are_not_hidden() {
+ use companion_dota_domain::ownership::{Owner,Lease};
+ use crate::local_runtime::transaction_authorization as auth;
+ let (fixture,s,m)=Fixture::seeded().unwrap();let mut h=Adapter::install(fixture.clone()).unwrap();
+ let lease=auth::confirm_fenced(&mut h.conn,Lease{owner:Owner::BuiltIn,epoch:1}).unwrap();auth::bind_builtin_session(&mut h.conn,lease,&s).unwrap();
+ let snapshot=frame("42","DOTA_GAMERULES_STATE_GAME_IN_PROGRESS",None);
+ let p=h.prepare(&s,snapshot.clone(),RankedMode::Ranked,now(1),1).unwrap();let req=p.core_request("initial","initial").unwrap();h.adapter.execute_builtin(&mut h.conn,lease,&s,&req).unwrap();
+ let p=h.adapter.prepare_internal(&mut h.conn,&s,snapshot.clone(),RankedMode::Ranked,now(2),2,true,Some(lease),&|tx|auth::authorize_scope(tx,lease,&s,None)).unwrap().unwrap();
+ let old=p.core_request(&p.ticket,"old").unwrap();let receipt=h.adapter.execute_builtin(&mut h.conn,lease,&s,&old).unwrap().receipt;
+ drop(h);let mut c=fixture.connect().unwrap();let mut adapter=Adapter::attach(&mut c).unwrap();
+ assert!(adapter.execute_builtin(&mut c,lease,&s,&old).is_err());
+ let next=auth::confirm_fenced(&mut c,lease).unwrap();auth::bind_builtin_session(&mut c,next,&s).unwrap();
+ assert!(adapter.execute_builtin(&mut c,lease,&s,&old).is_err()); // old epoch cannot replay a saved receipt
+ let p=adapter.prepare_internal(&mut c,&s,snapshot.clone(),RankedMode::Ranked,now(3),1,true,Some(next),&|tx|auth::authorize_scope(tx,next,&s,None)).unwrap().unwrap();
+ assert_ne!(old.ticket,p.ticket);let fresh=p.core_request(&p.ticket,"new").unwrap();adapter.execute_builtin(&mut c,next,&s,&fresh).unwrap();
+ assert_eq!(saved(&c,&old).unwrap().unwrap().receipt,receipt); // retained, never deleted
+ let p=adapter.prepare_internal(&mut c,&s,snapshot,RankedMode::Ranked,now(4),2,true,Some(next),&|tx|auth::authorize_scope(tx,next,&s,None)).unwrap().unwrap();
+ let stale=p.core_request(&p.ticket,"aba").unwrap();
+ store::mark_interrupted(&c,&m,now(4)).unwrap();store::resume_match(&c,&m,Some("42"),105).unwrap();
+ let before=parity::dump(&c);
+ let reply=adapter.execute_builtin(&mut c,next,&s,&stale).unwrap();assert_eq!(reply.status,Status::Rejected);
+ assert_eq!(reply.receipt.unwrap().error.as_deref(),Some("stale_precondition"));assert_eq!(parity::dump(&c),before);
+ drop(adapter);
+ assert_eq!(crate::local_runtime::transaction_schema::restore_before_writes(&mut c,&fixture.root.path().join("verified-backup.sqlite3")).unwrap_err(),"unsafe_backup_restore_denied");
+}
+
+#[test]
+fn rolling_telemetry_rollback_preserves_full_write_set_and_requires_commit_confirmation() {
+ use companion_dota_domain::ownership::{Owner,Lease};
+ use crate::local_runtime::transaction_authorization as auth;
+ let (fixture,s,_)=Fixture::seeded().unwrap();let mut h=Adapter::install(fixture).unwrap();
+ let lease=auth::confirm_fenced(&mut h.conn,Lease{owner:Owner::BuiltIn,epoch:1}).unwrap();auth::bind_builtin_session(&mut h.conn,lease,&s).unwrap();
+ let snapshot=frame("42","DOTA_GAMERULES_STATE_GAME_IN_PROGRESS",None);
+ let initial=h.prepare(&s,snapshot.clone(),RankedMode::Ranked,now(1),1).unwrap();let req=initial.core_request("initial","initial").unwrap();h.adapter.execute_builtin(&mut h.conn,lease,&s,&req).unwrap();
+ let p=h.adapter.prepare_internal(&mut h.conn,&s,snapshot.clone(),RankedMode::Ranked,now(2),2,true,Some(lease),&|tx|auth::authorize_scope(tx,lease,&s,None)).unwrap().unwrap();
+ let req=p.core_request(&p.ticket,"rollback").unwrap();let before=parity::dump(&h.conn);
+ assert_eq!(h.adapter.execute_guarded(&mut h.conn,&req,Fault::RollbackAfterWrites,&|tx|auth::authorize(tx,lease,&s,None,&req)).unwrap_err(),"injected_rollback");
+ assert_eq!(parity::dump(&h.conn),before);assert!(saved(&h.conn,&req).unwrap().is_none());
+ assert!(h.adapter.prepare_internal(&mut h.conn,&s,snapshot,RankedMode::Ranked,now(3),3,true,Some(lease),&|tx|auth::authorize_scope(tx,lease,&s,None)).is_err());
+ assert_eq!(h.adapter.execute_builtin(&mut h.conn,lease,&s,&req).unwrap().status,Status::Completed);
+}

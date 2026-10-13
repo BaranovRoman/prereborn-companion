@@ -23,12 +23,14 @@ vi.mock("../core/api", () => ({
 // WK-83 - captured so tests can simulate the OS-level hotkey firing by
 // invoking whatever callback useTwitchChatSession.ts registered, instead of
 // needing a real global shortcut.
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
 }));
 
 // eslint-disable-next-line import/order
 import { listen } from "@tauri-apps/api/event";
+import { GameAudioFenceRegistry } from "../sounds/game-audio-fence";
 // eslint-disable-next-line import/order
 import {
   getSileroTtsStatus, getSkipHotkeyStatus, getTwitchChat, setSkipHotkey, synthesizeSileroTts,
@@ -751,4 +753,30 @@ describe("useTwitchChatSession", () => {
       delete window.AudioContext;
     });
   });
+});
+
+
+describe("game fence while Twitch TTS is active", () => {
+  it("leaves the actual active utterance and queued Twitch message running", async () => {
+    vi.mocked(getTwitchChat).mockReset().mockResolvedValue(STATUS);
+    localStorage.removeItem(STORAGE_KEY);
+    class Utterance { lang = ""; volume = 1; onend?: () => void; onerror?: () => void; constructor(public text: string) {} }
+    let active: Utterance | undefined;
+    const speak = vi.fn((utterance: Utterance) => { active = utterance; });const cancel = vi.fn();
+    vi.stubGlobal("SpeechSynthesisUtterance", Utterance);vi.stubGlobal("speechSynthesis", { speak, cancel });
+    let session: TwitchChatSession | undefined;
+    const { unmount } = render(<Harness showChat onSession={(s) => { session = s; }} />);
+    await waitFor(() => expect(session?.status).not.toBeNull());
+    session!.updateSetting("ttsEngine", "system");session!.updateSetting("ttsEnabled", true);
+    await waitFor(() => expect(session!.settings.ttsEnabled).toBe(true));
+    vi.mocked(getTwitchChat).mockResolvedValue({ ...STATUS, messages: [chatMessage("fence-a", "first"), chatMessage("fence-b", "second")] });
+    await waitFor(() => expect(speak).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    cancel.mockClear(); // the hook stops any previous TTS during initial mounting
+    const registry = new GameAudioFenceRegistry();const gameStop = vi.fn(() => true);
+    registry.track({ id: "game", scope: { instance: "tts-test", generation: 1, epoch: 1, session: "session" } }, gameStop);
+    expect(registry.fence({ instance: "tts-test", generation: 1, requestId: "stop" })).toBe(true);
+    expect(gameStop).toHaveBeenCalledOnce();expect(cancel).not.toHaveBeenCalled();expect(session!.isSpeaking()).toBe(true);
+    active!.onend?.();expect(speak).toHaveBeenCalledTimes(2);expect(session!.isSpeaking()).toBe(true);
+    unmount();vi.unstubAllGlobals();localStorage.removeItem(STORAGE_KEY);
+  }, 10000);
 });

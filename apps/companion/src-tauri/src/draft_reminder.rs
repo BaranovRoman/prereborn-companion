@@ -84,7 +84,10 @@ pub fn handle_gsi<R: Runtime>(app: &AppHandle<R>, payload: &Value) {
     };
 
     if should_emit {
-        let _ = app.emit(DRAFT_STREAM_NOT_STARTED_EVENT, ());
+        let playback=match app.try_state::<crate::game_sounds::audio_fence::AudioFence>() {
+            Some(_)=>match crate::game_sounds::audio_fence::builtin_token(app){Ok(token)=>Some(token),Err(_)=>return},None=>None,
+        };
+        let _ = app.emit(DRAFT_STREAM_NOT_STARTED_EVENT, serde_json::json!({"playback":playback}));
         storage::append_rolling_log(
             app,
             "Draft entered while OBS confirmed not streaming - played local 'stream not started' reminder.",

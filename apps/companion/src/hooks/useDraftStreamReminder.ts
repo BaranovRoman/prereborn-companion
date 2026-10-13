@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { gameAudioFence, stopGameAudio, type GameAudioToken } from "../sounds/game-audio-fence";
 import { applySinkId } from "../audio/outputDevice";
 import { base64ToObjectUrl } from "../sounds/game-sound-model";
 import { synthesizeSileroTts, type SileroVoice } from "../core/api";
@@ -47,25 +48,53 @@ export function useDraftStreamReminder(voice: SileroVoice) {
   }, []);
 
   useEffect(() => {
-    const unlistenPromise = listen(DRAFT_STREAM_NOT_STARTED_EVENT, () => {
-      if (!enabledRef.current) return;
+    let active = true;
+    const owned = new Set<() => boolean>();
+    const unlistenPromise = listen<{ playback: GameAudioToken }>(DRAFT_STREAM_NOT_STARTED_EVENT, (event) => {
+      const token = event.payload?.playback;
+      if (!active || !enabledRef.current) { gameAudioFence.report(token, "cancelled"); return; }
+      let cancelled = false;
+      let player: HTMLAudioElement | null = null;
+      let release: (() => void) | null = null;
+      const cancel = () => {
+        cancelled = true;
+        const stopped = !player || stopGameAudio(player);
+        release?.();
+        gameAudioFence.report(token, stopped ? "cancelled" : "unknown");
+        return stopped;
+      };
+      if (!gameAudioFence.track(token, cancel)) { gameAudioFence.report(token, "unknown"); return; }
+      owned.add(cancel);
       synthesizeSileroTts(REMINDER_TEXT, voiceRef.current)
         .then((base64) => {
+          if (!active || cancelled || !gameAudioFence.accepts(token)) return;
           const url = base64ToObjectUrl(base64, "audio/wav");
           const audio = new Audio(url);
-          const cleanup = () => URL.revokeObjectURL(url);
-          audio.onended = cleanup;
-          audio.onerror = cleanup;
+          player = audio;
+          let finished = false;
+          const cleanup = () => { owned.delete(cancel); if (!finished) { finished = true; URL.revokeObjectURL(url); } };
+          release = cleanup;
+          audio.onended = () => { cleanup(); gameAudioFence.report(token, "completed"); };
+          audio.onerror = () => { const stopped = stopGameAudio(audio); cleanup(); gameAudioFence.report(token, stopped ? "cancelled" : "unknown"); };
           void applySinkId(audio);
-          return audio.play().catch(cleanup);
+          return audio.play().then(() => {
+            if (!cancelled) gameAudioFence.report(token, "playing");
+          }).catch(() => { const stopped = stopGameAudio(audio); cleanup(); if (!cancelled) gameAudioFence.report(token, stopped ? "cancelled" : "unknown"); });
         })
         .catch(() => {
+          owned.delete(cancel);
+          if (!cancelled) gameAudioFence.report(token, "cancelled"); // synthesis failed before a player existed
           // A local reminder failing to synthesize/play (Silero busy/
           // crashed) is never surfaced as an app error - the streamer still
           // has every other on-screen indication of stream state.
         });
     });
-    return () => { void unlistenPromise.then((unlisten) => unlisten()); };
+    return () => {
+      active = false;
+      for (const cancel of owned) cancel();
+      owned.clear();
+      void unlistenPromise.then((unlisten) => unlisten());
+    };
   }, []);
 
   return { enabled, setEnabled };

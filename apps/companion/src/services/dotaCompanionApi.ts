@@ -329,6 +329,7 @@ export interface GameSoundEventNotification {
 // Emitted only when the master toggle is on AND a binding exists for the
 // detected event - the one event useGameSoundEngine.ts actually plays.
 export interface GameSoundPlayNotification {
+  playback?: import("../sounds/game-audio-fence").GameAudioToken;
   eventId: string;
   base64: string;
   mime: string;

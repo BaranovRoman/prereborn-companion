@@ -7,6 +7,7 @@
 export const MAX_QUEUED_GAME_SOUNDS = 2;
 
 export interface GameSoundPlayback {
+  playback?: import("./game-audio-fence").GameAudioToken;
   eventId: string;
   base64: string;
   mime: string;

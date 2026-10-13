@@ -177,19 +177,19 @@ impl Adapter {
     }
     pub(crate) fn prepare_plugin_operation(&mut self,conn:&mut Connection,pin:&crate::core::plugin_manager::VerifiedMatchGrant<'_>,snapshot:ReplayGsi,now:DateTime<Utc>,sequence:u64)->Result<Option<Prepared>> {
         let grant=pin.grant();let mode=super::sync::cached_ranked_mode(conn);
-        self.prepare_internal(conn,&grant.session,snapshot,mode,now,sequence,true,&|tx|super::transaction_authorization::authorize_scope(tx,grant.lease,&grant.session,Some(grant.binding())))
+        self.prepare_internal(conn,&grant.session,snapshot,mode,now,sequence,true,Some(grant.lease),&|tx|super::transaction_authorization::authorize_scope(tx,grant.lease,&grant.session,Some(grant.binding())))
     }
     pub(crate) fn prepare_live_operation(&mut self,conn:&mut Connection,session:&str,snapshot:ReplayGsi,now:DateTime<Utc>,sequence:u64)->Result<Option<Prepared>> {
         let mode=super::sync::cached_ranked_mode(conn);
         self.prepare_operation(conn,session,snapshot,mode,now,sequence)
     }
     pub(crate) fn prepare_operation(&mut self,conn:&mut Connection,session:&str,snapshot:ReplayGsi,mode:RankedMode,now:DateTime<Utc>,sequence:u64)->Result<Option<Prepared>> {
-        self.prepare_internal(conn,session,snapshot,mode,now,sequence,true,&|_|Ok(()))
+        self.prepare_internal(conn,session,snapshot,mode,now,sequence,true,None,&|_|Ok(()))
     }
     pub(crate) fn prepare(&mut self,conn:&mut Connection,session:&str,snapshot:ReplayGsi,mode:RankedMode,now:DateTime<Utc>,sequence:u64)->Result<Prepared> {
-        self.prepare_internal(conn,session,snapshot,mode,now,sequence,false,&|_|Ok(()))?.ok_or("missing_plan".into())
+        self.prepare_internal(conn,session,snapshot,mode,now,sequence,false,None,&|_|Ok(()))?.ok_or("missing_plan".into())
     }
-    fn prepare_internal(&mut self,conn:&mut Connection,session:&str,snapshot:ReplayGsi,mode:RankedMode,now:DateTime<Utc>,sequence:u64,skip_noop:bool,guard:&dyn Fn(&Connection)->Result<()>)->Result<Option<Prepared>> {
+    fn prepare_internal(&mut self,conn:&mut Connection,session:&str,snapshot:ReplayGsi,mode:RankedMode,now:DateTime<Utc>,sequence:u64,skip_noop:bool,rolling:Option<companion_dota_domain::ownership::Lease>,guard:&dyn Fn(&Connection)->Result<()>)->Result<Option<Prepared>> {
         self.bound(conn)?;let tx=sql(conn.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::verify(&tx,&self.expected_schema)?;
         guard(&tx)?;integrity_scope(&tx,session)?;
         let mut context=sql(detector::context(&tx,session,mode,now))?;let row=sql(store::find_session(&tx,session))?.ok_or("session_missing")?;
@@ -198,8 +198,22 @@ impl Adapter {
         if !analysis.conclusive{return Err("context_inconclusive".into());}
         if skip_noop&&(analysis.detector.is_none()||analysis.detector.as_ref().is_some_and(|p|p.actions.is_empty()&&!p.end_gameplay_session)){return Ok(None);}
         let data=Ticket{preconditions:preconditions(&tx,session)?,context,snapshot};let encoded=encode(&data)?;if encoded.len()>16384{return Err("context_too_large".into());}
-        let ticket=uuid::Uuid::new_v4().to_string();let binding=hash(&encoded);
-        sql(tx.execute("INSERT INTO pc_tx_ticket VALUES(?1,?2,?3)",params![ticket,encoded,binding]))?;sql(tx.commit())?;
+        let ticket=if let Some(lease)=rolling.filter(|_|telemetry_only(&data,analysis.detector.as_ref().unwrap())) {
+            let matched=data.context.active.as_ref().ok_or("missing_match")?;
+            let id=format!("telemetry:{}:{}",lease.epoch,matched.local_id);
+            let prior:Option<String>=sql(tx.query_row("SELECT doc FROM pc_tx_ticket WHERE id=?1",[&id],|r|r.get(0)).optional())?;
+            if let Some(raw)=prior {
+                if raw.len()>16384{return Err("context_corrupt".into());}
+                let old:Ticket=serde_json::from_str(&raw).map_err(|_|"context_corrupt")?;
+                let old_req=Prepared{ticket:id.clone(),binding:hash(&raw),data:old.clone()}.core_request(&id,&id)?;
+                let confirmed=saved(&tx,&old_req)?.ok_or("telemetry_commit_unconfirmed")?;
+                if confirmed.status!=Status::Completed||confirmed.receipt.as_ref().and_then(|r|r.after.as_ref()).is_none_or(|p|p.epoch>data.preconditions.epoch){return Err("telemetry_commit_unconfirmed".into());}
+                if sequence<=old.context.frame_sequence{return Err("stale_telemetry_sequence".into());}
+            }
+            id
+        }else{uuid::Uuid::new_v4().to_string()};let binding=hash(&encoded);
+        check_update_bytes(&tx,"pc_tx_ticket","doc","id",&ticket,encoded.len(),"max_ticket_bytes")?;
+        sql(tx.execute("INSERT INTO pc_tx_ticket VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET doc=excluded.doc,checksum=excluded.checksum",params![ticket,encoded,binding]))?;sql(tx.commit())?;
         Ok(Some(Prepared{ticket,binding,data}))
     }
     #[cfg(test)]
@@ -212,13 +226,22 @@ impl Adapter {
         if !req.bounded()||req.operation_key.starts_with("effect:"){return Err("invalid_request".into());}
         self.bound(conn)?;let tx=sql(conn.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::verify(&tx,&self.expected_schema)?;
         guard(&tx)?;
-        if let Some(saved)=saved(&tx,req)? {integrity(&tx)?;return Ok(saved);}
+        let rolling=req.operation_key.starts_with("telemetry:");
+        if !rolling {if let Some(saved)=saved(&tx,req)? {integrity(&tx)?;return Ok(saved);}}
+        else {
+            if req.operation_key!=req.ticket{return Err("invalid_telemetry_slot".into());}
+            match saved(&tx,req) {Ok(Some(saved))=>return Ok(saved),Ok(None)=>(),Err(e) if e=="payload_conflict"=>(),Err(e)=>return Err(e)}
+        }
         let oversized:bool=sql(tx.query_row("SELECT EXISTS(SELECT 1 FROM pc_tx_ticket WHERE id=?1 AND (length(CAST(doc AS BLOB))>16384 OR length(checksum)>64))",[&req.ticket],|r|r.get(0)))?;
         if oversized{return Err("context_corrupt".into());}
         let (raw,checksum):(String,String)=sql(tx.query_row("SELECT doc,checksum FROM pc_tx_ticket WHERE id=?1",[&req.ticket],|r|Ok((r.get(0)?,r.get(1)?))))?;
         if raw.len()>16384||hash(&raw)!=checksum{return Err("context_corrupt".into());}
         let ticket:Ticket=serde_json::from_str(&raw).map_err(|_|"context_corrupt")?;
         integrity_scope(&tx,&ticket.context.session.local_id)?;
+        if rolling {
+            if !telemetry_only(&ticket,&req.plan){return Err("irreversible_telemetry_plan".into());}
+            verify_telemetry_slot(&tx,req,&ticket)?;
+        }
         let expected=rules::analyze(&ticket.context,&ticket.snapshot,ticket.context.frame_sequence);
         let error=if req.binding!=checksum||req.preconditions!=ticket.preconditions {Some("invalid_binding")}
             else if preconditions(&tx,&ticket.context.session.local_id)?!=ticket.preconditions{Some("stale_precondition")}
@@ -229,8 +252,11 @@ impl Adapter {
         #[cfg(test)]
         if _fault==Fault::RollbackAfterWrites{return Err("injected_rollback".into());}
         let encoded=encode(&receipt)?;if encoded.len()>32768{return Err("receipt_too_large".into());}
-        sql(tx.execute("INSERT INTO pc_tx_ledger VALUES(?1,?2,?3)",params![req.operation_key,identity(req)?,if receipt.status==Status::Completed{"completed"}else{"rejected"}]))?;
-        sql(tx.execute("INSERT INTO pc_tx_receipts VALUES(?1,?2,?3)",params![req.operation_key,encoded,hash(&encoded)]))?;
+        check_update_bytes(&tx,"pc_tx_receipts","receipt","operation_key",&req.operation_key,encoded.len(),"max_receipt_bytes")?;
+        let ledger_sql=if rolling {"INSERT INTO pc_tx_ledger VALUES(?1,?2,?3) ON CONFLICT(operation_key) DO UPDATE SET identity=excluded.identity,status=excluded.status"}else{"INSERT INTO pc_tx_ledger VALUES(?1,?2,?3)"};
+        let receipt_sql=if rolling {"INSERT INTO pc_tx_receipts VALUES(?1,?2,?3) ON CONFLICT(operation_key) DO UPDATE SET receipt=excluded.receipt,checksum=excluded.checksum"}else{"INSERT INTO pc_tx_receipts VALUES(?1,?2,?3)"};
+        sql(tx.execute(ledger_sql,params![req.operation_key,identity(req)?,if receipt.status==Status::Completed{"completed"}else{"rejected"}]))?;
+        sql(tx.execute(receipt_sql,params![req.operation_key,encoded,hash(&encoded)]))?;
         #[cfg(test)]
         if _fault==Fault::CrashBeforeCommit{std::process::exit(81);}
         sql(tx.commit())?;
@@ -255,6 +281,41 @@ impl Adapter {
         guard(&tx)?;if let Some(response)=saved(&tx,req)? {return if response.status==Status::Unknown{Ok(())}else{Err("terminal_receipt_is_immutable".into())};}
         sql(tx.execute("INSERT INTO pc_tx_ledger VALUES(?1,?2,'unknown')",params![req.operation_key,identity(req)?]))?;sql(tx.commit())
     }
+}
+// A telemetry slot is a monotonic register, not an irreversible operation key.
+// Only unchanged active identity and the exact real Resume/Ensure/Telemetry plan qualify.
+fn telemetry_only(ticket:&Ticket,plan:&rules::Decision)->bool {
+    use super::model::LocalMatchState;
+    let Some(active)=&ticket.context.active else{return false;};
+    if ticket.context.session.ended||plan.end_gameplay_session{return false;}
+    if active.state==LocalMatchState::PostGamePending {
+        return matches!(plan.actions.as_slice(),[Action::UpdateTelemetry{local_id}] if local_id==&active.local_id);
+    }
+    if active.state!=LocalMatchState::InProgress{return false;}
+    let Some(parsed)=super::gsi::parse(&serde_json::to_value(&ticket.snapshot).unwrap())else{return false;};
+    if (parsed.match_id.is_some()&&parsed.match_id!=active.match_id)||parsed.team_name.as_deref()!=Some(&active.player_team){return false;}
+    matches!(plan.actions.as_slice(),[Action::Resume{local_id,game_match_id,hero_id},Action::EnsureMatch{..},Action::UpdateCurrentTelemetry]
+        if local_id==&active.local_id&&game_match_id==&parsed.match_id&&Some(*hero_id)==parsed.hero_id)
+}
+fn check_update_bytes(c:&Connection,table:&str,column:&str,key_column:&str,key:&str,size:usize,limit:&str)->Result<()> {
+    let fits:bool=sql(c.query_row(&format!("SELECT (SELECT bytes FROM pc_tx_usage WHERE kind=?1)-coalesce((SELECT length(CAST({column} AS BLOB)) FROM {table} WHERE {key_column}=?2),0)+?3<=(SELECT {limit} FROM pc_tx_limits WHERE id=1)"),params![table,key,size as u64],|r|r.get(0)))?;
+    if !fits{return Err("safety_quota_exhausted".into());}Ok(())
+}
+fn verify_telemetry_slot(c:&Connection,req:&Request,ticket:&Ticket)->Result<()> {
+    let record=super::transaction_authorization::load(c)?;
+    let companion_dota_domain::ownership::Phase::Active(lease)=record.phase else{return Err("ownership_fenced".into());};
+    let active=ticket.context.active.as_ref().ok_or("missing_match")?;
+    if req.ticket!=format!("telemetry:{}:{}",lease.epoch,active.local_id)||record.session.as_deref()!=Some(&ticket.context.session.local_id){return Err("telemetry_scope_mismatch".into());}
+    let status:Option<String>=sql(c.query_row("SELECT status FROM pc_tx_ledger WHERE operation_key=?1",[&req.operation_key],|r|r.get(0)).optional())?;
+    if status.as_deref().is_some_and(|s|s!="completed"){return Err("telemetry_commit_unconfirmed".into());}
+    let prior:Option<(String,String,String)>=sql(c.query_row("SELECT status,receipt,checksum FROM pc_tx_ledger JOIN pc_tx_receipts USING(operation_key) WHERE operation_key=?1",[&req.operation_key],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional())?;
+    if status.is_some()&&prior.is_none(){return Err("receipt_corrupt".into());}
+    if let Some((status,doc,checksum))=prior {
+        if status!="completed"||doc.len()>32768||hash(&doc)!=checksum{return Err("telemetry_commit_unconfirmed".into());}
+        let receipt:Receipt=serde_json::from_str(&doc).map_err(|_|"receipt_corrupt")?;
+        if receipt.after.as_ref().is_none_or(|p|p.epoch>ticket.preconditions.epoch)||receipt.current_match.as_ref().is_none_or(|m|m.local_id!=active.local_id){return Err("stale_telemetry_precondition".into());}
+    }
+    Ok(())
 }
 fn outbox(c:&Connection,session:&str,matched:&[String])->Result<Vec<OutboxReceipt>> {
     let entities:Vec<&str>=std::iter::once(session).chain(matched.iter().map(String::as_str)).collect();
