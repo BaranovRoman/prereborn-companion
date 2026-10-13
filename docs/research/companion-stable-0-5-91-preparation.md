@@ -110,3 +110,20 @@ signature/hash/URL verified; tampered binary rejected, equal-version rejected. A
 SemVer unit test checks 0.5.91 > 0.5.9/0.5.89/0.5.90 and no equal/newer offer. Release contract guard,
 workflow YAML/embedded Python and git diff --check passed. Windows PS scripts/7-Zip inventory/native
 supervision/new installer/signature/manual upgrade остаются pending Windows CI/разрешений.
+
+## Windows CI follow-up
+- Installed 0.5.89 confirmed; user explicitly authorized feature push/unsigned CI.
+- Native OS integration tests and real Credential Manager passed on f75a8bb/336091b.
+  5 OS assertions (plus 3 subprocess fixtures intentionally ignored); combined framework lib-test
+  remains unsupported on runner and is not reported passed.
+- App + NSIS 0.5.91 compiled successfully. First inventory gate failed because it compared
+  unbundled UNK binary with the bundled NSS binary without accounting for the SDK patch.
+- Run 38430730036 evidence: both executables 46,178,816 bytes; exactly 3 differing bytes
+  at offsets 41,439,458..460 in .rdata, `__TAURI_BUNDLE_TYPE_VAR_UNK` -> `..._NSS`.
+  Confirmed by actual tauri-utils platform.rs and official bundler bundle.rs. No code/resource
+  differences otherwise. Gate now constructs only that exact expected change in memory and
+  requires all remaining bytes equal; 3 Python regression tests passed, downloaded actual
+  Windows evidence passed the strict verifier. No broad timestamp/PE normalization.
+- Subsequent full unsigned CI still pending, including packaged GSI/overlay smoke and artifact.
+- Source evidence: https://github.com/tauri-apps/tauri/blob/dev/crates/tauri-bundler/src/bundle.rs
+  and cached tauri-utils SDK platform.rs (NSS selection).

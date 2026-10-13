@@ -27,5 +27,8 @@ $payloadHash = (Get-FileHash $payload.FullName).Hash
 $builtHash = (Get-FileHash $exe.FullName).Hash
 Write-Host "Built: $($exe.FullName) bytes=$($exe.Length) sha256=$builtHash"
 Write-Host "Extracted: $($payload.FullName) bytes=$($payload.Length) sha256=$payloadHash"
-if ($payloadHash -ne $builtHash) { throw "Installer does not contain the verified application executable" }
+# Tauri intentionally replaces __TAURI_BUNDLE_TYPE_VAR_UNK with ..._NSS in the copy.
+# Compare every byte against only that exact SDK patch; no broad PE normalization.
+& python scripts/companion-verify-nsis-payload.py $exe.FullName $payload.FullName
+if ($LASTEXITCODE -ne 0) { throw "Installer payload verification failed" }
 Write-Host "Windows bundle metadata and inventory verified: $Version; BuiltIn remains embedded."
