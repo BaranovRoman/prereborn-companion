@@ -145,7 +145,7 @@ impl Runtime {
     pub fn command_with_reader(&mut self, name: String, args: Value, mut reader: impl FnMut(Value)->Result<Value,String>) -> Result<Value, String> {
         self.poll();
         if self.snapshot.phase != Phase::Running { return Err("not_running".into()); }
-        let limit = if self.identity.as_deref() == Some("dota2") && name == "dota.replay" { companion_plugin_protocol::MAX_FRAME - 256 } else { 512 };
+        let limit = if self.identity.as_deref() == Some("dota2") && matches!(name.as_str(), "dota.replay" | "dota.watchdog_shadow") { companion_plugin_protocol::MAX_FRAME - 256 } else { 512 };
         if name.len() > 64 || serde_json::to_vec(&args).map_err(|e| e.to_string())?.len() > limit {
             return Err("command_too_large".into());
         }

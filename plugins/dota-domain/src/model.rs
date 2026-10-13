@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 
 // WK-111 - deliberately NOT a copy of the Postgres `stream_sessions`/
 // `stream_matches` schema (apps/api/src/services/stream-session-service.ts,
@@ -8,7 +8,7 @@ use serde::Serialize;
 // "sync_state"/"backend_id" comment on each struct below and
 // docs/research/wk-110-local-first-audit.md §11.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SyncState {
     /// Never pushed to the backend. This is the only state WK-111 ever
@@ -25,7 +25,7 @@ impl Default for SyncState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LocalMatchState {
     InProgress,
@@ -58,7 +58,7 @@ impl LocalMatchState {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MatchResult {
     Win,
@@ -94,7 +94,7 @@ impl MatchResult {
 // or `true`) is the explicit fix for "не угадывать" - a real value can only
 // ever be populated by a future ticket that actually sources it (e.g. a
 // synced-down copy of the toggle), never invented here.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RankedMode {
     Unknown,

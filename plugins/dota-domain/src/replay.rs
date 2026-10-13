@@ -26,6 +26,7 @@ impl Replay {
             in_match: parsed.as_ref().is_some_and(|p| p.is_in_match()), post_game: parsed.as_ref().is_some_and(|p| p.is_post_game()),
             hero_id: parsed.as_ref().and_then(|p| p.hero_id), match_id: parsed.and_then(|p| p.match_id),
             mode: "replay_only", side_effects: false,
+            match_analysis:input.match_context.as_ref().map(|context|crate::match_shadow::analyze(context,&input.snapshot,input.sequence)),
         };
         self.previous = Some(value); self.sequence = Some(input.sequence); self.time = Some(input.observed_at_ms);
         Ok(result)

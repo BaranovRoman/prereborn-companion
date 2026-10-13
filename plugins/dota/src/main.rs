@@ -25,6 +25,15 @@ fn run() -> Result<(), String> {
                     Err(error) => write_frame(&mut output, Message::Error { id: Some(id), code: error, message: "Replay rejected; no effects applied".into() })?,
                 }
             },
+            Message::Command { id, name, args } if name == "dota.watchdog_shadow" => {
+                match serde_json::from_value::<companion_dota_domain::match_shadow::Context>(args) {
+                    Ok(context) => {
+                        let analysis=companion_dota_domain::match_shadow::analyze(&context,&Default::default(),context.frame_sequence);
+                        write_frame(&mut output, Message::Reply{id,result:json!({"matchAnalysis":analysis})})?;
+                    },
+                    Err(_) => write_frame(&mut output, Message::Error{id:Some(id),code:"invalid_match_context".into(),message:"Shadow rejected; no effects applied".into()})?,
+                }
+            },
             Message::Command { id, name, args } if name == "dota.core_read" => {
                 match serde_json::from_value::<companion_dota_domain::core_read::ReadRequest>(args) {
                     Ok(request) if request.validate() => {

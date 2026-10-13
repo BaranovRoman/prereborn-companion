@@ -56,8 +56,9 @@ pub(crate) fn start_workers(app: &AppHandle) {
 pub(crate) fn handle_gsi(app: &AppHandle, payload: &Value) {
     obs::handle_gsi(app, payload);
     game_sounds::handle_gsi(app, payload);
-    local_runtime::handle_gsi(app, payload);
+    let shadow=local_runtime::handle_gsi_shadow(app, payload);
     draft_reminder::handle_gsi(app, payload);
+    crate::core::dota_observer::forward_with_context(app, payload, shadow);
 }
 
 /// Runs once at startup: tries to find Dota and write the GSI config with no

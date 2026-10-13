@@ -45,6 +45,8 @@ mod store;
 pub(crate) mod transaction_facade;
 #[cfg(test)]
 mod transaction_tests;
+#[cfg(test)]
+mod match_shadow_tests;
 pub mod summary;
 pub mod sync;
 pub mod watchdog;
@@ -154,10 +156,13 @@ pub fn init(app: &AppHandle) {
 // undetected. Every real call site keeps compiling unchanged (`R = Wry` by
 // inference).
 pub fn handle_gsi<R: Runtime>(app: &AppHandle<R>, payload: &Value) {
-    let Some(snapshot) = gsi::parse(payload) else { return };
+    let _ = handle_gsi_shadow(app, payload);
+}
+pub(crate) fn handle_gsi_shadow<R: Runtime>(app: &AppHandle<R>, payload: &Value) -> Option<companion_dota_domain::match_shadow::Context> {
+    let Some(snapshot) = gsi::parse(payload) else { return None };
     let state = app.state::<LocalRuntimeState>();
     let mut guard = state.lock();
-    let Some(conn) = guard.as_mut() else { return };
+    let Some(conn) = guard.as_mut() else { return None };
 
     let now = chrono::Utc::now();
 
@@ -182,24 +187,24 @@ pub fn handle_gsi<R: Runtime>(app: &AppHandle<R>, payload: &Value) {
             Ok(Some(session)) => session.local_id,
             Ok(None) => {
                 if !detector::is_new_match_evidence(&snapshot) {
-                    return;
+                    return None;
                 }
                 match store::ensure_gameplay_session(conn, now) {
                     Ok(session) => session.local_id,
                     Err(error) => {
                         crate::storage::append_rolling_log(app, &format!("Local runtime: ensure_gameplay_session failed ({error})"));
-                        return;
+                        return None;
                     }
                 }
             }
             Err(error) => {
                 crate::storage::append_rolling_log(app, &format!("Local runtime: find_open_session failed ({error})"));
-                return;
+                return None;
             }
         },
         Err(error) => {
             crate::storage::append_rolling_log(app, &format!("Local runtime: find_active_match_anywhere failed ({error})"));
-            return;
+            return None;
         }
     };
 
@@ -210,15 +215,39 @@ pub fn handle_gsi<R: Runtime>(app: &AppHandle<R>, payload: &Value) {
     // app.log without adding a single per-tick log line - this only ever
     // logs on an actual state change, never on a no-op tick.
     let before = store::find_active_match(conn, &session_local_id).ok().flatten();
-    if let Err(error) = detector::handle_snapshot(conn, &session_local_id, ranked_mode, &snapshot, now) {
+    // The exact same pre-write context drives legacy execution and immutable shadow input.
+    let context = match detector::context(conn, &session_local_id, ranked_mode, now) {
+        Ok(context) => context,
+        Err(error) => {crate::storage::append_rolling_log(app, &format!("Local runtime: handle_snapshot failed ({error})")); return None;},
+    };
+    let mut shadow = if app.try_state::<crate::core::dota_observer::Observer>().is_some_and(|observer|observer.active()) {
+        match (crate::core::dota_observer::project(payload), store::find_session(conn, &session_local_id)) {
+            (Ok(projected), Ok(Some(session))) => {
+                let mut captured=context.clone();
+                captured.snapshot_identity=companion_dota_domain::match_shadow::snapshot_identity(&projected);
+                captured.session.ended=session.ended_at.is_some(); captured.session.streamed=session.is_streamed;
+                Some(captured)
+            }, _ => None,
+        }
+    } else {None};
+    if let Err(error) = detector::handle_snapshot_with_context(conn, &session_local_id, &snapshot, now, &context) {
         crate::storage::append_rolling_log(app, &format!("Local runtime: handle_snapshot failed ({error})"));
-        return;
+        if let Some(context)=&mut shadow {context.inconclusive_reason=Some("legacy_store_failure".into());}
+        return shadow;
     }
     let after = store::find_active_match(conn, &session_local_id).ok().flatten();
     let terminal = before
         .as_ref()
         .filter(|_| after.is_none())
         .and_then(|old| store::find_match(conn, &old.local_id).ok().flatten());
+
+    if let Some(captured)=&mut shadow {
+        let expected=companion_dota_domain::match_shadow::decide(captured,&snapshot);
+        if expected.end_gameplay_session != (terminal.is_some() && !captured.session.streamed) {
+            // INSERT OR IGNORE/conditional lookup outcome is not a pure snapshot decision.
+            captured.inconclusive_reason=Some("conditional_store_outcome".into());
+        }
+    }
 
     // WK-137 - a gameplay session (not yet/never streamed) is 1:1 with the
     // match that opened it: close it the moment that match resolves for a
@@ -232,9 +261,10 @@ pub fn handle_gsi<R: Runtime>(app: &AppHandle<R>, payload: &Value) {
     // happening ends" rather than leaving gameplay sessions open forever.
     if terminal.is_some() {
         match store::find_session(conn, &session_local_id) {
-            Ok(Some(session)) if !session.is_streamed => {
+            Ok(Some(session)) if companion_dota_domain::match_shadow::should_end_gameplay(session.is_streamed, true) => {
                 if let Err(error) = store::finalize_session_end(conn, &session_local_id, now) {
                     crate::storage::append_rolling_log(app, &format!("Local runtime: finalize_session_end (gameplay) failed ({error})"));
+                    if let Some(context)=&mut shadow{context.inconclusive_reason=Some("legacy_store_failure".into());}
                 }
             }
             Ok(_) => {}
@@ -245,6 +275,7 @@ pub fn handle_gsi<R: Runtime>(app: &AppHandle<R>, payload: &Value) {
     }
 
     log_match_transition(app, &session_local_id, before.as_ref(), after.as_ref(), terminal.as_ref());
+    shadow
 }
 
 /// Sets/corrects Current MMR on the authoritative open local session.

@@ -37,7 +37,9 @@
 // MMR-neutral/idempotent `store::mark_interrupted` - no new match state, no
 // fabricated win/loss/rating, no parallel state machine.
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
+#[cfg(test)]
+use chrono::Duration;
 use tauri::{AppHandle, Manager, Runtime};
 
 use super::store;
@@ -51,7 +53,7 @@ use super::LocalRuntimeState;
 /// visible/recoverable reasonably quickly. Only ever gates *detection*
 /// (surfacing "this looks stuck") - see this module's doc comment for why
 /// crossing it never mutates a match by itself.
-pub const STALE_THRESHOLD: Duration = Duration::minutes(20);
+pub use companion_dota_domain::match_shadow::STALE_THRESHOLD;
 
 /// Coarse on purpose: staleness is measured in tens of minutes, so a sub-
 /// minute sweep interval (`lifecycle::SWEEP_INTERVAL`'s 2s, tuned for a
@@ -67,9 +69,7 @@ const SWEEP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 /// of `now`. Never mutates anything by itself - see this module's doc
 /// comment for why staleness and automatic recovery are deliberately two
 /// different questions.
-pub fn is_match_stale(last_seen_at: DateTime<Utc>, now: DateTime<Utc>) -> bool {
-    now.signed_duration_since(last_seen_at) >= STALE_THRESHOLD
-}
+pub use companion_dota_domain::match_shadow::is_match_stale;
 
 fn parse_rfc3339(value: &str) -> Option<DateTime<Utc>> {
     DateTime::parse_from_rfc3339(value).ok().map(|dt| dt.with_timezone(&Utc))
@@ -95,6 +95,10 @@ pub fn sweep<R: Runtime>(app: &AppHandle<R>, now: DateTime<Utc>) {
     let state = app.state::<LocalRuntimeState>();
     let mut guard = state.lock();
     let Some(conn) = guard.as_mut() else { return };
+    // Snapshot exactly the pre-sweep rows under the existing coordinator lock.
+    if let Some(observer)=app.try_state::<crate::core::dota_observer::Observer>().filter(|observer|observer.active()) {
+        if let Ok(context)=shadow_context(conn,now) {observer.submit_watchdog(context);}
+    }
     let candidates = match store::find_stale_matches_with_ended_session(conn, now, STALE_THRESHOLD) {
         Ok(candidates) => candidates,
         Err(error) => {
@@ -103,6 +107,7 @@ pub fn sweep<R: Runtime>(app: &AppHandle<R>, now: DateTime<Utc>) {
         }
     };
     for candidate in candidates {
+        if !companion_dota_domain::match_shadow::sweep_eligible(candidate.state,candidate.last_seen_at.as_deref(),true,now) {continue;}
         if let Err(error) = store::mark_interrupted(conn, &candidate.local_id, now) {
             crate::storage::append_rolling_log(
                 app,
@@ -118,6 +123,16 @@ pub fn sweep<R: Runtime>(app: &AppHandle<R>, now: DateTime<Utc>) {
             ),
         );
     }
+}
+
+pub(crate) fn shadow_context(conn:&rusqlite::Connection,now:DateTime<Utc>)->rusqlite::Result<companion_dota_domain::match_shadow::Context> {
+    use companion_dota_domain::match_shadow::{Context,SessionContext,snapshot_identity};
+    let active=store::find_active_match_anywhere(conn)?;
+    let session=match &active {Some(a)=>store::find_session(conn,&a.session_local_id)?,None=>store::find_open_session(conn)?};
+    Ok(Context{frame_sequence:0,snapshot_identity:snapshot_identity(&Default::default()),captured_at:now,
+        active:active.as_ref().map(super::detector::match_context),
+        session:SessionContext{local_id:session.as_ref().map(|s|s.local_id.clone()).unwrap_or_default(),ended:session.as_ref().is_some_and(|s|s.ended_at.is_some()),streamed:session.as_ref().is_some_and(|s|s.is_streamed)},
+        ranked_mode:active.map(|a|a.ranked_mode).unwrap_or(super::model::RankedMode::Unknown),inconclusive_reason:None,timestamp_fallback:now})
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]

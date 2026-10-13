@@ -15,6 +15,7 @@ pub struct ReplayContext { #[serde(default, skip_serializing_if = "Option::is_no
 pub struct ReplayInput {
     pub sequence: u64, pub observed_at_ms: u64, pub snapshot: ReplayGsi,
     #[serde(default)] pub context: ReplayContext,
+    #[serde(default, skip_serializing_if = "Option::is_none")] pub match_context: Option<crate::match_shadow::Context>,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -53,6 +54,7 @@ pub struct ReplayResult {
     pub sequence: u64, pub broadcast_state: BroadcastState, pub sound_signals: Vec<SoundSignal>,
     pub in_match: bool, pub post_game: bool, pub hero_id: Option<i64>, pub match_id: Option<String>,
     pub mode: &'static str, pub side_effects: bool,
+    #[serde(skip_serializing_if = "Option::is_none")] pub match_analysis: Option<crate::match_shadow::Analysis>,
 }
 
 // Legacy iteration-4 candidates. Versioned, bounded envelopes/acknowledgements now live in effects.rs.

@@ -1,256 +1,55 @@
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
+#[cfg(test)]
+use chrono::Duration;
 use rusqlite::Connection;
-
-use super::gsi::{self, GsiSnapshot};
-use super::model::{LocalMatch, LocalMatchState, MatchResult, RankedMode};
+use super::gsi::GsiSnapshot;
+use super::model::{LocalMatch, RankedMode};
 use super::store;
+use companion_dota_domain::match_shadow::{self as rules, Action, Context, MatchContext, SessionContext};
+#[cfg(test)]
+use super::model::{LocalMatchState, MatchResult};
+#[cfg(test)]
+use rules::{decide_leave, decide_post_game, LeaveDecision, PostGameDecision};
+pub use rules::is_new_match_evidence;
 
-// Mirrors stream-match-service.ts's `RECONNECT_WINDOW_MS` - 5 minutes
-// matches Dota's own abandon timer, not an arbitrarily chosen number.
-const RECONNECT_WINDOW: Duration = Duration::minutes(5);
-
-fn parse_rfc3339(value: &str) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(value)
-        .map(|dt| dt.with_timezone(&Utc))
-        .unwrap_or_else(|_| Utc::now())
+pub(crate) fn match_context(active:&LocalMatch)->MatchContext {
+    MatchContext {local_id:active.local_id.clone(),session_local_id:active.session_local_id.clone(),match_id:active.match_id.clone(),player_team:active.player_team.clone(),state:active.state,result:active.result,ranked_mode:active.ranked_mode,interrupted_at:active.interrupted_at.clone(),started_at:active.started_at.clone(),last_seen_at:active.last_seen_at.clone(),revision:None}
+}
+pub(crate) fn context(conn:&Connection,session:&str,mode:RankedMode,now:DateTime<Utc>)->rusqlite::Result<Context> {
+    Ok(Context{frame_sequence:0,snapshot_identity:String::new(),captured_at:now,
+        active:store::find_active_match(conn,session)?.as_ref().map(match_context),
+        session:SessionContext{local_id:session.into(),ended:false,streamed:true},ranked_mode:mode,
+        inconclusive_reason:None,timestamp_fallback:Utc::now()})
+}
+#[cfg(test)]
+#[allow(dead_code)] // Signature compatibility pinned by the architectural test.
+fn is_same_match(active:&LocalMatch,snapshot:&GsiSnapshot,now:DateTime<Utc>)->bool {
+    rules::is_same_match(&match_context(active),snapshot,now,Utc::now())
 }
 
-fn is_within_reconnect_window(interrupted_at: Option<&str>, now: DateTime<Utc>) -> bool {
-    match interrupted_at {
-        None => true,
-        Some(raw) => now - parse_rfc3339(raw) <= RECONNECT_WINDOW,
-    }
+/// Existing store operations and SQL ordering, driven by the shared pure decision plan.
+pub fn handle_snapshot(conn:&mut Connection,session_local_id:&str,ranked_mode:RankedMode,snapshot:&GsiSnapshot,now:DateTime<Utc>)->rusqlite::Result<()> {
+    let context=context(conn,session_local_id,ranked_mode,now)?;
+    handle_snapshot_with_context(conn, session_local_id, snapshot, now, &context)
 }
-
-/// Pure identity check - mirrors `processGsiPayloadForMatch`'s `sameMatch`.
-/// Takes only plain local values (an already-read match row's fields, the
-/// parsed GSI snapshot, and "now") - no database handle, no backend/network
-/// type of any kind can be threaded into this signature. See
-/// `match_transition_never_depends_on_backend_state` below, which pins
-/// exactly that.
-fn is_same_match(active: &LocalMatch, snapshot: &GsiSnapshot, now: DateTime<Utc>) -> bool {
-    match (&snapshot.match_id, &active.match_id) {
-        (Some(a), Some(b)) => a == b,
-        _ => {
-            snapshot.team_name.as_deref() == Some(active.player_team.as_str())
-                && is_within_reconnect_window(active.interrupted_at.as_deref(), now)
-                && (active.interrupted_at.is_none()
-                    || !gsi::is_new_match_signal_game_state(&snapshot.game_state))
+pub(crate) fn handle_snapshot_with_context(conn:&mut Connection,session_local_id:&str,snapshot:&GsiSnapshot,now:DateTime<Utc>,context:&Context)->rusqlite::Result<()> {
+    let decision=rules::decide(context,snapshot);
+    // Track the result of the same lookups as legacy, including INSERT OR IGNORE races.
+    let mut current=context.active.as_ref().map(|a|a.local_id.clone());
+    for action in decision.actions {
+        match action {
+            Action::UpdateTelemetry{local_id}=>store::update_match_telemetry(conn,&local_id,&snapshot.telemetry,now)?,
+            Action::Interrupted{local_id}=>{store::mark_interrupted(conn,&local_id,now)?;current=None;},
+            Action::NeedsReview{local_id}=>{store::mark_needs_review(conn,&local_id)?;current=None;},
+            Action::Pending{local_id,result}=>store::set_post_game(conn,&local_id,result)?,
+            Action::Finalize{local_id,session_local_id,ranked_mode,result,confidence}=>store::finalize_match(conn,&local_id,&session_local_id,ranked_mode,result,&confidence,now)?,
+            Action::Resume{local_id,game_match_id,hero_id}=>{store::resume_match(conn,&local_id,game_match_id.as_deref(),hero_id)?;current=store::find_active_match(conn,session_local_id)?.map(|a|a.local_id);},
+            Action::EnsureMatch{game_match_id,hero_id,player_team,ranked_mode}=>{
+                if current.is_none(){store::create_match(conn,session_local_id,game_match_id.as_deref(),hero_id,&player_team,ranked_mode,now)?;current=store::find_active_match(conn,session_local_id)?.map(|a|a.local_id);}
+            },
+            Action::UpdateCurrentTelemetry=>if let Some(id)=&current{store::update_match_telemetry(conn,id,&snapshot.telemetry,now)?;},
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LeaveDecision {
-    MarkInterrupted,
-    FinalizeProbable,
-    MarkNeedsReview,
-    NoOp,
-}
-
-/// Mirrors `handleLeftMatch` - pure function of the match's own
-/// state/result, nothing else.
-fn decide_leave(state: LocalMatchState, result: Option<MatchResult>) -> LeaveDecision {
-    match state {
-        LocalMatchState::InProgress => LeaveDecision::MarkInterrupted,
-        LocalMatchState::PostGamePending => {
-            if result.is_some() {
-                LeaveDecision::FinalizeProbable
-            } else {
-                LeaveDecision::MarkNeedsReview
-            }
-        }
-        LocalMatchState::Interrupted | LocalMatchState::Finalized | LocalMatchState::NeedsReview => {
-            LeaveDecision::NoOp
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PostGameDecision {
-    TransitionToPending(Option<MatchResult>),
-    SetFirstObservation(MatchResult),
-    FinalizeConfirmed,
-    MarkNeedsReview,
-    NoOp,
-}
-
-/// Mirrors `markPostGame` - pure function of the match's current
-/// state/result and this tick's resolved win/loss observation (if any).
-fn decide_post_game(
-    state: LocalMatchState,
-    current_result: Option<MatchResult>,
-    observation: Option<MatchResult>,
-) -> PostGameDecision {
-    match state {
-        LocalMatchState::InProgress => PostGameDecision::TransitionToPending(observation),
-        LocalMatchState::PostGamePending => match (current_result, observation) {
-            (_, None) => PostGameDecision::NoOp,
-            (None, Some(result)) => PostGameDecision::SetFirstObservation(result),
-            (Some(existing), Some(new)) if existing == new => PostGameDecision::FinalizeConfirmed,
-            (Some(_), Some(_)) => PostGameDecision::MarkNeedsReview,
-        },
-        _ => PostGameDecision::NoOp,
-    }
-}
-
-fn resolve_observation(snapshot: &GsiSnapshot, team_name: &str) -> Option<MatchResult> {
-    match snapshot.win_team.as_deref() {
-        Some("radiant") | Some("dire") => {
-            Some(if snapshot.win_team.as_deref() == Some(team_name) {
-                MatchResult::Win
-            } else {
-                MatchResult::Loss
-            })
-        }
-        _ => None,
-    }
-}
-
-fn apply_leave(conn: &mut Connection, active: &LocalMatch, now: DateTime<Utc>) -> rusqlite::Result<()> {
-    match decide_leave(active.state, active.result) {
-        LeaveDecision::MarkInterrupted => store::mark_interrupted(conn, &active.local_id, now),
-        LeaveDecision::FinalizeProbable => store::finalize_match(
-            conn,
-            &active.local_id,
-            &active.session_local_id,
-            active.ranked_mode,
-            active.result.expect("FinalizeProbable only returned when a result exists"),
-            "probable",
-            now,
-        ),
-        LeaveDecision::MarkNeedsReview => store::mark_needs_review(conn, &active.local_id),
-        LeaveDecision::NoOp => Ok(()),
-    }
-}
-
-/// WK-137 - true exactly when this tick would cause `handle_snapshot` to
-/// create a brand new match if there were no active match/session to
-/// attach it to (the same hero-picked/team-known/not-post-game gate at the
-/// bottom of `handle_snapshot` below - kept as one pure, testable function
-/// so `local_runtime::mod::handle_gsi` can decide "is it worth lazily
-/// opening a gameplay session for this tick" without duplicating that gate
-/// or needing a database handle). An ordinary menu/idle/hero-not-picked-yet
-/// tick with no session open must keep creating nothing, exactly as before
-/// this ticket.
-pub fn is_new_match_evidence(snapshot: &GsiSnapshot) -> bool {
-    if !snapshot.is_match_lifecycle_tick() || snapshot.custom_game_name.is_some() || snapshot.is_post_game() {
-        return false;
-    }
-    match snapshot.hero_id {
-        Some(hero_id) if hero_id > 0 => snapshot.team_name.is_some(),
-        _ => false,
-    }
-}
-
-/// Entry point called (indirectly, via `local_runtime::handle_gsi`) once
-/// per GSI tick with the current session already resolved. Mirrors
-/// `processGsiPayloadForMatch` end to end: DB reads/writes happen here
-/// (against the local SQLite file, not a network backend), but every
-/// "what should happen" decision is delegated to a pure function above that
-/// cannot see anything backend-shaped - this function's own signature is
-/// the second half of that guarantee: `Connection` here is the local
-/// runtime's own on-disk store, not `AppState`/a backend client, so this
-/// module has no way to consult (let alone depend on) prereborn.ru
-/// reachability even if it wanted to.
-pub fn handle_snapshot(
-    conn: &mut Connection,
-    session_local_id: &str,
-    ranked_mode: RankedMode,
-    snapshot: &GsiSnapshot,
-    now: DateTime<Utc>,
-) -> rusqlite::Result<()> {
-    let mut active = store::find_active_match(conn, session_local_id)?;
-
-    if !snapshot.is_match_lifecycle_tick() || snapshot.custom_game_name.is_some() {
-        if let Some(active) = active {
-            apply_leave(conn, &active, now)?;
-        }
-        return Ok(());
-    }
-
-    // A real final GSI tick is frequently reduced to map data only and may
-    // already report `player.activity = menu`. The active local row is the
-    // authoritative identity/team captured during the game, so POST_GAME
-    // must be processed before requiring this tick's hero/player sections.
-    if snapshot.is_post_game() {
-        let Some(current) = active else {
-            // Duplicate post-game tick after finalization, or Companion was
-            // launched only after the game ended. Never fabricate a match.
-            return Ok(());
-        };
-
-        store::update_match_telemetry(conn, &current.local_id, &snapshot.telemetry, now)?;
-
-        if let (Some(observed), Some(tracked)) = (&snapshot.match_id, &current.match_id) {
-            if observed != tracked {
-                return store::mark_needs_review(conn, &current.local_id);
-            }
-        }
-
-        let observation = resolve_observation(snapshot, &current.player_team);
-        return match decide_post_game(current.state, current.result, observation) {
-            PostGameDecision::TransitionToPending(result) => store::set_post_game(conn, &current.local_id, result),
-            PostGameDecision::SetFirstObservation(result) => {
-                store::set_post_game(conn, &current.local_id, Some(result))
-            }
-            PostGameDecision::FinalizeConfirmed => store::finalize_match(
-                conn,
-                &current.local_id,
-                &current.session_local_id,
-                current.ranked_mode,
-                current.result.expect("FinalizeConfirmed only returned when a result exists"),
-                "confirmed",
-                now,
-            ),
-            PostGameDecision::MarkNeedsReview => store::mark_needs_review(conn, &current.local_id),
-            PostGameDecision::NoOp => Ok(()),
-        };
-    }
-
-    let (Some(hero_id), Some(team_name)) = (snapshot.hero_id, snapshot.team_name.clone()) else {
-        return Ok(()); // hero not picked yet this tick - ordinary intermediate state
-    };
-    if hero_id <= 0 {
-        return Ok(());
-    }
-
-    if let Some(current) = &active {
-        if is_same_match(current, snapshot, now) {
-            store::resume_match(conn, &current.local_id, snapshot.match_id.as_deref(), hero_id)?;
-            active = store::find_active_match(conn, session_local_id)?;
-        } else {
-            // WK-146 - a genuinely new, distinct match tick is the strongest
-            // corroborating evidence the watchdog design relies on: two
-            // distinct matches cannot both be the current active match, so
-            // the old row can no longer represent what's happening now
-            // regardless of the reason. If it was ALSO already stale (no
-            // GSI activity for `watchdog::STALE_THRESHOLD`), park it as the
-            // existing MMR-neutral `interrupted` state rather than
-            // `needs_review` - the staleness plus this new-match evidence
-            // together are enough to be confident it was abandoned, not just
-            // an ambiguous blip worth a human look. A fresh (not yet stale)
-            // old match hitting this branch keeps the original, unchanged
-            // `needs_review` treatment - an abrupt identity switch with no
-            // elapsed silence is still exactly the ambiguous case that
-            // deserves review, not an assumed abandonment.
-            if super::watchdog::is_match_stale(parse_rfc3339(current.last_seen_at.as_deref().unwrap_or(&current.started_at)), now) {
-                store::mark_interrupted(conn, &current.local_id, now)?;
-            } else {
-                store::mark_needs_review(conn, &current.local_id)?;
-            }
-            active = None;
-        }
-    }
-
-    if active.is_none() {
-        store::create_match(conn, session_local_id, snapshot.match_id.as_deref(), hero_id, &team_name, ranked_mode, now)?;
-        active = store::find_active_match(conn, session_local_id)?;
-    }
-
-    let Some(active) = active else { return Ok(()) }; // creation raced away - next tick picks it up
-    store::update_match_telemetry(conn, &active.local_id, &snapshot.telemetry, now)?;
-
     Ok(())
 }
 
