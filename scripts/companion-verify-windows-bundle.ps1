@@ -23,5 +23,9 @@ New-Item -ItemType Directory -Force -Path $inspectDir | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Installer payload extraction failed" }
 $payload = Get-Item (Join-Path $inspectDir "dota-companion.exe")
 if ($payload.VersionInfo.ProductVersion -ne $actual) { throw "Installer payload differs from built application version" }
-if ((Get-FileHash $payload.FullName).Hash -ne (Get-FileHash $exe.FullName).Hash) { throw "Installer does not contain the verified application executable" }
+$payloadHash = (Get-FileHash $payload.FullName).Hash
+$builtHash = (Get-FileHash $exe.FullName).Hash
+Write-Host "Built: $($exe.FullName) bytes=$($exe.Length) sha256=$builtHash"
+Write-Host "Extracted: $($payload.FullName) bytes=$($payload.Length) sha256=$payloadHash"
+if ($payloadHash -ne $builtHash) { throw "Installer does not contain the verified application executable" }
 Write-Host "Windows bundle metadata and inventory verified: $Version; BuiltIn remains embedded."
