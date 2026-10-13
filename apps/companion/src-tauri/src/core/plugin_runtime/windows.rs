@@ -49,7 +49,7 @@ impl Attributes {
 impl Drop for Attributes {fn drop(&mut self){unsafe{DeleteProcThreadAttributeList(self.ptr());}}}
 
 pub(super) struct Child {
-    process:OwnedHandle, job:OwnedHandle, pid:u32, termination:Option<Fence>,
+    process:OwnedHandle, job:OwnedHandle, pid:u32, initial:Option<Fence>, termination:Option<Fence>,
     pub stdin:Option<File>,pub stdout:Option<File>,pub stderr:Option<File>,
 }
 impl Child {
@@ -59,6 +59,12 @@ impl Child {
         let witness=capture(self.job.as_raw_handle());
         if TerminateJobObject(self.job.as_raw_handle(),1)==0{return Err(io::Error::last_os_error());}
         match witness {Ok(mut w)=>{
+            if self.termination.is_none() {
+                if let Some(initial)=self.initial.as_mut() {
+                    if initial.handles.len()+w.handles.len()>256{return Err(io::Error::other("fence handle quota exhausted"));}
+                    w.handles.append(&mut initial.handles);
+                }
+            }
             if let Some(old)=self.termination.as_mut() {
                 if old.total==w.total{return Ok(());} // Existing handles cover the same membership.
                 if old.handles.len()+w.handles.len()>256{return Err(io::Error::other("fence handle quota exhausted"));}
@@ -73,12 +79,9 @@ impl Child {
                 // Root exit alone is insufficient: a descendant may still own an IPC pipe.
                 let info=accounting(self.job.as_raw_handle())?;
                 if info.ActiveProcesses!=0{return Ok(None);}
-                if let Some(w)=self.termination.as_ref() {
-                    if !w.complete(self.job.as_raw_handle())?{return Ok(None);}
-                } else if info.TotalProcesses!=1 {
-                    // Without captured descendant handles, an empty counter is not exit proof.
-                    return Err(io::Error::other("job descendant exit unproven"));
-                }
+                let witness=self.termination.as_ref().or(self.initial.as_ref())
+                    .ok_or_else(||io::Error::other("job exit unproven"))?;
+                if !witness.complete(self.job.as_raw_handle())?{return Ok(None);}
                 let mut code=0;if GetExitCodeProcess(self.process.as_raw_handle(),&mut code)==0{return Err(io::Error::last_os_error());}
                 Ok(Some(ExitStatus::from_raw(code)))
             },_=>Err(io::Error::last_os_error()),
@@ -143,7 +146,9 @@ pub(super) fn spawn(command:&Command,generation:&str)->io::Result<Child>{unsafe 
     let env=[0u16,0];let mut pi=PROCESS_INFORMATION::default();
     if CreateProcessW(program.as_ptr(),line.as_mut_ptr(),ptr::null(),ptr::null(),1,EXTENDED_STARTUPINFO_PRESENT|CREATE_UNICODE_ENVIRONMENT|CREATE_NO_WINDOW,env.as_ptr().cast(),cwd.as_ref().map_or(ptr::null(),|x|x.as_ptr()),&startup.StartupInfo,&mut pi)==0{return Err(io::Error::last_os_error());}
     let process=own(pi.hProcess)?;let _thread=own(pi.hThread)?;
-    Ok(Child{process,job,pid:pi.dwProcessId,termination:None,stdin:Some(stdin),stdout:Some(stdout),stderr:Some(stderr)})
+    // Capture actual membership/counter instead of assuming a new job reports TotalProcesses=1.
+    let initial=capture(job.as_raw_handle()).ok();
+    Ok(Child{process,job,pid:pi.dwProcessId,initial,termination:None,stdin:Some(stdin),stdout:Some(stdout),stderr:Some(stderr)})
 }}
 // Explicit recovery only. Never called from normal bootstrap. No saved-PID lookup or kill by PID.
 pub(crate) fn fence_generation(generation:&str)->Result<(),String>{unsafe {
