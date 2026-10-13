@@ -47,6 +47,8 @@ pub(crate) mod transaction_facade;
 mod transaction_tests;
 #[cfg(test)]
 mod match_shadow_tests;
+#[cfg(test)]
+mod host_execution;
 pub mod summary;
 pub mod sync;
 pub mod watchdog;

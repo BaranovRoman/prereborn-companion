@@ -587,6 +587,15 @@ fn synthesized_match_key(session_local_id: &str, now: DateTime<Utc>, hero_id: i6
     format!("session:{session_local_id}:{}:{hero_id}", now.timestamp_millis())
 }
 
+#[cfg(test)]
+pub(super) fn diagnostic_match_key(session:&str,game:Option<&str>,hero:i64,now:DateTime<Utc>)->String {
+    match game {Some(id)=>format!("gsi:{id}"),None=>synthesized_match_key(session,now,hero)}
+}
+#[cfg(test)]
+pub(super) fn diagnostic_find_key(conn:&Connection,session:&str,key:&str)->rusqlite::Result<Option<LocalMatch>> {
+    conn.query_row(&format!("SELECT {MATCH_COLUMNS} FROM local_matches WHERE session_local_id=?1 AND match_key=?2"),params![session,key],row_to_match).optional()
+}
+
 /// Mirrors `createMatch` - `INSERT ... ON CONFLICT DO NOTHING` on the same
 /// (session, match_key) uniqueness the schema enforces, so a duplicate tick
 /// racing this call can never create a second row for the same match.

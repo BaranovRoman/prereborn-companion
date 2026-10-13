@@ -114,4 +114,13 @@ impl<'a, 'c> Facade<'a, 'c> {
     pub fn outbox_status(&self) -> rusqlite::Result<sync::SyncOutboxStatus> {
         sync::outbox_status(self.tx)
     }
+    #[cfg(test)]
+    pub fn lookup_active(&self,session:&str)->rusqlite::Result<Option<LocalMatch>> {store::find_active_match(self.tx,session)}
+    #[cfg(test)]
+    pub fn lookup_match(&self,id:&str)->rusqlite::Result<Option<LocalMatch>> {store::find_match(self.tx,id)}
+    #[cfg(test)]
+    pub fn lookup_key(&self,session:&str,key:&str)->rusqlite::Result<Option<LocalMatch>> {store::diagnostic_find_key(self.tx,session,key)}
+    #[cfg(test)]
+    pub fn lookup_session(&self,id:&str)->rusqlite::Result<Option<LocalSession>> {store::find_session(self.tx,id)}
+
 }
