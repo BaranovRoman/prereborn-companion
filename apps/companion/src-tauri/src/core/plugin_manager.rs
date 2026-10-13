@@ -32,6 +32,23 @@ pub struct Row { id: String, installed: Installed, manifest: Option<Manifest>, r
 #[serde(rename_all = "camelCase")]
 pub struct View { installed: Vec<Row>, catalog: Vec<Release>, catalog_error: Option<String>, transfer: Transfer, error: Option<String>, local_install_allowed: bool }
 fn locked() -> String { "plugin_manager_lock_poisoned".into() }
+pub(crate) struct MatchExecutionGrant {
+    binding:companion_dota_domain::match_execution::PackageBinding,executable:PathBuf,
+    pub(crate) session:String,pub(crate) lease:companion_dota_domain::ownership::Lease,
+}
+impl MatchExecutionGrant {pub(crate) fn binding(&self)->&companion_dota_domain::match_execution::PackageBinding{&self.binding}}
+pub(crate) struct VerifiedMatchGrant<'a>(&'a MatchExecutionGrant);
+impl VerifiedMatchGrant<'_> {pub(crate) fn grant(&self)->&MatchExecutionGrant{self.0}}
+fn execution_binding(store:&Store,explicit:&[&str])->Result<(companion_dota_domain::match_execution::PackageBinding,PathBuf),String> {
+    use companion_dota_domain::match_execution::{PackageBinding,MATCH_EXECUTION_CAPABILITY};
+    if !explicit.contains(&MATCH_EXECUTION_CAPABILITY){return Err("capability_denied".into());}
+    let installed=store.installed().get("dota2").cloned().ok_or("not_installed")?;
+    let (path,manifest)=store.executable("dota2",&installed.active)?;
+    if manifest.execution!=packages::ExecutionMode::Live||!manifest.permissions.iter().any(|p|p==MATCH_EXECUTION_CAPABILITY){return Err("replay_only_execution_denied".into());}
+    let executable_hash=manifest.files.get(&manifest.executable).cloned().ok_or("executable_unbound")?;
+    let manifest_hash=packages::hash(&serde_json::to_vec(&manifest).map_err(|_|"invalid_manifest")?);
+    Ok((PackageBinding{id:manifest.id,version:manifest.version,executable_hash,manifest_hash},path))
+}
 impl Service {
     fn running(&self, id: &str) -> bool {
         self.hosts.get(id).is_some_and(|host| host.0.lock().map(|mut r| matches!(r.snapshot().phase, Phase::Running | Phase::Starting)).unwrap_or(true))
@@ -61,6 +78,20 @@ impl Service {
     }
 }
 impl PluginManager {
+    pub(crate) fn match_execution_grant(&self,explicit:&[&str],session:&str,lease:companion_dota_domain::ownership::Lease)->Result<MatchExecutionGrant,String> {
+        if self.shutting_down.load(Ordering::SeqCst){return Err("plugin_manager_stopping".into());}
+        if lease.owner!=companion_dota_domain::ownership::Owner::External||session.is_empty()||session.len()>128{return Err("invalid_execution_scope".into());}
+        let guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_ref().map_err(Clone::clone)?;
+        let (binding,executable)=execution_binding(&service.store,explicit)?;Ok(MatchExecutionGrant{binding,executable,session:session.into(),lease})
+    }
+    // Lock order: manager verification/pin -> existing LocalRuntimeState connection mutex.
+    // Never acquire this pin from a caller already holding the runtime process mutex.
+    pub(crate) fn with_verified_match_grant<T>(&self,grant:&MatchExecutionGrant,write:impl FnOnce(&VerifiedMatchGrant<'_>)->Result<T,String>)->Result<T,String> {
+        if self.shutting_down.load(Ordering::SeqCst){return Err("plugin_manager_stopping".into());}
+        let guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_ref().map_err(Clone::clone)?;
+        let (binding,path)=execution_binding(&service.store,&[companion_dota_domain::match_execution::MATCH_EXECUTION_CAPABILITY])?;
+        if binding!=grant.binding||path!=grant.executable{return Err("installed_execution_binding_changed".into());}write(&VerifiedMatchGrant(grant))
+    }
     fn unavailable(error: String) -> Self {
         Self { service: Arc::new(Mutex::new(Err(error))), transfer: Arc::new(Mutex::new(Transfer::default())), cancel: Arc::new(AtomicBool::new(false)), busy: Arc::new(AtomicBool::new(false)), shutting_down: Arc::new(AtomicBool::new(false)) }
     }
@@ -299,6 +330,35 @@ pub async fn plugins_command(app: tauri::AppHandle, id: String, name: String, ar
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn fixture_manager(root:PathBuf,key:&str)->PluginManager {
+        PluginManager{service:Arc::new(Mutex::new(Ok(Service{store:Store::open(root,key).unwrap(),catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default()}
+    }
+    #[test]
+    fn production_match_grant_is_signed_explicit_bound_and_still_cannot_activate_dota() {
+        if std::env::consts::OS!="macos"||std::env::consts::ARCH!="aarch64"{return;}
+        use companion_dota_domain::{ownership::{Owner,Lease},match_execution::MATCH_EXECUTION_CAPABILITY};
+        use crate::local_runtime::{LocalRuntimeState,transaction_authorization as auth};
+        let dir=tempfile::tempdir().unwrap();let base=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../plugins/manager/tests/fixtures");let key=std::fs::read_to_string(base.join("live-fixture.pub")).unwrap();let manager=fixture_manager(dir.path().join("plugins"),&key);
+        let release:Release=serde_json::from_slice(&std::fs::read(base.join("dota2-live-0.3.0.fixture.json")).unwrap()).unwrap();let bytes=std::fs::read(base.join("dota2-live-0.3.0.fixture.zip")).unwrap();
+        manager.service.lock().unwrap().as_mut().unwrap().store.install(&bytes,&release,false,&AtomicBool::new(false)).unwrap();
+        let db=dir.path().join("local-runtime.sqlite3");let (session,_)=crate::local_runtime::transaction_tests::seed(&db);let state=LocalRuntimeState::new();*state.lock()=Some(rusqlite::Connection::open(&db).unwrap());state.migrate_transactions(&dir.path().join("backup.sqlite3")).unwrap();
+        let builtin=state.with_transaction_adapter(|_,conn|auth::confirm_fenced(conn,Lease{owner:Owner::BuiltIn,epoch:1})).unwrap();let pending=manager.match_execution_grant(&[MATCH_EXECUTION_CAPABILITY],&session,Lease{owner:Owner::External,epoch:builtin.epoch+1}).unwrap();let lease=state.with_transaction_adapter(|_,conn|{auth::begin(conn,builtin,Owner::External,&session,Some(pending.binding().clone()))?;auth::confirm_fenced(conn,builtin)}).unwrap();
+        assert!(manager.match_execution_grant(&[],&session,lease).is_err());let grant=manager.match_execution_grant(&[MATCH_EXECUTION_CAPABILITY],&session,lease).unwrap();
+        let snapshot=crate::core::dota_observer::project(&serde_json::json!({"player":{"activity":"playing","team_name":"radiant"},"hero":{"id":105},"map":{"game_state":"DOTA_GAMERULES_STATE_GAME_IN_PROGRESS","matchid":"42"}})).unwrap();
+        let request=state.with_transaction_adapter(|adapter,conn|adapter.prepare(conn,&session,snapshot,companion_dota_domain::model::RankedMode::Ranked,chrono::DateTime::from_timestamp(1700000002,0).unwrap(),1)?.core_request("signed-op","corr")).unwrap();
+        let response=state.execute_plugin_plan(&manager,&grant,&request).unwrap();assert_eq!(response.status,companion_dota_domain::effects::Status::Completed);assert_eq!(state.recover_plugin_plan(&manager,&grant,&request).unwrap(),response);
+        assert_eq!(manager.action("dota2","start").unwrap_err(),"dota_live_activation_deferred");assert!(!manager.service.lock().unwrap().as_ref().unwrap().hosts.contains_key("dota2"));
+        let executable=manager.service.lock().unwrap().as_ref().unwrap().store.executable("dota2","0.3.0").unwrap().0;std::fs::write(&executable,b"tampered").unwrap();
+        assert!(state.execute_plugin_plan(&manager,&grant,&request).is_err());
+    }
+    #[test]
+    fn signed_replay_hello_and_unsigned_packages_cannot_receive_match_execution_grants() {
+        if std::env::consts::OS!="macos"||std::env::consts::ARCH!="aarch64"{return;}
+        let dir=tempfile::tempdir().unwrap();let base=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../plugins/manager/tests/fixtures");let key=std::fs::read_to_string(base.join("test.pub")).unwrap();let manager=fixture_manager(dir.path().join("plugins"),&key);
+        let lease=companion_dota_domain::ownership::Lease{owner:companion_dota_domain::ownership::Owner::External,epoch:2};let capability=[companion_dota_domain::match_execution::MATCH_EXECUTION_CAPABILITY];
+        for prefix in ["hello-0.1.0","dota2-0.1.0"] {let release:Release=serde_json::from_slice(&std::fs::read(base.join(format!("{prefix}-macos-aarch64.release.json"))).unwrap()).unwrap();let bytes=std::fs::read(base.join(format!("{prefix}-macos-aarch64.zip"))).unwrap();manager.service.lock().unwrap().as_mut().unwrap().store.install(&bytes,&release,false,&AtomicBool::new(false)).unwrap();assert!(manager.match_execution_grant(&capability,"session",lease).is_err());}
+        let manifest=manager.service.lock().unwrap().as_ref().unwrap().store.root().join("versions/dota2/0.1.0/manifest.minisig");std::fs::write(manifest,b"unsigned").unwrap();assert!(manager.match_execution_grant(&capability,"session",lease).is_err());
+    }
     #[test] fn dota_cannot_be_enabled_started_or_restored_as_a_live_runtime() {
         let dir = tempfile::tempdir().unwrap(); let manager = PluginManager::open(dir.path().join("plugins"));
         assert_eq!(manager.action("dota2", "enable").unwrap_err(), "dota_live_activation_deferred");

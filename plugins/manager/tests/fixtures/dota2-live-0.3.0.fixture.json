@@ -1,0 +1,27 @@
+{
+  "manifest": {
+    "schema": 1,
+    "id": "dota2",
+    "name": "Dota live authorization fixture",
+    "description": "Test-only signed package; never activated.",
+    "version": "0.3.0",
+    "platform": "macos",
+    "arch": "aarch64",
+    "minApi": 1,
+    "maxApi": 1,
+    "executable": "bin/dota-fixture",
+    "ui": "ui/index.html",
+    "permissions": [
+      "ui",
+      "dota.match.execute"
+    ],
+    "files": {
+      "bin/dota-fixture": "306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb",
+      "ui/index.html": "02e574090acc301b8bcd8d98ab742fd26a26f2be74a5446eaa10d1bdf1bef443"
+    },
+    "execution": "live"
+  },
+  "url": "https://github.com/BaranovRoman/prereborn-companion-plugins/releases/download/test/fixture.zip",
+  "sha256": "aa7b0cb439f4f8519c32ed73593ddc5c62a5f160bc2b8d6423438781f7348199",
+  "signature": "untrusted comment: disposable test key\nRUQXp8YnbylushjftA3EzAFrFcJtDc5XPwDM5puYvu1NpPbDZVbU6YqnYrozn9XYH998ApMQuZkoxiyaWnq7MgllEE5mdPrZ9wQ=\ntrusted comment: iteration 13 test fixture\nXcf8X0bCvdlAVyzpgnYnOrIumxW4GP8WYNrK6mexfWYp/WKfQEkL4VSLmrQtzDQpIr6bDDb8FNu3iSe2OxWLCA==\n"
+}

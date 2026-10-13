@@ -19,7 +19,13 @@ pub struct Manifest {
     pub version: String, pub platform: String, pub arch: String,
     pub min_api: u32, pub max_api: u32, pub executable: String, pub ui: String,
     pub permissions: Vec<String>, pub files: BTreeMap<String, String>,
+    #[serde(default,skip_serializing_if="ExecutionMode::is_replay")]
+    pub execution:ExecutionMode,
 }
+#[derive(Clone,Copy,Debug,Default,Serialize,Deserialize,PartialEq)]
+#[serde(rename_all="snake_case")]
+pub enum ExecutionMode {#[default] ReplayOnly,Live}
+impl ExecutionMode {fn is_replay(&self)->bool{*self==Self::ReplayOnly}}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Release { pub manifest: Manifest, pub url: String, pub sha256: String, pub signature: String }
@@ -79,7 +85,8 @@ impl Manifest {
         if !matches!(self.platform.as_str(), "macos" | "windows" | "linux") || !matches!(self.arch.as_str(), "aarch64" | "x86_64") {
             return Err("unsupported_target".into());
         }
-        if self.permissions != ["ui"] { return Err("unsupported_permissions".into()); }
+        let live=self.id=="dota2"&&self.execution==ExecutionMode::Live&&self.permissions==["ui","dota.match.execute"];
+        if !live && (self.execution!=ExecutionMode::ReplayOnly||self.permissions != ["ui"]) { return Err("unsupported_permissions".into()); }
         safe_path(&self.executable)?; safe_path(&self.ui)?;
         if !self.executable.starts_with("bin/") || !self.ui.starts_with("ui/") || !self.ui.ends_with(".html") ||
             !self.files.contains_key(&self.executable) || !self.files.contains_key(&self.ui) || self.files.len() > 512 {

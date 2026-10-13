@@ -1,4 +1,5 @@
 use rusqlite::Connection;
+pub(super) fn version()->i64 {MIGRATIONS.len() as i64}
 
 /// Ordered list of migrations. Each entry is the SQL that takes the schema
 /// from version `index` to version `index + 1` - `migrate` below applies

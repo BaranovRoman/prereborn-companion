@@ -5,7 +5,7 @@ fn now(n:i64)->DateTime<Utc>{DateTime::from_timestamp(1700000000+n,0).unwrap()}
 fn frame(game:&str,state:&str,winner:Option<&str>)->ReplayGsi {
     crate::core::dota_observer::project(&json!({"player":{"activity":"playing","team_name":"radiant","kills":4},"hero":{"id":105},"map":{"game_state":state,"matchid":game,"win_team":winner},"items":{"slot8":{"name":"item_tango","charges":3}}})).unwrap()
 }
-fn request(adapter:&mut Adapter,s:&str,key:&str,at:i64,snapshot:ReplayGsi)->Request {
+fn request(adapter:&mut FixtureAdapter,s:&str,key:&str,at:i64,snapshot:ReplayGsi)->Request {
     let prepared=adapter.prepare(s,snapshot,RankedMode::Ranked,now(at),at as u64).unwrap();
     let plan=rules::analyze(&prepared.data.context,&prepared.data.snapshot,at as u64).detector.unwrap();prepared.request(key,"correlation",plan)
 }
@@ -124,7 +124,7 @@ fn rollback_payload_conflict_stale_revision_invalid_plan_and_unknown_fail_closed
 fn concurrent_resolution_returns_one_committed_identity_and_rejects_other_stale_tickets() {
     let (fixture,s,m)=Fixture::seeded().unwrap();let mut adapter=Adapter::install(fixture.clone()).unwrap();store::mark_needs_review(&adapter.conn,&m).unwrap();
     let req=request(&mut adapter,&s,"create",1,frame("new","DOTA_GAMERULES_STATE_GAME_IN_PROGRESS",None));let stale=request(&mut adapter,&s,"different-key",1,frame("new","DOTA_GAMERULES_STATE_GAME_IN_PROGRESS",None));
-    let threads:Vec<_>=(0..2).map(|_|{let fixture=fixture.clone();let req=req.clone();std::thread::spawn(move||Adapter::install(fixture).unwrap().execute(&req).unwrap())}).collect();let mut results=Vec::new();for thread in threads{results.push(thread.join().unwrap());}assert_eq!(results[0],results[1]);assert_eq!(adapter.execute(&stale).unwrap().status,Status::Rejected);
+    let shared=Arc::new(std::sync::Mutex::new(adapter));let threads:Vec<_>=(0..2).map(|_|{let shared=shared.clone();let req=req.clone();std::thread::spawn(move||shared.lock().unwrap().execute(&req).unwrap())}).collect();let mut results=Vec::new();for thread in threads{results.push(thread.join().unwrap());}let mut adapter=Arc::try_unwrap(shared).unwrap_or_else(|_|panic!("still shared")).into_inner().unwrap();assert_eq!(results[0],results[1]);assert_eq!(adapter.execute(&stale).unwrap().status,Status::Rejected);
     assert_eq!(adapter.conn.query_row("SELECT count(*) FROM local_matches WHERE match_key='gsi:new'",[],|r|r.get::<_,i64>(0)).unwrap(),1);
 }
 #[test]
@@ -132,14 +132,14 @@ fn revision_policy_tracks_aba_tombstones_other_writers_and_counter_overflow() {
     let (fixture,s,m)=Fixture::seeded().unwrap();let adapter=Adapter::install(fixture.clone()).unwrap();let initial=revision(&adapter.conn,"local_matches",&m).unwrap();let other=fixture.connect().unwrap();
     other.execute("UPDATE local_matches SET kills=99 WHERE local_id=?1",[&m]).unwrap();other.execute("UPDATE local_matches SET kills=NULL WHERE local_id=?1",[&m]).unwrap();assert_eq!(revision(&adapter.conn,"local_matches",&m).unwrap(),initial+2);
     assert!(other.execute("UPDATE local_matches SET local_id='replacement' WHERE local_id=?1",[&m]).is_err());
-    other.execute("DELETE FROM local_matches WHERE local_id=?1",[&m]).unwrap();assert_eq!(revision(&adapter.conn,"local_matches",&m).unwrap(),initial+3);assert_eq!(other.query_row("SELECT deleted FROM pc11_revision WHERE kind='local_matches' AND id=?1",[&m],|r|r.get::<_,i64>(0)).unwrap(),1);
+    other.execute("DELETE FROM local_matches WHERE local_id=?1",[&m]).unwrap();assert_eq!(revision(&adapter.conn,"local_matches",&m).unwrap(),initial+3);assert_eq!(other.query_row("SELECT deleted FROM pc_tx_revision WHERE kind='local_matches' AND id=?1",[&m],|r|r.get::<_,i64>(0)).unwrap(),1);
     other.execute("INSERT INTO local_matches(local_id,session_local_id,match_key,hero_id,player_team,state,started_at) VALUES(?1,?2,'same-id',14,'radiant','in_progress',?3)",params![m,s,now(0).to_rfc3339()]).unwrap();assert_eq!(revision(&adapter.conn,"local_matches",&m).unwrap(),initial+4);
-    other.execute("UPDATE pc11_epoch SET value=9223372036854775807",[]).unwrap();let before=parity::dump(&adapter.conn);assert!(other.execute("UPDATE local_matches SET kills=1",[]).is_err());assert_eq!(parity::dump(&adapter.conn),before);
+    other.execute("UPDATE pc_tx_epoch SET value=9223372036854775807",[]).unwrap();let before=parity::dump(&adapter.conn);assert!(other.execute("UPDATE local_matches SET kills=1",[]).is_err());assert_eq!(parity::dump(&adapter.conn),before);
 }
 #[test]
 fn receipt_corruption_storage_corruption_and_missing_revision_triggers_refuse_execution() {
-    let (fixture,s,_)=Fixture::seeded().unwrap();let mut adapter=Adapter::install(fixture.clone()).unwrap();let req=request(&mut adapter,&s,"op",1,frame("42","DOTA_GAMERULES_STATE_GAME_IN_PROGRESS",None));adapter.execute(&req).unwrap();adapter.conn.execute("UPDATE pc11_ledger SET receipt='{}'",[]).unwrap();assert_eq!(adapter.recover(&req).unwrap_err(),"receipt_corrupt");
-    adapter.conn.execute_batch("DROP TRIGGER pc11_write_sync_outbox_UPDATE").unwrap();assert!(adapter.execute(&req).is_err());drop(adapter);assert!(Adapter::install(fixture.clone()).is_err());
+    let (fixture,s,_)=Fixture::seeded().unwrap();let mut adapter=Adapter::install(fixture.clone()).unwrap();let req=request(&mut adapter,&s,"op",1,frame("42","DOTA_GAMERULES_STATE_GAME_IN_PROGRESS",None));adapter.execute(&req).unwrap();adapter.conn.execute("UPDATE pc_tx_receipts SET receipt='{}'",[]).unwrap();assert_eq!(adapter.recover(&req).unwrap_err(),"receipt_corrupt");
+    adapter.conn.execute_batch("DROP TRIGGER pc_tx_write_sync_outbox_UPDATE").unwrap();assert!(adapter.execute(&req).is_err());drop(adapter);assert!(Adapter::install(fixture.clone()).is_err());
     std::fs::write(&fixture.path,b"corrupt fixture").unwrap();assert!(Adapter::install(fixture).is_err());
     let (fixture,_,_)=Fixture::seeded().unwrap();fixture.connect().unwrap().execute("UPDATE local_matches SET inventory='invalid-json'",[]).unwrap();assert!(Adapter::install(fixture).is_err());
 }

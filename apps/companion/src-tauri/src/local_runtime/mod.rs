@@ -44,11 +44,12 @@ mod schema;
 mod store;
 pub(crate) mod transaction_facade;
 #[cfg(test)]
-mod transaction_tests;
+pub(crate) mod transaction_tests;
 #[cfg(test)]
 mod match_shadow_tests;
-#[cfg(test)]
-mod host_execution;
+pub(crate) mod host_execution;
+pub(crate) mod transaction_schema;
+pub(crate) mod transaction_authorization;
 pub mod summary;
 pub mod sync;
 pub mod watchdog;
@@ -60,11 +61,11 @@ use rusqlite::Connection;
 use serde_json::Value;
 use tauri::{AppHandle, Manager, Runtime};
 
-pub struct LocalRuntimeState(Mutex<Option<Connection>>);
+pub struct LocalRuntimeState(Mutex<Option<Connection>>,Mutex<Option<host_execution::Adapter>>);
 
 impl LocalRuntimeState {
     pub fn new() -> Self {
-        Self(Mutex::new(None))
+        Self(Mutex::new(None),Mutex::new(None))
     }
 
     /// Convenience accessor used by `lifecycle.rs` (and anything else that
@@ -77,6 +78,22 @@ impl LocalRuntimeState {
     /// Fallible access for bounded read-only plugin projections; legacy callers unchanged.
     pub fn try_lock(&self) -> Result<MutexGuard<'_, Option<Connection>>, &'static str> {
         self.0.lock().map_err(|_| "local_runtime_lock_poisoned")
+    }
+    pub(crate) fn with_transaction_adapter<T>(&self,write:impl FnOnce(&mut host_execution::Adapter,&mut Connection)->Result<T,String>)->Result<T,String> {
+        let mut connection=self.try_lock().map_err(str::to_string)?;let conn=connection.as_mut().ok_or("local_runtime_unavailable")?;
+        let mut adapter=self.1.lock().map_err(|_|"transaction_adapter_lock_poisoned")?;
+        if adapter.is_none(){*adapter=Some(host_execution::Adapter::attach(conn)?);}write(adapter.as_mut().unwrap(),conn)
+    }
+    pub(crate) fn execute_plugin_plan(&self,manager:&crate::core::plugin_manager::PluginManager,grant:&crate::core::plugin_manager::MatchExecutionGrant,request:&companion_dota_domain::match_execution::Request)->Result<companion_dota_domain::match_execution::Response,String> {
+        manager.with_verified_match_grant(grant,|pin|self.with_transaction_adapter(|adapter,conn|adapter.execute_plugin(conn,pin,request)))
+    }
+    pub(crate) fn migrate_transactions(&self,backup:&std::path::Path)->Result<(),String> {
+        let mut connection=self.try_lock().map_err(str::to_string)?;let conn=connection.as_mut().ok_or("local_runtime_unavailable")?;
+        if self.1.lock().map_err(|_|"transaction_adapter_lock_poisoned")?.is_some(){return Err("coordinator_already_attached".into());}
+        transaction_schema::migrate(conn,backup)
+    }
+    pub(crate) fn recover_plugin_plan(&self,manager:&crate::core::plugin_manager::PluginManager,grant:&crate::core::plugin_manager::MatchExecutionGrant,request:&companion_dota_domain::match_execution::Request)->Result<companion_dota_domain::match_execution::Response,String> {
+        manager.with_verified_match_grant(grant,|pin|self.with_transaction_adapter(|adapter,conn|adapter.recover_plugin(conn,pin,request)))
     }
 }
 

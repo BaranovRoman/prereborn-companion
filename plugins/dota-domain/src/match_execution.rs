@@ -53,6 +53,10 @@ pub struct Receipt {
 pub struct Response {pub correlation_id:String,pub status:Status,pub receipt:Option<Receipt>}
 
 pub const DIAGNOSTIC_CAPABILITY:&str="dota.diagnostic.execute";
+pub const MATCH_EXECUTION_CAPABILITY:&str="dota.match.execute";
+#[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+pub struct PackageBinding {pub id:String,pub version:String,pub executable_hash:String,pub manifest_hash:String}
 #[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 pub struct DiagnosticScope {pub session:String,pub epoch:u64,pub run:String}

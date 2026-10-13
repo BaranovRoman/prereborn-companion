@@ -108,10 +108,7 @@ fn carried_over_rating(conn: &Connection) -> rusqlite::Result<Option<i64>> {
 /// `is_streamed` (and therefore whether a `session_started` sync event is
 /// true to send) differs between them.
 fn insert_session(conn: &mut Connection, now: DateTime<Utc>, is_streamed: bool) -> rusqlite::Result<LocalSession> {
-    let tx = conn.transaction()?;
-    let result = insert_session_in(&tx, now, is_streamed)?;
-    tx.commit()?;
-    Ok(result)
+    super::transaction_facade::with_transaction(conn, |tx| insert_session_in(tx, now, is_streamed))
 }
 
 pub(super) fn insert_session_in(tx: &rusqlite::Transaction<'_>, now: DateTime<Utc>, is_streamed: bool) -> rusqlite::Result<LocalSession> {
@@ -196,10 +193,7 @@ pub fn ensure_gameplay_session(conn: &mut Connection, now: DateTime<Utc>) -> rus
 /// moved or re-created - it simply keeps finalizing into the same session,
 /// which is now a real stream session.
 pub fn mark_session_streamed(conn: &mut Connection, local_id: &str, now: DateTime<Utc>) -> rusqlite::Result<()> {
-    let tx = conn.transaction()?;
-    let result = mark_session_streamed_in(&tx, local_id, now)?;
-    tx.commit()?;
-    Ok(result)
+    super::transaction_facade::with_transaction(conn, |tx| mark_session_streamed_in(tx, local_id, now))
 }
 
 pub(super) fn mark_session_streamed_in(tx: &rusqlite::Transaction<'_>, local_id: &str, now: DateTime<Utc>) -> rusqlite::Result<()> {
@@ -230,10 +224,7 @@ pub(super) fn mark_session_streamed_in(tx: &rusqlite::Transaction<'_>, local_id:
 /// untouched. This is the local-first form of WK-105's existing
 /// session-adjustment semantics, not a second rating model.
 pub fn set_current_rating(conn: &mut Connection, rating: i64) -> rusqlite::Result<Option<LocalSession>> {
-    let tx = conn.transaction()?;
-    let result = set_current_rating_in(&tx, rating)?;
-    tx.commit()?;
-    Ok(result)
+    super::transaction_facade::with_transaction(conn, |tx| set_current_rating_in(tx, rating))
 }
 
 pub(super) fn set_current_rating_in(tx: &rusqlite::Transaction<'_>, rating: i64) -> rusqlite::Result<Option<LocalSession>> {
@@ -284,10 +275,7 @@ pub fn cancel_pending_end(conn: &Connection, local_id: &str) -> rusqlite::Result
 /// graduated into a stream has nothing to end on the backend, see
 /// docs/research/wk-137-match-session-decoupling.md.
 pub fn finalize_session_end(conn: &mut Connection, local_id: &str, now: DateTime<Utc>) -> rusqlite::Result<()> {
-    let tx = conn.transaction()?;
-    let result = finalize_session_end_in(&tx, local_id, now)?;
-    tx.commit()?;
-    Ok(result)
+    super::transaction_facade::with_transaction(conn, |tx| finalize_session_end_in(tx, local_id, now))
 }
 
 pub(super) fn finalize_session_end_in(tx: &rusqlite::Transaction<'_>, local_id: &str, now: DateTime<Utc>) -> rusqlite::Result<()> {
@@ -587,11 +575,9 @@ fn synthesized_match_key(session_local_id: &str, now: DateTime<Utc>, hero_id: i6
     format!("session:{session_local_id}:{}:{hero_id}", now.timestamp_millis())
 }
 
-#[cfg(test)]
 pub(super) fn diagnostic_match_key(session:&str,game:Option<&str>,hero:i64,now:DateTime<Utc>)->String {
     match game {Some(id)=>format!("gsi:{id}"),None=>synthesized_match_key(session,now,hero)}
 }
-#[cfg(test)]
 pub(super) fn diagnostic_find_key(conn:&Connection,session:&str,key:&str)->rusqlite::Result<Option<LocalMatch>> {
     conn.query_row(&format!("SELECT {MATCH_COLUMNS} FROM local_matches WHERE session_local_id=?1 AND match_key=?2"),params![session,key],row_to_match).optional()
 }
@@ -711,10 +697,7 @@ pub fn finalize_match(
     confidence: &str,
     now: DateTime<Utc>,
 ) -> rusqlite::Result<()> {
-    let tx = conn.transaction()?;
-    let result = finalize_match_in(&tx, local_id, session_local_id, ranked_mode, result, confidence, now)?;
-    tx.commit()?;
-    Ok(result)
+    super::transaction_facade::with_transaction(conn, |tx| finalize_match_in(tx, local_id, session_local_id, ranked_mode, result, confidence, now))
 }
 
 pub(super) fn finalize_match_in(
@@ -1003,10 +986,7 @@ pub fn correct_match_delta(
     local_id: &str,
     effective_delta: Option<i64>,
 ) -> rusqlite::Result<Option<LocalMatch>> {
-    let tx = conn.transaction()?;
-    let result = correct_match_delta_in(&tx, local_id, effective_delta)?;
-    tx.commit()?;
-    Ok(result)
+    super::transaction_facade::with_transaction(conn, |tx| correct_match_delta_in(tx, local_id, effective_delta))
 }
 
 pub(super) fn correct_match_delta_in(
@@ -1058,10 +1038,7 @@ pub fn correct_match_ranked_mode(
     local_id: &str,
     target: Option<RankedMode>,
 ) -> rusqlite::Result<Option<LocalMatch>> {
-    let tx = conn.transaction()?;
-    let result = correct_match_ranked_mode_in(&tx, local_id, target)?;
-    tx.commit()?;
-    Ok(result)
+    super::transaction_facade::with_transaction(conn, |tx| correct_match_ranked_mode_in(tx, local_id, target))
 }
 
 pub(super) fn correct_match_ranked_mode_in(

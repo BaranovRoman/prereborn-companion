@@ -80,8 +80,9 @@ fn ownership_scope_phase_snapshot_and_reconnect_fences_over_ipc() {
 }
 #[test]
 fn opening_active_fixture_stays_draining_until_confirmed_fence() {
-    let(mut host,fixture,s,_)=setup();let mut reopened=Host::open(fixture,&s).unwrap();assert!(matches!(owner(&reopened.adapter.conn).unwrap().unwrap().phase,Phase::Draining{..}));assert!(reopened.start().is_err());assert_eq!(reopened.restart().unwrap_err(),"fence_confirmation_required");
-    host.runtime.stop().unwrap();host.confirm_reaped().unwrap();reopened.start().unwrap();assert!(reopened.scope.epoch>host.scope.epoch);reopened.runtime.stop().unwrap();
+    let(mut host,fixture,s,_)=setup();let old=host.scope.epoch;assert!(matches!(Host::open(fixture.clone(),&s),Err(e) if e=="second_coordinator_denied"));
+    host.runtime.stop().unwrap();drop(host);let mut reopened=Host::open(fixture,&s).unwrap();assert!(matches!(owner(&reopened.adapter.conn).unwrap().unwrap().phase,Phase::Draining{..}));assert!(reopened.start().is_err());assert_eq!(reopened.restart().unwrap_err(),"fence_confirmation_required");
+    reopened.confirm_reaped().unwrap();reopened.start().unwrap();assert!(reopened.scope.epoch>old);reopened.runtime.stop().unwrap();
 }
 #[cfg(unix)]
 #[test]

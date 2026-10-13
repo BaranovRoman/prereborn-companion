@@ -7,17 +7,17 @@ use companion_dota_domain::ownership::{Ownership,Phase,Owner,Lease};
 #[serde(deny_unknown_fields)]
 struct DiagnosticOwner {phase:Phase,session:String,run:String}
 fn owner(c:&Connection)->Result<Option<DiagnosticOwner>> {
-    let raw:Option<Option<String>>=sql(c.query_row("SELECT CASE WHEN length(CAST(doc AS BLOB))<=1024 THEN doc ELSE NULL END FROM pc11_diagnostic_owner WHERE id=1",[],|r|r.get(0)).optional())?;
+    let raw:Option<Option<String>>=sql(c.query_row("SELECT CASE WHEN length(CAST(doc AS BLOB))<=1024 THEN doc ELSE NULL END FROM pc_tx_diagnostic_owner WHERE id=1",[],|r|r.get(0)).optional())?;
     raw.map(|raw|serde_json::from_str(&raw.ok_or("owner_corrupt")?).map_err(|_|"owner_corrupt".into())).transpose()
 }
 fn save(c:&Connection,value:&DiagnosticOwner)->Result<()> {
-    sql(c.execute("INSERT INTO pc11_diagnostic_owner VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET doc=excluded.doc",[encode(value)?]))?;Ok(())
+    sql(c.execute("INSERT INTO pc_tx_diagnostic_owner VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET doc=excluded.doc",[encode(value)?]))?;Ok(())
 }
 fn epoch(phase:Phase)->u64 {match phase {Phase::Active(l)=>l.epoch,Phase::Draining{old,..}=>old.epoch,Phase::Vacant{epoch}=>epoch}}
 fn binary()->PathBuf {PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../plugins/target/debug").join(if cfg!(windows){"companion-dota-plugin.exe"}else{"companion-dota-plugin"})}
 
 struct Host {
-    runtime:Runtime,adapter:Adapter,scope:DiagnosticScope,expected:Option<Prepared>,confirmed:Option<Receipt>,owns_process:bool,blocked:bool,last_sequence:Option<u64>,
+    runtime:Runtime,adapter:FixtureAdapter,scope:DiagnosticScope,expected:Option<Prepared>,confirmed:Option<Receipt>,owns_process:bool,blocked:bool,last_sequence:Option<u64>,
 }
 impl Host {
     fn open(fixture:Fixture,session:&str)->Result<Self> {
@@ -105,7 +105,7 @@ impl Host {
         }
     }
 }
-fn dispatch(adapter:&mut Adapter,scope:&DiagnosticScope,expected:Option<&Prepared>,request:&DiagnosticRequest,fault:Fault)->Result<Response> {
+fn dispatch(adapter:&mut FixtureAdapter,scope:&DiagnosticScope,expected:Option<&Prepared>,request:&DiagnosticRequest,fault:Fault)->Result<Response> {
     if !request.bounded(){return Err("invalid_diagnostic_request".into());}
     let (incoming,operation)=match request {DiagnosticRequest::Execute{scope,request,..}|DiagnosticRequest::Recover{scope,request}=>(scope,request)};
     let guard=|c:&Connection|->Result<()> {
@@ -114,7 +114,7 @@ fn dispatch(adapter:&mut Adapter,scope:&DiagnosticScope,expected:Option<&Prepare
         Ownership::restore(current.phase).map_err(str::to_string)?.authorize(lease).map_err(|_|"ownership_fenced")?;
         if incoming.session!=scope.session || incoming.session!=current.session{return Err("session_mismatch".into());}
         if incoming.run!=current.run || incoming!=scope{return Err("run_fenced".into());}
-        let (raw,checksum):(Option<String>,String)=sql(c.query_row("SELECT CASE WHEN length(CAST(doc AS BLOB))<=16384 THEN doc ELSE NULL END,checksum FROM pc11_ticket WHERE id=?1",[&operation.ticket],|r|Ok((r.get(0)?,r.get(1)?))))?;
+        let (raw,checksum):(Option<String>,String)=sql(c.query_row("SELECT CASE WHEN length(CAST(doc AS BLOB))<=16384 THEN doc ELSE NULL END,checksum FROM pc_tx_ticket WHERE id=?1",[&operation.ticket],|r|Ok((r.get(0)?,r.get(1)?))))?;
         let raw=raw.ok_or("context_corrupt")?;if hash(&raw)!=checksum || operation.binding!=checksum{return Err("context_corrupt".into());}
         let ticket:Ticket=serde_json::from_str(&raw).map_err(|_|"context_corrupt")?;
         if ticket.context.session.local_id!=incoming.session{return Err("session_mismatch".into());}
