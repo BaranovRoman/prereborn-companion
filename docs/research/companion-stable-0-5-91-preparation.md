@@ -82,7 +82,12 @@ installer: unsigned CI не проверяет новую подпись или 
   STATUS_ENTRYPOINT_NOT_FOUND, до тестов/installer. Известный framework test-harness loader
   issue также описан existing keyring_smoke example; не считается успешной проверкой продукта.
   OS-тесты переведены в точечный integration target с exact production windows.rs (без копии
-  реализации/нового runtime/mock OS); повторный Windows run pending. Durable journal Mac tests
+  реализации/нового runtime/mock OS); Повторный run 38423838859 загрузил native target и выявил гонку:
+  ActiveProcesses=0 раньше signal process handle; 2 tests passed / 2 failed. Исправлен production
+  fencing: bounded authoritative job-membership capture, OpenProcess+IsProcessInJob, ожидание
+  captured kernel handles и отказ при изменении TotalProcesses. Owned Child сохраняет witness
+  при stop; counter=0 отдельно не доказывает exit. Добавлен настоящий descendant-tree test
+  с синхронизацией готовности OS-процессов; следующий unsigned run pending. Durable journal Mac tests
   passed; Windows journal/lifecycle combined lib-test не выполнены и не объявляются passed.
 - Signing rehearsal/новые updater signatures: требуется отдельное разрешение.
 - Native 0.5.90 → 0.5.91 NSIS /UPDATE, история/settings/credentials/Twitch/TTS/OBS/реальный GSI:

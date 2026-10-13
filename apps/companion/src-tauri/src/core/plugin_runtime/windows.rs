@@ -49,28 +49,80 @@ impl Attributes {
 impl Drop for Attributes {fn drop(&mut self){unsafe{DeleteProcThreadAttributeList(self.ptr());}}}
 
 pub(super) struct Child {
-    process:OwnedHandle, job:OwnedHandle, pid:u32,
+    process:OwnedHandle, job:OwnedHandle, pid:u32, termination:Option<Fence>,
     pub stdin:Option<File>,pub stdout:Option<File>,pub stderr:Option<File>,
 }
 impl Child {
     pub fn id(&self)->u32{self.pid}
     pub fn kill(&mut self)->io::Result<()>{unsafe {
-        if TerminateJobObject(self.job.as_raw_handle(),1)==0{Err(io::Error::last_os_error())}else{Ok(())}
+        // Capture handles before termination removes PIDs from job accounting.
+        let witness=capture(self.job.as_raw_handle());
+        if TerminateJobObject(self.job.as_raw_handle(),1)==0{return Err(io::Error::last_os_error());}
+        match witness {Ok(mut w)=>{
+            if let Some(old)=self.termination.as_mut() {
+                if old.total==w.total{return Ok(());} // Existing handles cover the same membership.
+                if old.handles.len()+w.handles.len()>256{return Err(io::Error::other("fence handle quota exhausted"));}
+                w.handles.append(&mut old.handles);
+            }
+            self.termination=Some(w);Ok(())
+        },Err(e)=>Err(e)}
     }}
     pub fn try_wait(&mut self)->io::Result<Option<ExitStatus>>{unsafe {
         match WaitForSingleObject(self.process.as_raw_handle(),0) {
             WAIT_TIMEOUT=>Ok(None),WAIT_OBJECT_0=>{
                 // Root exit alone is insufficient: a descendant may still own an IPC pipe.
-                if active(self.job.as_raw_handle())?!=0{return Ok(None);}
+                let info=accounting(self.job.as_raw_handle())?;
+                if info.ActiveProcesses!=0{return Ok(None);}
+                if let Some(w)=self.termination.as_ref() {
+                    if !w.complete(self.job.as_raw_handle())?{return Ok(None);}
+                } else if info.TotalProcesses!=1 {
+                    // Without captured descendant handles, an empty counter is not exit proof.
+                    return Err(io::Error::other("job descendant exit unproven"));
+                }
                 let mut code=0;if GetExitCodeProcess(self.process.as_raw_handle(),&mut code)==0{return Err(io::Error::last_os_error());}
                 Ok(Some(ExitStatus::from_raw(code)))
             },_=>Err(io::Error::last_os_error()),
         }
     }}
 }
-fn active(job:HANDLE)->io::Result<u32>{unsafe {
+fn accounting(job:HANDLE)->io::Result<JOBOBJECT_BASIC_ACCOUNTING_INFORMATION>{unsafe {
     let mut info=JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
-    if QueryInformationJobObject(job,JobObjectBasicAccountingInformation,(&mut info as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(),size_of_val(&info) as u32,ptr::null_mut())==0{return Err(io::Error::last_os_error());}Ok(info.ActiveProcesses)
+    if QueryInformationJobObject(job,JobObjectBasicAccountingInformation,(&mut info as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(),size_of_val(&info) as u32,ptr::null_mut())==0{return Err(io::Error::last_os_error());}Ok(info)
+}}
+// Bounded kernel-handle witness; PID lookup alone never proves identity or completion.
+struct Fence { handles:Vec<OwnedHandle>,total:u32 }
+impl Fence {
+    fn complete(&self,job:HANDLE)->io::Result<bool>{unsafe {
+        let info=accounting(job)?;
+        if info.TotalProcesses!=self.total{return Err(io::Error::other("job membership changed while fencing"));}
+        for handle in &self.handles {
+            match WaitForSingleObject(handle.as_raw_handle(),0) {
+                WAIT_OBJECT_0=>(),WAIT_TIMEOUT=>return Ok(false),_=>return Err(io::Error::last_os_error()),
+            }
+        }
+        Ok(info.ActiveProcesses==0)
+    }}
+}
+fn capture(job:HANDLE)->io::Result<Fence>{unsafe {
+    const MAX_PROCESSES:usize=256;
+    let total=accounting(job)?.TotalProcesses;
+    let bytes=size_of::<JOBOBJECT_BASIC_PROCESS_ID_LIST>()+MAX_PROCESSES*size_of::<usize>();
+    let mut storage=vec![0usize;bytes.div_ceil(size_of::<usize>())];
+    if QueryInformationJobObject(job,JobObjectBasicProcessIdList,storage.as_mut_ptr().cast(),bytes as u32,ptr::null_mut())==0{return Err(io::Error::last_os_error());}
+    let list=storage.as_ptr().cast::<JOBOBJECT_BASIC_PROCESS_ID_LIST>();
+    let count=(*list).NumberOfProcessIdsInList as usize;
+    if count==0||count>MAX_PROCESSES||(*list).NumberOfAssignedProcesses as usize!=count{return Err(io::Error::other("job membership unproven"));}
+    let ids=std::slice::from_raw_parts(ptr::addr_of!((*list).ProcessIdList).cast::<usize>(),count);
+    let mut handles=Vec::with_capacity(count);
+    for &pid in ids {
+        let pid=u32::try_from(pid).map_err(|_|io::Error::other("invalid job process id"))?;
+        let handle=own(OpenProcess(PROCESS_SYNCHRONIZE|PROCESS_QUERY_LIMITED_INFORMATION,0,pid))?;
+        let mut member=0;
+        if IsProcessInJob(handle.as_raw_handle(),job,&mut member)==0||member==0{return Err(io::Error::other("job process identity unproven"));}
+        handles.push(handle);
+    }
+    if accounting(job)?.TotalProcesses!=total{return Err(io::Error::other("job membership changed"));}
+    Ok(Fence{handles,total})
 }}
 pub(super) fn spawn(command:&Command,generation:&str)->io::Result<Child>{unsafe {
     let job_name=name(generation)?;
@@ -91,30 +143,53 @@ pub(super) fn spawn(command:&Command,generation:&str)->io::Result<Child>{unsafe 
     let env=[0u16,0];let mut pi=PROCESS_INFORMATION::default();
     if CreateProcessW(program.as_ptr(),line.as_mut_ptr(),ptr::null(),ptr::null(),1,EXTENDED_STARTUPINFO_PRESENT|CREATE_UNICODE_ENVIRONMENT|CREATE_NO_WINDOW,env.as_ptr().cast(),cwd.as_ref().map_or(ptr::null(),|x|x.as_ptr()),&startup.StartupInfo,&mut pi)==0{return Err(io::Error::last_os_error());}
     let process=own(pi.hProcess)?;let _thread=own(pi.hThread)?;
-    Ok(Child{process,job,pid:pi.dwProcessId,stdin:Some(stdin),stdout:Some(stdout),stderr:Some(stderr)})
+    Ok(Child{process,job,pid:pi.dwProcessId,termination:None,stdin:Some(stdin),stdout:Some(stdout),stderr:Some(stderr)})
 }}
-// Explicit recovery only. Never called from normal bootstrap. No PID lookup or killing by PID.
+// Explicit recovery only. Never called from normal bootstrap. No saved-PID lookup or kill by PID.
 pub(crate) fn fence_generation(generation:&str)->Result<(),String>{unsafe {
     let n=name(generation).map_err(|_|"invalid_process_generation")?;
     let raw=OpenJobObjectW(JOB_OBJECT_QUERY|JOB_OBJECT_TERMINATE,0,n.as_ptr());
     if raw.is_null(){return if GetLastError()==ERROR_FILE_NOT_FOUND {Ok(())}else{Err("process_fence_unproven".into())};}
     let job=own(raw).map_err(|_|"process_fence_unproven")?;
+    let witness=capture(job.as_raw_handle()).map_err(|_|"process_fence_unproven")?;
     if TerminateJobObject(job.as_raw_handle(),1)==0{return Err("process_fence_unproven".into());}
     let deadline=Instant::now()+Duration::from_secs(2);
-    loop {if active(job.as_raw_handle()).map_err(|_|"process_fence_unproven")?==0{return Ok(());}
+    loop {if witness.complete(job.as_raw_handle()).map_err(|_|"process_fence_unproven")?{return Ok(());}
         if Instant::now()>=deadline{return Err("process_fence_unproven".into());}std::thread::sleep(Duration::from_millis(5));}
 }}
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test] fn quoting_preserves_trailing_slashes_and_quotes(){assert_eq!(quote(OsStr::new("a\\\"b\\")).unwrap(),"\"a\\\\\\\"b\\\\\"".encode_utf16().collect::<Vec<_>>());}
+    fn worker(generation:&str,tree:bool)->Child {
+        use std::io::BufRead;
+        let fixture=format!("{}::{}",module_path!().split_once("::").unwrap().1,if tree{"tree_fixture"}else{"worker_fixture"});
+        let mut command=Command::new(std::env::current_exe().unwrap());command.args(["--ignored","--exact",&fixture,"--nocapture"]);
+        let mut child=spawn(&command,generation).unwrap();let mut reader=std::io::BufReader::new(child.stdout.take().unwrap());
+        loop {let mut line=String::new();assert!(reader.read_line(&mut line).unwrap()>0);if line.contains("WORKER_READY"){break;}}
+        child
+    }
+    fn wait_exit(child:&mut Child) {
+        let deadline=Instant::now()+Duration::from_secs(2);
+        loop {if child.try_wait().unwrap().is_some(){return;}assert!(Instant::now()<deadline,"owned kernel handle did not signal exit");std::thread::sleep(Duration::from_millis(5));}
+    }
+    #[test] #[ignore] fn worker_fixture(){
+        use std::io::Write;println!("WORKER_READY");std::io::stdout().flush().unwrap();std::thread::sleep(Duration::from_secs(30));
+    }
+    #[test] #[ignore] fn tree_fixture(){
+        use std::io::{BufRead,Write};
+        let fixture=format!("{}::worker_fixture",module_path!().split_once("::").unwrap().1);
+        let mut child=Command::new(std::env::current_exe().unwrap()).args(["--ignored","--exact",&fixture,"--nocapture"]).stdout(std::process::Stdio::piped()).spawn().unwrap();
+        let mut reader=std::io::BufReader::new(child.stdout.take().unwrap());
+        loop {let mut line=String::new();assert!(reader.read_line(&mut line).unwrap()>0);if line.contains("WORKER_READY"){break;}}
+        println!("WORKER_READY");std::io::stdout().flush().unwrap();std::thread::sleep(Duration::from_secs(30));
+    }
     #[test] fn spawn_failure_and_generation_collision_fail_closed(){
         let generation=uuid::Uuid::new_v4().to_string();
-        assert!(spawn(&Command::new("Z:\\missing-companion-worker.exe"),&generation).is_err());
-        fence_generation(&generation).unwrap();
-        let mut c=Command::new("C:\\Windows\\System32\\cmd.exe");c.args(["/d","/c","ping -n 30 127.0.0.1 >nul"]);
-        let mut child=spawn(&c,&generation).unwrap();assert!(spawn(&c,&generation).is_err());child.kill().unwrap();
-        fence_generation(&generation).unwrap();assert!(child.try_wait().unwrap().is_some());
+        assert!(spawn(&Command::new("Z:\\missing-companion-worker.exe"),&generation).is_err());fence_generation(&generation).unwrap();
+        let mut child=worker(&generation,false);
+        assert!(spawn(&Command::new(std::env::current_exe().unwrap()),&generation).is_err());
+        child.kill().unwrap();wait_exit(&mut child);drop(child);fence_generation(&generation).unwrap();
     }
     #[test] fn owner_crash_kills_worker_without_pid_recovery(){
         use std::io::{BufRead,Write};
@@ -137,8 +212,12 @@ mod tests {
         let mut line=String::new();std::io::stdin().read_line(&mut line).unwrap();std::process::exit(7);
     }
     #[test] fn native_job_stop_and_missing_generation(){
-        let generation=uuid::Uuid::new_v4().to_string();let mut command=Command::new("C:\\Windows\\System32\\cmd.exe");command.args(["/d","/c","ping -n 30 127.0.0.1 >nul"]);
-        let mut child=spawn(&command,&generation).unwrap();assert!(child.try_wait().unwrap().is_none());
-        fence_generation(&generation).unwrap();assert!(child.try_wait().unwrap().is_some());drop(child);fence_generation(&generation).unwrap();
+        let generation=uuid::Uuid::new_v4().to_string();let mut child=worker(&generation,false);
+        assert!(child.try_wait().unwrap().is_none());fence_generation(&generation).unwrap();
+        assert!(child.try_wait().unwrap().is_some());drop(child);fence_generation(&generation).unwrap();
+    }
+    #[test] fn native_descendant_tree_waits_for_kernel_handles(){
+        let generation=uuid::Uuid::new_v4().to_string();let mut child=worker(&generation,true);
+        child.kill().unwrap();wait_exit(&mut child);drop(child);fence_generation(&generation).unwrap();
     }
 }
