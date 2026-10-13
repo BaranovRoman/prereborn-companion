@@ -42,7 +42,6 @@ impl Default for Runtime {
     }
 }
 impl Runtime {
-    #[cfg(test)]
     pub(crate) fn diagnostic_process_id(&self)->Option<u32>{self.child.as_ref().map(Child::id)}
     fn reap(&mut self) {
         self.input.take();
@@ -155,9 +154,13 @@ impl Runtime {
     }
     // Called while the verified manager pin is held. No public start can create this binding.
     pub(crate) fn start_verified(&mut self,pin:&super::plugin_manager::VerifiedMatchGrant<'_>)->Result<ProcessBinding,String> {
+        self.start_verified_generation(pin,uuid::Uuid::new_v4().to_string())
+    }
+    pub(crate) fn start_verified_generation(&mut self,pin:&super::plugin_manager::VerifiedMatchGrant<'_>,generation:String)->Result<ProcessBinding,String> {
+        if uuid::Uuid::parse_str(&generation).is_err(){return Err("invalid_process_generation".into());}
         let grant=pin.grant();
         self.start_expected(grant.executable(),&["--live".into()],&grant.binding().id,Some(&grant.binding().version))?;
-        let binding=ProcessBinding{generation:uuid::Uuid::new_v4().to_string(),package:grant.binding().clone()};
+        let binding=ProcessBinding{generation,package:grant.binding().clone()};
         self.process=Some(binding.clone());Ok(binding)
     }
     pub(crate) fn stopped_confirmed(&mut self)->Result<(),String> {

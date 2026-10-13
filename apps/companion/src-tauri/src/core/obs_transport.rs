@@ -1,7 +1,7 @@
 // OBS WebSocket transport only. Scene policy, GSI and stream-session ownership
 // remain in the built-in Dota adapter; this layer knows only host/port/password.
 use std::net::TcpStream;
-use std::time::Duration;
+use std::time::{Duration,Instant};
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use serde_json::{json, Value};
@@ -18,7 +18,11 @@ pub(crate) struct ConnectionSettings<'a> {
 }
 
 pub(crate) fn read_json(socket: &mut ObsSocket) -> Result<Value, String> {
+    read_before(socket,None)
+}
+fn read_before(socket:&mut ObsSocket,deadline:Option<Instant>)->Result<Value,String> {
     loop {
+        socket_deadline(socket,deadline)?;
         match socket.read().map_err(|e| format!("OBS WebSocket: {e}"))? {
             Message::Text(text) => {
                 return serde_json::from_str(&text)
@@ -96,7 +100,34 @@ pub(crate) fn open(
         let _ = stream.set_read_timeout(read_timeout);
         let _ = stream.set_write_timeout(Some(Duration::from_secs(4)));
     }
-    let hello = read_json(&mut socket)?;
+    identify(&mut socket,config,event_subscriptions,None)?;
+    Ok(socket)
+}
+// External transport has one absolute deadline including connect, HTTP/OBS
+// handshakes and request. Hostnames would require unbounded synchronous DNS;
+// legacy transport is unchanged, the gated external beta requires a literal IP.
+pub(crate) fn open_before(config:&ConnectionSettings<'_>,deadline:Instant)->Result<ObsSocket,String> {
+ let ip:std::net::IpAddr=if config.host=="localhost" {std::net::Ipv4Addr::LOCALHOST.into()}else{config.host.parse().map_err(|_|"external_obs_requires_literal_address")?};
+ let address=std::net::SocketAddr::new(ip,config.port);let remaining=deadline.checked_duration_since(Instant::now()).ok_or("OBS deadline elapsed")?;
+ let stream=TcpStream::connect_timeout(&address,remaining).map_err(|_|"OBS connect unavailable")?;
+ let remaining=deadline.checked_duration_since(Instant::now()).filter(|v|!v.is_zero()).ok_or("OBS deadline elapsed")?;
+ // An owned-socket deadline also bounds continuous Ping/partial HTTP traffic,
+ // unlike a per-read timeout. It cannot close another OBS/Twitch connection.
+ let timeout_socket=stream.try_clone().map_err(|_|"OBS deadline unavailable")?;
+ std::thread::spawn(move||{std::thread::sleep(remaining);let _=timeout_socket.shutdown(std::net::Shutdown::Both);});
+ stream.set_read_timeout(Some(remaining)).map_err(|_|"OBS timeout unavailable")?;stream.set_write_timeout(Some(remaining)).map_err(|_|"OBS timeout unavailable")?;
+ let url=format!("ws://{address}");let (mut socket,_)=tungstenite::client::client_with_config(url.as_str(),MaybeTlsStream::Plain(stream),Some(tungstenite::protocol::WebSocketConfig::default().max_message_size(Some(65536)).max_frame_size(Some(65536)))).map_err(|_|"OBS handshake unavailable")?;
+ identify(&mut socket,config,None,Some(deadline))?;Ok(socket)
+}
+fn socket_deadline(socket:&mut ObsSocket,deadline:Option<Instant>)->Result<(),String> {
+ if let Some(deadline)=deadline {
+  let remaining=deadline.checked_duration_since(Instant::now()).filter(|v|!v.is_zero()).ok_or("OBS deadline elapsed")?;
+  if let MaybeTlsStream::Plain(stream)=socket.get_mut(){stream.set_read_timeout(Some(remaining)).map_err(|_|"OBS timeout unavailable")?;stream.set_write_timeout(Some(remaining)).map_err(|_|"OBS timeout unavailable")?;}
+ }
+ Ok(())
+}
+fn identify(socket:&mut ObsSocket,config:&ConnectionSettings<'_>,event_subscriptions:Option<u32>,deadline:Option<Instant>)->Result<(),String> {
+    let hello = read_before(socket,deadline)?;
     if hello.get("op").and_then(Value::as_i64) != Some(0) {
         return Err("OBS не прислал Hello".into());
     }
@@ -121,14 +152,15 @@ pub(crate) fn open(
     if let Some(subscriptions) = event_subscriptions {
         identify["d"]["eventSubscriptions"] = Value::from(subscriptions);
     }
+    socket_deadline(socket,deadline)?;
     socket
         .send(Message::Text(identify.to_string().into()))
         .map_err(|e| format!("OBS WebSocket: {e}"))?;
-    let identified = read_json(&mut socket)?;
+    let identified = read_before(socket,deadline)?;
     if identified.get("op").and_then(Value::as_i64) != Some(2) {
         return Err("OBS отклонил пароль или версию WebSocket".into());
     }
-    Ok(socket)
+    Ok(())
 }
 
 pub(crate) fn request(
@@ -136,6 +168,10 @@ pub(crate) fn request(
     request_type: &str,
     request_data: Value,
 ) -> Result<Value, String> {
+    request_before(socket,request_type,request_data,None)
+}
+pub(crate) fn request_before(socket:&mut ObsSocket,request_type:&str,request_data:Value,deadline:Option<Instant>)->Result<Value,String> {
+    socket_deadline(socket,deadline)?;
     let request_id = format!(
         "companion-{}",
         chrono::Local::now()
@@ -156,7 +192,10 @@ pub(crate) fn request(
             .into(),
         ))
         .map_err(|e| format!("OBS WebSocket: {e}"))?;
-    let response = read_json(socket)?;
+    let response = read_before(socket,deadline)?;
+    if response.get("op").and_then(Value::as_i64)!=Some(7)||response.pointer("/d/requestId").and_then(Value::as_str)!=Some(request_id.as_str()) {
+        return Err("OBS response correlation mismatch".into());
+    }
     let ok = response
         .pointer("/d/requestStatus/result")
         .and_then(Value::as_bool)
@@ -225,4 +264,29 @@ mod tests {
         assert_eq!(response["d"]["responseData"]["outputActive"], true);
         server.join().unwrap();
     }
+}
+#[cfg(test)]
+mod external_deadline_tests {
+ use super::*;use std::net::TcpListener;
+ #[test]
+ fn authoritative_scene_is_correlated_and_wrong_reply_is_not_confirmation() {
+  for correct in [true,false] {
+   let listener=TcpListener::bind("127.0.0.1:0").unwrap();let port=listener.local_addr().unwrap().port();
+   let server=std::thread::spawn(move||{
+    let (stream,_)=listener.accept().unwrap();let mut ws=tungstenite::accept(stream).unwrap();
+    ws.send(Message::Text(json!({"op":0,"d":{}}).to_string().into())).unwrap();let _=ws.read().unwrap();ws.send(Message::Text(json!({"op":2,"d":{}}).to_string().into())).unwrap();
+    let req:Value=serde_json::from_str(ws.read().unwrap().to_text().unwrap()).unwrap();assert_eq!(req["d"]["requestType"],"GetCurrentProgramScene");
+    ws.send(Message::Text(json!({"op":7,"d":{"requestId":if correct{req["d"]["requestId"].clone()}else{json!("stale-request")},"requestStatus":{"result":true},"responseData":{"currentProgramSceneName":"desired"}}}).to_string().into())).unwrap();
+   });
+   let deadline=Instant::now()+Duration::from_secs(1);let mut ws=open_before(&ConnectionSettings{host:"127.0.0.1",port,password:""},deadline).unwrap();
+   let result=request_before(&mut ws,"GetCurrentProgramScene",json!({}),Some(deadline));assert_eq!(result.is_ok(),correct);server.join().unwrap();
+  }
+ }
+ #[test]
+ fn hung_handshake_and_expired_deadline_are_bounded_without_dns() {
+  let listener=TcpListener::bind("127.0.0.1:0").unwrap();let port=listener.local_addr().unwrap().port();
+  let server=std::thread::spawn(move||{let (stream,_)=listener.accept().unwrap();let _ws=tungstenite::accept(stream).unwrap();std::thread::sleep(Duration::from_millis(200));});
+  let start=Instant::now();assert!(open_before(&ConnectionSettings{host:"127.0.0.1",port,password:""},start+Duration::from_millis(50)).is_err());assert!(start.elapsed()<Duration::from_millis(180));server.join().unwrap();
+  assert!(open_before(&ConnectionSettings{host:"not-a-literal.invalid",port,password:""},Instant::now()+Duration::from_secs(1)).is_err());
+ }
 }

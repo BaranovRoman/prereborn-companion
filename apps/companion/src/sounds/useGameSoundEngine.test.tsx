@@ -247,7 +247,7 @@ describe("useGameSoundEngine", () => {
     getPlayNotifyHandler()({ payload });
     const pause = vi.spyOn(MockAudio.instances[0], "pause");
     const fence = vi.mocked(listen).mock.calls.find(([name]) => name === "game-audio-fence")!;
-    (fence[1] as (event: unknown) => void)({ payload: { instance: scope.instance, generation: 1, requestId: "stop" } });
+    (fence[1] as (event: unknown) => void)({ payload: { instance: scope.instance, generation: 1, requestId: "stop", playbackIds: ["sound-a"] } });
     expect(pause).toHaveBeenCalledTimes(1);
     getPlayNotifyHandler()({ payload: { ...payload, playback: { id: "late", scope } } });
     expect(MockAudio.instances).toHaveLength(1);

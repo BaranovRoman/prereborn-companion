@@ -182,6 +182,7 @@ pub fn status<R: Runtime>(app: &AppHandle<R>) -> WatchdogStatus {
 /// but still fresh, so this can never be used to prematurely end a real,
 /// ongoing game.
 pub fn manual_recover<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    let gate=app.try_state::<crate::core::dota_live::LiveDota>();let _admission=gate.as_ref().map(|g|g.core_writer()).transpose()?;
     let now = Utc::now();
     let state = app.state::<LocalRuntimeState>();
     let mut guard = state.lock();

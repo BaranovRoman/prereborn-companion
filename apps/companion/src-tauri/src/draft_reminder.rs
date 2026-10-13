@@ -58,6 +58,15 @@ fn should_fire(
 // exercised in tests against tauri::test::mock_app()'s MockRuntime, not just
 // the real Wry runtime the concrete `AppHandle` alias implies.
 pub fn handle_gsi<R: Runtime>(app: &AppHandle<R>, payload: &Value) {
+    if observe(app,payload) {
+        let playback=match app.try_state::<crate::game_sounds::audio_fence::AudioFence>() {
+            Some(_)=>match crate::game_sounds::audio_fence::builtin_token(app){Ok(token)=>Some(token),Err(_)=>return},None=>None,
+        };
+        let _ = app.emit(DRAFT_STREAM_NOT_STARTED_EVENT, serde_json::json!({"playback":playback}));
+        storage::append_rolling_log(app,"Draft entered while OBS confirmed not streaming - played local 'stream not started' reminder.");
+    }
+}
+fn observe<R:Runtime>(app:&AppHandle<R>,payload:&Value)->bool {
     let current = BroadcastState::from_gsi(payload);
 
     let should_emit = {
@@ -83,16 +92,21 @@ pub fn handle_gsi<R: Runtime>(app: &AppHandle<R>, payload: &Value) {
         fire
     };
 
-    if should_emit {
-        let playback=match app.try_state::<crate::game_sounds::audio_fence::AudioFence>() {
-            Some(_)=>match crate::game_sounds::audio_fence::builtin_token(app){Ok(token)=>Some(token),Err(_)=>return},None=>None,
-        };
-        let _ = app.emit(DRAFT_STREAM_NOT_STARTED_EVENT, serde_json::json!({"playback":playback}));
-        storage::append_rolling_log(
-            app,
-            "Draft entered while OBS confirmed not streaming - played local 'stream not started' reminder.",
-        );
+    should_emit
+}
+pub(crate) fn handle_external(app:&AppHandle,payload:&Value,pin:&crate::core::plugin_manager::VerifiedMatchGrant<'_>,key:&str)->Result<(),String> {
+    if !observe(app,payload){return Ok(());}
+    let history=app.state::<crate::local_runtime::LocalRuntimeState>();
+    let admission=history.with_transaction_adapter(|a,c|a.admit_reminder(c,pin,key,chrono::Utc::now().timestamp_millis().max(0) as u64))?;
+    if !admission.fresh{return if admission.ack.status==companion_dota_domain::effects::Status::Unknown{Err("effect_result_unknown".into())}else{Ok(())};}
+    let fence=app.state::<crate::game_sounds::audio_fence::AudioFence>();let grant=pin.grant();
+    let playback=fence.admit(Some(grant.lease),Some(&grant.session))?;fence.bind(&playback,key)?;
+    history.with_transaction_adapter(|a,c|a.bind_audio(c,&admission,&playback))?;
+    if app.emit_to("main",DRAFT_STREAM_NOT_STARTED_EVENT,serde_json::json!({"playback":playback.clone()})).is_err(){
+        history.with_transaction_adapter(|a,c|a.audio_ack(c,key,&playback,crate::game_sounds::audio_fence::Status::Unknown))?;
+        let _=fence.ack(playback,crate::game_sounds::audio_fence::Status::Unknown);return Err("effect_result_unknown".into());
     }
+    Ok(())
 }
 
 #[cfg(test)]

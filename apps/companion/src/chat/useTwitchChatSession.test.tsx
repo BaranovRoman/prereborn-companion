@@ -774,7 +774,7 @@ describe("game fence while Twitch TTS is active", () => {
     cancel.mockClear(); // the hook stops any previous TTS during initial mounting
     const registry = new GameAudioFenceRegistry();const gameStop = vi.fn(() => true);
     registry.track({ id: "game", scope: { instance: "tts-test", generation: 1, epoch: 1, session: "session" } }, gameStop);
-    expect(registry.fence({ instance: "tts-test", generation: 1, requestId: "stop" })).toBe(true);
+    expect(registry.fence({ instance: "tts-test", generation: 1, requestId: "stop", playbackIds: ["game"] })).toBe(true);
     expect(gameStop).toHaveBeenCalledOnce();expect(cancel).not.toHaveBeenCalled();expect(session!.isSpeaking()).toBe(true);
     active!.onend?.();expect(speak).toHaveBeenCalledTimes(2);expect(session!.isSpeaking()).toBe(true);
     unmount();vi.unstubAllGlobals();localStorage.removeItem(STORAGE_KEY);

@@ -633,10 +633,12 @@ pub fn handle_gsi(app: &AppHandle, payload: &Value) {
 }
 
 pub fn handle_remote_command(app: &AppHandle, desired: BroadcastScene) {
+    if let Some(g)=app.try_state::<crate::core::dota_live::LiveDota>(){g.request_obs_reconciliation();}
     schedule_switch(app, desired, false);
 }
 
 pub fn reapply_current_mapping(app: &AppHandle, desired: BroadcastScene) {
+    if let Some(g)=app.try_state::<crate::core::dota_live::LiveDota>(){g.request_obs_reconciliation();}
     schedule_switch(app, desired, true);
 }
 
@@ -648,9 +650,11 @@ pub fn reapply_current_mapping(app: &AppHandle, desired: BroadcastScene) {
 // automation on its own (see resolve_desired_scene/handle_gsi), exactly the
 // same way it already does after Companion starts up or reconnects.
 pub fn handle_session_state(app: &AppHandle, ended: bool) {
+    let changed;
     {
         let state = app.state::<AppState>();
         let mut inner = state.0.lock().unwrap();
+        changed=inner.session_ended!=ended||(!ended&&(inner.obs_manual_summary_override||inner.obs_post_stream_unavailable));
         inner.session_ended = ended;
         // WK-114 - a new/continuing local session starting must never
         // inherit last stream's "Итоги стрима" pin; the override is
@@ -667,6 +671,7 @@ pub fn handle_session_state(app: &AppHandle, ended: bool) {
             inner.obs_post_stream_unavailable = false;
         }
     }
+    if changed{if let Some(g)=app.try_state::<crate::core::dota_live::LiveDota>(){g.request_obs_reconciliation();}}
     if ended {
         schedule_switch(app, BroadcastScene::PostStream, true);
     }
@@ -998,8 +1003,8 @@ fn run_stream_state_watcher_once(app: &AppHandle, config: &ObsConfig, read_timeo
             inner.obs_watcher_connected = true;
             inner.obs_watcher_last_error = None;
         }
+        let previous = app.state::<crate::state::AppState>().0.lock().unwrap().obs_streaming;
         if source == StreamingObservationSource::Heartbeat {
-            let previous = app.state::<crate::state::AppState>().0.lock().unwrap().obs_streaming;
             if previous.is_some() && previous != Some(streaming) {
                 storage::append_rolling_log(
                     app,
@@ -1008,6 +1013,9 @@ fn run_stream_state_watcher_once(app: &AppHandle, config: &ObsConfig, read_timeo
                     ),
                 );
             }
+        }
+        if source!=StreamingObservationSource::Heartbeat||previous!=Some(streaming) {
+            if let Some(g)=app.try_state::<crate::core::dota_live::LiveDota>(){g.request_obs_reconciliation();}
         }
         crate::local_runtime::lifecycle::on_obs_streaming_known(app, streaming);
     })
@@ -1673,14 +1681,70 @@ mod tests {
 // Reuse the existing semantic resolver/mappings/transport without the legacy retry scheduler.
 pub(crate) fn dispatch_plugin_scene(app:&AppHandle,requested:BroadcastScene)->companion_dota_domain::effects::Status {
     use companion_dota_domain::effects::Status;
-    let (desired,config)={let state=app.state::<AppState>();let inner=state.0.lock().unwrap();
+    let (mut desired,config)={let state=app.state::<AppState>();let inner=state.0.lock().unwrap();
         if !inner.obs_config.enabled{return Status::Rejected;}
         let desired=resolve_desired_scene(requested,inner.session_ended,inner.obs_manual_summary_override,inner.obs_post_stream_unavailable);
-        if inner.obs_config.is_active_mapping(desired,inner.obs_active_scene,inner.obs_active_scene_name.as_deref()){return Status::Completed;}
+
         (desired,inner.obs_config.clone())};
     if desired.obs_scene_name(&config).trim().is_empty(){return Status::Rejected;}
-    match switch_scene(&config,desired) {
-        Ok(())=>{let state=app.state::<AppState>();let mut inner=state.0.lock().unwrap();inner.obs_active_scene=Some(desired);inner.obs_active_scene_name=Some(desired.obs_scene_name(&config).into());inner.obs_connected=true;Status::Completed},
-        Err(_)=>Status::Unknown,
+    // A fresh observation proves desired state, not exactly-once command delivery.
+    // Never treat AppState's cached scene as proof. All IO is outside history locks.
+    let mut desired_name=desired.obs_scene_name(&config).to_string();
+    let deadline=Instant::now()+Duration::from_millis(1500);
+    let connection=ConnectionSettings{host:&config.host,port:config.port,password:&config.password};
+    let mut missing=false;
+    let mut outcome=reconcile_plugin_scene(&desired_name,||fresh_program_scene(&connection,deadline),||{
+        let result=external_scene_request(&connection,&desired_name,deadline);
+        missing=desired==BroadcastScene::PostStream&&result.as_ref().err().is_some_and(|e|is_resource_not_found(e));result
+    });
+    if outcome==Status::Unknown&&missing {
+        // 604 is a definitive rejection, not an ambiguous execution. Preserve
+        // the existing Post Stream -> Between Matches fallback, within the SAME
+        // deadline and operation. Timeouts never authorize this second command.
+        let state=app.state::<AppState>();let mut inner=state.0.lock().unwrap();
+        if !inner.obs_config.enabled||resolve_desired_scene(requested,inner.session_ended,inner.obs_manual_summary_override,inner.obs_post_stream_unavailable)!=desired||inner.obs_config.post_stream_scene!=config.post_stream_scene||inner.obs_config.between_matches_scene!=config.between_matches_scene||inner.obs_config.host!=config.host||inner.obs_config.port!=config.port||inner.obs_config.password!=config.password{return Status::Unknown;}
+        inner.obs_post_stream_unavailable=true;desired=resolve_desired_scene(requested,inner.session_ended,inner.obs_manual_summary_override,true);drop(inner);
+        desired_name=desired.obs_scene_name(&config).to_string();
+        if !desired_name.trim().is_empty(){outcome=reconcile_plugin_scene(&desired_name,||fresh_program_scene(&connection,deadline),||external_scene_request(&connection,&desired_name,deadline));}
     }
+    if outcome==Status::Completed {
+        let state=app.state::<AppState>();let mut inner=state.0.lock().unwrap();
+        // Config/manual/session changes while IO ran invalidate this observation.
+        let still_desired=resolve_desired_scene(requested,inner.session_ended,inner.obs_manual_summary_override,inner.obs_post_stream_unavailable);
+        if !inner.obs_config.enabled||still_desired!=desired||still_desired.obs_scene_name(&inner.obs_config)!=desired_name||inner.obs_config.host!=config.host||inner.obs_config.port!=config.port||inner.obs_config.password!=config.password{return Status::Unknown;}
+        inner.obs_active_scene=Some(desired);inner.obs_active_scene_name=Some(desired_name);inner.obs_connected=true;
+    }
+    outcome
+}
+fn external_scene_request(config:&ConnectionSettings<'_>,desired:&str,deadline:Instant)->Result<(),String> {
+ let mut socket=crate::core::obs_transport::open_before(config,deadline)?;
+ crate::core::obs_transport::request_before(&mut socket,"SetCurrentProgramScene",json!({"sceneName":desired}),Some(deadline))?;Ok(())
+}
+fn fresh_program_scene(config:&ConnectionSettings<'_>,deadline:Instant)->Result<String,String> {
+ let mut socket=crate::core::obs_transport::open_before(config,deadline)?;
+ let result=crate::core::obs_transport::request_before(&mut socket,"GetCurrentProgramScene",json!({}),Some(deadline))?;
+ let scene=result.pointer("/d/responseData/currentProgramSceneName").and_then(Value::as_str).filter(|v|!v.is_empty()&&v.len()<=512).ok_or("invalid_authoritative_scene")?;
+ Ok(scene.into())
+}
+fn reconcile_plugin_scene(desired:&str,mut observe:impl FnMut()->Result<String,String>,mut switch:impl FnMut()->Result<(),String>)->companion_dota_domain::effects::Status {
+ use companion_dota_domain::effects::Status;
+ match observe(){Ok(scene) if scene==desired=>return Status::Completed,Err(_)=>return Status::Unknown,_=>()}
+ let _=switch(); // no retry: even an error may have applied at OBS
+ match observe(){Ok(scene) if scene==desired=>Status::Completed,_=>Status::Unknown}
+}
+#[cfg(test)]
+mod external_reconciliation_tests {
+ use super::*;use companion_dota_domain::effects::Status;
+ #[test]
+ fn fresh_truth_reconciles_ambiguous_apply_without_retry() {
+  let mut observations=[Ok("old".into()),Ok("desired".into())].into_iter();let mut writes=0;
+  assert_eq!(reconcile_plugin_scene("desired",||observations.next().unwrap(),||{writes+=1;Err("lost reply".into())}),Status::Completed);assert_eq!(writes,1);
+ }
+ #[test]
+ fn unavailable_manual_change_or_missing_scene_remains_unknown() {
+  assert_eq!(reconcile_plugin_scene("desired",||Err("disconnected".into()),||panic!("blind switch")),Status::Unknown);
+  let mut observations=[Ok("old".into()),Ok("manual".into())].into_iter();let mut writes=0;
+  assert_eq!(reconcile_plugin_scene("desired",||observations.next().unwrap(),||{writes+=1;Err("missing or timeout".into())}),Status::Unknown);assert_eq!(writes,1);
+  assert_eq!(reconcile_plugin_scene("desired",||Ok("desired".into()),||panic!("duplicate switch")),Status::Completed);
+ }
 }

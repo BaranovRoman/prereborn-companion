@@ -6,6 +6,18 @@ use std::io::{BufRead,Write};
 #[derive(Default)]
 pub struct State {confirmed:Option<(DiagnosticScope,Receipt)>,sequence:Option<u64>,blocked:bool}
 impl State {
+    pub fn live_frame(&mut self,mut input:ExecutionFrame)->Result<ExecutionRequest,String> {
+        if let Some(refresh)=input.core_context.take() {
+            if self.blocked||refresh.preconditions!=input.preconditions||refresh.session.local_id!=input.scope.session||refresh.session.diagnostic_revision!=input.preconditions.session_revision||refresh.current_context!=input.context.active||refresh.session.ended_at.is_some()!=input.context.session.ended||refresh.session.streamed!=input.context.session.streamed{return Err("invalid_core_context_receipt".into());}
+            if let Some((scope,prior))=&mut self.confirmed {
+                let after=prior.after.as_ref().ok_or("missing_post_state")?;
+                if scope.run!=input.scope.run||scope.epoch!=input.scope.epoch||after.policy!=refresh.preconditions.policy||after.epoch>refresh.preconditions.epoch{return Err("stale_core_context_receipt".into());}
+                if scope.session==input.scope.session&&(after.session_revision>refresh.preconditions.session_revision||(after.epoch==refresh.preconditions.epoch&&(prior.current_context!=refresh.current_context||after!=&refresh.preconditions))){return Err("stale_core_context_receipt".into());}
+                scope.session=input.scope.session.clone();prior.after=Some(refresh.preconditions);prior.session=Some(refresh.session);prior.current_context=refresh.current_context;
+            }
+        }
+        self.frame(input)
+    }
     pub fn frame(&mut self,input:DiagnosticFrame)->Result<DiagnosticRequest,String> {
         if self.blocked{return Err("diagnostic_reset_required".into());}
         if input.scope.session!=input.context.session.local_id{return Err("session_mismatch".into());}

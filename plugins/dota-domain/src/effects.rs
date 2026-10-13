@@ -34,7 +34,7 @@ pub struct Request {pub api:u32,pub lease:Lease,pub correlation_id:String,pub id
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all="snake_case")]
 pub enum Status { Accepted, Completed, Rejected, Unknown }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 pub struct Ack {pub correlation_id:String,pub idempotency_key:String,pub lease:Lease,pub status:Status}
 // Bounded in-memory contract model. Production needs a durable transaction/outbox ledger.

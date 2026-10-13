@@ -62,10 +62,14 @@ pub struct PackageBinding {pub id:String,pub version:String,pub executable_hash:
 pub struct DiagnosticScope {pub session:String,pub epoch:u64,pub run:String}
 #[derive(Clone,Debug,Serialize,Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
+pub struct ContextReceipt {pub preconditions:Preconditions,pub session:SessionReceipt,pub current_context:Option<crate::match_shadow::MatchContext>}
+#[derive(Clone,Debug,Serialize,Deserialize)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
 pub struct DiagnosticFrame {
     pub scope:DiagnosticScope,pub ticket:String,pub binding:String,pub preconditions:Preconditions,
     pub operation_key:String,pub correlation_id:String,pub context:crate::match_shadow::Context,
     pub snapshot:crate::contracts::ReplayGsi,
+    #[serde(default,skip_serializing_if="Option::is_none")] pub core_context:Option<ContextReceipt>,
 }
 #[derive(Clone,Debug,Serialize,Deserialize)]
 #[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
@@ -93,6 +97,7 @@ pub type ExecutionReply = DiagnosticReply;
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 pub struct LiveEffectsFrame {
     pub deadline_ms:u64,
+    #[serde(default)] pub obs_revision:u64,
     pub scope:ExecutionScope,
     pub input:crate::contracts::ReplayInput,
 }

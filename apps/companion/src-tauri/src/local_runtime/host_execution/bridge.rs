@@ -78,7 +78,7 @@ impl Host {
             if receipt.after.as_ref()!=Some(&prepared.data.preconditions) || receipt.current_context!=prepared.data.context.active
                 || session.ended_at.is_some()!=prepared.data.context.session.ended {return Err("stale_receipt_context".into());}
         }
-        let frame=DiagnosticFrame{scope:self.scope.clone(),ticket:prepared.ticket.clone(),binding:prepared.binding.clone(),preconditions:prepared.data.preconditions.clone(),operation_key:key.into(),correlation_id:format!("frame:{sequence}"),context:prepared.data.context.clone(),snapshot:prepared.data.snapshot.clone()};
+        let frame=DiagnosticFrame{scope:self.scope.clone(),ticket:prepared.ticket.clone(),binding:prepared.binding.clone(),preconditions:prepared.data.preconditions.clone(),operation_key:key.into(),correlation_id:format!("frame:{sequence}"),context:prepared.data.context.clone(),snapshot:prepared.data.snapshot.clone(),core_context:None};
         self.expected=Some(prepared);Ok(frame)
     }
     fn roundtrip(&mut self,name:&str,args:serde_json::Value,fault:Fault)->Result<serde_json::Value> {

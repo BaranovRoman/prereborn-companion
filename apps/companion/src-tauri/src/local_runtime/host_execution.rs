@@ -106,7 +106,7 @@ pub(crate) struct Adapter {expected_schema:Vec<(String,String)>,path:PathBuf,_co
 #[serde(deny_unknown_fields)]
 pub(crate) struct Ticket {pub(crate) context:Context,pub(crate) snapshot:ReplayGsi,pub(crate) preconditions:Preconditions}
 #[derive(Clone)]
-pub(crate) struct Prepared {pub(crate) ticket:String,pub(crate) binding:String,pub(crate) data:Ticket}
+pub(crate) struct Prepared {pub(crate) ticket:String,pub(crate) binding:String,pub(crate) data:Ticket,pub(crate) core_context:Option<ContextReceipt>}
 impl Prepared {
     pub(crate) fn core_request(&self,key:&str,correlation:&str)->Result<Request> {
         let analysis=rules::analyze(&self.data.context,&self.data.snapshot,self.data.context.frame_sequence);
@@ -167,6 +167,7 @@ impl Adapter {
         let (path,lock)=super::transaction_schema::claim(conn)?;
         super::transaction_schema::validate(conn)?;
         super::transaction_authorization::uncertain_restart(conn)?;
+        live_effects::recover_pending_audio(conn)?;
         Ok(Self{path,_coordinator:lock,expected_schema:signature(conn,false)?})
     }
     fn bound(&self,conn:&Connection)->Result<()> {
@@ -205,7 +206,7 @@ impl Adapter {
             if let Some(raw)=prior {
                 if raw.len()>16384{return Err("context_corrupt".into());}
                 let old:Ticket=serde_json::from_str(&raw).map_err(|_|"context_corrupt")?;
-                let old_req=Prepared{ticket:id.clone(),binding:hash(&raw),data:old.clone()}.core_request(&id,&id)?;
+                let old_req=Prepared{ticket:id.clone(),binding:hash(&raw),data:old.clone(),core_context:None}.core_request(&id,&id)?;
                 let confirmed=saved(&tx,&old_req)?.ok_or("telemetry_commit_unconfirmed")?;
                 if confirmed.status!=Status::Completed||confirmed.receipt.as_ref().and_then(|r|r.after.as_ref()).is_none_or(|p|p.epoch>data.preconditions.epoch){return Err("telemetry_commit_unconfirmed".into());}
                 if sequence<=old.context.frame_sequence{return Err("stale_telemetry_sequence".into());}
@@ -214,7 +215,8 @@ impl Adapter {
         }else{uuid::Uuid::new_v4().to_string()};let binding=hash(&encoded);
         check_update_bytes(&tx,"pc_tx_ticket","doc","id",&ticket,encoded.len(),"max_ticket_bytes")?;
         sql(tx.execute("INSERT INTO pc_tx_ticket VALUES(?1,?2,?3) ON CONFLICT(id) DO UPDATE SET doc=excluded.doc,checksum=excluded.checksum",params![ticket,encoded,binding]))?;sql(tx.commit())?;
-        Ok(Some(Prepared{ticket,binding,data}))
+        let core_context=Some(ContextReceipt{preconditions:data.preconditions.clone(),current_context:data.context.active.clone(),session:SessionReceipt{local_id:row.local_id,ended_at:row.ended_at,streamed:row.is_streamed,rating_current:row.rating_current,disposition:Disposition::Skipped,diagnostic_revision:data.preconditions.session_revision}});
+        Ok(Some(Prepared{ticket,binding,data,core_context}))
     }
     #[cfg(test)]
     fn execute(&mut self,conn:&mut Connection,req:&Request)->Result<Response>{self.execute_fault(conn,req,Fault::None)}
@@ -375,3 +377,5 @@ mod fixture;
 use fixture::FixtureAdapter;
 
 pub(crate) mod live_effects;
+
+pub(crate) mod external_lifecycle;

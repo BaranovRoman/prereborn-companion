@@ -105,7 +105,7 @@ fn host_checks_forged_fingerprint_inside_transaction_even_if_worker_bypasses_val
 fn ipc_crash_child() {
     let Ok(root)=std::env::var("PC12_ROOT")else{return;};let path=PathBuf::from(root);assert_eq!(std::fs::read(path.join("fixture-marker")).unwrap(),b"pc11 test fixture");
     let fixture=Fixture{path:path.join("isolated.sqlite3"),root:Arc::new(FixtureRoot::CrashChild(path.clone()))};let mut frame:DiagnosticFrame=serde_json::from_str(&std::env::var("PC12_FRAME").unwrap()).unwrap();
-    let mut host=Host::open(fixture,&frame.scope.session).unwrap();host.start().unwrap();frame.scope=host.scope.clone();host.expected=Some(Prepared{ticket:frame.ticket.clone(),binding:frame.binding.clone(),data:Ticket{context:frame.context.clone(),snapshot:frame.snapshot.clone(),preconditions:frame.preconditions.clone()}});
+    let mut host=Host::open(fixture,&frame.scope.session).unwrap();host.start().unwrap();frame.scope=host.scope.clone();host.expected=Some(Prepared{ticket:frame.ticket.clone(),binding:frame.binding.clone(),data:Ticket{context:frame.context.clone(),snapshot:frame.snapshot.clone(),preconditions:frame.preconditions.clone()},core_context:None});
     std::fs::write(path.join("worker-pid"),host.runtime.diagnostic_process_id().unwrap().to_string()).unwrap();
     let fault=if std::env::var("PC12_FAULT").unwrap()=="before"{Fault::CrashBeforeCommit}else{Fault::CrashAfterCommit};host.roundtrip("dota.diagnostic_frame",serde_json::to_value(frame).unwrap(),fault).unwrap();panic!("expected crash");
 }

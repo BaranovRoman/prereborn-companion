@@ -4,11 +4,11 @@ use std::{collections::VecDeque,sync::{Arc,Mutex,Condvar,atomic::{AtomicBool,Ord
 use companion_dota_domain::{ownership::{Owner,Lease},contracts::ReplayGsi};
 use serde::Serialize;
 const CAPACITY:usize=8;
-const ACTIVATION_BLOCKER:&str="external_lifecycle_audio_receipts_obs_and_restart_fencing_incomplete";
+const ACTIVATION_BLOCKER:&str="external_windows_process_supervision_and_native_fences_unverified";
 #[derive(Clone,Copy,Debug,PartialEq,Serialize)]
 #[serde(rename_all="snake_case")]
 pub(crate) enum Mode {BuiltIn,Draining,External,Fallback}
-struct Inner {overlay:Option<companion_dota_domain::broadcast_state::BroadcastState>,mode:Mode,lease:Option<Lease>,in_flight:usize,sequence:u64,queue:VecDeque<Frame>,lost:u64,error:Option<String>}
+struct Inner {obs_revision:u64,overlay:Option<companion_dota_domain::broadcast_state::BroadcastState>,mode:Mode,lease:Option<Lease>,in_flight:usize,sequence:u64,queue:VecDeque<Frame>,lost:u64,error:Option<String>}
 struct Shared {inner:Mutex<Inner>,drained:Condvar,transition:Mutex<()>,gap:AtomicBool}
 #[derive(Clone)]
 pub(crate) struct LiveDota(Arc<Shared>);
@@ -20,7 +20,7 @@ pub(crate) struct Frame {pub(crate) snapshot:ReplayGsi,pub(crate) context:compan
 #[serde(rename_all="camelCase")]
 pub(crate) struct Status {mode:Mode,epoch:Option<u64>,queued:usize,in_flight:usize,lost:u64,error:Option<String>,activation_blocker:&'static str}
 impl Default for LiveDota {
- fn default()->Self {Self(Arc::new(Shared{inner:Mutex::new(Inner{overlay:None,mode:Mode::BuiltIn,lease:None,in_flight:0,sequence:0,queue:VecDeque::with_capacity(CAPACITY),lost:0,error:None}),drained:Condvar::new(),transition:Mutex::new(()),gap:AtomicBool::new(false)}))}
+ fn default()->Self {Self(Arc::new(Shared{inner:Mutex::new(Inner{obs_revision:0,overlay:None,mode:Mode::BuiltIn,lease:None,in_flight:0,sequence:0,queue:VecDeque::with_capacity(CAPACITY),lost:0,error:None}),drained:Condvar::new(),transition:Mutex::new(()),gap:AtomicBool::new(false)}))}
 }
 impl LiveDota {
  pub(crate) fn storage_open_failed(&self,path:&std::path::Path) {
@@ -37,6 +37,7 @@ impl LiveDota {
     return Ok(None);
    }
    crate::local_runtime::transaction_schema::validate(c)?;
+   crate::local_runtime::transaction_authorization::process_restart_fence(c)?;
    match crate::local_runtime::transaction_authorization::phase(c)? {
     companion_dota_domain::ownership::Phase::Active(l) if l.owner==Owner::BuiltIn=>Ok(Some(l)),
     _=>Err("explicit_restart_fence_required".into()),
@@ -51,6 +52,16 @@ impl LiveDota {
  }
  pub(crate) fn publish_overlay(&self,lease:Lease,state:companion_dota_domain::broadcast_state::BroadcastState)->Result<(),String>{let mut i=self.0.inner.lock().map_err(|_|"admission_poisoned")?;if i.mode!=Mode::External||i.lease!=Some(lease){return Err("ownership_fenced".into());}i.overlay=Some(state);Ok(())}
  pub(crate) fn status(&self)->Status {let i=self.0.inner.lock().unwrap();Status{mode:i.mode,epoch:i.lease.map(|l|l.epoch),queued:i.queue.len(),in_flight:i.in_flight,lost:i.lost,error:i.error.clone(),activation_blocker:ACTIVATION_BLOCKER}}
+ pub(crate) fn request_obs_reconciliation(&self){if let Ok(mut i)=self.0.inner.lock(){if i.mode==Mode::External{i.obs_revision=i.obs_revision.saturating_add(1);}}}
+ pub(crate) fn obs_frame(&self,lease:Lease,snapshot:ReplayGsi,context:companion_dota_domain::contracts::ReplayContext)->Option<Frame> {
+  let mut i=self.0.inner.lock().ok()?;if i.mode!=Mode::External||i.lease!=Some(lease)||!i.queue.is_empty(){return None;}
+  i.sequence=i.sequence.checked_add(1)?;Some(Frame{snapshot,context,sequence:i.sequence,at:chrono::Utc::now()})
+ }
+ pub(crate) fn core_writer(&self)->Result<Admission,String> {
+  let mut i=self.0.inner.lock().map_err(|_|"admission_poisoned")?;if !matches!(i.mode,Mode::BuiltIn|Mode::External){return Err("ownership_fenced".into());}
+  i.in_flight+=1;Ok(Admission{shared:self.0.clone()})
+ }
+ pub(crate) fn obs_revision(&self)->u64{self.0.inner.lock().map(|i|i.obs_revision).unwrap_or(u64::MAX)}
  pub(crate) fn lease(&self)->Option<Lease>{self.0.inner.lock().ok().and_then(|i|i.lease)}
  pub(crate) fn builtin(&self)->Option<Admission> {let mut i=self.0.inner.lock().ok()?;if i.mode!=Mode::BuiltIn{return None;}i.in_flight+=1;Some(Admission{shared:self.0.clone()})}
  pub(crate) fn external(&self,lease:Lease)->Result<Admission,String> {let mut i=self.0.inner.lock().map_err(|_|"admission_poisoned")?;if i.mode!=Mode::External||i.lease!=Some(lease){return Err("ownership_fenced".into());}i.in_flight+=1;Ok(Admission{shared:self.0.clone()})}
@@ -83,7 +94,7 @@ impl LiveDota {
   let _transition=self.0.transition.lock().map_err(|_|"transition_poisoned")?;
   let deadline=Instant::now()+timeout;
   let mut i=self.0.inner.lock().map_err(|_|"admission_poisoned")?;
-  if i.lease.is_some_and(|lease|lease!=old)||target==old.owner||!matches!(i.mode,Mode::BuiltIn|Mode::External|Mode::Fallback){return Err("invalid_handover".into());}
+  if i.lease.is_some_and(|lease|lease!=old)||target==old.owner||!matches!(i.mode,Mode::BuiltIn|Mode::External|Mode::Fallback|Mode::Draining){return Err("invalid_handover".into());}
   i.mode=Mode::Draining;i.queue.clear();
   while i.in_flight>0 {
    let remaining=deadline.saturating_duration_since(Instant::now());
@@ -103,7 +114,15 @@ impl LiveDota {
 // Check storage read-only first; never attach/migrate as a side effect of a refused activation.
 pub(crate) fn developer_activation_preflight(conn:&rusqlite::Connection,backup:&std::path::Path)->Result<(),String> {
  crate::local_runtime::transaction_schema::activation_preflight(conn,backup)?;
+ beta_capacity_preflight(conn)?;
  Err(ACTIVATION_BLOCKER.into())
+}
+
+// Measured 8h model plus headroom; limits are NOT raised and keys are never evicted.
+pub(crate) fn beta_capacity_preflight(c:&rusqlite::Connection)->Result<(),String> {
+ let q=crate::local_runtime::host_execution::live_effects::quota(c)?;
+ if q.unknown!=0{return Err("unknown_effects_require_explicit_reconciliation".into());}
+ if q.remaining_operations<6000||q.remaining_tickets<256||q.remaining_receipt_bytes<8*1024*1024||q.remaining_ticket_bytes<1024*1024||q.remaining_revision_identities<256{return Err("eight_hour_beta_capacity_unavailable".into());}Ok(())
 }
 
 #[cfg(test)]

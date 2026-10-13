@@ -112,7 +112,7 @@ describe("useDraftStreamReminder", () => {
     const call = vi.mocked(listen).mock.calls.find(([name]) => name === DRAFT_STREAM_NOT_STARTED_EVENT)!;
     const token = { id: "late-reminder", scope: { instance: "reminder-test", generation: 1, epoch: 4, session: "session" } };
     (call[1] as (event: unknown) => void)({ payload: { playback: token } });
-    expect(gameAudioFence.fence({ instance: "reminder-test", generation: 1, requestId: "stop" })).toBe(true);
+    expect(gameAudioFence.fence({ instance: "reminder-test", generation: 1, requestId: "stop", playbackIds: ["late-reminder"] })).toBe(true);
     await act(async () => { resolve("AAAA"); });
     expect(URL.createObjectURL).not.toHaveBeenCalled();
     expect(window.HTMLMediaElement.prototype.play).not.toHaveBeenCalled();

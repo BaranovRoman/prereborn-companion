@@ -21,7 +21,7 @@ fn run() -> Result<(), String> {
         match message {
             Message::Command{id,name,args} if live && matches!(name.as_str(),"dota.live_frame"|"dota.live_recover") => {
                 let request=if name=="dota.live_frame" {
-                    serde_json::from_value::<companion_dota_domain::match_execution::ExecutionFrame>(args).map_err(|_|"invalid_execution_frame".to_string()).and_then(|frame|diagnostic.frame(frame))
+                    serde_json::from_value::<companion_dota_domain::match_execution::ExecutionFrame>(args).map_err(|_|"invalid_execution_frame".to_string()).and_then(|frame|diagnostic.live_frame(frame))
                 } else {
                     serde_json::from_value::<companion_dota_domain::match_execution::ExecutionRequest>(args).map_err(|_|"invalid_recovery_request".to_string()).and_then(|req|if matches!(req,companion_dota_domain::match_execution::ExecutionRequest::Recover{..}){Ok(req)}else{Err("invalid_recovery_request".into())})
                 };

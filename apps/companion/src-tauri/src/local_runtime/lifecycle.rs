@@ -310,6 +310,7 @@ pub fn status(app: &AppHandle) -> LifecycleStatus {
 /// so it stops being reported as stale, and lets normal OBS-driven
 /// reconciliation resume for it from here on.
 pub fn stale_recovery_continue(app: &AppHandle) -> Result<(), String> {
+    let gate=app.try_state::<crate::core::dota_live::LiveDota>();let _admission=gate.as_ref().map(|g|g.core_writer()).transpose()?;
     let state = app.state::<LocalRuntimeState>();
     let mut guard = state.lock();
     let Some(conn) = guard.as_mut() else { return Err("Local runtime is not available".into()) };
@@ -327,6 +328,7 @@ pub fn stale_recovery_continue(app: &AppHandle) -> Result<(), String> {
 /// action, driven by OBS's real current state rather than a separate user
 /// choice (see WK-112's product decisions).
 pub fn stale_recovery_end(app: &AppHandle) -> Result<(), String> {
+    let gate=app.try_state::<crate::core::dota_live::LiveDota>();let _admission=gate.as_ref().map(|g|g.core_writer()).transpose()?;
     let now = Utc::now();
     {
         let state = app.state::<LocalRuntimeState>();

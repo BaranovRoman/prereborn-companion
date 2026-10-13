@@ -666,6 +666,7 @@ pub fn switch_obs_scene(
     state: State<AppState>,
     scene: BroadcastScene,
 ) -> Result<StatusSnapshot, String> {
+    let gate=app.try_state::<crate::core::dota_live::LiveDota>();let _admission=gate.as_ref().map(|g|g.core_writer()).transpose()?;
     let config = state.0.lock().unwrap().obs_config.clone();
     match obs::switch_scene(&config, scene) {
         Ok(()) => {
@@ -675,6 +676,7 @@ pub fn switch_obs_scene(
             inner.obs_active_scene_name = Some(scene.obs_scene_name(&config).to_string());
             inner.obs_last_error = None;
             drop(inner);
+            if let Some(g)=&gate{g.request_obs_reconciliation();}
             storage::append_rolling_log(
                 &app,
                 &format!(
@@ -704,6 +706,7 @@ pub fn switch_obs_scene(
 // sync event: the local session and the real OBS stream both keep running.
 #[tauri::command]
 pub fn show_stream_summary_scene(app: AppHandle, state: State<AppState>) -> Result<StatusSnapshot, String> {
+    let gate=app.try_state::<crate::core::dota_live::LiveDota>();let _admission=gate.as_ref().map(|g|g.core_writer()).transpose()?;
     let config = state.0.lock().unwrap().obs_config.clone();
     match obs::switch_scene(&config, BroadcastScene::PostStream) {
         Ok(()) => {
@@ -714,6 +717,7 @@ pub fn show_stream_summary_scene(app: AppHandle, state: State<AppState>) -> Resu
             inner.obs_active_scene_name = Some(BroadcastScene::PostStream.obs_scene_name(&config).to_string());
             inner.obs_last_error = None;
             drop(inner);
+            if let Some(g)=&gate{g.request_obs_reconciliation();}
             storage::append_rolling_log(&app, "Manual 'Итоги стрима' scene shown (Post Stream), session unaffected.");
             Ok(state.snapshot())
         }
@@ -735,8 +739,9 @@ pub fn show_stream_summary_scene(app: AppHandle, state: State<AppState>) -> Resu
 // (manual mode), the user already controls scenes by hand via the existing
 // scene buttons, same as for any other manual scene change.
 #[tauri::command]
-pub fn resume_live_scene(state: State<AppState>) -> StatusSnapshot {
+pub fn resume_live_scene(app:AppHandle,state: State<AppState>) -> StatusSnapshot {
     state.0.lock().unwrap().obs_manual_summary_override = false;
+    if let Some(g)=app.try_state::<crate::core::dota_live::LiveDota>(){g.request_obs_reconciliation();}
     state.snapshot()
 }
 
