@@ -147,3 +147,32 @@ on approved feature ref, no publication. Then verify NEW configured-key signatur
 installer upgrade preservation and manual Twitch/TTS/OBS/real GSI smoke. Publication remains
 separate explicit permission; ordinary stable tag pipeline creates latest.json for existing endpoint.
 No developer gate/External activation or auto SQLite migration.
+
+## Authorized stable publication 0.5.91
+User explicitly authorized the full stable release, with no separate signing rehearsal
+and no merge. Tag `prereborn-v0.5.91` points to verified source
+`bf93e39fa569e013be6ba21323426b3b933f6197`; its only difference from unsigned-tested
+`eef27f3` is this research report. Existing Windows release workflow run 38436155225
+passed installer metadata/inventory, packaged smoke, checksum, configured-key signature
+and complete-assets gates before publishing the non-draft, non-prerelease release.
+
+Release: https://github.com/BaranovRoman/prereborn-companion/releases/tag/prereborn-v0.5.91
+CI: https://github.com/BaranovRoman/prereborn-companion/actions/runs/38436155225
+Final result: completed SUCCESS; release-windows SUCCESS, build-windows intentionally SKIPPED.
+
+Post-publication, the unchanged public `/releases/latest/download/latest.json` endpoint
+returned version 0.5.91 and the correct Windows x64 installer URL. Downloaded public
+installer + signature + checksum were verified by the existing read-only verifier using
+the shipped updater public key: manifest version/URL, exact signature sidecar, cryptographic
+signature and SHA256 all passed. Actual updater RemoteRelease comparison against installed
+0.5.89 passed. Installer SHA256:
+`2227953341100339e1620158b8d9a2ee83e4283cb24c12c4e0e102754a96046b`.
+Published assets contain installer/sidecars/latest.json and existing Silero assets, no
+standalone Dota package/worker. BuiltIn remains default, External activation stays closed,
+no automatic history migration, updater key/identifier/data paths unchanged.
+
+0.5.89 should offer 0.5.91 on the normal updater check (launch/manual check); this is
+metadata/signature/SDK evidence, not a performed real upgrade. Manual Windows checks remain:
+upgrade from 0.5.89, preservation of settings/history/credentials, Twitch chat/TTS including
+long messages, OBS connection/scenes/reconnect, BuiltIn Dota real GSI/sounds/draft reminder/
+overlay, post-game history and restart. User SQLite and existing .gitignore were untouched.
