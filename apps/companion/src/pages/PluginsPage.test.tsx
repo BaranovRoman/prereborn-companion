@@ -11,6 +11,86 @@ let view: api.View;
 beforeEach(() => { view = initial(); vi.mocked(api.view).mockImplementation(async () => view); vi.mocked(api.action).mockResolvedValue(); vi.mocked(api.install).mockResolvedValue(); vi.mocked(api.cancel).mockResolvedValue(); vi.mocked(api.refresh).mockResolvedValue(); vi.mocked(api.command).mockResolvedValue({ text: "Hello" }); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 describe("PluginsPage", () => {
+  const safety = (): api.DotaSafety => ({ runtime: { mode: "built_in", epoch: 3, queued: 0, inFlight: 0, lost: 0, error: null, activationBlocker: null }, quota: { unknown: 0, remainingOperations: 100 }, storageError: null });
+  const dota = () => {
+    view.installed = [{ id: "dota2", manifest: { ...manifest, id: "dota2" }, error: null, installed: { active: "0.1.0", previous: null, pending: null, enabled: false }, runtime: null }];
+    vi.mocked(api.dotaSafety).mockResolvedValue(safety());
+  };
+  it("shows pending until native resolves, prevents repeated clicks and confirms actual post-state", async () => {
+    dota();
+    let complete!: () => void;
+    vi.mocked(api.dotaAction).mockImplementation(() => new Promise<void>((resolve) => { complete = resolve; }));
+    render(<PluginsPage />);
+    fireEvent.click(await screen.findByRole("checkbox"));
+    const button = screen.getByRole("button", { name: "Подготовить backup и миграцию" });
+    fireEvent.click(button); fireEvent.click(button);
+    expect(api.dotaAction).toHaveBeenCalledTimes(1);
+    expect(api.dotaAction).toHaveBeenCalledWith("prepare", true);
+    expect(button.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText(/Подготовка: ожидаем native/)).toBeTruthy();
+    expect(screen.queryByText(/Подготовка подтверждена native/)).toBeNull();
+    complete();
+    expect(await screen.findByText(/Подготовка подтверждена native:.*Epoch: 3/)).toBeTruthy();
+    expect(api.dotaSafety).toHaveBeenCalledTimes(2);
+    expect(api.action).not.toHaveBeenCalled();
+    // A subsequent explicit click is allowed, with another native ACK required.
+    vi.mocked(api.dotaAction).mockResolvedValue();
+    await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(api.dotaAction).toHaveBeenCalledTimes(2));
+  });
+  it("keeps the action error visible after successful status polling", async () => {
+    dota();
+    vi.mocked(api.dotaAction).mockRejectedValue("builtin_session_required");
+    render(<PluginsPage />);
+    fireEvent.click(await screen.findByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Подготовить backup и миграцию" }));
+    await screen.findByText(/Native-команда не подтвердила выполнение: Сначала начните/);
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    expect(screen.getByText(/Native-команда не подтвердила выполнение/)).toBeTruthy();
+    expect(screen.queryByText(/Подготовка подтверждена native/)).toBeNull();
+  });
+  it("does not claim success if the native post-state read fails", async () => {
+    dota();
+    vi.mocked(api.dotaAction).mockResolvedValue();
+    vi.mocked(api.dotaSafety).mockResolvedValueOnce(safety()).mockRejectedValue("storage_unavailable");
+    render(<PluginsPage />);
+    fireEvent.click(await screen.findByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Подготовить backup и миграцию" }));
+    expect(await screen.findByText(/Native-команда завершена, но итоговое состояние не подтверждено/)).toBeTruthy();
+    expect(screen.queryByText(/Подготовка подтверждена native/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Включить External Dota" }).hasAttribute("disabled")).toBe(true);
+  });
+  it("does not accept an ACK with Unknown post-state as preparation success", async () => {
+    dota(); const next = safety(); next.quota!.unknown = 1;
+    vi.mocked(api.dotaAction).mockResolvedValue();
+    vi.mocked(api.dotaSafety).mockResolvedValueOnce(safety()).mockResolvedValue(next);
+    render(<PluginsPage />);
+    fireEvent.click(await screen.findByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: "Подготовить backup и миграцию" }));
+    await screen.findByText(/Native-команда завершена, но итоговое состояние не подтверждено/);
+    expect(screen.queryByText(/Подготовка подтверждена native/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Включить External Dota" }).hasAttribute("disabled")).toBe(true);
+  });
+  it("labels native activation without offering download cancellation", async () => {
+    view.transfer = { ...view.transfer, busy: true, stage: "activation" };
+    render(<PluginsPage />);
+    expect(await screen.findByText(/Выполняется ручная native-операция Dota/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Отменить загрузку" })).toBeNull();
+  });
+  it.each(["unknown", "draining", "storage", "runtime"])("blocks External with %s and displays storage errors", async (issue) => {
+    dota(); const next = safety();
+    if (issue === "unknown") next.quota!.unknown = 1;
+    if (issue === "draining") next.runtime.mode = "draining";
+    if (issue === "storage") next.storageError = "backup_unavailable";
+    if (issue === "runtime") next.runtime.error = "obs_fence_unconfirmed";
+    vi.mocked(api.dotaSafety).mockResolvedValue(next);
+    render(<PluginsPage />);
+    fireEvent.click(await screen.findByRole("checkbox"));
+    expect(screen.getByRole("button", { name: "Включить External Dota" }).hasAttribute("disabled")).toBe(true);
+    if (issue === "storage") expect(screen.getByText(/Хранилище для External не подтверждено/)).toBeTruthy();
+    expect(api.dotaAction).not.toHaveBeenCalled();
+  });
   it("requires explicit confirmation and prepared storage for External Dota", async () => {
     view.installed = [{ id: "dota2", manifest: { ...manifest, id: "dota2", name: "Dota 2" }, error: null, installed: { active: "0.1.0", previous: null, pending: null, enabled: false }, runtime: null }];
     vi.mocked(api.dotaSafety).mockResolvedValue({ runtime: { mode: "built_in", epoch: null, queued: 0, inFlight: 0, lost: 0, error: null, activationBlocker: null }, quota: null, storageError: "storage_unavailable" });

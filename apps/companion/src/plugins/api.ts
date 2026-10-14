@@ -50,7 +50,12 @@ export function errorText(error: unknown): string {
     frontend_audio_fence_timeout: "WebView не подтвердил остановку игровых звуков. Twitch/TTS продолжает работать; переключение Dota заблокировано.",
     obs_fence_unconfirmed: "Не получен свежий ответ OBS. Переключение Dota заблокировано; проверьте OBS WebSocket.",
     backup_unavailable: "Сначала создайте проверенный backup кнопкой подготовки External Dota.",
+    backup_already_exists: "Backup уже существует, но миграция не подтверждена. Сохраните его; не удаляйте и не повторяйте подготовку до проверки причины.",
+    source_changed_after_backup: "История изменилась между backup и миграцией. Backup сохранён; подготовка не завершена.",
+    preparation_post_state_unconfirmed: "Ожидалось подтверждённое BuiltIn-состояние с epoch и без Unknown. External остаётся заблокированным.",
+    manual_dota_confirmation_required: "Отметьте ручное подтверждение перед подготовкой или переключением Dota.",
+    second_coordinator_denied: "Хранилище уже занято другим координатором. Конкурентная миграция запрещена.",
   };
   if (text.includes("download_failed")) return "GitHub недоступен или пакет ещё не опубликован. Установленные плагины продолжают работать.";
-  return messages[text] ?? text;
+  return messages[text.replace(/^Error: /, "")] ?? text;
 }

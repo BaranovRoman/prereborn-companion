@@ -40,9 +40,11 @@ export function PluginsPage() {
     {(error || view?.error) && <p role="alert">{error ?? api.errorText(view?.error)}</p>}
     {view?.catalogError && <p role="status">{api.errorText(view.catalogError)} Используется сохранённый каталог.</p>}
     {view?.transfer.busy && <div role="status">
+      {view.transfer.stage === "activation" ? <p>Выполняется ручная native-операция Dota…</p> : <>
       <p>{view.transfer.stage === "verify_install" ? "Проверка и установка" : "Загрузка"}: {Math.round(view.transfer.received / 1024)} КБ</p>
       <progress value={view.transfer.total ? view.transfer.received : undefined} max={view.transfer.total ?? 1} />
       <Button onClick={() => void api.cancel().catch((e) => setError(api.errorText(e)))}>Отменить загрузку</Button>
+      </>}
     </div>}
     {view?.transfer.error && !error && <p role="alert">{api.errorText(view.transfer.error)}</p>}
     <h3>Установленные</h3>
@@ -94,31 +96,72 @@ function DotaControls({ disabled, run }: { disabled: boolean; run: (task: () => 
   const [status, setStatus] = useState<api.DotaSafety | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
+  const [action, setAction] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const actionPending = useRef(false);
+  const mounted = useRef(true);
   useEffect(() => {
+    mounted.current = true;
     let disposed = false; let pending = false;
     const refresh = async () => {
-      if (pending) return; pending = true;
-      try { const next = await api.dotaSafety(); if (!disposed) { setStatus(next); setError(null); } }
+      if (pending || actionPending.current) return; pending = true;
+      try { const next = await api.dotaSafety(); if (!disposed && !actionPending.current) { setStatus(next); setError(null); } }
       catch (e) { if (!disposed) setError(api.errorText(e)); }
       finally { pending = false; }
     };
     void refresh(); const timer = window.setInterval(() => void refresh(), 700);
-    return () => { disposed = true; window.clearInterval(timer); };
+    return () => { disposed = true; mounted.current = false; window.clearInterval(timer); };
   }, []);
+  const execute = async (nextAction: Parameters<typeof api.dotaAction>[0]) => {
+    // Synchronous guard also covers clicks before React applies disabled.
+    if (actionPending.current) return;
+    actionPending.current = true;
+    setAction(nextAction); setResult(null); setActionError(null);
+    await run(async () => {
+      let acknowledged = false;
+      try {
+        await api.dotaAction(nextAction, nextAction === "disable" || confirmed);
+        acknowledged = true;
+        const next = await api.dotaSafety();
+        if (!mounted.current) return;
+        setStatus(next); setError(null);
+        if (nextAction === "prepare" && (next.runtime.mode !== "built_in" || next.runtime.epoch === null ||
+          next.runtime.error || next.storageError || !next.quota || next.quota.unknown !== 0)) {
+          throw new Error(next.runtime.error ?? next.storageError ?? "preparation_post_state_unconfirmed");
+        }
+        setResult(nextAction === "prepare"
+          ? `Подготовка подтверждена native: backup проверен, safety-таблицы готовы. BuiltIn · Epoch: ${next.runtime.epoch} · Unknown: ${next.quota!.unknown}. External не включён.`
+          : `Native-команда завершена. Runtime: ${next.runtime.mode} · Epoch: ${next.runtime.epoch ?? "—"}.`);
+      } catch (e) {
+        if (mounted.current) setActionError(`${acknowledged ? "Native-команда завершена, но итоговое состояние не подтверждено" : "Native-команда не подтвердила выполнение"}: ${api.errorText(e)}`);
+        throw e;
+      } finally {
+        actionPending.current = false;
+        if (mounted.current) setAction(null);
+      }
+    });
+  };
   const mode = status?.runtime.mode;
-  const blocked = disabled || !confirmed || !status || !!status.runtime.activationBlocker;
-  return <div aria-label="Dota runtime">
+  const busy = disabled || action !== null;
+  const blocked = busy || !confirmed || !status || !!status.runtime.activationBlocker;
+  return <div aria-label="Dota runtime" aria-busy={action !== null}>
     <p>Runtime: {mode ?? "Проверка"} · Epoch: {status?.runtime.epoch ?? "—"}</p>
     {status?.quota && <p>Осталось операций: {status.quota.remainingOperations}. Unknown: {status.quota.unknown}.</p>}
     {(error || status?.runtime.error || status?.runtime.activationBlocker) && <p role="alert">{error ?? api.errorText(status?.runtime.error ?? status?.runtime.activationBlocker)}</p>}
-    <label><input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+    {status?.storageError && <p role="status">Хранилище для External не подтверждено: {api.errorText(status.storageError)}</p>}
+    {action && <p role="status">{action === "prepare" ? "Подготовка: ожидаем native preflight, backup и миграцию…" : "Ожидаем завершения native-команды…"}</p>}
+    {result && <p role="status">{result}</p>}
+    {actionError && <p role="alert">{actionError}</p>}
+    {!confirmed && <p>Чтобы отправить native-команду, отметьте ручное подтверждение ниже.</p>}
+    <label><input type="checkbox" disabled={busy} checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
       Разрешаю ручную подготовку и переключение Dota. Подготовка создаст backup истории и добавит safety-таблицы. После новых записей старый backup восстанавливать нельзя.
     </label>
     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-      <Button disabled={blocked || mode !== "built_in"} onClick={() => void run(() => api.dotaAction("prepare", confirmed))}>Подготовить backup и миграцию</Button>
-      <Button disabled={blocked || mode !== "built_in" || !status?.quota || status.quota.unknown !== 0} onClick={() => void run(() => api.dotaAction("enable", confirmed))}>Включить External Dota</Button>
-      <Button disabled={disabled || !status || !["external", "fallback", "draining"].includes(mode ?? "")} onClick={() => void run(() => api.dotaAction("disable", true))}>Отключить External → BuiltIn</Button>
-      <Button disabled={disabled || mode !== "draining" || !confirmed} onClick={() => void run(() => api.dotaAction("recover", confirmed))}>Подтвердить fences и вернуть BuiltIn</Button>
+      <Button disabled={blocked || mode !== "built_in"} onClick={() => void execute("prepare")}>Подготовить backup и миграцию</Button>
+      <Button disabled={blocked || !!actionError || mode !== "built_in" || !!status?.storageError || !!status?.runtime.error || !status?.quota || status.quota.unknown !== 0} onClick={() => void execute("enable")}>Включить External Dota</Button>
+      <Button disabled={busy || !status || !["external", "fallback", "draining"].includes(mode ?? "")} onClick={() => void execute("disable")}>Отключить External → BuiltIn</Button>
+      <Button disabled={busy || mode !== "draining" || !confirmed} onClick={() => void execute("recover")}>Подтвердить fences и вернуть BuiltIn</Button>
     </div>
     <small>Запуск только вручную. После перезапуска External не включается. При неподтверждённой остановке Dota остаётся Draining.</small>
   </div>;
