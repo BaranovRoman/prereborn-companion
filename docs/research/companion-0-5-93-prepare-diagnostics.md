@@ -68,3 +68,37 @@ or Unknown, preserve backup/data and do not bypass fences. Native live acceptanc
 
 Repository UI/API, core/dota_live.rs, local_runtime/mod.rs, existing migration and Manager
 guards, windows-release.yml and targeted tests. User Windows reports/explicit release approval.
+
+## Release evidence — 2026-10-14
+
+Release source/tag: `prereborn-v0.5.93` →
+`3e8f06ca9b2dd51354a8ca472bb1e972ecd6aa79`, including UI fix a2b43d4.
+Unsigned [Windows CI 38561860823](https://github.com/BaranovRoman/prereborn-companion/actions/runs/38561860823)
+completed successfully on that exact commit: five supervisor assertions passed (three
+deliberately ignored worker fixture entrypoints), targeted Prepare UI/invoke tests passed,
+Credential Manager/NSIS metadata/inventory/packaged GSI+overlay smoke passed. Stable tag
+was created only after that success; no main merge or user .gitignore change.
+
+[Stable pipeline 38562969182](https://github.com/BaranovRoman/prereborn-companion/actions/runs/38562969182)
+completed successfully and passed its mandatory prepublication checks: signed NSIS build, version/identifier/endpoint,
+inventory and exact SDK NSIS payload patch, packaged GSI/overlay and single-instance smoke,
+standard Silero synthesis/packaging, checksum, updater manifest, configured-key signature
+verification and complete release assets. These successful gates preceded publication.
+
+[Companion 0.5.93 Release](https://github.com/BaranovRoman/prereborn-companion/releases/tag/prereborn-v0.5.93)
+is public, non-draft/non-prerelease. The existing public latest.json reports `0.5.93` and
+windows-x86_64 with:
+
+`https://github.com/BaranovRoman/prereborn-companion/releases/download/prereborn-v0.5.93/PreReborn.Companion_0.5.93_x64-setup.exe`
+
+Downloaded installer: **25,424,043 bytes**. SHA256:
+`fb8551dc75349d1f8b6b4a5d9cc028e320a2eabfd41305422f3d04bf392c49ec`.
+Public installer, signature and checksum returned HTTP 200. The existing read-only
+verify_updater_release verifier checked downloaded bytes against the unchanged configured
+key, latest.json/sidecar signature identity, exact URL/version and SHA256. Actual updater
+RemoteRelease version comparison passed against 0.5.92 and 0.5.89.
+
+No automatic Prepare/migration/External activation, Dota package/catalog publication, updater
+key/identifier/path changes, main merge or user DB access during release. Real native Prepare
+on the user's PC and real GSI/audio/OBS/crash tests remain unverified; the new trace is intended
+to establish the measured rejection/pending stage, not to claim the 0.5.92 root cause is fixed.
