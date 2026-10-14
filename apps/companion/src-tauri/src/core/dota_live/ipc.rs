@@ -186,7 +186,7 @@ impl LiveProcess {
       let running=self.runtime.lock().map(|mut r|r.snapshot().phase==crate::core::plugin_runtime::Phase::Running).unwrap_or(false);
       if !running{gate.failed(self.grant.lease,"process_crashed");}std::thread::sleep(Duration::from_millis(50));
      },
-     Mode::Fallback=>{if self.fallback(&history,&gate,||{let audio=app.state::<crate::game_sounds::audio_fence::AudioFence>();audio.fence(&app)?;crate::obs::fence_external_handover(&app)?;crate::dota::reset_after_external_fence(&app)?;audio.reopen()}).is_ok(){let _=manager.mark_live_dota(false);break;}},
+     Mode::Fallback=>{if let Ok(fenced)=self.fallback(&history,&gate,||{let audio=app.state::<crate::game_sounds::audio_fence::AudioFence>();audio.fence(&app)?;crate::obs::fence_external_handover(&app)?;crate::dota::reset_after_external_fence(&app)?;audio.reopen()}){let _=manager.clear_live_dota(fenced);break;}},
      // Keep the actual owned process/coordinator available for explicit retry.
      // A failed fence must not silently discard its only termination witness.
      Mode::Draining=>std::thread::sleep(Duration::from_millis(50)),

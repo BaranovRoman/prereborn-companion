@@ -3,10 +3,14 @@ use companion_plugin_manager::{Store,Release,TRUSTED_KEY,MAX_PACKAGE,MAX_METADAT
 use std::{fs,path::PathBuf,sync::atomic::AtomicBool};
 fn main()->Result<(),Box<dyn std::error::Error>> {
     let args:Vec<_>=std::env::args_os().skip(1).collect();
-    if args.len()!=2{return Err("usage: verify_candidate ARCHIVE RELEASE_JSON".into());}
+    if args.len()!=2&&args.len()!=4{return Err("usage: verify_candidate ARCHIVE RELEASE_JSON [CATALOG SIGNATURE]".into());}
     if fs::metadata(&args[0])?.len()>MAX_PACKAGE||fs::metadata(&args[1])?.len()>MAX_METADATA as u64{return Err("candidate too large".into());}
     let bytes=fs::read(&args[0])?;let release:Release=serde_json::from_slice(&fs::read(&args[1])?)?;
     if release.manifest.id!="dota2"{return Err("expected dota2".into());}
+    if args.len()==4 {
+        let catalog=companion_plugin_manager::catalog(&fs::read(&args[2])?,&fs::read_to_string(&args[3])?,TRUSTED_KEY)?;
+        if !catalog.releases.iter().any(|r|serde_json::to_value(r).ok()==serde_json::to_value(&release).ok()){return Err("release not in signed catalog".into());}
+    }
     let root=tempfile::tempdir()?;
     let mut store=Store::open(root.path().join("plugins"),TRUSTED_KEY)?;
     store.install(&bytes,&release,false,&AtomicBool::new(false))?;

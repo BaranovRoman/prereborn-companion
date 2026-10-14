@@ -1,8 +1,23 @@
-import importlib.util, json, pathlib, tempfile, unittest, zipfile
+import base64, importlib.util, json, pathlib, tempfile, unittest, zipfile
 from unittest.mock import patch
 spec=importlib.util.spec_from_file_location('package',pathlib.Path(__file__).parents[1]/'package.py')
 p=importlib.util.module_from_spec(spec);spec.loader.exec_module(p)
 class PackageTests(unittest.TestCase):
+    def test_signed_archive_reconstruction_is_exact_and_rejects_changed_bytes(self):
+        with tempfile.TemporaryDirectory() as root:
+            root=pathlib.Path(root);ui=root/'dota/ui/dist';ui.mkdir(parents=True);(ui/'index.html').write_text('test')
+            binary=root/'target/release/companion-dota-plugin.exe';binary.parent.mkdir(parents=True);binary.write_bytes(b'unit fixture')
+            with patch.object(p,'sign',return_value='unit-test-placeholder'):
+                release=p.package(binary,ui,'0.1.0','windows','x86_64',root/'original',root/'key','https://github.com/example',p.ROOT/'plugins/dota/manifest.windows-live.json')
+            original=root/'original/dota2-0.1.0-windows-x86_64.zip'
+            with zipfile.ZipFile(original) as archive:
+                self.assertTrue(all(i.date_time==(1980,1,1,0,0,0) for i in archive.infolist()))
+                meta={'release':release,'manifest_bytes':base64.b64encode(archive.read('manifest.json')).decode(),'manifest_signature':archive.read('manifest.minisig').decode(),'catalog_bytes':base64.b64encode(p.encode({'schema':1,'releases':[release]})).decode(),'catalog_signature':'unit-test-placeholder'}
+            metadata=root/'metadata.json';metadata.write_text(json.dumps(meta))
+            rebuilt=p.assemble(root,metadata,root/'rebuilt');self.assertEqual(original.read_bytes(),rebuilt.read_bytes())
+            binary.write_bytes(b'changed')
+            with self.assertRaisesRegex(ValueError,'CI payload differs'):
+                p.assemble(root,metadata,root/'damaged')
     def test_live_identity_protocol_and_file_hashes_preserved(self):
         with tempfile.TemporaryDirectory() as root:
             root=pathlib.Path(root);ui=root/'ui';ui.mkdir();(ui/'index.html').write_text('test')

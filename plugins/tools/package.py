@@ -22,6 +22,53 @@ def sign(path, key):
 def digest(data):
     return hashlib.sha256(data).hexdigest()
 
+def write_archive(path, files):
+    # Reconstruct exactly the signed archive in Windows CI without sending a private key.
+    with zipfile.ZipFile(path, 'w') as archive:
+        for name, data in sorted(files.items()):
+            entry = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            entry.create_system = 3
+            entry.external_attr = 0o100644 << 16
+            entry.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(entry, data)
+
+def assemble(input_root, metadata, output):
+    """Public signed metadata + exact CI bytes only; signing and launching are impossible here."""
+    root = pathlib.Path(input_root).resolve(); meta = json.loads(pathlib.Path(metadata).read_text())
+    manifest_bytes = base64.b64decode(meta['manifest_bytes'], validate=True)
+    manifest = json.loads(manifest_bytes); release = meta['release']
+    if manifest != release['manifest'] or manifest['id'] != 'dota2' or manifest['platform'] != 'windows' or manifest['arch'] != 'x86_64' or manifest['executable'] != 'bin/companion-dota-plugin.exe':
+        raise ValueError('Unexpected candidate identity')
+    if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', manifest['version']):
+        raise ValueError('Invalid candidate version')
+    files = {}
+    for name, expected in manifest['files'].items():
+        parts = pathlib.PurePosixPath(name).parts
+        if '\\' in name or ':' in name or name.startswith('/') or any(part in ('..', '.') for part in parts):
+            raise ValueError('Unsafe payload path')
+        if name == manifest['executable']:
+            path = root / 'target/release/companion-dota-plugin.exe'
+        elif name.startswith('ui/'):
+            path = root / 'dota/ui/dist' / name[3:]
+        else:
+            raise ValueError('Unexpected payload path')
+        if path.is_symlink() or not path.resolve().is_relative_to(root):
+            raise ValueError('Payload outside candidate')
+        data = path.read_bytes()
+        if digest(data) != expected:
+            raise ValueError('CI payload differs from signed manifest')
+        files[name] = data
+    files['manifest.json'] = manifest_bytes; files['manifest.minisig'] = meta['manifest_signature'].encode()
+    output = pathlib.Path(output); output.mkdir(parents=True, exist_ok=True)
+    archive = output / f"dota2-{manifest['version']}-windows-x86_64.zip"
+    write_archive(archive, files)
+    if digest(archive.read_bytes()) != release['sha256']:
+        archive.unlink(); raise ValueError('Reconstructed archive differs from signed candidate')
+    archive.with_suffix('.release.json').write_bytes(encode(release))
+    (output / 'catalog.json').write_bytes(base64.b64decode(meta['catalog_bytes'], validate=True))
+    (output / 'catalog.minisig').write_text(meta['catalog_signature'])
+    return archive
+
 def package(binary, ui, version, platform, arch, output, key, url, manifest_template=None):
     output = pathlib.Path(output); output.mkdir(parents=True, exist_ok=True)
     binary = pathlib.Path(binary); ui = pathlib.Path(ui)
@@ -53,9 +100,7 @@ def package(binary, ui, version, platform, arch, output, key, url, manifest_temp
         source = pathlib.Path(directory) / 'manifest.json'; source.write_bytes(encode(manifest))
         files['manifest.json'] = source.read_bytes(); files['manifest.minisig'] = sign(source, key).encode()
     archive = output / f"{manifest['id']}-{version}-{platform}-{arch}.zip"
-    with zipfile.ZipFile(archive, 'w', compression=zipfile.ZIP_DEFLATED) as zip:
-        for name, data in sorted(files.items()):
-            zip.writestr(name, data)
+    write_archive(archive, files)
     release = dict(manifest=manifest, url=url.rstrip('/') + '/' + archive.name,
                    sha256=digest(archive.read_bytes()), signature=sign(archive, key))
     metadata = archive.with_suffix('.release.json'); metadata.write_bytes(encode(release))
@@ -69,12 +114,17 @@ def main():
     for arg in ['binary', 'ui', 'version', 'platform', 'arch', 'output', 'key', 'url']:
         pack.add_argument('--' + arg, required=True)
     pack.add_argument('--manifest-template')
+    reconstruct = commands.add_parser('assemble')
+    for arg in ['input-root', 'metadata', 'output']:
+        reconstruct.add_argument('--' + arg, required=True)
     catalog = commands.add_parser('catalog')
     catalog.add_argument('--release', action='append', required=True)
     catalog.add_argument('--output', required=True); catalog.add_argument('--key', required=True)
     args = vars(parser.parse_args()); command = args.pop('command')
     if command == 'package':
         package(**args)
+    elif command == 'assemble':
+        assemble(**args)
     else:
         output = pathlib.Path(args['output']); output.parent.mkdir(parents=True, exist_ok=True)
         releases = [json.loads(pathlib.Path(path).read_text()) for path in args['release']]

@@ -225,7 +225,7 @@ fn manual_action(app:&tauri::AppHandle,action:&str)->Result<(),String> {
      }
     })?;
     crate::dota::reset_after_external_fence(app)?;audio.reopen()?;
-    manager.mark_live_dota(false)?;
+    manager.clear_live_dota(lease)?;
     let mut inner=gate.0.inner.lock().map_err(|_|"admission_poisoned")?;
     inner.lease=Some(lease);inner.mode=Mode::BuiltIn;inner.error=None;gate.0.gap.store(false,Ordering::SeqCst);Ok(())
    })();
@@ -239,16 +239,16 @@ fn manual_action(app:&tauri::AppHandle,action:&str)->Result<(),String> {
    let process=ipc::handover_external(&manager,&history,&gate,&session,&backup,CAPS,||{
     audio.fence(app)?;crate::obs::fence_external_handover(app)?;audio.reopen()
    })?;
-   manager.mark_live_dota(true)?;process.consume(app.clone());Ok(())
+   manager.mark_live_dota(gate.lease().ok_or("ownership_not_external")?)?;process.consume(app.clone());Ok(())
   },
   "disable"=>{
    {let mut inner=gate.0.inner.lock().map_err(|_|"admission_poisoned")?;
     if inner.mode==Mode::BuiltIn{return Ok(());}
     if inner.lease.is_none_or(|l|l.owner!=Owner::External){return Err("explicit_builtin_recovery_required".into());}
     inner.mode=Mode::Fallback;inner.queue.clear();}
-   let until=Instant::now()+Duration::from_secs(10);
-   loop {match gate.status().mode {Mode::BuiltIn=>return Ok(()),Mode::Draining=>return Err(gate.status().error.unwrap_or("fallback_fence_unconfirmed".into())),_=>()}
-    if Instant::now()>=until{return Err("fallback_pending".into());}std::thread::sleep(Duration::from_millis(50));}
+   let until=Instant::now()+Duration::from_secs(15);
+   loop {if gate.status().mode==Mode::BuiltIn{return Ok(());}
+    if Instant::now()>=until{return Err(gate.status().error.unwrap_or("fallback_pending".into()));}std::thread::sleep(Duration::from_millis(50));}
   },
   _=>Err("unknown_dota_action".into()),
  }

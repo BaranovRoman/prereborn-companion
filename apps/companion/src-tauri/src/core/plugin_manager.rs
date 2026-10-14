@@ -18,7 +18,7 @@ pub struct Transfer { pub busy: bool, pub id: Option<String>, pub received: u64,
 struct Service {
     store: Store, catalog: Catalog, hosts: BTreeMap<String, PluginHost>,
     manifests: BTreeMap<String, Manifest>, errors: BTreeMap<String, String>, catalog_error: Option<String>,
-    live_dota: bool,
+    live_dota: Option<companion_dota_domain::ownership::Lease>,
 }
 #[derive(Clone)]
 pub struct PluginManager {
@@ -57,7 +57,7 @@ fn execution_binding(store:&Store,explicit:&[&str])->Result<(companion_dota_doma
 }
 impl Service {
     fn running(&self, id: &str) -> bool {
-        if id == "dota2" && self.live_dota { return true; }
+        if id == "dota2" && self.live_dota.is_some() { return true; }
         self.hosts.get(id).is_some_and(|host| host.0.lock().map(|mut r| matches!(r.snapshot().phase, Phase::Running | Phase::Starting)).unwrap_or(true))
     }
     fn start(&mut self, id: &str) -> Result<(), String> {
@@ -75,7 +75,7 @@ impl Service {
         Ok(())
     }
     fn stop(&mut self, id: &str) -> Result<(), String> {
-        if id == "dota2" && self.live_dota { return Err("dota_live_coordinator_required".into()); }
+        if id == "dota2" && self.live_dota.is_some() { return Err("dota_live_coordinator_required".into()); }
         let stopped = if let Some(host) = self.hosts.get(id) { host.0.lock().map_err(|_| locked())?.stop().map(|_| ()) } else { Ok(()) };
         // Runtime stop reaps the child even on timeout/error. Activation is safe after failure too.
         self.store.activate(id)?;
@@ -92,8 +92,24 @@ impl PluginManager {
         self.finish(&result.as_ref().map(|_|()).map_err(Clone::clone));
         result
     }
-    pub(crate) fn mark_live_dota(&self, running: bool) -> Result<(),String> {
-        self.service.lock().map_err(|_|locked())?.as_mut().map_err(|e|e.clone())?.live_dota=running;
+    pub(crate) fn mark_live_dota(&self, lease: companion_dota_domain::ownership::Lease) -> Result<(),String> {
+        use companion_dota_domain::ownership::Owner;
+        let mut guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_mut().map_err(|e|e.clone())?;
+        if lease.owner!=Owner::External||service.live_dota.is_some_and(|old|old.epoch>lease.epoch){return Err("stale_live_generation".into());}
+        service.live_dota=Some(lease);
+        Ok(())
+    }
+    pub(crate) fn clear_live_dota(&self, fenced: companion_dota_domain::ownership::Lease) -> Result<(),String> {
+        if fenced.owner!=companion_dota_domain::ownership::Owner::BuiltIn{return Err("builtin_fence_required".into());}
+        let mut guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_mut().map_err(|e|e.clone())?;
+        if service.live_dota.is_some_and(|old|old.epoch<fenced.epoch){
+            service.live_dota=None;
+            if service.store.installed().contains_key("dota2") {
+                service.store.activate("dota2")?;
+                let active=service.store.installed()["dota2"].active.clone();
+                service.manifests.insert("dota2".into(),service.store.manifest("dota2",&active)?);
+            }
+        }
         Ok(())
     }
     pub(crate) fn stopping(&self)->bool{self.shutting_down.load(Ordering::SeqCst)}
@@ -124,7 +140,7 @@ impl PluginManager {
                 },
                 Err(_) => packages::catalog(SEED, SEED_SIG, TRUSTED_KEY)?,
             };
-            let mut service = Service { store, catalog, hosts: BTreeMap::new(), manifests: BTreeMap::new(), errors: BTreeMap::new(), catalog_error, live_dota: false };
+            let mut service = Service { store, catalog, hosts: BTreeMap::new(), manifests: BTreeMap::new(), errors: BTreeMap::new(), catalog_error, live_dota: None };
             for (id, p) in service.store.installed() {
                 match service.store.verify(&id, &p.active) {
                     Ok(m) => { service.manifests.insert(id, m); },
@@ -350,7 +366,7 @@ pub async fn plugins_command(app: tauri::AppHandle, id: String, name: String, ar
 mod tests {
     use super::*;
     fn fixture_manager(root:PathBuf,key:&str)->PluginManager {
-        PluginManager{service:Arc::new(Mutex::new(Ok(Service{store:Store::open(root,key).unwrap(),catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None,live_dota:false}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default()}
+        PluginManager{service:Arc::new(Mutex::new(Ok(Service{store:Store::open(root,key).unwrap(),catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None,live_dota:None}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default()}
     }
     #[test]
     fn live_transition_serializes_installs_and_preserves_the_actual_coordinator() {
@@ -358,13 +374,16 @@ mod tests {
         let result:Result<(),String>=manager.live_transition(||{
             assert_eq!(manager.live_transition(||Ok(())).unwrap_err(),"transfer_in_progress");
             assert_eq!(manager.action("hello","start").unwrap_err(),"transfer_in_progress");
-            manager.mark_live_dota(true)?;Err("fence_unconfirmed".into())
+            manager.mark_live_dota(companion_dota_domain::ownership::Lease{owner:companion_dota_domain::ownership::Owner::External,epoch:2})?;Err("fence_unconfirmed".into())
         });
         assert_eq!(result.unwrap_err(),"fence_unconfirmed");assert!(!manager.busy.load(Ordering::SeqCst));
         assert!(manager.service.lock().unwrap().as_ref().unwrap().running("dota2"));
         assert_eq!(manager.action("dota2","remove").unwrap_err(),"dota_live_coordinator_required");
         assert_eq!(manager.action("dota2","stop").unwrap_err(),"dota_live_coordinator_required");
-        manager.mark_live_dota(false).unwrap();assert!(!manager.service.lock().unwrap().as_ref().unwrap().running("dota2"));
+        manager.mark_live_dota(companion_dota_domain::ownership::Lease{owner:companion_dota_domain::ownership::Owner::External,epoch:4}).unwrap();
+        // A retired actor completing its fallback must not clear a newer generation.
+        manager.clear_live_dota(companion_dota_domain::ownership::Lease{owner:companion_dota_domain::ownership::Owner::BuiltIn,epoch:3}).unwrap();assert!(manager.service.lock().unwrap().as_ref().unwrap().running("dota2"));
+        manager.clear_live_dota(companion_dota_domain::ownership::Lease{owner:companion_dota_domain::ownership::Owner::BuiltIn,epoch:5}).unwrap();assert!(!manager.service.lock().unwrap().as_ref().unwrap().running("dota2"));
     }
     #[test]
     fn production_match_grant_is_signed_explicit_bound_and_still_cannot_activate_dota() {
@@ -456,5 +475,5 @@ mod tests {
 #[cfg(test)]
 pub(crate) fn fixture_installed(root:PathBuf,key:&str,release:&Release,bytes:&[u8])->PluginManager {
     let mut store=Store::open(root,key).unwrap();store.install(bytes,release,false,&AtomicBool::new(false)).unwrap();
-    PluginManager{service:Arc::new(Mutex::new(Ok(Service{store,catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None,live_dota:false}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default()}
+    PluginManager{service:Arc::new(Mutex::new(Ok(Service{store,catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None,live_dota:None}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default()}
 }

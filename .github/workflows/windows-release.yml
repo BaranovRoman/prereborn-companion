@@ -16,6 +16,10 @@ on:
         description: 'Build standalone Windows Dota worker/UI candidate only; no signing or publication'
         type: boolean
         default: false
+      dota_candidate_metadata:
+        description: 'Optional PUBLIC signed candidate metadata for exact Windows install verification; never a private key'
+        type: string
+        default: ''
   # WK-145 - before this, build-windows only ran on workflow_dispatch or a
   # push to main/tags, so a PR touching apps/companion/src-tauri merged with
   # zero automated Rust build/test coverage (ci.yml only covers web/api).
@@ -162,6 +166,7 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: read
+      actions: read
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -178,23 +183,76 @@ jobs:
           CI: true
       - name: Build independent Dota executable
         shell: bash
-        run: cargo build --locked --release --manifest-path plugins/Cargo.toml -p companion-dota-plugin
+        env:
+          RUSTFLAGS: '-C target-feature=+crt-static'
+        run: cargo build --locked --release --target x86_64-pc-windows-msvc --manifest-path plugins/Cargo.toml -p companion-dota-plugin
       - name: Existing real-process IPC tests
         shell: bash
-        run: cargo test --locked --release --manifest-path plugins/Cargo.toml -p companion-dota-plugin --test ipc -- --test-threads=1
+        env:
+          RUSTFLAGS: '-C target-feature=+crt-static'
+        run: cargo test --locked --release --target x86_64-pc-windows-msvc --manifest-path plugins/Cargo.toml -p companion-dota-plugin --test ipc -- --test-threads=1
       - name: Build independent UI and overlay assets
         shell: bash
         run: |
           pnpm --filter @prereborn/companion exec tsc --noEmit -p ../../plugins/dota/ui/tsconfig.json
           pnpm --filter @prereborn/companion exec vite build --config ../../plugins/dota/ui/vite.config.ts
+      - name: Inspect native dependencies and stage exact independent artifacts
+        shell: bash
+        run: |
+          python - <<'PY'
+          import pathlib, struct, shutil
+          binary=pathlib.Path('plugins/target/x86_64-pc-windows-msvc/release/companion-dota-plugin.exe')
+          b=binary.read_bytes(); pe=struct.unpack_from('<I',b,0x3c)[0]; opt=pe+24
+          if b[pe:pe+4]!=b'PE\0\0' or struct.unpack_from('<H',b,opt)[0]!=0x20b: raise SystemExit('Expected PE64')
+          n=struct.unpack_from('<H',b,pe+6)[0]; size=struct.unpack_from('<H',b,pe+20)[0]; sections=[]
+          for i in range(n):
+            p=opt+size+i*40; vs,va,rs,rp=struct.unpack_from('<IIII',b,p+8); sections.append((va,max(vs,rs),rp))
+          def offset(rva):
+            for va,length,rp in sections:
+              if va<=rva<va+length: return rp+rva-va
+            raise ValueError('Unmapped PE RVA')
+          p=offset(struct.unpack_from('<I',b,opt+120)[0]); imports=[]
+          while any(struct.unpack_from('<IIIII',b,p)):
+            name=offset(struct.unpack_from('<I',b,p+12)[0]); imports.append(b[name:b.index(0,name)].decode()); p+=20
+          print('Independent worker imports:', ', '.join(imports))
+          if any(d.lower().startswith(('vcruntime','msvcp','msvcr','api-ms-win-crt')) or d.lower()=='ucrtbase.dll' for d in imports): raise SystemExit('Unexpected redistributable dependency')
+          target=pathlib.Path('dota-artifact/target/release'); target.mkdir(parents=True)
+          shutil.copy2(binary,target/binary.name)
+          shutil.copytree('plugins/dota/ui/dist','dota-artifact/dota/ui/dist')
+          PY
+      - name: Verify exact official signed package and catalog on Windows
+        if: inputs.dota_candidate_metadata != ''
+        shell: bash
+        env:
+          PUBLIC_METADATA: ${{ inputs.dota_candidate_metadata }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess
+          raw=os.environ['PUBLIC_METADATA']
+          if len(raw.encode())>61440: raise SystemExit('Candidate metadata too large')
+          meta=json.loads(raw); source=str(meta['source_run'])
+          if not source.isdigit(): raise SystemExit('Invalid source run')
+          pathlib.Path('dota-public-metadata.json').write_text(raw,encoding='utf-8')
+          subprocess.run(['gh','run','download',source,'--repo',os.environ['GITHUB_REPOSITORY'],'--name','dota-windows-candidate','--dir','dota-exact-source'],check=True)
+          PY
+          python plugins/tools/package.py assemble --input-root dota-exact-source --metadata dota-public-metadata.json --output dota-signed-candidate
+          cargo run --locked --release --manifest-path plugins/Cargo.toml -p companion-plugin-manager --example verify_candidate -- dota-signed-candidate/dota2-0.1.0-windows-x86_64.zip dota-signed-candidate/dota2-0.1.0-windows-x86_64.release.json dota-signed-candidate/catalog.json dota-signed-candidate/catalog.minisig
+      - name: Upload verified signed staging candidate (no release/catalog publication)
+        if: inputs.dota_candidate_metadata != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-dota-windows-candidate
+          retention-days: 14
+          if-no-files-found: error
+          path: dota-signed-candidate/
       - uses: actions/upload-artifact@v4
         with:
           name: dota-windows-candidate
           retention-days: 14
           if-no-files-found: error
           path: |
-            plugins/target/release/companion-dota-plugin.exe
-            plugins/dota/ui/dist/
+            dota-artifact/
 
   # Tag-triggered release - tag format: prereborn-vX.Y.Z (e.g.
   # prereborn-v0.2.1). Patches the version in package.json/tauri.conf.json
