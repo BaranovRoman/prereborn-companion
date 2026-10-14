@@ -21,6 +21,7 @@ export const cancel = () => invoke<void>("plugins_cancel");
 export const action = (id: string, action: string) => invoke<void>("plugins_action", { id, action });
 export const command = (id: string, text: string) => invoke<{ text: string }>("plugins_command", { id, name: "greet", args: { text } });
 export interface DotaSafety {
+  preparation?: { attempt: string; stage: string; status: "pending" | "succeeded" | "failed"; errorCode: string | null; startedAt: string; finishedAt: string | null } | null;
   runtime: { mode: "built_in" | "draining" | "external" | "fallback"; epoch: number | null; queued: number; inFlight: number; lost: number; error: string | null; activationBlocker: string | null };
   quota: { unknown: number; remainingOperations: number } | null;
   storageError: string | null;
@@ -55,6 +56,12 @@ export function errorText(error: unknown): string {
     preparation_post_state_unconfirmed: "Ожидалось подтверждённое BuiltIn-состояние с epoch и без Unknown. External остаётся заблокированным.",
     manual_dota_confirmation_required: "Отметьте ручное подтверждение перед подготовкой или переключением Dota.",
     second_coordinator_denied: "Хранилище уже занято другим координатором. Конкурентная миграция запрещена.",
+    history_busy: "История занята другой операцией; Prepare не получил доступ к сессии.",
+    local_runtime_lock_poisoned: "Ошибка mutex истории. Подготовка заблокирована.",
+    local_runtime_unavailable: "Соединение с локальной историей недоступно.",
+    match_lookup_failed: "SQLite: не удалось прочитать текущий матч.",
+    session_lookup_failed: "SQLite: не удалось прочитать открытую сессию.",
+    prepare_in_progress: "Предыдущий Prepare ещё выполняется. Конкурентный запуск запрещён.",
   };
   if (text.includes("download_failed")) return "GitHub недоступен или пакет ещё не опубликован. Установленные плагины продолжают работать.";
   return messages[text.replace(/^Error: /, "")] ?? text;

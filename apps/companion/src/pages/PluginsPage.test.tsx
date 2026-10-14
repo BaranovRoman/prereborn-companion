@@ -38,6 +38,7 @@ describe("PluginsPage", () => {
     await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
     fireEvent.click(button);
     await waitFor(() => expect(api.dotaAction).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
   });
   it("keeps the action error visible after successful status polling", async () => {
     dota();
@@ -77,6 +78,26 @@ describe("PluginsPage", () => {
     render(<PluginsPage />);
     expect(await screen.findByText(/Выполняется ручная native-операция Dota/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Отменить загрузку" })).toBeNull();
+  });
+  it("shows native attempt failure after polling without sending another Prepare", async () => {
+    dota(); const next = safety();
+    next.preparation = { attempt: "attempt-1", stage: "manager_admitted", status: "failed", errorCode: "history_busy", startedAt: "2026-10-14T00:00:00Z", finishedAt: "2026-10-14T00:00:01Z" };
+    vi.mocked(api.dotaSafety).mockResolvedValue(next);
+    render(<PluginsPage />);
+    expect(await screen.findByText(/Attempt: attempt-1.*Код: history_busy/)).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 750));
+    expect(screen.getByText(/Attempt: attempt-1.*Код: history_busy/)).toBeTruthy();
+    expect(api.dotaAction).not.toHaveBeenCalled();
+  });
+  it("explains disabled Prepare while a native attempt remains pending", async () => {
+    dota(); const next = safety();
+    next.preparation = { attempt: "attempt-2", stage: "session_checked", status: "pending", errorCode: null, startedAt: "2026-10-14T00:00:00Z", finishedAt: null };
+    vi.mocked(api.dotaSafety).mockResolvedValue(next);
+    render(<PluginsPage />);
+    fireEvent.click(await screen.findByRole("checkbox"));
+    expect(screen.getByText(/Prepare заблокирован: Native Prepare ещё выполняется/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Подготовить backup и миграцию" }).hasAttribute("disabled")).toBe(true);
+    expect(api.dotaAction).not.toHaveBeenCalled();
   });
   it.each(["unknown", "draining", "storage", "runtime"])("blocks External with %s and displays storage errors", async (issue) => {
     dota(); const next = safety();

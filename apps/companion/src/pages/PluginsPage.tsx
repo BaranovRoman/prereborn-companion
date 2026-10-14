@@ -100,13 +100,19 @@ function DotaControls({ disabled, run }: { disabled: boolean; run: (task: () => 
   const [result, setResult] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const actionPending = useRef(false);
+  const statusGeneration = useRef(0);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
     let disposed = false; let pending = false;
     const refresh = async () => {
-      if (pending || actionPending.current) return; pending = true;
-      try { const next = await api.dotaSafety(); if (!disposed && !actionPending.current) { setStatus(next); setError(null); } }
+      if (pending) return; pending = true;
+      const generation = statusGeneration.current;
+      try { const next = await api.dotaSafety(); if (!disposed && generation === statusGeneration.current) {
+        // Pending polling may update diagnostics, never overwrite a newer action post-state.
+        setStatus((previous) => actionPending.current && previous ? { ...previous, preparation: next.preparation } : next);
+        setError(null);
+      } }
       catch (e) { if (!disposed) setError(api.errorText(e)); }
       finally { pending = false; }
     };
@@ -117,12 +123,15 @@ function DotaControls({ disabled, run }: { disabled: boolean; run: (task: () => 
     // Synchronous guard also covers clicks before React applies disabled.
     if (actionPending.current) return;
     actionPending.current = true;
+    statusGeneration.current += 1;
     setAction(nextAction); setResult(null); setActionError(null);
     await run(async () => {
       let acknowledged = false;
       try {
         await api.dotaAction(nextAction, nextAction === "disable" || confirmed);
         acknowledged = true;
+        if (!mounted.current) return;
+        statusGeneration.current += 1;
         const next = await api.dotaSafety();
         if (!mounted.current) return;
         setStatus(next); setError(null);
@@ -138,13 +147,22 @@ function DotaControls({ disabled, run }: { disabled: boolean; run: (task: () => 
         throw e;
       } finally {
         actionPending.current = false;
+        statusGeneration.current += 1;
         if (mounted.current) setAction(null);
       }
     });
   };
   const mode = status?.runtime.mode;
   const busy = disabled || action !== null;
-  const blocked = busy || !confirmed || !status || !!status.runtime.activationBlocker;
+  const nativePending = status?.preparation?.status === "pending";
+  const blocked = busy || nativePending || !confirmed || !status || !!status.runtime.activationBlocker;
+  const prepareReason = action ? "Ожидаем результат отправленной native-команды."
+    : disabled ? "Другая операция Plugin Manager ещё выполняется."
+    : nativePending ? "Native Prepare ещё выполняется."
+    : !confirmed ? "Не отмечено ручное подтверждение."
+    : !status ? "Ожидаем native safety status."
+    : status.runtime.activationBlocker ? api.errorText(status.runtime.activationBlocker)
+    : mode !== "built_in" ? `Подготовка недоступна в Runtime: ${mode}. Требуется безопасный возврат на BuiltIn.` : null;
   return <div aria-label="Dota runtime" aria-busy={action !== null}>
     <p>Runtime: {mode ?? "Проверка"} · Epoch: {status?.runtime.epoch ?? "—"}</p>
     {status?.quota && <p>Осталось операций: {status.quota.remainingOperations}. Unknown: {status.quota.unknown}.</p>}
@@ -153,6 +171,12 @@ function DotaControls({ disabled, run }: { disabled: boolean; run: (task: () => 
     {action && <p role="status">{action === "prepare" ? "Подготовка: ожидаем native preflight, backup и миграцию…" : "Ожидаем завершения native-команды…"}</p>}
     {result && <p role="status">{result}</p>}
     {actionError && <p role="alert">{actionError}</p>}
+    {status?.preparation && <p role={status.preparation.status === "failed" ? "alert" : "status"}>
+      Native Prepare · Attempt: {status.preparation.attempt} · Этап: {status.preparation.stage} · Статус: {status.preparation.status}
+      {status.preparation.errorCode && <> · Код: {status.preparation.errorCode} — {api.errorText(status.preparation.errorCode)}</>}
+    </p>}
+    {status && !status.preparation && <p role="status">Native Prepare: в этом запуске attempt ещё не зарегистрирован.</p>}
+    {prepareReason && <p role="status">Prepare заблокирован: {prepareReason}</p>}
     {!confirmed && <p>Чтобы отправить native-команду, отметьте ручное подтверждение ниже.</p>}
     <label><input type="checkbox" disabled={busy} checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
       Разрешаю ручную подготовку и переключение Dota. Подготовка создаст backup истории и добавит safety-таблицы. После новых записей старый backup восстанавливать нельзя.

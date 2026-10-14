@@ -64,6 +64,23 @@ use tauri::{AppHandle, Manager, Runtime};
 pub struct LocalRuntimeState(Mutex<Option<Connection>>,Mutex<Option<host_execution::Adapter>>);
 
 impl LocalRuntimeState {
+    /// Manual Prepare only: preserve the legacy optional sound accessor below.
+    pub(crate) fn preparation_session(&self)->Result<Option<String>,String> {
+        let guard=self.0.try_lock().map_err(|e|match e {
+            std::sync::TryLockError::WouldBlock=>"history_busy",
+            std::sync::TryLockError::Poisoned(_)=>"local_runtime_lock_poisoned",
+        })?;
+        let c=guard.as_ref().ok_or("local_runtime_unavailable")?;
+        // Preserve legacy fallback to an open session, but never disguise both failed reads as absence.
+        let active=store::find_active_match_anywhere(c);
+        if let Ok(Some(m))=&active{return Ok(Some(m.session_local_id.clone()));}
+        match store::find_open_session(c) {
+            Ok(Some(s))=>Ok(Some(s.local_id)),
+            Ok(None) if active.is_err()=>Err("match_lookup_failed".into()),
+            Ok(None)=>Ok(None),
+            Err(_)=>Err("session_lookup_failed".into()),
+        }
+    }
     pub(crate) fn audio_session(&self)->Option<String> {
         let guard=self.0.try_lock().ok()?;let c=guard.as_ref()?;
         store::find_active_match_anywhere(c).ok().flatten().map(|m|m.session_local_id)
@@ -105,6 +122,30 @@ impl LocalRuntimeState {
 impl Default for LocalRuntimeState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod prepare_diagnostics {
+    use super::*;
+    #[test] fn session_lookup_distinguishes_busy_unavailable_absent_and_sql_errors() {
+        let state=LocalRuntimeState::new();
+        assert_eq!(state.preparation_session().unwrap_err(),"local_runtime_unavailable");
+        let mut c=Connection::open_in_memory().unwrap();schema::migrate(&mut c).unwrap();
+        *state.0.lock().unwrap()=Some(c);
+        assert!(state.preparation_session().unwrap().is_none());
+        {let guard=state.0.lock().unwrap();assert_eq!(state.preparation_session().unwrap_err(),"history_busy");drop(guard);}
+        {let mut guard=state.0.lock().unwrap();let c=guard.as_mut().unwrap();
+         let session=store::ensure_active_session(c,chrono::Utc::now()).unwrap();
+         assert!(!session.local_id.is_empty());}
+        assert!(state.preparation_session().unwrap().is_some());
+        *state.0.lock().unwrap()=Some(Connection::open_in_memory().unwrap());
+        assert_eq!(state.preparation_session().unwrap_err(),"session_lookup_failed");
+    }
+    #[test] fn poisoned_history_is_not_reported_as_absent_session() {
+        let state=LocalRuntimeState::new();
+        let _=std::panic::catch_unwind(std::panic::AssertUnwindSafe(||{let _guard=state.0.lock().unwrap();panic!("fixture");}));
+        assert_eq!(state.preparation_session().unwrap_err(),"local_runtime_lock_poisoned");
     }
 }
 

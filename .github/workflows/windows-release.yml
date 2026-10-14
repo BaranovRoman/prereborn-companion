@@ -114,6 +114,10 @@ jobs:
         run: |
           cargo test --manifest-path apps/companion/src-tauri/Cargo.toml --test windows_supervisor -- --test-threads=1
 
+      - name: Targeted Dota Prepare UI and invoke tests
+        if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''
+        run: pnpm --filter @prereborn/companion exec vitest run src/pages/PluginsPage.test.tsx src/plugins/api.test.ts
+
       - name: Secure storage smoke test (real Windows Credential Manager)
         run: cargo run --manifest-path apps/companion/src-tauri/Cargo.toml --example keyring_smoke
 
