@@ -85,6 +85,16 @@ Minimal native diagnostic change, preserving every safety check:
 
 ## Follow-up
 
+The user subsequently confirmed no top-of-page error and no Companion restart. A completed
+post-drain failure would leave Draining in this uninterrupted process; the observed BuiltIn
+therefore does not fit that failure path. However it still does not distinguish a disabled
+button/no invoke, a pending IPC/native operation before drain, or a missing rejection display.
+The custom IPC bootstrap has no command-specific filter for dota_runtime_action; it only
+excludes subframes, and preserves the existing fetch/postMessage transport. No new static
+evidence establishes which branch occurred on Windows. Native-entry/stage/result tracing
+is necessary if existing observational data cannot resolve it; do not repeat migration as
+a diagnostic probe or present builtin_session_required as the measured root cause.
+
 Wait for existing Windows top-of-page error and restart history. If insufficient, implement
 the above native diagnostic patch in the feature branch, then targeted validation. Publishing
 a new Companion version still requires separate user authorization. No auto-migration,
