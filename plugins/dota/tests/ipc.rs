@@ -11,6 +11,11 @@ impl Process {
     }
     fn send(&mut self,message:Message){write_frame(&mut self.input,message).unwrap();}
     fn receive(&self)->Message{self.messages.recv_timeout(Duration::from_secs(2)).unwrap().unwrap().unwrap()}
+    fn exited(&mut self)->std::process::ExitStatus {
+        let until=std::time::Instant::now()+Duration::from_secs(2);
+        loop {if let Some(status)=self.child.try_wait().unwrap(){return status;}
+            assert!(std::time::Instant::now()<until,"worker did not exit");std::thread::sleep(Duration::from_millis(10));}
+    }
 }
 impl Drop for Process {fn drop(&mut self){let _=self.child.kill();let _=self.child.wait();}}
 #[test] fn actual_process_analyzes_replay_and_refuses_live_commands() {
@@ -31,11 +36,20 @@ impl Drop for Process {fn drop(&mut self){let _=self.child.kill();let _=self.chi
     p.send(Message::Command{id:4,name:"dota.replay".into(),args:json!({"sequence":2,"observedAtMs":200,"snapshot":{}})});
     assert!(matches!(p.receive(),Message::Error{code,..} if code=="replay_sequence_not_increasing"));
     p.send(Message::Command{id:5,name:"dota.reset".into(),args:json!({})}); assert!(matches!(p.receive(),Message::Reply{id:5,..}));
-    p.send(Message::Stop); assert!(matches!(p.receive(),Message::Stopped)); assert!(p.child.wait().unwrap().success());
+    p.send(Message::Stop); assert!(matches!(p.receive(),Message::Stopped)); assert!(p.exited().success());
 }
-#[test] fn no_live_mode_or_incompatible_core_handshake() {
-    let mut live=Process::new(&["--live"]); assert!(!live.child.wait().unwrap().success());
-    let mut p=Process::new(&[]); p.send(Message::Hello{core_api:99}); assert!(!p.child.wait().unwrap().success());
+#[test] fn invalid_mode_or_incompatible_core_handshake() {
+    let mut invalid=Process::new(&["--unsupported-mode"]); assert!(!invalid.exited().success());
+    let mut p=Process::new(&[]); p.send(Message::Hello{core_api:99}); assert!(!p.exited().success());
+}
+
+#[test] fn live_mode_handshake_has_no_implicit_capabilities_and_rejects_unbound_frames() {
+    let mut p=Process::new(&["--live"]);p.send(Message::Hello{core_api:CORE_API});
+    assert!(matches!(p.receive(),Message::Ready{id,version,..} if id=="dota2"&&version==env!("CARGO_PKG_VERSION")));
+    assert!(matches!(p.receive(),Message::State{data} if data["mode"]=="external"&&data["sideEffects"]==false&&data["liveCapabilities"]==json!([])));
+    p.send(Message::Command{id:1,name:"dota.live_frame".into(),args:json!({})});
+    assert!(matches!(p.receive(),Message::Error{code,..} if code=="invalid_execution_frame"));
+    p.send(Message::Stop);assert!(matches!(p.receive(),Message::Stopped));assert!(p.exited().success());
 }
 
 #[test] fn worker_results_equal_builtin_pure_rules_across_reconnect_and_invalid_order() {
@@ -51,7 +65,7 @@ impl Drop for Process {fn drop(&mut self){let _=self.child.kill();let _=self.chi
             // Direct calls used by built-in adapters, NOT Replay::apply as the oracle.
             let (sounds,_)=events::detect_events_with_state(effective,&snapshot,frame.observed_at_ms,&mut pending);
             let parsed=gsi::parse(&snapshot);
-            let expected=ReplayResult {sequence:frame.sequence,broadcast_state:resolve(BroadcastState::from_gsi(&snapshot),frame.context.session_ended,frame.context.manual_summary_override),sound_signals:sounds.into_iter().map(|e|SoundSignal{kind:e.kind,id:e.id}).collect(),in_match:parsed.as_ref().is_some_and(|s|s.is_in_match()),post_game:parsed.as_ref().is_some_and(|s|s.is_post_game()),hero_id:parsed.as_ref().and_then(|s|s.hero_id),match_id:parsed.and_then(|s|s.match_id),mode:"replay_only",side_effects:false};
+            let expected=ReplayResult {sequence:frame.sequence,broadcast_state:resolve(BroadcastState::from_gsi(&snapshot),frame.context.session_ended,frame.context.manual_summary_override),sound_signals:sounds.into_iter().map(|e|SoundSignal{kind:e.kind,id:e.id}).collect(),in_match:parsed.as_ref().is_some_and(|s|s.is_in_match()),post_game:parsed.as_ref().is_some_and(|s|s.is_post_game()),hero_id:parsed.as_ref().and_then(|s|s.hero_id),match_id:parsed.and_then(|s|s.match_id),mode:"replay_only",side_effects:false,match_analysis:frame.match_context.as_ref().map(|c|companion_dota_domain::match_shadow::analyze(c,&frame.snapshot,frame.sequence))};
             p.send(Message::Command{id:frame.sequence,name:"dota.replay".into(),args:serde_json::to_value(frame).unwrap()});
             let expected=serde_json::to_value(expected).unwrap();
             assert!(matches!(p.receive(),Message::Event{data,..} if data==expected));
@@ -68,7 +82,7 @@ impl Drop for Process {fn drop(&mut self){let _=self.child.kill();let _=self.chi
         p.send(Message::Command{id:31,name:"dota.reset".into(),args:json!({})}); p.receive();
         p.send(Message::Command{id:32,name:"dota.replay".into(),args:serde_json::to_value(&frames[3]).unwrap()}); p.receive();p.receive();
         assert!(matches!(p.receive(),Message::Reply{result,..} if result["soundSignals"].as_array().unwrap().is_empty()));
-        p.send(Message::Stop); assert!(matches!(p.receive(),Message::Stopped)); assert!(p.child.wait().unwrap().success());
+        p.send(Message::Stop); assert!(matches!(p.receive(),Message::Stopped)); assert!(p.exited().success());
     }
 }
 
@@ -82,5 +96,5 @@ impl Drop for Process {fn drop(&mut self){let _=self.child.kill();let _=self.chi
  assert!(matches!(p.receive(),Message::Error{code,..} if code=="invalid_read_request"));
  p.send(Message::Command{id:3,name:"dota.core_read".into(),args:json!({"query":"http","url":"https://invalid"})});
  assert!(matches!(p.receive(),Message::Error{code,..} if code=="invalid_read_request"));
- p.send(Message::Stop);assert!(matches!(p.receive(),Message::Stopped));assert!(p.child.wait().unwrap().success());
+ p.send(Message::Stop);assert!(matches!(p.receive(),Message::Stopped));assert!(p.exited().success());
 }

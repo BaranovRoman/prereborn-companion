@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PluginsPage } from "./PluginsPage";
 import * as api from "../plugins/api";
-vi.mock("../plugins/api", async (original) => ({ ...await original<typeof api>(), view: vi.fn(), refresh: vi.fn(), install: vi.fn(), cancel: vi.fn(), action: vi.fn(), command: vi.fn() }));
+vi.mock("../plugins/api", async (original) => ({ ...await original<typeof api>(), view: vi.fn(), refresh: vi.fn(), install: vi.fn(), cancel: vi.fn(), action: vi.fn(), command: vi.fn(), dotaSafety: vi.fn(), dotaAction: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (p: string) => `plugin-ui://localhost/${p}` }));
 const manifest = { id: "hello", name: "Hello World", description: "Test plugin", version: "0.1.0", platform: "macos", arch: "aarch64", minApi: 1, maxApi: 1, ui: "ui/index.html", permissions: ["ui"] };
 const initial = (): api.View => ({ installed: [], catalog: [{ manifest, url: "https://github.com/test", sha256: "hash", signature: "sig" }], error: null, catalogError: null, localInstallAllowed: false, transfer: { busy: false, id: null, received: 0, total: null, stage: "", error: null } });
@@ -11,6 +11,28 @@ let view: api.View;
 beforeEach(() => { view = initial(); vi.mocked(api.view).mockImplementation(async () => view); vi.mocked(api.action).mockResolvedValue(); vi.mocked(api.install).mockResolvedValue(); vi.mocked(api.cancel).mockResolvedValue(); vi.mocked(api.refresh).mockResolvedValue(); vi.mocked(api.command).mockResolvedValue({ text: "Hello" }); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 describe("PluginsPage", () => {
+  it("requires explicit confirmation and prepared storage for External Dota", async () => {
+    view.installed = [{ id: "dota2", manifest: { ...manifest, id: "dota2", name: "Dota 2" }, error: null, installed: { active: "0.1.0", previous: null, pending: null, enabled: false }, runtime: null }];
+    vi.mocked(api.dotaSafety).mockResolvedValue({ runtime: { mode: "built_in", epoch: null, queued: 0, inFlight: 0, lost: 0, error: null, activationBlocker: null }, quota: null, storageError: "storage_unavailable" });
+    vi.mocked(api.dotaAction).mockResolvedValue();
+    render(<PluginsPage />);
+    const prepare = await screen.findByRole("button", { name: "Подготовить backup и миграцию" });
+    expect(prepare.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("checkbox"));
+    await waitFor(() => expect(prepare.hasAttribute("disabled")).toBe(false));
+    expect(screen.getByRole("button", { name: "Включить External Dota" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.click(prepare);
+    await waitFor(() => expect(api.dotaAction).toHaveBeenCalledWith("prepare", true));
+    expect(api.action).not.toHaveBeenCalled();
+  });
+  it("does not offer activation when the platform fence is unavailable", async () => {
+    view.installed = [{ id: "dota2", manifest: { ...manifest, id: "dota2" }, error: null, installed: { active: "0.1.0", previous: null, pending: null, enabled: false }, runtime: null }];
+    vi.mocked(api.dotaSafety).mockResolvedValue({ runtime: { mode: "built_in", epoch: null, queued: 0, inFlight: 0, lost: 0, error: null, activationBlocker: "external_runtime_requires_windows_native_fences" }, quota: null, storageError: null });
+    render(<PluginsPage />);
+    fireEvent.click(await screen.findByRole("checkbox"));
+    expect(screen.getByRole("button", { name: "Подготовить backup и миграцию" }).hasAttribute("disabled")).toBe(true);
+    expect(api.dotaAction).not.toHaveBeenCalled();
+  });
   it("installs from the in-app catalog and hides local diagnostics in user mode", async () => {
     render(<PluginsPage />);
     fireEvent.click(await screen.findByRole("button", { name: "Установить", exact: true }));

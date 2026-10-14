@@ -20,6 +20,13 @@ export const install = (id: string, version: string, local?: string) => invoke<v
 export const cancel = () => invoke<void>("plugins_cancel");
 export const action = (id: string, action: string) => invoke<void>("plugins_action", { id, action });
 export const command = (id: string, text: string) => invoke<{ text: string }>("plugins_command", { id, name: "greet", args: { text } });
+export interface DotaSafety {
+  runtime: { mode: "built_in" | "draining" | "external" | "fallback"; epoch: number | null; queued: number; inFlight: number; lost: number; error: string | null; activationBlocker: string | null };
+  quota: { unknown: number; remainingOperations: number } | null;
+  storageError: string | null;
+}
+export const dotaSafety = () => invoke<DotaSafety>("dota_runtime_safety_status");
+export const dotaAction = (action: "prepare" | "enable" | "disable" | "recover", confirmed: boolean) => invoke<void>("dota_runtime_action", { action, confirmed });
 
 export function errorText(error: unknown): string {
   const text = String(error);
@@ -36,7 +43,13 @@ export function errorText(error: unknown): string {
     incompatible_plugin: "Плагин сообщил другую версию или несовместимый API.",
     local_install_disabled: "Локальная установка доступна только в сборке для разработки.",
     use_rollback_for_older_version: "Для предыдущей версии используйте откат установленного плагина.",
-    dota_live_activation_deferred: "Внешняя Dota пока доступна только для изолированного replay. Встроенная интеграция остаётся единственной активной.",
+    dota_live_activation_deferred: "Dota запускается только через безопасное ручное переключение runtime.",
+    external_runtime_requires_windows_native_fences: "External Dota требует Windows и подтверждённых process/audio/OBS fences.",
+    builtin_session_required: "Сначала начните сессию во встроенной Dota. External продолжит её с тем же идентификатором.",
+    unknown_effects_require_explicit_reconciliation: "Есть эффекты с неопределённым результатом. Повторное исполнение и смена владельца заблокированы.",
+    frontend_audio_fence_timeout: "WebView не подтвердил остановку игровых звуков. Twitch/TTS продолжает работать; переключение Dota заблокировано.",
+    obs_fence_unconfirmed: "Не получен свежий ответ OBS. Переключение Dota заблокировано; проверьте OBS WebSocket.",
+    backup_unavailable: "Сначала создайте проверенный backup кнопкой подготовки External Dota.",
   };
   if (text.includes("download_failed")) return "GitHub недоступен или пакет ещё не опубликован. Установленные плагины продолжают работать.";
   return messages[text] ?? text;

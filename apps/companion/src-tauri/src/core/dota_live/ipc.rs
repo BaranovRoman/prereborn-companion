@@ -138,9 +138,12 @@ impl LiveProcess {
   std::thread::spawn(move||{
    let gate=app.state::<LiveDota>();let manager=app.state::<PluginManager>();let history=app.state::<LocalRuntimeState>();
    let mut last_watchdog=Instant::now();
-   let mut last_snapshot=companion_dota_domain::contracts::ReplayGsi::default();let mut reconciled=None;
+   let mut last_snapshot={let state=app.state::<crate::state::AppState>();let inner=state.0.lock().unwrap();
+    inner.last_gsi_payload.as_ref().and_then(|raw|crate::core::dota_observer::project(raw).ok()).unwrap_or_default()};
+   let mut reconciled=None;
    let mut last_lifecycle=Instant::now()-Duration::from_secs(2);
    loop {
+    if gate.lease()!=Some(self.grant.lease){break;}
     if gate.status().mode==Mode::External&&last_lifecycle.elapsed()>=Duration::from_secs(2) {
      let streaming={let state=app.state::<crate::state::AppState>();let inner=state.0.lock().unwrap();if inner.obs_watcher_connected {inner.obs_streaming}else{None}};
      let sweep=last_watchdog.elapsed()>=Duration::from_secs(60);
@@ -152,7 +155,7 @@ impl LiveProcess {
     }
     if manager.stopping(){gate.failed(self.grant.lease,"core_shutdown");}
     match gate.status().mode {
-     Mode::External=>if let Some(frame)=gate.next(){
+     Mode::External=>if let Some(frame)=gate.next_for(self.grant.lease){
       // Resolve using this exact snapshot before creating its bounded execution ticket.
       if let Err(e)=self.lifecycle_controlled(&manager,&history,&gate,None,Some(&frame.snapshot),frame.at,false){gate.failed(self.grant.lease,&e);continue;}
       {
@@ -183,7 +186,10 @@ impl LiveProcess {
       let running=self.runtime.lock().map(|mut r|r.snapshot().phase==crate::core::plugin_runtime::Phase::Running).unwrap_or(false);
       if !running{gate.failed(self.grant.lease,"process_crashed");}std::thread::sleep(Duration::from_millis(50));
      },
-     Mode::Fallback=>{let _=self.fallback(&history,&gate,||{let audio=app.state::<crate::game_sounds::audio_fence::AudioFence>();audio.fence(&app)?;crate::dota::reset_after_external_fence(&app)?;audio.reopen()});break;},
+     Mode::Fallback=>{if self.fallback(&history,&gate,||{let audio=app.state::<crate::game_sounds::audio_fence::AudioFence>();audio.fence(&app)?;crate::obs::fence_external_handover(&app)?;crate::dota::reset_after_external_fence(&app)?;audio.reopen()}).is_ok(){let _=manager.mark_live_dota(false);break;}},
+     // Keep the actual owned process/coordinator available for explicit retry.
+     // A failed fence must not silently discard its only termination witness.
+     Mode::Draining=>std::thread::sleep(Duration::from_millis(50)),
      _=>break,
     }
    }
@@ -230,6 +236,10 @@ mod tests;
 pub(crate) fn fence_previous_windows_process(history:&LocalRuntimeState,gate:&LiveDota)->Result<(),String> {
  // Same transition lock as handover: job absence cannot race a later spawn.
  let _transition=gate.0.transition.lock().map_err(|_|"transition_poisoned")?;
+ fence_previous_windows_process_locked(history,gate)
+}
+#[cfg(windows)]
+pub(super) fn fence_previous_windows_process_locked(history:&LocalRuntimeState,gate:&LiveDota)->Result<(),String> {
  {let i=gate.0.inner.lock().map_err(|_|"admission_poisoned")?;
   if i.mode!=Mode::Draining||i.in_flight!=0{return Err("process_recovery_requires_drained_gate".into());}}
  let generation=history.with_transaction_adapter(|_,c|crate::local_runtime::transaction_authorization::pending_windows_generation(c))?;

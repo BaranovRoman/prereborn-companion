@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "dota2",
   "name": "Dota 2 — Windows beta",
-  "description": "External live worker. Ручная активация закрыта до native fencing и smoke-проверок.",
+  "description": "External Dota для Windows. Требует ручной подготовки backup и успешных process/audio/OBS fences в совместимом Companion.",
   "version": "0.1.0",
   "platform": "windows",
   "arch": "x86_64",

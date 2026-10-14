@@ -31,6 +31,17 @@ fn change<T>(c:&mut Connection,f:impl FnOnce(&Connection,&mut Record,&mut Owners
 }
 pub(super) fn uncertain_restart(c:&mut Connection)->Result<()> {change(c,|_,_,o|{o.uncertain_restart();Ok(())})}
 pub(crate) fn phase(c:&Connection)->Result<Phase>{Ok(load(c)?.phase)}
+// Called only by the explicit core recovery action AFTER process/audio/OBS fencing.
+// Keeps every receipt and advances the epoch; never restores a history backup.
+pub(crate) fn recover_builtin_after_fence(c:&mut Connection)->Result<Lease> {
+ change(c,|tx,r,o|{
+  if super::host_execution::live_effects::quota(tx)?.unknown!=0{return Err("unknown_effects_require_explicit_reconciliation".into());}
+  let Phase::Draining{old,..}=r.phase else{return Err("recovery_requires_draining".into());};
+  if (old.owner==Owner::External&&r.process.is_none())||r.process.as_ref().is_some_and(|p|!p.stopped){return Err("previous_process_stop_unproven".into());}
+  *o=Ownership::restore(Phase::Draining{old,target:Owner::BuiltIn}).map_err(str::to_string)?;
+  let lease=o.confirm_fenced(old).map_err(str::to_string)?;r.package=None;r.session=None;Ok(lease)
+ })
+}
 pub(crate) fn begin(c:&mut Connection,lease:Lease,target:Owner,session:&str,package:Option<PackageBinding>)->Result<()> {
     if session.is_empty()||session.len()>128{return Err("session_mismatch".into());}
     if target==Owner::External&&package.is_none(){return Err("package_binding_required".into());}
@@ -138,5 +149,33 @@ mod supervision_tests {
   process_stopped(&mut c,&generation).unwrap();assert!(matches!(phase(&c).unwrap(),Phase::Draining{..}));
   // Native process proof alone does not admit BuiltIn or prove frontend/OBS fences.
   process_restart_fence(&c).unwrap();
+ }
+}
+
+#[cfg(test)]
+mod manual_recovery_tests {
+ use super::*;
+ fn prepared()->(super::super::host_execution::Fixture,Connection) {
+  let(f,_,_)=super::super::host_execution::Fixture::seeded().unwrap();let mut c=f.connect().unwrap();
+  super::super::transaction_schema::migrate(&mut c,&f.root.path().join("backup.sqlite3")).unwrap();(f,c)
+ }
+ #[test] fn explicit_recovery_requires_stopped_generation_and_advances_epoch() {
+  let(_f,mut c)=prepared();let Phase::Active(old)=phase(&c).unwrap()else{panic!()};
+  let package=PackageBinding{id:"dota2".into(),version:"0.1.0".into(),executable_hash:"a".repeat(64),manifest_hash:"b".repeat(64)};
+  begin(&mut c,old,Owner::External,"session",Some(package.clone())).unwrap();
+  let generation=uuid::Uuid::new_v4().to_string();
+  process_starting(&mut c,Lease{owner:Owner::External,epoch:old.epoch+1},&package,&generation).unwrap();
+  assert_eq!(recover_builtin_after_fence(&mut c).unwrap_err(),"previous_process_stop_unproven");
+  process_stopped(&mut c,&generation).unwrap();let next=recover_builtin_after_fence(&mut c).unwrap();
+  assert_eq!(next,Lease{owner:Owner::BuiltIn,epoch:old.epoch+1});assert_eq!(phase(&c).unwrap(),Phase::Active(next));
+  assert!(recover_builtin_after_fence(&mut c).is_err());uncertain_restart(&mut c).unwrap();
+  assert_eq!(recover_builtin_after_fence(&mut c).unwrap().epoch,next.epoch+1);
+ }
+ #[test] fn unknown_blocks_manual_recovery_without_deleting_the_key() {
+  let(_f,mut c)=prepared();uncertain_restart(&mut c).unwrap();
+  c.execute("INSERT INTO pc_tx_ledger VALUES('effect:unknown',?1,'unknown')",["a".repeat(64)]).unwrap();
+  assert_eq!(recover_builtin_after_fence(&mut c).unwrap_err(),"unknown_effects_require_explicit_reconciliation");
+  assert!(matches!(phase(&c).unwrap(),Phase::Draining{..}));
+  assert_eq!(c.query_row("SELECT status FROM pc_tx_ledger WHERE operation_key='effect:unknown'",[],|r|r.get::<_,String>(0)).unwrap(),"unknown");
  }
 }

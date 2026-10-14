@@ -240,6 +240,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             core::dota_observer::dota_observer_status,
             core::dota_live::dota_runtime_safety_status,
+            core::dota_live::dota_runtime_action,
             core::dota_observer::dota_observer_control,
             core::plugin_manager::plugins_view,
             core::plugin_manager::plugins_refresh,

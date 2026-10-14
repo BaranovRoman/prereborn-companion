@@ -1726,6 +1726,15 @@ fn fresh_program_scene(config:&ConnectionSettings<'_>,deadline:Instant)->Result<
  let scene=result.pointer("/d/responseData/currentProgramSceneName").and_then(Value::as_str).filter(|v|!v.is_empty()&&v.len()<=512).ok_or("invalid_authoritative_scene")?;
  Ok(scene.into())
 }
+// Handover preflight: fresh authoritative transport observation, no scene write/retry.
+pub(crate) fn fence_external_handover(app:&AppHandle)->Result<(),String> {
+ let config=app.state::<AppState>().0.lock().map_err(|_|"obs_state_poisoned")?.obs_config.clone();
+ if !config.enabled{return Ok(());}
+ let connection=ConnectionSettings{host:&config.host,port:config.port,password:&config.password};
+ fresh_program_scene(&connection,Instant::now()+Duration::from_millis(1500)).map_err(|_|"obs_fence_unconfirmed")?;
+ let current=app.state::<AppState>();let inner=current.0.lock().map_err(|_|"obs_state_poisoned")?;
+ if inner.obs_config.host!=config.host||inner.obs_config.port!=config.port||inner.obs_config.password!=config.password||inner.obs_config.enabled!=config.enabled{return Err("obs_configuration_changed".into());}Ok(())
+}
 fn reconcile_plugin_scene(desired:&str,mut observe:impl FnMut()->Result<String,String>,mut switch:impl FnMut()->Result<(),String>)->companion_dota_domain::effects::Status {
  use companion_dota_domain::effects::Status;
  match observe(){Ok(scene) if scene==desired=>return Status::Completed,Err(_)=>return Status::Unknown,_=>()}

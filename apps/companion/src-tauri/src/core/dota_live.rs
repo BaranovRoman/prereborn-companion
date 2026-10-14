@@ -1,10 +1,10 @@
 //! Single admission gate for the existing listener. Default startup never opens safety storage.
-//! The developer entrypoint remains closed until frontend audio and all legacy writers can fence.
+//! Manual Windows handover uses the existing coordinator and real process/audio/OBS fences.
 use std::{collections::VecDeque,sync::{Arc,Mutex,Condvar,atomic::{AtomicBool,Ordering}},time::{Duration,Instant}};
 use companion_dota_domain::{ownership::{Owner,Lease},contracts::ReplayGsi};
 use serde::Serialize;
 const CAPACITY:usize=8;
-const ACTIVATION_BLOCKER:&str="external_windows_process_supervision_and_native_fences_unverified";
+const ACTIVATION_BLOCKER:&str="external_runtime_requires_windows_native_fences";
 #[derive(Clone,Copy,Debug,PartialEq,Serialize)]
 #[serde(rename_all="snake_case")]
 pub(crate) enum Mode {BuiltIn,Draining,External,Fallback}
@@ -18,7 +18,7 @@ impl Drop for Admission {fn drop(&mut self){let mut i=self.shared.inner.lock().u
 pub(crate) struct Frame {pub(crate) snapshot:ReplayGsi,pub(crate) context:companion_dota_domain::contracts::ReplayContext,pub(crate) sequence:u64,pub(crate) at:chrono::DateTime<chrono::Utc>}
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
-pub(crate) struct Status {mode:Mode,epoch:Option<u64>,queued:usize,in_flight:usize,lost:u64,error:Option<String>,activation_blocker:&'static str}
+pub(crate) struct Status {mode:Mode,epoch:Option<u64>,queued:usize,in_flight:usize,lost:u64,error:Option<String>,activation_blocker:Option<&'static str>}
 impl Default for LiveDota {
  fn default()->Self {Self(Arc::new(Shared{inner:Mutex::new(Inner{obs_revision:0,overlay:None,mode:Mode::BuiltIn,lease:None,in_flight:0,sequence:0,queue:VecDeque::with_capacity(CAPACITY),lost:0,error:None}),drained:Condvar::new(),transition:Mutex::new(()),gap:AtomicBool::new(false)}))}
 }
@@ -51,7 +51,7 @@ impl LiveDota {
   if i.mode==Mode::BuiltIn {i.overlay=Some(legacy);legacy}else{i.overlay.unwrap_or(BroadcastState::BetweenMatches)}
  }
  pub(crate) fn publish_overlay(&self,lease:Lease,state:companion_dota_domain::broadcast_state::BroadcastState)->Result<(),String>{let mut i=self.0.inner.lock().map_err(|_|"admission_poisoned")?;if i.mode!=Mode::External||i.lease!=Some(lease){return Err("ownership_fenced".into());}i.overlay=Some(state);Ok(())}
- pub(crate) fn status(&self)->Status {let i=self.0.inner.lock().unwrap();Status{mode:i.mode,epoch:i.lease.map(|l|l.epoch),queued:i.queue.len(),in_flight:i.in_flight,lost:i.lost,error:i.error.clone(),activation_blocker:ACTIVATION_BLOCKER}}
+ pub(crate) fn status(&self)->Status {let i=self.0.inner.lock().unwrap();Status{mode:i.mode,epoch:i.lease.map(|l|l.epoch),queued:i.queue.len(),in_flight:i.in_flight,lost:i.lost,error:i.error.clone(),activation_blocker:if cfg!(windows){None}else{Some(ACTIVATION_BLOCKER)}}}
  pub(crate) fn request_obs_reconciliation(&self){if let Ok(mut i)=self.0.inner.lock(){if i.mode==Mode::External{i.obs_revision=i.obs_revision.saturating_add(1);}}}
  pub(crate) fn obs_frame(&self,lease:Lease,snapshot:ReplayGsi,context:companion_dota_domain::contracts::ReplayContext)->Option<Frame> {
   let mut i=self.0.inner.lock().ok()?;if i.mode!=Mode::External||i.lease!=Some(lease)||!i.queue.is_empty(){return None;}
@@ -76,7 +76,10 @@ impl LiveDota {
   }
   i.sequence+=1;let sequence=i.sequence;i.queue.push_back(Frame{snapshot:snapshot.unwrap(),context,sequence,at:chrono::Utc::now()});
  }
- pub(crate) fn next(&self)->Option<Frame>{let mut i=self.0.inner.lock().ok()?;
+ #[cfg(test)]
+ pub(crate) fn next(&self)->Option<Frame>{self.next_for(self.lease()?)}
+ pub(crate) fn next_for(&self,lease:Lease)->Option<Frame>{let mut i=self.0.inner.lock().ok()?;
+  if i.lease!=Some(lease){return None;}
   if self.0.gap.swap(false,Ordering::SeqCst){i.mode=Mode::Fallback;i.queue.clear();i.lost=i.lost.saturating_add(1);i.error=Some("snapshot_gap_requires_fenced_fallback".into());}
   if i.mode!=Mode::External{return None;}i.queue.pop_front()}
  pub(crate) fn failed(&self,lease:Lease,reason:&str){let mut i=self.0.inner.lock().unwrap();
@@ -110,12 +113,11 @@ impl LiveDota {
   match result {Ok(lease)=>{self.0.gap.store(false,Ordering::SeqCst);i.lease=Some(lease);i.mode=if target==Owner::BuiltIn{Mode::BuiltIn}else{Mode::External};i.error=None;Ok(lease)},Err(e)=>{i.error=Some(e.clone());Err(e)}}
  }
 }
-// No CLI flag, Tauri command, registry restore or updater calls this entrypoint.
-// Check storage read-only first; never attach/migrate as a side effect of a refused activation.
+// Read-only preflight; normal startup/registry/updater never invokes manual activation.
 pub(crate) fn developer_activation_preflight(conn:&rusqlite::Connection,backup:&std::path::Path)->Result<(),String> {
  crate::local_runtime::transaction_schema::activation_preflight(conn,backup)?;
  beta_capacity_preflight(conn)?;
- Err(ACTIVATION_BLOCKER.into())
+ if !cfg!(windows){return Err(ACTIVATION_BLOCKER.into());}Ok(())
 }
 
 // Measured 8h model plus headroom; limits are NOT raised and keys are never evicted.
@@ -147,9 +149,110 @@ mod tests {
   let gate=LiveDota::default();gate.switch(old,Owner::External,Duration::from_secs(1),||Ok(()),||Ok(()),||Ok(Lease{owner:Owner::External,epoch:2}),|_|Ok(())).unwrap();
   for _ in 0..9{gate.enqueue(&serde_json::json!({}));}assert_eq!(gate.status().mode,Mode::Fallback);assert_eq!(gate.status().queued,0);assert!(gate.builtin().is_none());
  }
+ #[test]
+ fn retired_consumer_cannot_take_frames_of_a_new_epoch() {
+  let gate=LiveDota::default();let old=Lease{owner:Owner::BuiltIn,epoch:1};let external=Lease{owner:Owner::External,epoch:2};
+  gate.switch(old,Owner::External,Duration::from_secs(1),||Ok(()),||Ok(()),||Ok(external),|_|Ok(())).unwrap();
+  gate.enqueue(&serde_json::json!({}));
+  assert!(gate.next_for(Lease{owner:Owner::External,epoch:1}).is_none());assert_eq!(gate.status().queued,1);
+  assert_eq!(gate.next_for(external).unwrap().sequence,1);
+ }
 }
 
 mod ipc;
+
+// Main-window manual action only. Ordinary startup/registry restore never invokes it.
+#[tauri::command]
+pub(crate) async fn dota_runtime_action(window:tauri::WebviewWindow,action:String,confirmed:bool)->Result<(),String> {
+ use tauri::Manager;
+ if window.label()!="main"{return Err("dota_runtime_window_denied".into());}
+ if !cfg!(windows){return Err(ACTIVATION_BLOCKER.into());}
+ if !confirmed{return Err("manual_dota_confirmation_required".into());}
+ let app=window.app_handle().clone();
+ tauri::async_runtime::spawn_blocking(move||{
+  let manager=app.state::<crate::core::plugin_manager::PluginManager>();
+  manager.live_transition(||manual_action(&app,&action))
+ }).await.map_err(|_|"dota_transition_task_failed".to_string())?
+}
+
+fn manual_action(app:&tauri::AppHandle,action:&str)->Result<(),String> {
+ use tauri::Manager;
+ use crate::local_runtime::{LocalRuntimeState,transaction_authorization as auth};
+ let gate=app.state::<LiveDota>();let history=app.state::<LocalRuntimeState>();
+ let manager=app.state::<crate::core::plugin_manager::PluginManager>();
+ let audio=app.state::<crate::game_sounds::audio_fence::AudioFence>();
+ let backup=app.path().app_data_dir().map_err(|_|"app_data_unavailable")?.join("local-runtime.pre-external.sqlite3");
+ const CAPS:&[&str]=&["dota.match.execute","dota.sound.play","dota.obs.scene","dota.overlay.update"];
+ match action {
+  "prepare"|"recover"=>{
+   if action=="prepare" {
+    let session=history.audio_session().ok_or("builtin_session_required")?;
+    manager.match_execution_grant(CAPS,&session,Lease{owner:Owner::External,epoch:gate.lease().map_or(2,|l|l.epoch.saturating_add(1))})?;
+   }
+   let _transition=gate.0.transition.lock().map_err(|_|"transition_poisoned")?;
+   let deadline=Instant::now()+Duration::from_secs(5);
+   let mut inner=gate.0.inner.lock().map_err(|_|"admission_poisoned")?;
+   if !matches!(inner.mode,Mode::BuiltIn|Mode::Draining){return Err("stop_external_before_preparation".into());}
+   inner.mode=Mode::Draining;inner.queue.clear();
+   while inner.in_flight>0 {
+    let remaining=deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero(){return Err("drain_timeout".into());}
+    inner=gate.0.drained.wait_timeout(inner,remaining).map_err(|_|"admission_poisoned")?.0;
+   }
+   drop(inner);
+   let result:Result<(),String>=(||{
+    audio.fence(app)?;crate::obs::fence_external_handover(app)?;
+    if action=="prepare" {
+     let migrated={let c=history.try_lock().map_err(str::to_string)?;c.as_ref().ok_or("local_runtime_unavailable")?.query_row("SELECT count(*) FROM sqlite_master WHERE name='pc_tx_meta'",[],|r|r.get::<_,i64>(0)).map_err(|_|"storage_unavailable")?!=0};
+     if !migrated{history.migrate_transactions(&backup)?;}
+    }
+    history.with_transaction_adapter(|_,c|{crate::local_runtime::transaction_schema::activation_preflight(c,&backup)?;Ok(())})?;
+    // Journal absence is safe only if no External generation was ever admitted.
+    let pending=history.with_transaction_adapter(|_,c|auth::process_restart_fence(c));
+    if pending.is_err(){
+     #[cfg(windows)]
+     {
+      ipc::fence_previous_windows_process_locked(&history,&gate)?;
+     }
+     #[cfg(not(windows))]
+     {return Err(ACTIVATION_BLOCKER.into());}
+    }
+    let lease=history.with_transaction_adapter(|_,c|{
+     match auth::phase(c)? {
+      companion_dota_domain::ownership::Phase::Active(l) if l.owner==Owner::BuiltIn=>Ok(l),
+      companion_dota_domain::ownership::Phase::Draining{..}=>auth::recover_builtin_after_fence(c),
+      _=>Err("recovery_requires_draining".into()),
+     }
+    })?;
+    crate::dota::reset_after_external_fence(app)?;audio.reopen()?;
+    manager.mark_live_dota(false)?;
+    let mut inner=gate.0.inner.lock().map_err(|_|"admission_poisoned")?;
+    inner.lease=Some(lease);inner.mode=Mode::BuiltIn;inner.error=None;gate.0.gap.store(false,Ordering::SeqCst);Ok(())
+   })();
+   if let Err(e)=&result{gate.0.inner.lock().map_err(|_|"admission_poisoned")?.error=Some(e.clone());}
+   result
+  },
+  "enable"=>{
+   if gate.status().mode!=Mode::BuiltIn{return Err("ownership_not_builtin".into());}
+   {let c=history.try_lock().map_err(str::to_string)?;developer_activation_preflight(c.as_ref().ok_or("local_runtime_unavailable")?,&backup)?;}
+   let session=history.audio_session().ok_or("builtin_session_required")?;
+   let process=ipc::handover_external(&manager,&history,&gate,&session,&backup,CAPS,||{
+    audio.fence(app)?;crate::obs::fence_external_handover(app)?;audio.reopen()
+   })?;
+   manager.mark_live_dota(true)?;process.consume(app.clone());Ok(())
+  },
+  "disable"=>{
+   {let mut inner=gate.0.inner.lock().map_err(|_|"admission_poisoned")?;
+    if inner.mode==Mode::BuiltIn{return Ok(());}
+    if inner.lease.is_none_or(|l|l.owner!=Owner::External){return Err("explicit_builtin_recovery_required".into());}
+    inner.mode=Mode::Fallback;inner.queue.clear();}
+   let until=Instant::now()+Duration::from_secs(10);
+   loop {match gate.status().mode {Mode::BuiltIn=>return Ok(()),Mode::Draining=>return Err(gate.status().error.unwrap_or("fallback_fence_unconfirmed".into())),_=>()}
+    if Instant::now()>=until{return Err("fallback_pending".into());}std::thread::sleep(Duration::from_millis(50));}
+  },
+  _=>Err("unknown_dota_action".into()),
+ }
+}
 
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]

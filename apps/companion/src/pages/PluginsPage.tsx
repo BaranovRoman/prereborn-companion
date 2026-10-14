@@ -35,7 +35,7 @@ export function PluginsPage() {
   const selected = view?.installed.find((p) => p.id === opened && p.installed.enabled && p.runtime?.phase === "running");
   return <section className="page-content" aria-label="Плагины">
     <h2>Плагины</h2>
-    <p>Официальные плагины Companion. Dota 2 остаётся встроенной.</p>
+    <p>Официальные плагины Companion. По умолчанию Dota 2 работает встроенно.</p>
     <Button disabled={disabled} onClick={() => void run(api.refresh)}>Обновить каталог</Button>
     {(error || view?.error) && <p role="alert">{error ?? api.errorText(view?.error)}</p>}
     {view?.catalogError && <p role="status">{api.errorText(view.catalogError)} Используется сохранённый каталог.</p>}
@@ -50,9 +50,10 @@ export function PluginsPage() {
     {view?.installed.map((p) => <article key={p.id} style={{ marginBlock: 16 }}>
       <h4>{p.manifest?.name ?? p.id} · {p.installed.active}</h4>
       <p>{p.manifest?.description}</p>
-      <p>{p.installed.enabled ? phaseText[p.runtime?.phase ?? "stopped"] : "Отключён"}</p>
+      {p.id !== "dota2" && <p>{p.installed.enabled ? phaseText[p.runtime?.phase ?? "stopped"] : "Отключён"}</p>}
       {p.installed.pending && <p role="status">Обновление {p.installed.pending} будет активировано после остановки.</p>}
       {(p.error || p.runtime?.lastError) && <p role="alert">{api.errorText(p.error ?? p.runtime?.lastError)}</p>}
+      {p.id === "dota2" ? <DotaControls disabled={!!disabled} run={run} /> : <>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <Button disabled={disabled} onClick={() => void run(async () => {
           if (!p.installed.enabled) await api.action(p.id, "enable");
@@ -64,6 +65,7 @@ export function PluginsPage() {
         {p.installed.previous && <Button disabled={disabled || p.runtime?.phase === "running"} onClick={() => void run(() => api.action(p.id, "rollback"))}>Откатить на {p.installed.previous}</Button>}
         <Button variant="danger" disabled={disabled} onClick={() => void run(() => api.action(p.id, "remove"))}>Удалить</Button>
       </div>
+      </>}
       <small>При удалении пользовательские данные сохраняются.</small>
     </article>)}
     <h3>Каталог</h3>
@@ -86,6 +88,40 @@ export function PluginsPage() {
       <PluginUI key={`${selected.id}-${selected.installed.active}`} plugin={selected} />
     </div>}
   </section>;
+}
+
+function DotaControls({ disabled, run }: { disabled: boolean; run: (task: () => Promise<void>) => Promise<void> }) {
+  const [status, setStatus] = useState<api.DotaSafety | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
+  useEffect(() => {
+    let disposed = false; let pending = false;
+    const refresh = async () => {
+      if (pending) return; pending = true;
+      try { const next = await api.dotaSafety(); if (!disposed) { setStatus(next); setError(null); } }
+      catch (e) { if (!disposed) setError(api.errorText(e)); }
+      finally { pending = false; }
+    };
+    void refresh(); const timer = window.setInterval(() => void refresh(), 700);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, []);
+  const mode = status?.runtime.mode;
+  const blocked = disabled || !confirmed || !status || !!status.runtime.activationBlocker;
+  return <div aria-label="Dota runtime">
+    <p>Runtime: {mode ?? "Проверка"} · Epoch: {status?.runtime.epoch ?? "—"}</p>
+    {status?.quota && <p>Осталось операций: {status.quota.remainingOperations}. Unknown: {status.quota.unknown}.</p>}
+    {(error || status?.runtime.error || status?.runtime.activationBlocker) && <p role="alert">{error ?? api.errorText(status?.runtime.error ?? status?.runtime.activationBlocker)}</p>}
+    <label><input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
+      Разрешаю ручную подготовку и переключение Dota. Подготовка создаст backup истории и добавит safety-таблицы. После новых записей старый backup восстанавливать нельзя.
+    </label>
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <Button disabled={blocked || mode !== "built_in"} onClick={() => void run(() => api.dotaAction("prepare", confirmed))}>Подготовить backup и миграцию</Button>
+      <Button disabled={blocked || mode !== "built_in" || !status?.quota || status.quota.unknown !== 0} onClick={() => void run(() => api.dotaAction("enable", confirmed))}>Включить External Dota</Button>
+      <Button disabled={disabled || !status || !["external", "fallback", "draining"].includes(mode ?? "")} onClick={() => void run(() => api.dotaAction("disable", true))}>Отключить External → BuiltIn</Button>
+      <Button disabled={disabled || mode !== "draining" || !confirmed} onClick={() => void run(() => api.dotaAction("recover", confirmed))}>Подтвердить fences и вернуть BuiltIn</Button>
+    </div>
+    <small>Запуск только вручную. После перезапуска External не включается. При неподтверждённой остановке Dota остаётся Draining.</small>
+  </div>;
 }
 
 function PluginUI({ plugin }: { plugin: api.Installed }) {
