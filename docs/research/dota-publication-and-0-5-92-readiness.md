@@ -112,3 +112,55 @@ user DB modification or user .gitignore modification was performed during this p
 - [Existing stable release](https://github.com/BaranovRoman/prereborn-companion/releases/tag/prereborn-v0.5.91)
 - Repository source: `core/plugin_manager.rs`, `plugins/manager/src/lib.rs`,
   `tauri.conf.json`, `.github/workflows/windows-release.yml`, existing native checklist.
+
+## Stable 0.5.92 publication — 2026-10-14
+
+The user confirmed successful signed Dota 0.1.0 installation through Plugin Manager on
+Windows Companion 0.5.91, with the plugin remaining disabled. They then explicitly authorized
+the full stable Companion 0.5.92 release, deferring real GSI/audio/OBS/crash acceptance until
+after their Windows update. This supersedes the earlier requirement to await native acceptance
+before publication, but does not establish that those native checks have passed.
+
+Published stable tag `prereborn-v0.5.92` points to
+`864e7a29ccdd1758b4ebcab4640dc159f3d927d4` on the feature branch, without merging main.
+Runtime/frontend/release workflow were compared against successful unsigned Windows source
+`7b89fdd` and were identical; later commits affected only plugin package tooling and docs.
+User `.gitignore` changes were excluded and preserved.
+
+[Stable release workflow 38508030525](https://github.com/BaranovRoman/prereborn-companion/actions/runs/38508030525)
+completed successfully. Required prepublication steps passed: actual Windows Credential
+Manager, signed NSIS build, version/identifier/endpoint and installer inventory, exact NSIS
+payload verification (only the existing Tauri UNK → NSS patch), packaged GSI/canonical overlay
+HTML/state/SSE and synthetic Draft/Gameplay smoke, second-instance rejection, SHA256,
+standard Silero synthesis/package, updater manifest generation, cryptographic updater
+signature verification with the shipped key, and complete release-asset gate. Only then was
+the Release/latest.json published; the normal production deploy notification also succeeded.
+The independent Dota executable/package is absent from the core installer; BuiltIn remains
+embedded and default.
+
+[Published Companion 0.5.92](https://github.com/BaranovRoman/prereborn-companion/releases/tag/prereborn-v0.5.92)
+is public, non-draft and non-prerelease. Public `/releases/latest/download/latest.json`
+now returns version `0.5.92`, platform `windows-x86_64`, and installer URL:
+
+`https://github.com/BaranovRoman/prereborn-companion/releases/download/prereborn-v0.5.92/PreReborn.Companion_0.5.92_x64-setup.exe`
+
+The public installer and sidecars each returned HTTP 200. Downloaded installer size:
+**25,445,972 bytes**; SHA256:
+`39da2f8a6a0e1330964975b767830031ea691b05e4c7c20c2de8039a1bea767d`.
+The existing read-only `verify_updater_release` verifier checked these downloaded bytes
+against the unchanged configured updater key, public manifest/sidecar signature identity,
+SHA256 and exact URL/version. It also used the actual updater RemoteRelease SemVer types
+to confirm an update is offered over both `0.5.91` and `0.5.89`.
+
+No updater key, identifier, data path, automatic migration or startup activation changes
+were made during release. External remains disabled until the explicit manual action.
+No user SQLite was touched, no main merge was performed, and no native GSI/audio/OBS/
+crash-recovery/real upgrade/settings acceptance is claimed by these checks.
+
+First Windows action: update through Companion's normal updater and restart; verify version
+0.5.92, existing settings/history and BuiltIn behavior. Before testing External, end the real
+stream, use OBS with valid mappings and start a normal BuiltIn session. Plugins → Dota →
+manual confirmation → Prepare backup and migration; wait for BuiltIn and Unknown=0, then
+Enable External Dota. For safe return use Disable External → BuiltIn and verify a newer epoch
+and worker termination. Draining/Unknown is a blocker, not successful fallback; preserve the
+error/data and follow the existing native checklist. Never restore an old backup after new writes.
