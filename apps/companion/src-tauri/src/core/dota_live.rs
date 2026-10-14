@@ -221,12 +221,13 @@ fn manual_action(app:&tauri::AppHandle,action:&str)->Result<(),String> {
  const CAPS:&[&str]=&["dota.match.execute","dota.sound.play","dota.obs.scene","dota.overlay.update"];
  match action {
   "prepare"|"recover"=>{
+   if action=="prepare"{gate.preparation_stage(app,"session_lookup");}
+   let session=history.preparation_session()?;
+   let cold=session.is_none();
    if action=="prepare" {
-    gate.preparation_stage(app,"session_lookup");
-    let session=history.preparation_session()?.ok_or("builtin_session_required")?;
     gate.preparation_stage(app,"session_checked");
     gate.preparation_stage(app,"package_check");
-    manager.match_execution_grant(CAPS,&session,Lease{owner:Owner::External,epoch:gate.lease().map_or(2,|l|l.epoch.saturating_add(1))})?;
+    manager.verify_live_package(CAPS)?;
     gate.preparation_stage(app,"package_verified");
    }
    let _transition=gate.0.transition.lock().map_err(|_|"transition_poisoned")?;
@@ -245,7 +246,7 @@ fn manual_action(app:&tauri::AppHandle,action:&str)->Result<(),String> {
     if action=="prepare"{gate.preparation_stage(app,"audio_fence");}
     audio.fence(app)?;
     if action=="prepare"{gate.preparation_stage(app,"obs_fence");}
-    crate::obs::fence_external_handover(app)?;
+    if cold{crate::obs::fence_cold_handover(app)?;}else{crate::obs::fence_external_handover(app)?;}
     if action=="prepare" {
      gate.preparation_stage(app,"schema_check");
      let migrated={let c=history.try_lock().map_err(str::to_string)?;c.as_ref().ok_or("local_runtime_unavailable")?.query_row("SELECT count(*) FROM sqlite_master WHERE name='pc_tx_meta'",[],|r|r.get::<_,i64>(0)).map_err(|_|"storage_unavailable")?!=0};
@@ -253,7 +254,7 @@ fn manual_action(app:&tauri::AppHandle,action:&str)->Result<(),String> {
      if !migrated{history.migrate_transactions(&backup)?;}
      gate.preparation_stage(app,"preflight");
     }
-    history.with_transaction_adapter(|_,c|{crate::local_runtime::transaction_schema::activation_preflight(c,&backup)?;Ok(())})?;
+    history.with_transaction_adapter(|_,c|{crate::local_runtime::transaction_schema::activation_preflight(c,&backup)?;if cold{auth::cold_eligible(c)?;}Ok(())})?;
     // Journal absence is safe only if no External generation was ever admitted.
     let pending=history.with_transaction_adapter(|_,c|auth::process_restart_fence(c));
     if pending.is_err(){
@@ -282,9 +283,9 @@ fn manual_action(app:&tauri::AppHandle,action:&str)->Result<(),String> {
   "enable"=>{
    if gate.status().mode!=Mode::BuiltIn{return Err("ownership_not_builtin".into());}
    {let c=history.try_lock().map_err(str::to_string)?;developer_activation_preflight(c.as_ref().ok_or("local_runtime_unavailable")?,&backup)?;}
-   let session=history.audio_session().ok_or("builtin_session_required")?;
-   let process=ipc::handover_external(&manager,&history,&gate,&session,&backup,CAPS,||{
-    audio.fence(app)?;crate::obs::fence_external_handover(app)?;audio.reopen()
+   let session=history.preparation_session()?;
+   let process=ipc::handover_optional(&manager,&history,&gate,session.as_deref(),&backup,CAPS,||{
+    audio.fence(app)?;if session.is_none(){crate::obs::fence_cold_handover(app)?;}else{crate::obs::fence_external_handover(app)?;}audio.reopen()
    })?;
    manager.mark_live_dota(gate.lease().ok_or("ownership_not_external")?)?;process.consume(app.clone());Ok(())
   },
@@ -303,15 +304,24 @@ fn manual_action(app:&tauri::AppHandle,action:&str)->Result<(),String> {
 
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
-pub(crate) struct SafetyStatus {runtime:Status,quota:Option<crate::local_runtime::host_execution::live_effects::Quota>,storage_error:Option<String>,preparation:Option<Preparation>}
+pub(crate) struct SafetyStatus {runtime:Status,quota:Option<crate::local_runtime::host_execution::live_effects::Quota>,storage_error:Option<String>,preparation:Option<Preparation>,storage_state:&'static str,session_bound:Option<bool>}
 #[tauri::command]
 pub(crate) fn dota_runtime_safety_status(app:tauri::AppHandle)->SafetyStatus {
  use tauri::Manager;
  let runtime=app.state::<LiveDota>().status();
  let preparation=app.state::<LiveDota>().preparation();
  let history=app.state::<crate::local_runtime::LocalRuntimeState>();
- let result=history.try_lock().map_err(str::to_string).and_then(|c|crate::local_runtime::host_execution::live_effects::quota(c.as_ref().ok_or("local_runtime_unavailable")?));
- match result {Ok(quota)=>SafetyStatus{runtime,quota:Some(quota),storage_error:None,preparation},Err(e)=>SafetyStatus{runtime,quota:None,storage_error:Some(e),preparation}}
+ let result=history.try_lock().map_err(str::to_string).and_then(|c|{
+  let c=c.as_ref().ok_or("local_runtime_unavailable")?;
+  if !crate::local_runtime::transaction_schema::namespace_prepared(c)?{return Ok(None);}
+  let q=crate::local_runtime::host_execution::live_effects::quota(c)?;
+  let bound=crate::local_runtime::transaction_authorization::session_bound(c)?;Ok(Some((q,bound)))
+ });
+ match result {
+  Ok(Some((quota,bound)))=>SafetyStatus{runtime,quota:Some(quota),storage_error:None,preparation,storage_state:"ready",session_bound:Some(bound)},
+  Ok(None)=>SafetyStatus{runtime,quota:None,storage_error:None,preparation,storage_state:"not_prepared",session_bound:None},
+  Err(e)=>SafetyStatus{runtime,quota:None,storage_error:Some(e),preparation,storage_state:"error",session_bound:None},
+ }
 }
 
 #[cfg(test)]

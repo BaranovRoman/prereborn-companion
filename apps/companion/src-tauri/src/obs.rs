@@ -614,17 +614,27 @@ fn start_browser_source_reconciler(app: AppHandle) {
 }
 
 pub fn switch_scene(config: &ObsConfig, scene: BroadcastScene) -> Result<(), String> {
+    switch_scene_observed(config, scene, || {})
+}
+fn switch_scene_observed(config: &ObsConfig, scene: BroadcastScene, mut before_write: impl FnMut()) -> Result<(), String> {
     let scene_name = scene.obs_scene_name(config);
     if scene_name.trim().is_empty() {
         return Err("Название сцены OBS не задано".into());
     }
     let mut socket = open(config, Some(Duration::from_secs(4)), None)?;
+    before_write();
     request(
         &mut socket,
         "SetCurrentProgramScene",
         json!({ "sceneName": scene_name }),
     )?;
     Ok(())
+}
+pub(crate) fn switch_scene_tracked(app:&AppHandle,config:&ObsConfig,scene:BroadcastScene)->Result<(),String> {
+    let mut sent=false;
+    let result=switch_scene_observed(config,scene,||sent=true);
+    if sent&&result.is_err(){app.state::<AppState>().0.lock().map_err(|_|"obs_state_poisoned")?.obs_scene_write_uncertain=true;}
+    result
 }
 
 pub fn handle_gsi(app: &AppHandle, payload: &Value) {
@@ -725,7 +735,7 @@ fn schedule_switch(app: &AppHandle, requested: BroadcastScene, require_enabled: 
     let app_for_switch = app.clone();
     std::thread::spawn(move || {
         let _admission=admission;
-        let result = switch_scene(&config, desired);
+        let result = switch_scene_tracked(&app_for_switch, &config, desired);
         {
             let state = app_for_switch.state::<AppState>();
             let mut inner = state.0.lock().unwrap();
@@ -1734,6 +1744,29 @@ pub(crate) fn fence_external_handover(app:&AppHandle)->Result<(),String> {
  fresh_program_scene(&connection,Instant::now()+Duration::from_millis(1500)).map_err(|_|"obs_fence_unconfirmed")?;
  let current=app.state::<AppState>();let inner=current.0.lock().map_err(|_|"obs_state_poisoned")?;
  if inner.obs_config.host!=config.host||inner.obs_config.port!=config.port||inner.obs_config.password!=config.password||inner.obs_config.enabled!=config.enabled{return Err("obs_configuration_changed".into());}Ok(())
+}
+fn cold_scene_idle(pending:bool,checking:bool,uncertain:bool)->bool{!pending&&!checking&&!uncertain}
+pub(crate) fn fence_cold_handover(app:&AppHandle)->Result<(),String> {
+ // Called only with game admission closed and in-flight operations drained.
+ // These are request/outcome flags, never a cached scene name as proof.
+ let idle={let state=app.state::<AppState>();let i=state.0.lock().map_err(|_|"obs_state_poisoned")?;
+  cold_scene_idle(i.obs_switch_pending.is_some(),i.obs_check_pending,i.obs_scene_write_uncertain)};
+ if idle{Ok(())}else{Err("obs_fence_unconfirmed".into())}
+}
+pub(crate) fn cold_transport_ready(app:&AppHandle)->bool {
+ let state=app.state::<AppState>();let Ok(i)=state.0.lock()else{return false;};!i.obs_config.enabled||i.obs_watcher_connected
+}
+#[cfg(test)] mod cold_switch_tests {
+ use super::*;
+ #[test] fn offline_idle_is_not_proof_when_any_request_or_uncertain_outcome_exists(){
+  assert!(cold_scene_idle(false,false,false));
+  for flags in [(true,false,false),(false,true,false),(false,false,true)]{assert!(!cold_scene_idle(flags.0,flags.1,flags.2));}
+ }
+ #[test] fn closed_obs_connection_failure_does_not_claim_a_scene_request_was_sent(){
+  let listener=std::net::TcpListener::bind("127.0.0.1:0").unwrap();let port=listener.local_addr().unwrap().port();drop(listener);
+  let config=ObsConfig{host:"127.0.0.1".into(),port,..Default::default()};let mut sent=false;
+  assert!(switch_scene_observed(&config,BroadcastScene::BetweenMatches,||sent=true).is_err());assert!(!sent);
+ }
 }
 fn reconcile_plugin_scene(desired:&str,mut observe:impl FnMut()->Result<String,String>,mut switch:impl FnMut()->Result<(),String>)->companion_dota_domain::effects::Status {
  use companion_dota_domain::effects::Status;

@@ -82,4 +82,11 @@ pub(crate) fn activation_preflight(conn:&Connection,backup_path:&Path)->Result<(
     let baseline:String=sql(conn.query_row("SELECT baseline FROM pc_tx_meta WHERE id=1",[],|r|r.get(0)))?;
     if data_identity(&copy)?!=baseline{return Err("backup_identity_mismatch".into());}Ok(())
 }
+pub(crate) fn namespace_prepared(c:&Connection)->Result<bool> {
+ let count:i64=sql(c.query_row("SELECT count(*) FROM sqlite_master WHERE name LIKE 'pc_tx_%'",[],|r|r.get(0)))?;
+ if count!=0{version(c)?;return Ok(true);}
+ let base:i64=sql(c.query_row("SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('local_sessions','local_matches','sync_meta','sync_outbox')",[],|r|r.get(0)))?;
+ let v:i64=sql(c.query_row("PRAGMA user_version",[],|r|r.get(0)))?;
+ if base!=4||v!=schema::version(){return Err("schema_incompatible".into());}Ok(false)
+}
 #[cfg(test)] mod tests;

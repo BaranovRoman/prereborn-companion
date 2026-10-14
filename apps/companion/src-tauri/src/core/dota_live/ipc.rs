@@ -5,7 +5,7 @@ use crate::{core::{plugin_manager::{PluginManager,MatchExecutionGrant},plugin_ru
 use companion_dota_domain::{match_execution::*,effects::{Effect,Status as EffectStatus},contracts::{ReplayInput,ReplayContext}};
 use serde_json::Value;
 use tauri::{AppHandle,Manager};
-pub(crate) struct LiveProcess {runtime:Mutex<Runtime>,binding:ProcessBinding,grant:MatchExecutionGrant}
+pub(crate) struct LiveProcess {runtime:Mutex<Runtime>,binding:ProcessBinding,grant:MatchExecutionGrant,cold_started:bool}
 impl LiveProcess {
  fn start(manager:&PluginManager,history:&LocalRuntimeState,grant:MatchExecutionGrant)->Result<Self,String> {
   let mut runtime=Runtime::default();let generation=uuid::Uuid::new_v4().to_string();
@@ -16,14 +16,14 @@ impl LiveProcess {
    if let Err(e)=history.with_transaction_adapter(|_,c|crate::local_runtime::transaction_authorization::process_spawned(c,&generation,pid)){let _=runtime.stop();return Err(e);}
    Ok(binding)
   })?;
-  Ok(Self{runtime:Mutex::new(runtime),binding,grant})
+  let cold_started=grant.session.is_none();Ok(Self{runtime:Mutex::new(runtime),binding,grant,cold_started})
  }
  pub(crate) fn process(&self,manager:&PluginManager,history:&LocalRuntimeState,gate:&LiveDota,frame:Frame,context:ReplayContext,
      mut dispatch:impl FnMut(&Effect,&str,&crate::local_runtime::host_execution::live_effects::EffectAdmission)->EffectStatus)->Result<(),String> {
   let _admission=gate.external(self.grant.lease)?;
   manager.with_verified_match_grant(&self.grant,|pin|{
    let mut runtime=self.runtime.lock().map_err(|_|"process_lock_poisoned")?;
-   let scope=ExecutionScope{session:self.grant.session.clone(),epoch:self.grant.lease.epoch,run:self.binding.generation.clone()};
+   let scope=ExecutionScope{session:self.grant.session_id()?.to_string(),epoch:self.grant.lease.epoch,run:self.binding.generation.clone()};
    // Short history lock; RELEASED before sending or waiting for any IPC.
    let prepared=history.with_transaction_adapter(|adapter,c|adapter.prepare_plugin_operation(c,pin,frame.snapshot.clone(),frame.at,frame.sequence))?;
    if let Some(prepared)=prepared {
@@ -51,7 +51,7 @@ impl LiveProcess {
  }
  fn effects_locked(&self,pin:&crate::core::plugin_manager::VerifiedMatchGrant<'_>,runtime:&mut Runtime,history:&LocalRuntimeState,gate:&LiveDota,frame:Frame,context:ReplayContext,
      dispatch:&mut impl FnMut(&Effect,&str,&crate::local_runtime::host_execution::live_effects::EffectAdmission)->EffectStatus)->Result<(),String> {
-   let scope=ExecutionScope{session:self.grant.session.clone(),epoch:self.grant.lease.epoch,run:self.binding.generation.clone()};
+   let scope=ExecutionScope{session:self.grant.session_id()?.to_string(),epoch:self.grant.lease.epoch,run:self.binding.generation.clone()};
    let input=LiveEffectsFrame{obs_revision:gate.obs_revision(),deadline_ms:(chrono::Utc::now().timestamp_millis().max(0) as u64).saturating_add(2000),scope:scope.clone(),input:ReplayInput{sequence:frame.sequence,observed_at_ms:frame.at.timestamp_millis().max(0) as u64,snapshot:frame.snapshot,context,match_context:None}};
    // Only real scene transitions/sound detections create effect keys, never idle snapshots.
    let mut uncertain=false;
@@ -89,7 +89,7 @@ impl LiveProcess {
 
  pub(crate) fn recover(&self,manager:&PluginManager,history:&LocalRuntimeState,request:&Request)->Result<Response,String> {
   manager.with_verified_match_grant(&self.grant,|pin|{
-   let scope=ExecutionScope{session:self.grant.session.clone(),epoch:self.grant.lease.epoch,run:self.binding.generation.clone()};
+   let scope=ExecutionScope{session:self.grant.session_id()?.to_string(),epoch:self.grant.lease.epoch,run:self.binding.generation.clone()};
    let input=ExecutionRequest::Recover{scope:scope.clone(),request:request.clone()};
    let mut runtime=self.runtime.lock().map_err(|_|"process_lock_poisoned")?;
    let result=runtime.command_live(pin,&self.binding,"dota.live_recover".into(),serde_json::to_value(&input).map_err(|_|"invalid_request")?,|payload|{
@@ -113,7 +113,10 @@ impl LiveProcess {
    ||history.with_transaction_adapter(|_,c|{
     use companion_dota_domain::ownership::Phase;
     match crate::local_runtime::transaction_authorization::phase(c)? {
-     Phase::Active(l) if l==old=>crate::local_runtime::transaction_authorization::begin(c,old,Owner::BuiltIn,session,None),
+     Phase::Active(l) if l==old=>{
+      let resolved=match session{Some(s)=>Some(s.clone()),None=>crate::local_runtime::transaction_authorization::runtime_session(c,old,Some(self.grant.binding()))?};
+      match resolved.as_deref(){Some(s)=>crate::local_runtime::transaction_authorization::begin(c,old,Owner::BuiltIn,s,None),None=>crate::local_runtime::transaction_authorization::begin_cold(c,old,Owner::BuiltIn,None)}
+     },
      Phase::Draining{old:held,target:Owner::BuiltIn} if held==old=>Ok(()),
      _=>Err("fallback_scope_mismatch".into()),
     }
@@ -139,7 +142,7 @@ impl LiveProcess {
    let gate=app.state::<LiveDota>();let manager=app.state::<PluginManager>();let history=app.state::<LocalRuntimeState>();
    let mut last_watchdog=Instant::now();
    let mut last_snapshot={let state=app.state::<crate::state::AppState>();let inner=state.0.lock().unwrap();
-    inner.last_gsi_payload.as_ref().and_then(|raw|crate::core::dota_observer::project(raw).ok()).unwrap_or_default()};
+    if self.cold_started{Default::default()}else{inner.last_gsi_payload.as_ref().and_then(|raw|crate::core::dota_observer::project(raw).ok()).unwrap_or_default()}};
    let mut reconciled=None;
    let mut last_lifecycle=Instant::now()-Duration::from_secs(2);
    loop {
@@ -158,6 +161,7 @@ impl LiveProcess {
      Mode::External=>if let Some(frame)=gate.next_for(self.grant.lease){
       // Resolve using this exact snapshot before creating its bounded execution ticket.
       if let Err(e)=self.lifecycle_controlled(&manager,&history,&gate,None,Some(&frame.snapshot),frame.at,false){gate.failed(self.grant.lease,&e);continue;}
+      if self.grant.session.is_none(){continue;}
       {
        let reminder_admission=gate.external(self.grant.lease);
        let result=reminder_admission.and_then(|_admission|manager.with_verified_match_grant(&self.grant,|pin|crate::draft_reminder::handle_external(&app,&serde_json::to_value(&frame.snapshot).map_err(|_|"invalid_snapshot")?,pin,&format!("effect:{}:{}:draft",self.binding.generation,frame.sequence))));
@@ -166,19 +170,20 @@ impl LiveProcess {
       last_snapshot=frame.snapshot.clone();
       let context=current_effect_context(&app);
       let obs_revision=gate.obs_revision();
+      let Some(sound_session)=self.grant.session.clone()else{continue;};
       if let Err(e)=self.process(&manager,&history,&gate,frame,context,|effect,correlation,admission|match effect{
-       Effect::Sound{event_id,kind:Some(kind)}=>crate::game_sounds::dispatch_plugin_sound(&app,event_id,*kind,correlation,self.grant.lease,&self.grant.session,admission),
-       Effect::ObsScene{state}=>crate::obs::dispatch_plugin_scene(&app,*state),
+       Effect::Sound{event_id,kind:Some(kind)}=>crate::game_sounds::dispatch_plugin_sound(&app,event_id,*kind,correlation,self.grant.lease,&sound_session,admission),
+       Effect::ObsScene{state}=>if self.cold_started&&!crate::obs::cold_transport_ready(&app){EffectStatus::Rejected}else{crate::obs::dispatch_plugin_scene(&app,*state)},
        Effect::Overlay{state}=>if gate.publish_overlay(self.grant.lease,*state).is_ok(){EffectStatus::Completed}else{EffectStatus::Rejected},
        _=>EffectStatus::Rejected,
       }){gate.failed(self.grant.lease,&e);}else{reconciled=Some(obs_revision);}
      }else{
-      if reconciled!=Some(gate.obs_revision()) {
+      if self.grant.session.is_some()&&reconciled!=Some(gate.obs_revision()) {
        let context=current_effect_context(&app);
        if let Some(frame)=gate.obs_frame(self.grant.lease,last_snapshot.clone(),context.clone()) {
         let revision=gate.obs_revision();
         match self.reconcile_obs(&manager,&history,&gate,frame,context,|effect,_,_|match effect{
-         Effect::ObsScene{state}=>crate::obs::dispatch_plugin_scene(&app,*state),
+         Effect::ObsScene{state}=>if self.cold_started&&!crate::obs::cold_transport_ready(&app){EffectStatus::Rejected}else{crate::obs::dispatch_plugin_scene(&app,*state)},
          Effect::Overlay{state}=>if gate.publish_overlay(self.grant.lease,*state).is_ok(){EffectStatus::Completed}else{EffectStatus::Rejected},_=>EffectStatus::Rejected,
         }){Ok(())=>reconciled=Some(revision),Err(e)=>gate.failed(self.grant.lease,&e)}
        }
@@ -186,7 +191,7 @@ impl LiveProcess {
       let running=self.runtime.lock().map(|mut r|r.snapshot().phase==crate::core::plugin_runtime::Phase::Running).unwrap_or(false);
       if !running{gate.failed(self.grant.lease,"process_crashed");}std::thread::sleep(Duration::from_millis(50));
      },
-     Mode::Fallback=>{if let Ok(fenced)=self.fallback(&history,&gate,||{let audio=app.state::<crate::game_sounds::audio_fence::AudioFence>();audio.fence(&app)?;crate::obs::fence_external_handover(&app)?;crate::dota::reset_after_external_fence(&app)?;audio.reopen()}){let _=manager.clear_live_dota(fenced);break;}},
+     Mode::Fallback=>{if let Ok(fenced)=self.fallback(&history,&gate,||{let audio=app.state::<crate::game_sounds::audio_fence::AudioFence>();audio.fence(&app)?;if self.cold_started{crate::obs::fence_cold_handover(&app)?;}else{crate::obs::fence_external_handover(&app)?;}crate::dota::reset_after_external_fence(&app)?;audio.reopen()}){let _=manager.clear_live_dota(fenced);break;}},
      // Keep the actual owned process/coordinator available for explicit retry.
      // A failed fence must not silently discard its only termination witness.
      Mode::Draining=>std::thread::sleep(Duration::from_millis(50)),
@@ -208,18 +213,22 @@ fn execution_frame(scope:&ExecutionScope,p:&Prepared,key:&str)->ExecutionFrame {
 // effect/writer quiescence; the current developer gate deliberately cannot supply that proof.
 pub(crate) fn handover_external(manager:&PluginManager,history:&LocalRuntimeState,gate:&LiveDota,session:&str,backup:&std::path::Path,
     capabilities:&[&str],fence_builtin:impl FnOnce()->Result<(),String>)->Result<LiveProcess,String> {
+ handover_optional(manager,history,gate,Some(session),backup,capabilities,fence_builtin)
+}
+pub(crate) fn handover_optional(manager:&PluginManager,history:&LocalRuntimeState,gate:&LiveDota,session:Option<&str>,backup:&std::path::Path,
+    capabilities:&[&str],fence_builtin:impl FnOnce()->Result<(),String>)->Result<LiveProcess,String> {
  let old={let mut guard=history.try_lock().map_err(str::to_string)?;let c=guard.as_mut().ok_or("local_runtime_unavailable")?;
   crate::local_runtime::transaction_schema::activation_preflight(c,backup)?;
   super::beta_capacity_preflight(c)?;
   match crate::local_runtime::transaction_authorization::phase(c)?{companion_dota_domain::ownership::Phase::Active(l) if l.owner==Owner::BuiltIn=>l,_=>return Err("ownership_not_builtin".into())}};
  let next=Lease{owner:Owner::External,epoch:old.epoch.checked_add(1).ok_or("epoch_exhausted")?};
- let grant=manager.match_execution_grant(capabilities,session,next)?;
+ let grant=manager.runtime_grant(capabilities,session,next)?;
  let package=grant.binding().clone();let mut process=None;
  gate.switch(old,Owner::External,Duration::from_secs(5),
   ||history.with_transaction_adapter(|_,c|{
    // Attaching marks uncertain startup Draining, so first attachment is deliberately refused.
    // A separate confirmed BuiltIn fence must recover that durable state before handover.
-   crate::local_runtime::transaction_authorization::begin(c,old,Owner::External,session,Some(package))
+   match session{Some(s)=>crate::local_runtime::transaction_authorization::begin(c,old,Owner::External,s,Some(package)),None=>crate::local_runtime::transaction_authorization::begin_cold(c,old,Owner::External,Some(package))}
   }),fence_builtin,
   ||history.with_transaction_adapter(|_,c|crate::local_runtime::transaction_authorization::confirm_fenced(c,old)),
   |_|{process=Some(LiveProcess::start(manager,history,grant)?);Ok(())})?;

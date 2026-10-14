@@ -4,6 +4,14 @@ use companion_dota_domain::{ownership::{Phase,Owner,Lease},match_shadow as rules
 use chrono::{DateTime,Utc};
 fn now(n:i64)->DateTime<Utc>{DateTime::from_timestamp(1700000000+n,0).unwrap()}
 #[test]
+fn cold_switch_storage_status_distinguishes_unprepared_from_incompatible_without_writes() {
+ let(fixture,_,_)=Fixture::seeded().unwrap();let mut c=fixture.connect().unwrap();let before=parity::dump(&c);
+ assert!(!namespace_prepared(&c).unwrap());assert_eq!(parity::dump(&c),before);
+ migrate(&mut c,&fixture.root.path().join("backup.sqlite3")).unwrap();assert!(namespace_prepared(&c).unwrap());
+ let(fixture,_,_)=Fixture::seeded().unwrap();let c=fixture.connect().unwrap();c.execute_batch("CREATE TABLE pc_tx_partial(id INTEGER)").unwrap();assert!(namespace_prepared(&c).is_err());
+ let(fixture,_,_)=Fixture::seeded().unwrap();let c=fixture.connect().unwrap();c.pragma_update(None,"user_version",999).unwrap();assert_eq!(namespace_prepared(&c).unwrap_err(),"schema_incompatible");
+}
+#[test]
 fn explicit_migration_verified_wal_backup_idempotence_and_legacy_rows() {
     let(fixture,s,m)=Fixture::seeded().unwrap();let mut c=fixture.connect().unwrap();let before=parity::dump(&c);let old_version=schema::version();
     let backup=fixture.root.path().join("backup.sqlite3");migrate(&mut c,&backup).unwrap();assert_eq!(parity::dump(&c),before);assert_eq!(c.query_row("PRAGMA user_version",[],|r|r.get::<_,i64>(0)).unwrap(),old_version);

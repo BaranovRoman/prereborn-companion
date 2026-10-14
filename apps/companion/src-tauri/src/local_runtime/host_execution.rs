@@ -155,13 +155,13 @@ impl Adapter {
         self.retain_unknown_guarded(conn,req,&|tx|super::transaction_authorization::authorize(tx,lease,session,None,req))
     }
     pub(crate) fn execute_plugin(&mut self,conn:&mut Connection,pin:&crate::core::plugin_manager::VerifiedMatchGrant<'_>,req:&Request)->Result<Response> {
-        let grant=pin.grant();self.execute_guarded(conn,req,Fault::None,&|tx|super::transaction_authorization::authorize(tx,grant.lease,&grant.session,Some(grant.binding()),req))
+        let grant=pin.grant();self.execute_guarded(conn,req,Fault::None,&|tx|super::transaction_authorization::authorize(tx,grant.lease,grant.session_id()?,Some(grant.binding()),req))
     }
     pub(crate) fn record_unknown_plugin(&mut self,conn:&mut Connection,pin:&crate::core::plugin_manager::VerifiedMatchGrant<'_>,req:&Request)->Result<()> {
-        let grant=pin.grant();self.retain_unknown_guarded(conn,req,&|tx|super::transaction_authorization::authorize(tx,grant.lease,&grant.session,Some(grant.binding()),req))
+        let grant=pin.grant();self.retain_unknown_guarded(conn,req,&|tx|super::transaction_authorization::authorize(tx,grant.lease,grant.session_id()?,Some(grant.binding()),req))
     }
     pub(crate) fn recover_plugin(&mut self,conn:&mut Connection,pin:&crate::core::plugin_manager::VerifiedMatchGrant<'_>,req:&Request)->Result<Response> {
-        let grant=pin.grant();self.recover_guarded(conn,req,&|tx|super::transaction_authorization::authorize(tx,grant.lease,&grant.session,Some(grant.binding()),req))
+        let grant=pin.grant();self.recover_guarded(conn,req,&|tx|super::transaction_authorization::authorize(tx,grant.lease,grant.session_id()?,Some(grant.binding()),req))
     }
     pub(crate) fn attach(conn:&mut Connection)->Result<Self> {
         let (path,lock)=super::transaction_schema::claim(conn)?;
@@ -178,7 +178,7 @@ impl Adapter {
     }
     pub(crate) fn prepare_plugin_operation(&mut self,conn:&mut Connection,pin:&crate::core::plugin_manager::VerifiedMatchGrant<'_>,snapshot:ReplayGsi,now:DateTime<Utc>,sequence:u64)->Result<Option<Prepared>> {
         let grant=pin.grant();let mode=super::sync::cached_ranked_mode(conn);
-        self.prepare_internal(conn,&grant.session,snapshot,mode,now,sequence,true,Some(grant.lease),&|tx|super::transaction_authorization::authorize_scope(tx,grant.lease,&grant.session,Some(grant.binding())))
+        self.prepare_internal(conn,grant.session_id()?,snapshot,mode,now,sequence,true,Some(grant.lease),&|tx|super::transaction_authorization::authorize_scope(tx,grant.lease,grant.session_id()?,Some(grant.binding())))
     }
     pub(crate) fn prepare_live_operation(&mut self,conn:&mut Connection,session:&str,snapshot:ReplayGsi,now:DateTime<Utc>,sequence:u64)->Result<Option<Prepared>> {
         let mode=super::sync::cached_ranked_mode(conn);

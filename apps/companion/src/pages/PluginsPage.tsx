@@ -165,6 +165,8 @@ function DotaControls({ disabled, run }: { disabled: boolean; run: (task: () => 
     : mode !== "built_in" ? `Подготовка недоступна в Runtime: ${mode}. Требуется безопасный возврат на BuiltIn.` : null;
   return <div aria-label="Dota runtime" aria-busy={action !== null}>
     <p>Runtime: {mode ?? "Проверка"} · Epoch: {status?.runtime.epoch ?? "—"}</p>
+    {mode === "external" && status?.sessionBound === false && <p role="status">External: ожидание игровой сессии. Запустите Dota и настоящий матч. Звуки и игровые эффекты в demo/idle без сессии не выполняются.</p>}
+    {status?.storageState === "not_prepared" && <p role="status">Safety-хранилище ещё не подготовлено. Выполните ручную подготовку; отсутствие safety-таблиц не является ошибкой истории.</p>}
     {status?.quota && <p>Осталось операций: {status.quota.remainingOperations}. Unknown: {status.quota.unknown}.</p>}
     {(error || status?.runtime.error || status?.runtime.activationBlocker) && <p role="alert">{error ?? api.errorText(status?.runtime.error ?? status?.runtime.activationBlocker)}</p>}
     {status?.storageError && <p role="status">Хранилище для External не подтверждено: {api.errorText(status.storageError)}</p>}

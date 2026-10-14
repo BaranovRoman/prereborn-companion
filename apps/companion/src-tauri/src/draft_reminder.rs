@@ -100,7 +100,7 @@ pub(crate) fn handle_external(app:&AppHandle,payload:&Value,pin:&crate::core::pl
     let admission=history.with_transaction_adapter(|a,c|a.admit_reminder(c,pin,key,chrono::Utc::now().timestamp_millis().max(0) as u64))?;
     if !admission.fresh{return if admission.ack.status==companion_dota_domain::effects::Status::Unknown{Err("effect_result_unknown".into())}else{Ok(())};}
     let fence=app.state::<crate::game_sounds::audio_fence::AudioFence>();let grant=pin.grant();
-    let playback=fence.admit(Some(grant.lease),Some(&grant.session))?;fence.bind(&playback,key)?;
+    let playback=fence.admit(Some(grant.lease),Some(grant.session_id()?))?;fence.bind(&playback,key)?;
     history.with_transaction_adapter(|a,c|a.bind_audio(c,&admission,&playback))?;
     if app.emit_to("main",DRAFT_STREAM_NOT_STARTED_EVENT,serde_json::json!({"playback":playback.clone()})).is_err(){
         history.with_transaction_adapter(|a,c|a.audio_ack(c,key,&playback,crate::game_sounds::audio_fence::Status::Unknown))?;

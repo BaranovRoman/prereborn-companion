@@ -35,10 +35,11 @@ pub struct View { installed: Vec<Row>, catalog: Vec<Release>, catalog_error: Opt
 fn locked() -> String { "plugin_manager_lock_poisoned".into() }
 pub(crate) struct MatchExecutionGrant {
     binding:companion_dota_domain::match_execution::PackageBinding,executable:PathBuf,
-    pub(crate) session:String,pub(crate) lease:companion_dota_domain::ownership::Lease,
+    pub(crate) session:Option<String>,pub(crate) lease:companion_dota_domain::ownership::Lease,
     capabilities:Vec<String>,
 }
 impl MatchExecutionGrant {
+ pub(crate) fn session_id(&self)->Result<&str,String>{self.session.as_deref().ok_or("session_unbound".into())}
  pub(crate) fn binding(&self)->&companion_dota_domain::match_execution::PackageBinding{&self.binding}
  pub(crate) fn executable(&self)->&std::path::Path{&self.executable}
  pub(crate) fn permits(&self,cap:&str)->bool{self.capabilities.iter().any(|c|c==cap)}
@@ -114,10 +115,18 @@ impl PluginManager {
     }
     pub(crate) fn stopping(&self)->bool{self.shutting_down.load(Ordering::SeqCst)}
     pub(crate) fn match_execution_grant(&self,explicit:&[&str],session:&str,lease:companion_dota_domain::ownership::Lease)->Result<MatchExecutionGrant,String> {
-        if self.shutting_down.load(Ordering::SeqCst){return Err("plugin_manager_stopping".into());}
-        if lease.owner!=companion_dota_domain::ownership::Owner::External||session.is_empty()||session.len()>128{return Err("invalid_execution_scope".into());}
+        if session.is_empty()||session.len()>128{return Err("invalid_execution_scope".into());}
+        self.runtime_grant(explicit,Some(session),lease)
+    }
+    pub(crate) fn verify_live_package(&self,explicit:&[&str])->Result<(),String> {
         let guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_ref().map_err(Clone::clone)?;
-        let (binding,executable)=execution_binding(&service.store,explicit)?;Ok(MatchExecutionGrant{binding,executable,session:session.into(),lease,capabilities:explicit.iter().map(|s|(*s).into()).collect()})
+        execution_binding(&service.store,explicit).map(|_|())
+    }
+    pub(crate) fn runtime_grant(&self,explicit:&[&str],session:Option<&str>,lease:companion_dota_domain::ownership::Lease)->Result<MatchExecutionGrant,String> {
+        if self.shutting_down.load(Ordering::SeqCst){return Err("plugin_manager_stopping".into());}
+        if lease.owner!=companion_dota_domain::ownership::Owner::External||session.is_some_and(|s|s.is_empty()||s.len()>128){return Err("invalid_execution_scope".into());}
+        let guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_ref().map_err(Clone::clone)?;
+        let (binding,executable)=execution_binding(&service.store,explicit)?;Ok(MatchExecutionGrant{binding,executable,session:session.map(str::to_string),lease,capabilities:explicit.iter().map(|s|(*s).into()).collect()})
     }
     // Lock order: manager verification/pin -> existing LocalRuntimeState connection mutex.
     // Never acquire this pin from a caller already holding the runtime process mutex.

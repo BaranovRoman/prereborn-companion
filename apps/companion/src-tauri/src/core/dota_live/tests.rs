@@ -5,6 +5,10 @@ struct Fixture {history:LocalRuntimeState,manager:PluginManager,gate:LiveDota,se
 impl Fixture {
  fn new()->Self {Self::with_binary(None)}
  fn with_binary(supplied:Option<&std::path::Path>)->Self {
+  Self::configured(supplied,false)
+ }
+ fn cold()->Self{Self::configured(None,true)}
+ fn configured(supplied:Option<&std::path::Path>,cold:bool)->Self {
   let root=tempfile::tempdir().unwrap();let manifest_dir=std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
   let default_binary=manifest_dir.join("../../../plugins/target/debug").join(if cfg!(windows){"companion-dota-plugin.exe"}else{"companion-dota-plugin"});
   let binary=supplied.unwrap_or(default_binary.as_path());
@@ -12,7 +16,7 @@ impl Fixture {
   assert!(std::process::Command::new("node").arg(manifest_dir.join("src/core/dota_live/tests/sign-fixture.cjs")).args([root.path().as_os_str(),binary.as_os_str(),std::ffi::OsStr::new(std::env::consts::OS),std::ffi::OsStr::new(std::env::consts::ARCH)]).status().unwrap().success());
   let key=std::fs::read_to_string(root.path().join("fixture.pub")).unwrap();let release=serde_json::from_slice(&std::fs::read(root.path().join("release.json")).unwrap()).unwrap();
   let manager=crate::core::plugin_manager::fixture_installed(root.path().join("plugins"),&key,&release,&std::fs::read(root.path().join("fixture.zip")).unwrap());
-  let path=root.path().join("history.sqlite3");let (session,_)=transaction_tests::seed(&path);
+  let path=root.path().join("history.sqlite3");let session=transaction_tests::seed(&path).0;if cold{let c=rusqlite::Connection::open(&path).unwrap();c.execute_batch("DELETE FROM sync_outbox; DELETE FROM local_matches; DELETE FROM local_sessions;").unwrap();}
   let history=LocalRuntimeState::new();*history.lock()=Some(rusqlite::Connection::open(path).unwrap());
   let backup=root.path().join("backup.sqlite3");history.migrate_transactions(&backup).unwrap();
   history.with_transaction_adapter(|_,c|auth::confirm_fenced(c,Lease{owner:Owner::BuiltIn,epoch:1})).unwrap();
@@ -22,6 +26,78 @@ impl Fixture {
  fn frame(&self,n:u64,state:&str)->Frame {
   Frame{context:ReplayContext::default(),sequence:n,at:chrono::DateTime::from_timestamp(1700000000+n as i64,0).unwrap(),snapshot:crate::core::dota_observer::project(&serde_json::json!({"player":{"activity":"playing","team_name":"radiant","kills":4},"hero":{"id":105},"map":{"game_state":state,"matchid":"42","win_team":"radiant"},"items":{"slot8":{"name":"item_tango","charges":3}}})).unwrap()}
  }
+}
+#[test]
+fn cold_switch_process_waits_without_session_or_effects_and_falls_back() {
+ let f=Fixture::cold();let mut p=handover_optional(&f.manager,&f.history,&f.gate,None,&f.backup,&[MATCH_EXECUTION_CAPABILITY,"dota.sound.play","dota.obs.scene","dota.overlay.update"],||Ok(())).unwrap();
+ assert!(p.grant.session.is_none());assert!(f.gate.builtin().is_none());
+ p.lifecycle(&f.manager,&f.history,&f.gate,None,None,chrono::Utc::now()).unwrap();
+ let mut demo=f.frame(1,"DOTA_GAMERULES_STATE_GAME_IN_PROGRESS");demo.snapshot.map.as_mut().unwrap().custom_game_name=Some("hero_demo".into());
+ p.lifecycle(&f.manager,&f.history,&f.gate,None,Some(&demo.snapshot),demo.at).unwrap();assert!(p.grant.session.is_none());
+ assert_eq!(p.process(&f.manager,&f.history,&f.gate,demo,ReplayContext::default(),|_,_,_|panic!("unbound effect")).unwrap_err(),"session_unbound");
+ let next=p.fallback(&f.history,&f.gate,||Ok(())).unwrap();assert!(next.epoch>p.grant.lease.epoch);assert!(f.gate.builtin().is_some());
+ let c=f.history.lock();let c=c.as_ref().unwrap();for table in ["local_sessions","local_matches","pc_tx_ledger","pc_tx_receipts"]{assert_eq!(c.query_row(&format!("SELECT count(*) FROM {table}"),[],|r|r.get::<_,i64>(0)).unwrap(),0);}
+}
+#[test]
+fn cold_switch_first_gsi_receipt_survives_lost_reply_and_real_worker_continues() {
+ let f=Fixture::cold();let mut p=handover_optional(&f.manager,&f.history,&f.gate,None,&f.backup,&[MATCH_EXECUTION_CAPABILITY,"dota.sound.play","dota.obs.scene","dota.overlay.update"],||Ok(())).unwrap();
+ let frame=f.frame(1,"DOTA_GAMERULES_STATE_GAME_IN_PROGRESS");
+ let saved=f.manager.with_verified_match_grant(&p.grant,|pin|f.history.with_transaction_adapter(|a,c|a.external_lifecycle(c,pin,None,Some(&frame.snapshot),frame.at,false))).unwrap().session.unwrap();
+ {let reopened=rusqlite::Connection::open(f._root.path().join("history.sqlite3")).unwrap();
+  assert!(auth::session_bound(&reopened).unwrap());
+  assert_eq!(reopened.query_row("SELECT count(*) FROM pc_tx_receipts WHERE operation_key LIKE 'lifecycle:%' AND receipt LIKE '%' || ?1 || '%'",[&saved],|r|r.get::<_,i64>(0)).unwrap(),1);
+  let startup=LiveDota::default();startup.observe_storage(&reopened);assert_eq!(startup.status().mode,Mode::Draining);assert!(startup.builtin().is_none());
+ }
+ // Commit succeeded but the caller did not receive/bind its result. A new read returns the same UUID.
+ assert!(p.grant.session.is_none());p.lifecycle(&f.manager,&f.history,&f.gate,None,Some(&frame.snapshot),frame.at).unwrap();assert_eq!(p.grant.session.as_deref(),Some(saved.as_str()));
+ p.process(&f.manager,&f.history,&f.gate,frame,ReplayContext::default(),|_,_,_|EffectStatus::Completed).unwrap();
+ let again=f.frame(2,"DOTA_GAMERULES_STATE_GAME_IN_PROGRESS");p.lifecycle(&f.manager,&f.history,&f.gate,None,Some(&again.snapshot),again.at).unwrap();
+ {let c=f.history.lock();let c=c.as_ref().unwrap();assert_eq!(c.query_row("SELECT count(*) FROM local_sessions",[],|r|r.get::<_,i64>(0)).unwrap(),1);assert_eq!(c.query_row("SELECT session_local_id FROM local_matches LIMIT 1",[],|r|r.get::<_,String>(0)).unwrap(),saved);}
+ p.fallback(&f.history,&f.gate,||Ok(())).unwrap();
+ assert!(p.process(&f.manager,&f.history,&f.gate,again,ReplayContext::default(),|_,_,_|panic!("stale effect")).is_err());
+}
+#[test]
+fn cold_switch_fallback_resolves_committed_session_even_when_binding_reply_was_lost() {
+ let f=Fixture::cold();let p=handover_optional(&f.manager,&f.history,&f.gate,None,&f.backup,&[MATCH_EXECUTION_CAPABILITY],||Ok(())).unwrap();
+ let frame=f.frame(1,"DOTA_GAMERULES_STATE_GAME_IN_PROGRESS");
+ let saved=f.manager.with_verified_match_grant(&p.grant,|pin|f.history.with_transaction_adapter(|a,c|a.external_lifecycle(c,pin,None,Some(&frame.snapshot),frame.at,false))).unwrap().session.unwrap();
+ assert!(p.grant.session.is_none());let next=p.fallback(&f.history,&f.gate,||Ok(())).unwrap();assert!(next.epoch>p.grant.lease.epoch);
+ assert_eq!(f.history.preparation_session().unwrap().as_deref(),Some(saved.as_str()));
+ let c=f.history.lock();let c=c.as_ref().unwrap();assert_eq!(c.query_row("SELECT count(*) FROM local_sessions",[],|r|r.get::<_,i64>(0)).unwrap(),1);assert!(auth::session_bound(c).unwrap());
+}
+#[test]
+fn cold_switch_bootstrap_quota_failure_rolls_back_the_entire_write_set() {
+ let f=Fixture::cold();let mut p=handover_optional(&f.manager,&f.history,&f.gate,None,&f.backup,&[MATCH_EXECUTION_CAPABILITY],||Ok(())).unwrap();
+ f.history.lock().as_ref().unwrap().execute("UPDATE pc_tx_limits SET max_receipt_bytes=1",[]).unwrap();
+ let frame=f.frame(1,"DOTA_GAMERULES_STATE_GAME_IN_PROGRESS");assert_eq!(p.lifecycle(&f.manager,&f.history,&f.gate,None,Some(&frame.snapshot),frame.at).unwrap_err(),"safety_quota_exhausted");
+ {let c=f.history.lock();let c=c.as_ref().unwrap();assert!(!auth::session_bound(c).unwrap());for table in ["local_sessions","pc_tx_ledger","pc_tx_receipts"]{assert_eq!(c.query_row(&format!("SELECT count(*) FROM {table}"),[],|r|r.get::<_,i64>(0)).unwrap(),0);}c.execute("UPDATE pc_tx_limits SET max_receipt_bytes=1048576",[]).unwrap();}
+ p.lifecycle(&f.manager,&f.history,&f.gate,None,Some(&frame.snapshot),frame.at).unwrap();assert!(p.grant.session.is_some());p.fallback(&f.history,&f.gate,||Ok(())).unwrap();
+}
+#[test]
+fn cold_switch_admission_rechecks_real_session_and_unknown_inside_transaction() {
+ for unknown in [false,true] {
+  let f=Fixture::cold();
+  {let mut c=f.history.lock();let c=c.as_mut().unwrap();
+   if unknown{c.execute("INSERT INTO pc_tx_ledger VALUES('uncertain',?1,'unknown')",["a".repeat(64)]).unwrap();}
+   else{let tx=c.transaction().unwrap();crate::local_runtime::transaction_facade::Facade::new(&tx).session(chrono::Utc::now(),false).unwrap();tx.commit().unwrap();}
+  }
+  let result=handover_optional(&f.manager,&f.history,&f.gate,None,&f.backup,&[MATCH_EXECUTION_CAPABILITY],||panic!("unsafe fence/spawn"));
+  let err=match result{Err(e)=>e,Ok(_)=>panic!("unsafe cold admission")};
+  assert_eq!(err,if unknown{"unknown_effects_require_explicit_reconciliation"}else{"cold_state_changed"});
+  let c=f.history.lock();assert!(matches!(auth::phase(c.as_ref().unwrap()).unwrap(),Phase::Active(Lease{owner:Owner::BuiltIn,..})));
+  assert_ne!(f.gate.status().mode,Mode::External); // No process is admitted; early preflight may leave BuiltIn running.
+ }
+}
+#[test]
+fn cold_switch_unknown_cannot_bind_or_take_over() {
+ let f=Fixture::cold();let mut p=handover_optional(&f.manager,&f.history,&f.gate,None,&f.backup,&[MATCH_EXECUTION_CAPABILITY],||Ok(())).unwrap();
+ f.history.lock().as_ref().unwrap().execute("INSERT INTO pc_tx_ledger VALUES('uncertain',?1,'unknown')",["b".repeat(64)]).unwrap();
+ let frame=f.frame(1,"DOTA_GAMERULES_STATE_GAME_IN_PROGRESS");
+ assert_eq!(p.lifecycle(&f.manager,&f.history,&f.gate,None,Some(&frame.snapshot),frame.at).unwrap_err(),"unknown_effects_require_explicit_reconciliation");
+ assert!(p.fallback(&f.history,&f.gate,||Ok(())).is_err());assert!(f.gate.builtin().is_none());assert_eq!(f.gate.status().mode,Mode::Draining);
+ let c=f.history.lock();let c=c.as_ref().unwrap();assert_eq!(c.query_row("SELECT count(*) FROM local_sessions",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+ assert!(matches!(auth::phase(c).unwrap(),Phase::Draining{..}));
+ assert!(auth::runtime_session(c,p.grant.lease,Some(p.grant.binding())).is_err());
 }
 #[test]
 fn installed_process_roundtrip_parity_poststate_and_fenced_fallback() {
@@ -151,13 +227,13 @@ fn core_writers_lifecycle_watchdog_and_session_resolution_refresh_real_ipc_conte
  {let mut guard=f.history.lock();let c=guard.as_mut().unwrap();let tx=c.transaction().unwrap();crate::local_runtime::transaction_facade::Facade::new(&tx).rating(1200).unwrap();tx.commit().unwrap();}
  p.process(&f.manager,&f.history,&f.gate,f.frame(3,game),ReplayContext::default(),|_,_,_|EffectStatus::Completed).unwrap();
  p.lifecycle(&f.manager,&f.history,&f.gate,Some(false),None,at(4)).unwrap();p.lifecycle(&f.manager,&f.history,&f.gate,Some(true),None,at(10)).unwrap();
- assert_eq!(p.grant.session,f.session);
+ assert_eq!(p.grant.session.as_deref(),Some(f.session.as_str()));
  p.lifecycle(&f.manager,&f.history,&f.gate,Some(false),None,at(11)).unwrap();p.lifecycle(&f.manager,&f.history,&f.gate,Some(false),None,at(42)).unwrap();
  assert!(f.history.lock().as_ref().unwrap().query_row("SELECT ended_at IS NOT NULL FROM local_sessions WHERE local_id=?1",[&f.session],|r|r.get::<_,bool>(0)).unwrap());
  // No GSI for 20 minutes: shared cutoff interrupts the closed session's unresolved match.
  p.lifecycle(&f.manager,&f.history,&f.gate,Some(false),None,at(1300)).unwrap();
  let mut next=f.frame(1301,game);next.snapshot.map.as_mut().unwrap().matchid=Some(companion_dota_domain::contracts::ScalarId::Text("43".into()));
- p.lifecycle(&f.manager,&f.history,&f.gate,None,Some(&next.snapshot),next.at).unwrap();assert_eq!(p.grant.session,f.session);let resolved=p.grant.session.clone();
+ p.lifecycle(&f.manager,&f.history,&f.gate,None,Some(&next.snapshot),next.at).unwrap();assert_eq!(p.grant.session.as_deref(),Some(f.session.as_str()));let resolved=p.grant.session.clone();
  p.process(&f.manager,&f.history,&f.gate,next,ReplayContext::default(),|_,_,_|EffectStatus::Completed).unwrap();
  p.lifecycle(&f.manager,&f.history,&f.gate,None,None,at(1302)).unwrap();assert_eq!(p.grant.session,resolved);
  p.fallback(&f.history,&f.gate,||Ok(())).unwrap();
@@ -204,7 +280,7 @@ fn eight_hour_multi_match_effect_budget_through_existing_production_ipc() {
    p.lifecycle(&f.manager,&f.history,&f.gate,None,Some(&frame.snapshot),frame.at).unwrap();
    p.process(&f.manager,&f.history,&f.gate,frame,ReplayContext::default(),|effect,_,a|match effect {
     Effect::Sound{..}=>{
-     sounds+=1;let token=audio.admit(Some(a.ack.lease),Some(&p.grant.session)).unwrap();audio.bind(&token,&a.ack.idempotency_key).unwrap();
+     sounds+=1;let token=audio.admit(Some(a.ack.lease),Some(p.grant.session_id().unwrap())).unwrap();audio.bind(&token,&a.ack.idempotency_key).unwrap();
      f.history.with_transaction_adapter(|adapter,c|{adapter.bind_audio(c,a,&token)?;adapter.audio_ack(c,&a.ack.idempotency_key,&token,Playback::Playing)?;adapter.audio_ack(c,&a.ack.idempotency_key,&token,if sounds%50==0{Playback::Cancelled}else{Playback::Completed})}).unwrap();
      audio.ack(token,if sounds%50==0{Playback::Cancelled}else{Playback::Completed}).unwrap();EffectStatus::Accepted
     },
@@ -245,7 +321,7 @@ fn draft_reminder_is_core_only_audio_source_with_durable_completion() {
  let f=Fixture::new();let p=f.start();f.manager.with_verified_match_grant(&p.grant,|pin|{
   let key=format!("effect:{}:1:draft",p.binding.generation);let req=companion_dota_domain::effects::Request{api:1,lease:p.grant.lease,correlation_id:key.clone(),idempotency_key:key.clone(),deadline_ms:1000,effect:Effect::Sound{event_id:"draft-stream-not-started".into(),kind:None}};
   assert!(f.history.with_transaction_adapter(|a,c|a.admit_effect(c,pin,&req,0)).is_err());
-  let a=f.history.with_transaction_adapter(|a,c|a.admit_reminder(c,pin,&key,0))?;let fence=AudioFence::default();let token=fence.admit(Some(p.grant.lease),Some(&p.grant.session))?;fence.bind(&token,&key)?;
+  let a=f.history.with_transaction_adapter(|a,c|a.admit_reminder(c,pin,&key,0))?;let fence=AudioFence::default();let token=fence.admit(Some(p.grant.lease),Some(p.grant.session_id().unwrap()))?;fence.bind(&token,&key)?;
   f.history.with_transaction_adapter(|adapter,c|{adapter.bind_audio(c,&a,&token)?;adapter.audio_ack(c,&key,&token,Playback::Completed)})?;fence.ack(token,Playback::Completed)?;
   let duplicate=f.history.with_transaction_adapter(|a,c|a.admit_reminder(c,pin,&key,0))?;assert!(!duplicate.fresh);assert_eq!(duplicate.ack.status,EffectStatus::Completed);Ok(())
  }).unwrap();p.fallback(&f.history,&f.gate,||Ok(())).unwrap();
@@ -273,7 +349,7 @@ fn real_ipc_accepts_pending_audio_without_claiming_completion_and_late_cancel_fe
  let mut frame=f.frame(2,game);frame.snapshot.items.as_mut().unwrap().get_mut("slot8").unwrap().charges=Some(2);let mut pending=None;
  p.process(&f.manager,&f.history,&f.gate,frame,ReplayContext::default(),|effect,_,a|{
   if matches!(effect,Effect::Sound{..}) {
-   let token=audio.admit(Some(p.grant.lease),Some(&p.grant.session)).unwrap();audio.bind(&token,&a.ack.idempotency_key).unwrap();f.history.with_transaction_adapter(|adapter,c|adapter.bind_audio(c,a,&token)).unwrap();pending=Some((a.ack.idempotency_key.clone(),token));EffectStatus::Accepted
+   let token=audio.admit(Some(p.grant.lease),Some(p.grant.session_id().unwrap())).unwrap();audio.bind(&token,&a.ack.idempotency_key).unwrap();f.history.with_transaction_adapter(|adapter,c|adapter.bind_audio(c,a,&token)).unwrap();pending=Some((a.ack.idempotency_key.clone(),token));EffectStatus::Accepted
   }else{EffectStatus::Completed}
  }).unwrap();
  let (key,token)=pending.unwrap();assert_eq!(crate::local_runtime::host_execution::live_effects::quota(f.history.lock().as_ref().unwrap()).unwrap().unknown,1);
@@ -289,7 +365,7 @@ fn failed_emit_cannot_be_promoted_to_accepted_by_a_queued_durable_receipt() {
  p.process(&f.manager,&f.history,&f.gate,f.frame(1,game),ReplayContext::default(),|_,_,_|EffectStatus::Completed).unwrap();
  let mut frame=f.frame(2,game);frame.snapshot.items.as_mut().unwrap().get_mut("slot8").unwrap().charges=Some(2);
  assert!(p.process(&f.manager,&f.history,&f.gate,frame,ReplayContext::default(),|_,_,a|{
-  let token=audio.admit(Some(p.grant.lease),Some(&p.grant.session)).unwrap();f.history.with_transaction_adapter(|adapter,c|adapter.bind_audio(c,a,&token)).unwrap();
+  let token=audio.admit(Some(p.grant.lease),Some(p.grant.session_id().unwrap())).unwrap();f.history.with_transaction_adapter(|adapter,c|adapter.bind_audio(c,a,&token)).unwrap();
   EffectStatus::Unknown // emit failed and updating the observation may also have failed
  }).unwrap_err().contains("effect_result_unknown"));assert!(p.fallback(&f.history,&f.gate,||Ok(())).is_err());assert!(f.gate.builtin().is_none());
 }

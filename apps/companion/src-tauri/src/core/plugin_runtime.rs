@@ -13,6 +13,9 @@ pub(crate) mod windows;
 use windows::Child;
 
 const TIMEOUT: Duration = Duration::from_secs(2);
+// Freshly installed executables can take longer to enter main than a warm
+// process (measured 2.84s on macOS). Keep commands at 2s and startup bounded.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Debug, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -154,7 +157,7 @@ impl Runtime {
         self.child = Some(child);
         self.output = Some(rx);
         self.send(Message::Hello { core_api: CORE_API })?;
-        match self.receive(Instant::now() + TIMEOUT)? {
+        match self.receive(Instant::now() + HANDSHAKE_TIMEOUT)? {
             Message::Ready { id, version, min_core_api, max_core_api }
                 if id == expected_id && expected_version.map_or(true, |v| v == version) && min_core_api <= CORE_API && CORE_API <= max_core_api => {
                     self.snapshot.phase = Phase::Running;

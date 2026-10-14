@@ -31,6 +31,9 @@ pub struct DotaState {
     pub obs_active_scene: Option<BroadcastScene>,
     pub obs_active_scene_name: Option<String>,
     pub obs_switch_pending: Option<BroadcastScene>,
+    // A failed scene request that may have reached OBS. Connection failures
+    // and queued retry intents do not imply that a scene write was sent.
+    pub obs_scene_write_uncertain: bool,
     pub obs_retry_scene: Option<BroadcastScene>,
     pub obs_retry_attempt: u32,
     pub obs_retry_at: Option<Instant>,

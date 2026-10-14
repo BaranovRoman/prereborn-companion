@@ -16,6 +16,24 @@ describe("PluginsPage", () => {
     view.installed = [{ id: "dota2", manifest: { ...manifest, id: "dota2" }, error: null, installed: { active: "0.1.0", previous: null, pending: null, enabled: false }, runtime: null }];
     vi.mocked(api.dotaSafety).mockResolvedValue(safety());
   };
+  it("shows cold waiting and demo restrictions from native state without starting or preparing", async () => {
+    dota(); const next = safety(); next.runtime.mode = "external"; next.sessionBound = false; next.storageState = "ready";
+    vi.mocked(api.dotaSafety).mockResolvedValue(next);
+    render(<PluginsPage />);
+    expect(await screen.findByText(/External: ожидание игровой сессии/)).toBeTruthy();
+    expect(screen.getByText(/demo\/idle без сессии не выполняются/)).toBeTruthy();
+    expect(api.dotaAction).not.toHaveBeenCalled();
+  });
+  it("shows not_prepared without a storage failure and keeps activation blocked", async () => {
+    dota(); const next = safety(); next.quota = null; next.storageState = "not_prepared";
+    vi.mocked(api.dotaSafety).mockResolvedValue(next);
+    render(<PluginsPage />);
+    expect(await screen.findByText(/Safety-хранилище ещё не подготовлено/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(screen.getByRole("button", { name: "Включить External Dota" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.queryByText(/Хранилище для External не подтверждено/)).toBeNull();
+    expect(api.dotaAction).not.toHaveBeenCalled();
+  });
   it("shows pending until native resolves, prevents repeated clicks and confirms actual post-state", async () => {
     dota();
     let complete!: () => void;

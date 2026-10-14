@@ -16,12 +16,12 @@ fn bounded_record(c:&Connection,key:&str)->Result<()> {
 impl Adapter {
  pub(crate) fn admit_effect(&mut self,c:&mut Connection,pin:&crate::core::plugin_manager::VerifiedMatchGrant<'_>,req:&EffectRequest,now:u64)->Result<EffectAdmission> {
   let g=pin.grant();if !g.permits(req.effect.capability().permission()){return Err("capability_denied".into());}
-  self.admit_effect_internal(c,g.lease,&g.session,Some(g.binding()),req,now,false)
+  self.admit_effect_internal(c,g.lease,g.session_id()?,Some(g.binding()),req,now,false)
  }
  pub(crate) fn admit_reminder(&mut self,c:&mut Connection,pin:&crate::core::plugin_manager::VerifiedMatchGrant<'_>,key:&str,now:u64)->Result<EffectAdmission> {
   let g=pin.grant();if !g.permits("dota.sound.play"){return Err("capability_denied".into());}
   let req=EffectRequest{api:1,lease:g.lease,correlation_id:key.into(),idempotency_key:key.into(),deadline_ms:now.saturating_add(2000),effect:Effect::Sound{event_id:"draft-stream-not-started".into(),kind:None}};
-  self.admit_effect_internal(c,g.lease,&g.session,Some(g.binding()),&req,now,true)
+  self.admit_effect_internal(c,g.lease,g.session_id()?,Some(g.binding()),&req,now,true)
  }
  #[cfg(test)]
  fn admit_effect_guarded(&mut self,c:&mut Connection,lease:Lease,session:&str,package:Option<&PackageBinding>,req:&EffectRequest,now:u64)->Result<EffectAdmission> {self.admit_effect_internal(c,lease,session,package,req,now,false)}

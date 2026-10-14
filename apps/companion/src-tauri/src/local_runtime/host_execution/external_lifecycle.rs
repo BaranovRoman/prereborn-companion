@@ -2,13 +2,14 @@
 use super::*;
 use companion_dota_domain::session_lifecycle::{self as lifecycle,LifecycleDecision as Decision,SessionLifecycleView};
 #[derive(Debug)]
-pub(crate) struct Outcome {pub(crate) session:String,pub(crate) stream_ended:Option<bool>}
+pub(crate) struct Outcome {pub(crate) session:Option<String>,pub(crate) stream_ended:Option<bool>}
 #[derive(Serialize)]
 struct LifecycleReceipt {family:&'static str,before:u64,after:u64,decision:Option<Decision>,resolved_session:String,interrupted:Vec<String>,sessions:Vec<SessionReceipt>}
 impl Adapter {
  pub(crate) fn external_lifecycle(&mut self,c:&mut Connection,pin:&crate::core::plugin_manager::VerifiedMatchGrant<'_>,streaming:Option<bool>,snapshot:Option<&ReplayGsi>,now:DateTime<Utc>,sweep:bool)->Result<Outcome> {
   let grant=pin.grant();if !grant.permits(MATCH_EXECUTION_CAPABILITY){return Err("capability_denied".into());}
-  self.lifecycle_guarded(c,grant.lease,&grant.session,Some(grant.binding()),streaming,snapshot,now,sweep)
+  if grant.session.is_none(){return self.cold_lifecycle(c,grant.lease,Some(grant.binding()),snapshot,now);}
+  self.lifecycle_guarded(c,grant.lease,grant.session_id()?,Some(grant.binding()),streaming,snapshot,now,sweep)
  }
  fn lifecycle_guarded(&mut self,c:&mut Connection,lease:companion_dota_domain::ownership::Lease,session:&str,package:Option<&PackageBinding>,streaming:Option<bool>,snapshot:Option<&ReplayGsi>,now:DateTime<Utc>,sweep:bool)->Result<Outcome> {
   self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::verify(&tx,&self.expected_schema)?;
@@ -50,7 +51,28 @@ impl Adapter {
   super::super::transaction_authorization::rebind_session_in(&tx,lease,session,package,&resolved)?;
   sql(tx.commit())?;
   let stream_ended=match decision{Some(Decision::StartNewSession|Decision::ContinueSession|Decision::CancelPendingEnd)=>Some(false),Some(Decision::FinalizeEnd)=>Some(true),_=>None};
-  Ok(Outcome{session:resolved,stream_ended})
+  Ok(Outcome{session:Some(resolved),stream_ended})
+ }
+ fn cold_lifecycle(&mut self,c:&mut Connection,lease:companion_dota_domain::ownership::Lease,package:Option<&PackageBinding>,snapshot:Option<&ReplayGsi>,now:DateTime<Utc>)->Result<Outcome> {
+  self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::verify(&tx,&self.expected_schema)?;
+  if let Some(session)=super::super::transaction_authorization::runtime_session(&tx,lease,package)? {
+   if sql(store::find_session(&tx,&session))?.is_none(){return Err("session_missing".into());}
+   return Ok(Outcome{session:Some(session),stream_ended:None});
+  }
+  super::super::transaction_authorization::authorize_unbound(&tx,lease,package)?;
+  super::super::transaction_authorization::cold_eligible(&tx)?;
+  if super::live_effects::quota(&tx)?.unknown!=0{return Err("unknown_effects_require_explicit_reconciliation".into());}
+  let real=snapshot.and_then(|s|serde_json::to_value(s).ok()).and_then(|v|super::super::gsi::parse(&v)).is_some_and(|s|detector::is_new_match_evidence(&s));
+  if !real{return Ok(Outcome{session:None,stream_ended:None});}
+  let before:u64=sql(tx.query_row("SELECT value FROM pc_tx_epoch WHERE id=1",[],|r|r.get(0)))?;
+  let f=Facade::new(&tx);let session=sql(f.session(now,false))?;
+  let after:u64=sql(tx.query_row("SELECT value FROM pc_tx_epoch WHERE id=1",[],|r|r.get(0)))?;
+  let doc=encode(&LifecycleReceipt{family:"lifecycle-v1",before,after,decision:None,resolved_session:session.local_id.clone(),interrupted:vec![],sessions:vec![SessionReceipt{local_id:session.local_id.clone(),ended_at:None,streamed:false,rating_current:session.rating_current,disposition:Disposition::Applied,diagnostic_revision:revision(&tx,"local_sessions",&session.local_id)?}]})?;
+  let key=format!("lifecycle:{}:{after}",lease.epoch);
+  sql(tx.execute("INSERT INTO pc_tx_ledger VALUES(?1,?2,'completed')",params![key,hash(&doc)]))?;
+  sql(tx.execute("INSERT INTO pc_tx_receipts VALUES(?1,?2,?3)",params![key,doc,hash(&doc)]))?;
+  super::super::transaction_authorization::bind_cold_session_in(&tx,lease,package,&session.local_id)?;
+  sql(tx.commit())?;Ok(Outcome{session:Some(session.local_id),stream_ended:None})
  }
 }
 #[cfg(test)]

@@ -668,7 +668,7 @@ pub fn switch_obs_scene(
 ) -> Result<StatusSnapshot, String> {
     let gate=app.try_state::<crate::core::dota_live::LiveDota>();let _admission=gate.as_ref().map(|g|g.core_writer()).transpose()?;
     let config = state.0.lock().unwrap().obs_config.clone();
-    match obs::switch_scene(&config, scene) {
+    match obs::switch_scene_tracked(&app, &config, scene) {
         Ok(()) => {
             let mut inner = state.0.lock().unwrap();
             inner.obs_connected = true;
@@ -708,7 +708,7 @@ pub fn switch_obs_scene(
 pub fn show_stream_summary_scene(app: AppHandle, state: State<AppState>) -> Result<StatusSnapshot, String> {
     let gate=app.try_state::<crate::core::dota_live::LiveDota>();let _admission=gate.as_ref().map(|g|g.core_writer()).transpose()?;
     let config = state.0.lock().unwrap().obs_config.clone();
-    match obs::switch_scene(&config, BroadcastScene::PostStream) {
+    match obs::switch_scene_tracked(&app, &config, BroadcastScene::PostStream) {
         Ok(()) => {
             let mut inner = state.0.lock().unwrap();
             inner.obs_manual_summary_override = true;

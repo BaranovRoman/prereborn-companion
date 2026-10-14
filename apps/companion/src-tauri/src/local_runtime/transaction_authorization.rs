@@ -31,6 +31,7 @@ fn change<T>(c:&mut Connection,f:impl FnOnce(&Connection,&mut Record,&mut Owners
 }
 pub(super) fn uncertain_restart(c:&mut Connection)->Result<()> {change(c,|_,_,o|{o.uncertain_restart();Ok(())})}
 pub(crate) fn phase(c:&Connection)->Result<Phase>{Ok(load(c)?.phase)}
+pub(crate) fn session_bound(c:&Connection)->Result<bool>{Ok(load(c)?.session.is_some())}
 // Called only by the explicit core recovery action AFTER process/audio/OBS fencing.
 // Keeps every receipt and advances the epoch; never restores a history backup.
 pub(crate) fn recover_builtin_after_fence(c:&mut Connection)->Result<Lease> {
@@ -46,6 +47,32 @@ pub(crate) fn begin(c:&mut Connection,lease:Lease,target:Owner,session:&str,pack
     if session.is_empty()||session.len()>128{return Err("session_mismatch".into());}
     if target==Owner::External&&package.is_none(){return Err("package_binding_required".into());}
     change(c,|_tx,r,o|{o.begin(lease,target).map_err(str::to_string)?;r.session=Some(session.into());r.package=package;Ok(())})
+}
+pub(crate) fn cold_eligible(c:&Connection)->Result<()> {
+ if sql(super::store::find_active_match_anywhere(c))?.is_some()||sql(super::store::find_open_session(c))?.is_some(){return Err("cold_state_changed".into());}Ok(())
+}
+pub(crate) fn begin_cold(c:&mut Connection,lease:Lease,target:Owner,package:Option<PackageBinding>)->Result<()> {
+ if target==Owner::External&&package.is_none(){return Err("package_binding_required".into());}
+ change(c,|tx,r,o|{
+  cold_eligible(tx)?;
+  // Fallback may enter Draining with Unknown, but the existing confirmation
+  // path still refuses BuiltIn takeover until explicit reconciliation.
+  if target==Owner::External&&super::host_execution::live_effects::quota(tx)?.unknown!=0{return Err("unknown_effects_require_explicit_reconciliation".into());}
+  if target==Owner::BuiltIn&&r.session.is_some(){return Err("execution_scope_mismatch".into());}
+  o.begin(lease,target).map_err(str::to_string)?;r.session=None;r.package=package;Ok(())
+ })
+}
+pub(super) fn authorize_unbound(c:&Connection,lease:Lease,package:Option<&PackageBinding>)->Result<()> {
+ if runtime_session(c,lease,package)?.is_some(){return Err("execution_scope_mismatch".into());}Ok(())
+}
+pub(crate) fn runtime_session(c:&Connection,lease:Lease,package:Option<&PackageBinding>)->Result<Option<String>> {
+ let r=load(c)?;Ownership::restore(r.phase).map_err(str::to_string)?.authorize(lease).map_err(|_|"ownership_fenced")?;
+ if lease.owner!=Owner::External||package.is_none()||r.package.as_ref()!=package||r.process.as_ref().is_none_or(|p|p.stopped||p.package!=*package.unwrap()){return Err("execution_scope_mismatch".into());}Ok(r.session)
+}
+pub(super) fn bind_cold_session_in(c:&Connection,lease:Lease,package:Option<&PackageBinding>,session:&str)->Result<()> {
+ authorize_unbound(c,lease,package)?;
+ if sql(super::store::find_session(c,session))?.is_none(){return Err("session_mismatch".into());}
+ let mut r=load(c)?;r.session=Some(session.into());save(c,&r)
 }
 pub(crate) fn confirm_fenced(c:&mut Connection,old:Lease)->Result<Lease> {change(c,|_,r,o|{if (old.owner==Owner::External&&r.process.as_ref().is_none_or(|p|!p.stopped))||(matches!(r.phase,Phase::Draining{target:Owner::BuiltIn,..})&&r.process.as_ref().is_some_and(|p|!p.stopped)){return Err("previous_process_stop_unproven".into());}o.confirm_fenced(old).map_err(str::to_string)})}
 pub(crate) fn crash_fenced(c:&mut Connection,old:Lease)->Result<()> {change(c,|_,r,o|{if (old.owner==Owner::External&&r.process.is_none())||r.process.as_ref().is_some_and(|p|!p.stopped){return Err("previous_process_stop_unproven".into());}o.crash_fenced(old).map_err(str::to_string)})}
