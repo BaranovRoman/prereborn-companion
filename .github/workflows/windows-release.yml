@@ -12,6 +12,10 @@ on:
         description: 'Explicit approved signing rehearsal only; no GitHub Release or deploy'
         type: boolean
         default: false
+      dota_candidate:
+        description: 'Build standalone Windows Dota worker/UI candidate only; no signing or publication'
+        type: boolean
+        default: false
   # WK-145 - before this, build-windows only ran on workflow_dispatch or a
   # push to main/tags, so a PR touching apps/companion/src-tauri merged with
   # zero automated Rust build/test coverage (ci.yml only covers web/api).
@@ -39,7 +43,7 @@ jobs:
   # distribution (Actions artifacts require a GitHub login and expire - see
   # release-windows below for the actual public download source).
   build-windows:
-    if: ${{ !startsWith(github.ref, 'refs/tags/') && !inputs.signing_validation }}
+    if: ${{ !startsWith(github.ref, 'refs/tags/') && !inputs.signing_validation && !inputs.dota_candidate }}
     runs-on: windows-latest
 
     steps:
@@ -153,6 +157,45 @@ jobs:
             ${{ runner.temp }}/companion-installer-inspection/dota-companion.exe
             windows-installer-inventory.txt
 
+  dota-candidate:
+    if: github.event_name == 'workflow_dispatch' && inputs.dota_candidate && !inputs.signing_validation && github.ref == 'refs/heads/codex/plugin-runtime-prototype'
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: plugins
+      - run: pnpm install --frozen-lockfile
+        env:
+          CI: true
+      - name: Build independent Dota executable
+        shell: bash
+        run: cargo build --locked --release --manifest-path plugins/Cargo.toml -p companion-dota-plugin
+      - name: Existing real-process IPC tests
+        shell: bash
+        run: cargo test --locked --release --manifest-path plugins/Cargo.toml -p companion-dota-plugin --test ipc -- --test-threads=1
+      - name: Build independent UI and overlay assets
+        shell: bash
+        run: |
+          pnpm --filter @prereborn/companion exec tsc --noEmit -p ../../plugins/dota/ui/tsconfig.json
+          pnpm --filter @prereborn/companion exec vite build --config ../../plugins/dota/ui/vite.config.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dota-windows-candidate
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            plugins/target/release/companion-dota-plugin.exe
+            plugins/dota/ui/dist/
+
   # Tag-triggered release - tag format: prereborn-vX.Y.Z (e.g.
   # prereborn-v0.2.1). Patches the version in package.json/tauri.conf.json
   # from the tag BEFORE building, so the bundle filename
@@ -167,7 +210,7 @@ jobs:
     concurrency:
       group: companion-stable-release
       cancel-in-progress: false
-    if: (startsWith(github.ref, 'refs/tags/prereborn-v') && !(github.event_name == 'workflow_dispatch' && inputs.validation_version != '')) || (github.event_name == 'workflow_dispatch' && inputs.signing_validation && inputs.validation_version != '' && github.ref == 'refs/heads/codex/plugin-runtime-prototype')
+    if: ${{ !inputs.dota_candidate && ((startsWith(github.ref, 'refs/tags/prereborn-v') && !(github.event_name == 'workflow_dispatch' && inputs.validation_version != '')) || (github.event_name == 'workflow_dispatch' && inputs.signing_validation && inputs.validation_version != '' && github.ref == 'refs/heads/codex/plugin-runtime-prototype')) }}
     runs-on: windows-latest
     permissions:
       contents: write
