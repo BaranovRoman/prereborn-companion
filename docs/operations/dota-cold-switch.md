@@ -70,7 +70,24 @@ fixed as above; they were not interpreted as parity success.
 Unsigned Windows validation uses the existing `windows-release.yml`,
 `validation_version=0.5.94`, `signing_validation=false`, `dota_candidate=false`.
 0.5.94 is an unpublished validation artifact version, not a stable tag/release or updater update.
-Windows build results and artifact links are recorded after CI completes.
+Code/source commit: `48c3198fa15baacab156f48e7f3be89cf0fd0f39`.
+
+Final results: 18 targeted Rust tests passed (9 cold/storage/OBS and 9 IPC/lifecycle/audio
+regressions), 26 frontend tests passed, TypeScript, cargo check and diff check passed.
+[Unsigned Windows CI 38611552935](https://github.com/BaranovRoman/prereborn-companion/actions/runs/38611552935)
+completed successfully: native supervisor 5 passed / 3 ignored fixture entrypoints,
+Prepare UI/invoke 21 passed, Credential Manager smoke, NSIS build, exact installed PE payload
+comparison (only the expected NSIS subsystem marker differs), metadata/inventory and synthetic
+packaged GSI/overlay/single-instance smoke. `release-windows` and `dota-candidate` were skipped.
+
+[Download CI artifact prereborn-companion-windows](https://github.com/BaranovRoman/prereborn-companion/actions/runs/38611552935/artifacts/11919191055)
+(GitHub login required; expiring unsigned artifact). Contains
+`PreReborn Companion_0.5.94_x64-setup.exe` and its `.sha256`.
+Installer SHA256 from CI:
+`eeb1ba1b6a9aaf0b987067471dffb37dbf523114b7ac6e329cef4ab675158d99`.
+The Windows pipeline verified the installer. Local download stalled twice, including a
+bounded 60-second retry, so a local downloaded-file SHA256 comparison is not claimed.
+No updater manifest or public Release was produced.
 No local Tauri bundle, full suite, Silero/old-overlay rebuild or cargo clean is needed.
 
 ## Windows checklist (ручная проверка)
