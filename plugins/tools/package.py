@@ -15,7 +15,7 @@ def sign(path, key):
                     '-f', str(pathlib.Path(key).resolve()), str(path.resolve())],
                    cwd=ROOT, env=env, check=True, stdout=subprocess.DEVNULL)
     result = pathlib.Path(str(path) + '.sig')
-    text = base64.b64decode(result.read_text().strip()).decode()
+    text = base64.b64decode(result.read_text(encoding='utf-8').strip()).decode()
     result.unlink()
     return text
 
@@ -34,7 +34,7 @@ def write_archive(path, files):
 
 def assemble(input_root, metadata, output):
     """Public signed metadata + exact CI bytes only; signing and launching are impossible here."""
-    root = pathlib.Path(input_root).resolve(); meta = json.loads(pathlib.Path(metadata).read_text())
+    root = pathlib.Path(input_root).resolve(); meta = json.loads(pathlib.Path(metadata).read_text(encoding='utf-8'))
     manifest_bytes = base64.b64decode(meta['manifest_bytes'], validate=True)
     manifest = json.loads(manifest_bytes); release = meta['release']
     if manifest != release['manifest'] or manifest['id'] != 'dota2' or manifest['platform'] != 'windows' or manifest['arch'] != 'x86_64' or manifest['executable'] != 'bin/companion-dota-plugin.exe':
@@ -66,7 +66,7 @@ def assemble(input_root, metadata, output):
         archive.unlink(); raise ValueError('Reconstructed archive differs from signed candidate')
     archive.with_suffix('.release.json').write_bytes(encode(release))
     (output / 'catalog.json').write_bytes(base64.b64decode(meta['catalog_bytes'], validate=True))
-    (output / 'catalog.minisig').write_text(meta['catalog_signature'])
+    (output / 'catalog.minisig').write_bytes(meta['catalog_signature'].encode('utf-8'))
     return archive
 
 def package(binary, ui, version, platform, arch, output, key, url, manifest_template=None):
@@ -87,7 +87,7 @@ def package(binary, ui, version, platform, arch, output, key, url, manifest_temp
                     executable='bin/' + binary.name, ui='ui/index.html', permissions=['ui'],
                     files={name: digest(data) for name, data in files.items()})
     if manifest_template:
-        template = json.loads(pathlib.Path(manifest_template).read_text())
+        template = json.loads(pathlib.Path(manifest_template).read_text(encoding='utf-8'))
         if template['version'] != version:
             raise ValueError('Template version must match executable/CLI version')
         for field in ['schema', 'id', 'name', 'description', 'permissions', 'minApi', 'maxApi']:
@@ -127,9 +127,9 @@ def main():
         assemble(**args)
     else:
         output = pathlib.Path(args['output']); output.parent.mkdir(parents=True, exist_ok=True)
-        releases = [json.loads(pathlib.Path(path).read_text()) for path in args['release']]
+        releases = [json.loads(pathlib.Path(path).read_text(encoding='utf-8')) for path in args['release']]
         output.write_bytes(encode(dict(schema=1, releases=releases)))
-        output.with_suffix('.minisig').write_text(sign(output, args['key']))
+        output.with_suffix('.minisig').write_bytes(sign(output, args['key']).encode('utf-8'))
         print(output)
 if __name__ == '__main__':
     main()
