@@ -8,6 +8,10 @@ mod live_effects;
 
 fn run() -> Result<(), String> {
     let args:Vec<_>=std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg|arg=="--worker") {
+        if args.len()!=2{return Err("invalid_runtime_mode".into());}
+        return run_worker(companion_dota_plugin::worker::Launch::parse(&args[1])?);
+    }
     let live=args==["--live"];
     if !live && args.iter().any(|arg|arg!="--replay") {return Err("invalid_runtime_mode".into());}
     let mut input = BufReader::new(io::stdin()); let mut output = io::stdout();
@@ -91,5 +95,22 @@ fn run() -> Result<(), String> {
         }
     }
     Ok(())
+}
+fn run_worker(launch:companion_dota_plugin::worker::Launch)->Result<(),String>{
+    let mut worker=companion_dota_plugin::worker::Worker::new(launch);
+    let mut input=BufReader::new(io::stdin());let mut output=io::stdout();
+    if !matches!(read_frame(&mut input)?,Some(Message::Hello{core_api:CORE_API})){return Err("expected_compatible_hello".into());}
+    write_frame(&mut output,Message::Ready{id:PLUGIN_ID.into(),version:env!("CARGO_PKG_VERSION").into(),min_core_api:CORE_API,max_core_api:CORE_API})?;
+    while let Some(message)=read_frame(&mut input)?{
+        match message {
+            Message::Command{id,name,args}=>match worker.command(&name,args){
+                Ok(result)=>write_frame(&mut output,Message::Reply{id,result})?,
+                Err(code)=>write_frame(&mut output,Message::Error{id:Some(id),code,message:"Dota command failed; inspect plugin status".into()})?,
+            },
+            Message::Stop=>{worker.stop()?;write_frame(&mut output,Message::Stopped)?;return Ok(());},
+            _=>return Err("unexpected_message".into()),
+        }
+    }
+    worker.stop()
 }
 fn main() { if let Err(error) = run() { eprintln!("{error}"); std::process::exit(1); } }

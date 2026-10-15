@@ -3,9 +3,13 @@ name = "companion-dota-plugin"
 version = "0.1.0"
 edition = "2021"
 [dependencies]
+companion-dota-storage = { path = "../dota-storage" }
+rusqlite = { version = "0.31", features = ["bundled"] }
 companion-plugin-protocol = { path = "../protocol" }
 companion-dota-domain = { path = "../dota-domain" }
 serde_json = "1"
+sha2 = "0.10"
+tiny_http = "0.12"
 uuid = { version = "1", features = ["v4"] }
 
 serde = { version = "1", features = ["derive"] }

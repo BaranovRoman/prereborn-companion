@@ -174,10 +174,16 @@ impl Runtime {
         self.start_verified_generation(pin,uuid::Uuid::new_v4().to_string())
     }
     pub fn start_verified_generation(&mut self,pin:&impl crate::ProcessGrant,generation:String)->Result<ProcessBinding,String> {
+        self.start_verified_args(pin,generation,&["--live".into()])
+    }
+    /// Host-owned launch options, supplied while the verified package pin is
+    /// held. No iframe or handshake can amend the process grant or generation.
+    pub fn start_verified_args(&mut self,pin:&impl crate::ProcessGrant,generation:String,args:&[String])->Result<ProcessBinding,String> {
         if uuid::Uuid::parse_str(&generation).is_err(){return Err("invalid_process_generation".into());}
+        if args.len()>16||args.iter().any(|s|s.contains('\0'))||args.iter().map(String::len).sum::<usize>()>16384{return Err("launch_too_large".into());}
         let grant=pin;
         #[cfg(windows)] {self.spawn_generation=Some(generation.clone());}
-        self.start_expected(grant.executable(),&["--live".into()],&grant.binding().id,Some(&grant.binding().version))?;
+        self.start_expected(grant.executable(),args,&grant.binding().id,Some(&grant.binding().version))?;
         let binding=ProcessBinding{generation,package:grant.binding().clone()};
         self.process=Some(binding.clone());Ok(binding)
     }

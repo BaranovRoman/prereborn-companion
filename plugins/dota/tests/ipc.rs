@@ -18,6 +18,84 @@ impl Process {
     }
 }
 impl Drop for Process {fn drop(&mut self){let _=self.child.kill();let _=self.child.wait();}}
+
+fn launch_installed_worker(root:&std::path::Path,capabilities:&[&str])->companion_plugin_protocol::runtime::Runtime{
+    use sha2::{Digest,Sha256};
+    use companion_plugin_protocol::{runtime::Runtime,PackageBinding,ProcessGrant};
+    struct Pin{binding:PackageBinding,exe:std::path::PathBuf,capabilities:Vec<String>}
+    impl ProcessGrant for Pin{
+        fn binding(&self)->&PackageBinding{&self.binding}
+        fn executable(&self)->&std::path::Path{&self.exe}
+        fn permits(&self,cap:&str)->bool{self.capabilities.iter().any(|c|c==cap)}
+    }
+    let exe=std::path::PathBuf::from(env!("CARGO_BIN_EXE_companion-dota-plugin"));
+    let hash=format!("{:x}",Sha256::digest(std::fs::read(&exe).unwrap()));
+    let binding=PackageBinding{id:"dota2".into(),version:env!("CARGO_PKG_VERSION").into(),executable_hash:hash,manifest_hash:"b".repeat(64)};
+    let generation=uuid::Uuid::new_v4().to_string();
+    let args=vec!["--worker".into(),json!({"dataRoot":root,"generation":generation,"package":binding,"capabilities":capabilities}).to_string()];
+    let mut runtime=Runtime::default();runtime.start_verified_args(&Pin{binding,exe,capabilities:capabilities.iter().map(|s|(*s).into()).collect()},generation,&args).unwrap();runtime
+}
+#[test]
+fn installed_worker_uses_real_ipc_for_manual_idempotent_preparation_and_keeps_launch_authority_out_of_commands(){
+    let root=tempfile::tempdir().unwrap();let mut runtime=launch_installed_worker(root.path(),&[]);
+    assert_eq!(runtime.command("dota.status".into(),json!({})).unwrap()["prepared"],false);
+    assert!(!root.path().join("local-runtime.sqlite3").exists());
+    let denied=runtime.command("dota.prepare".into(),json!({"dataRoot":"untrusted"})).unwrap_err();assert!(denied.starts_with("unexpected_command_payload"));
+    assert_eq!(runtime.command("dota.status".into(),json!({})).unwrap()["prepared"],false);
+    let prepared=runtime.command("dota.prepare".into(),json!({})).unwrap();
+    assert_eq!(prepared["prepared"],true);assert_eq!(prepared["active"],false);assert_eq!(prepared["session"],serde_json::Value::Null);
+    let backup_path=root.path().join("local-runtime.pre-external.sqlite3");let backup=std::fs::read(&backup_path).unwrap();
+    assert_eq!(runtime.command("dota.prepare".into(),json!({})).unwrap()["active"],false);
+    assert_eq!(std::fs::read(backup_path).unwrap(),backup);
+    runtime.stop().unwrap();runtime.stopped_confirmed().unwrap();
+}
+
+// Actual Windows job + localhost HTTP + IPC + temporary real SQLite. This is
+// not a Dota game, OBS or native WebView playback smoke test.
+#[cfg(windows)]
+#[test]
+fn supervised_worker_accepts_fresh_demo_and_bot_gsi_without_obs_and_reopens_the_same_session(){
+    use std::{io::{Read,Write},net::TcpStream,time::Instant};
+    fn send(value:&serde_json::Value){
+        let body=value.to_string();let mut stream=TcpStream::connect("127.0.0.1:3665").unwrap();stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        write!(stream,"POST / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",body.len()).unwrap();
+        let mut response=String::new();stream.read_to_string(&mut response).unwrap();assert!(response.starts_with("HTTP/1.1 200"));
+    }
+    fn poll(runtime:&mut companion_plugin_protocol::runtime::Runtime,n:u64)->serde_json::Value{
+        let until=Instant::now()+Duration::from_secs(3);loop{
+            let response=runtime.command("dota.poll".into(),json!({})).unwrap();
+            if response["status"]["processed"].as_u64().unwrap()>=n{return response;}
+            assert!(Instant::now()<until,"GSI was not processed");std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    let root=tempfile::tempdir().unwrap();std::fs::create_dir(root.path().join("sounds")).unwrap();
+    std::fs::write(root.path().join("sounds/jump.wav"),b"RIFFtestWAVE").unwrap();
+    std::fs::write(root.path().join("game-sounds-config.json"),json!({"schemaVersion":1,"enabled":true,"masterVolume":63,"bindings":[{"eventId":"techies_suicide","kind":"abilityCast","assetId":"jump"}],"assets":[{"id":"jump","fileName":"jump.wav","originalName":"jump.wav","sizeBytes":12}]}).to_string()).unwrap();
+    let caps=["dota.match.execute","dota.sound.play"];
+    let mut runtime=launch_installed_worker(root.path(),&caps);
+    assert!(runtime.command("dota.enable".into(),json!({})).unwrap_err().starts_with("not_prepared"));
+    runtime.command("dota.prepare".into(),json!({})).unwrap();
+    let status=runtime.command("dota.enable".into(),json!({})).unwrap();assert_eq!(status["awaitingSession"],true);assert_eq!(status["active"],true);
+    assert!(runtime.command("dota.enable".into(),json!({})).unwrap_err().starts_with("already_active"));
+    let mut raw:serde_json::Value=serde_json::from_str(include_str!("../../dota-domain/src/fixtures/techies-inventory.json")).unwrap();
+    raw["map"]["matchid"]=json!("0");raw["map"]["customgamename"]=json!("hero_demo");raw["abilities"]["ability2"]["cooldown"]=json!(0);
+    send(&raw);let first=poll(&mut runtime,1);assert_eq!(first["status"]["session"],serde_json::Value::Null);assert_eq!(first["soundIntents"],json!([]));
+    raw["abilities"]["ability2"]["cooldown"]=json!(25);send(&raw);let demo=poll(&mut runtime,2);
+    assert_eq!(demo["status"]["session"],serde_json::Value::Null);assert_eq!(demo["soundIntents"].as_array().unwrap().len(),1);assert_eq!(demo["soundIntents"][0]["assetFile"],"jump.wav");
+    send(&raw);assert_eq!(poll(&mut runtime,3)["soundIntents"],json!([]));
+    raw["map"]["customgamename"]=json!("");send(&raw);let bots=poll(&mut runtime,4);
+    let session=bots["status"]["session"].as_str().unwrap().to_string();assert_eq!(bots["status"]["awaitingSession"],false);
+    assert_eq!(bots["status"]["receipt"]["session"]["localId"],session);
+    let epoch=bots["status"]["epoch"].as_u64().unwrap();
+    runtime.command("dota.disable".into(),json!({})).unwrap();runtime.stop().unwrap();runtime.stopped_confirmed().unwrap();
+    let mut runtime=launch_installed_worker(root.path(),&caps);assert_eq!(runtime.command("dota.status".into(),json!({})).unwrap()["active"],false);
+    runtime.command("dota.prepare".into(),json!({})).unwrap();let resumed=runtime.command("dota.enable".into(),json!({})).unwrap();
+    assert_eq!(resumed["session"],session);assert!(resumed["epoch"].as_u64().unwrap()>epoch);
+    send(&raw);assert_eq!(poll(&mut runtime,1)["soundIntents"],json!([]));
+    runtime.command("dota.disable".into(),json!({})).unwrap();runtime.stop().unwrap();runtime.stopped_confirmed().unwrap();
+    let c=rusqlite::Connection::open(root.path().join("local-runtime.sqlite3")).unwrap();
+    assert_eq!(c.query_row("SELECT count(*) FROM local_sessions",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+}
 #[test] fn actual_process_analyzes_replay_and_refuses_live_commands() {
     let mut p=Process::new(&[]); p.send(Message::Hello {core_api:CORE_API});
     assert!(matches!(p.receive(),Message::Ready{id,..} if id=="dota2"));

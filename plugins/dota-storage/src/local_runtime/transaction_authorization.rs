@@ -206,3 +206,56 @@ mod manual_recovery_tests {
   assert_eq!(c.query_row("SELECT status FROM pc_tx_ledger WHERE operation_key='effect:unknown'",[],|r|r.get::<_,String>(0)).unwrap(),"unknown");
  }
 }
+
+/// Plugin-owned activation after the host has drained its audio/OBS transports.
+/// Uses the same history coordinator/epoch/ledger; there is no BuiltIn executor.
+/// Current process membership is an OS proof, not a caller-supplied PID.
+#[cfg(windows)]
+pub fn activate_worker(c:&mut Connection,proof:&companion_plugin_protocol::SupervisedProcess,package:&PackageBinding)->Result<(Lease,Option<String>)> {
+ if package.id!="dota2"||package.version.is_empty()||package.version.len()>240
+  ||[&package.executable_hash,&package.manifest_hash].iter().any(|h|h.len()!=64||!h.bytes().all(|b|b.is_ascii_hexdigit())){return Err("package_identity_mismatch".into());}
+ // Fence the previous job outside a SQLite transaction. Never fence our own job.
+ let previous=load(c)?.process.filter(|p|!p.stopped);
+ if let Some(previous)=previous {
+  if previous.generation!=proof.generation() {
+   if previous.supervision.as_deref()!=Some("windows-job-list-v1"){return Err("process_fence_unproven".into());}
+   companion_plugin_protocol::windows::fence_generation(&previous.generation)?;
+   process_stopped(c,&previous.generation)?;
+  }
+ }
+ change(c,|tx,r,o|{
+  if super::host_execution::live_effects::quota(tx)?.unknown!=0{return Err("unknown_effects_require_explicit_reconciliation".into());}
+  if let Some(process)=r.process.as_ref().filter(|p|!p.stopped) {
+   if process.generation==proof.generation()&&process.pid==Some(proof.process_id())&&process.package==*package&&r.package.as_ref()==Some(package) {
+    if let Phase::Active(lease)=r.phase {if lease.owner==Owner::External{return Ok((lease,r.session.clone()));}}
+   }
+   return Err("previous_process_stop_unproven".into());
+  }
+  let session=sql(super::store::find_active_match_anywhere(tx))?.map(|m|m.session_local_id)
+   .or(sql(super::store::find_open_session(tx))?.map(|s|s.local_id));
+  let lease=match r.phase {
+   Phase::Vacant{..}=>o.recover(Owner::External).map_err(str::to_string)?,
+   Phase::Active(old)|Phase::Draining{old,..}=>{
+    *o=Ownership::restore(Phase::Draining{old,target:Owner::External}).map_err(str::to_string)?;
+    o.confirm_fenced(old).map_err(str::to_string)?
+   }
+  };
+  if session.is_none(){cold_eligible(tx)?;}
+  r.package=Some(package.clone());r.session=session.clone();
+  r.process=Some(ProcessRecord{generation:proof.generation().into(),pid:Some(proof.process_id()),stopped:false,package:package.clone(),supervision:Some("windows-job-list-v1".into())});
+  let key=format!("lifecycle:activate:{}",proof.generation());
+  let doc=encode(&("worker-activation-v1",lease,&session,package,proof.generation()))?;
+  sql(tx.execute("INSERT INTO pc_tx_ledger VALUES(?1,?2,'completed')",rusqlite::params![key,hash(&doc)]))?;
+  sql(tx.execute("INSERT INTO pc_tx_receipts VALUES(?1,?2,?3)",rusqlite::params![key,doc,hash(&doc)]))?;
+  Ok((lease,session))
+ })
+}
+/// Stop admission while retaining the current generation until OS termination is
+/// proven by the host or the next manually started worker. No implicit fallback.
+pub fn drain_worker(c:&mut Connection,lease:Lease,package:&PackageBinding)->Result<()> {
+ change(c,|_,r,o|{
+  o.authorize(lease).map_err(str::to_string)?;
+  if lease.owner!=Owner::External||r.package.as_ref()!=Some(package){return Err("execution_scope_mismatch".into());}
+  o.uncertain_restart();Ok(())
+ })
+}

@@ -93,3 +93,19 @@ pub trait ProcessGrant {
 pub mod runtime;
 
 pub mod playback;
+
+/// OS-attested membership of this process in the host's exact generation job.
+/// Not deserializable; a command-line PID/generation cannot construct this proof.
+#[derive(Debug)]
+pub struct SupervisedProcess {generation:String,process_id:u32}
+impl SupervisedProcess {
+ pub fn generation(&self)->&str {&self.generation}
+ pub fn process_id(&self)->u32 {self.process_id}
+ #[cfg(windows)]
+ pub fn current(generation:&str)->Result<Self,String> {
+  windows::verify_current_generation(generation)?;
+  Ok(Self{generation:generation.into(),process_id:std::process::id()})
+ }
+ #[cfg(not(windows))]
+ pub fn current(_generation:&str)->Result<Self,String> {Err("native_supervision_unsupported".into())}
+}

@@ -4,7 +4,9 @@ use serde_json::{json, Value};
 
 /// Whitelist before deserialization. Never clone the original JSON or arbitrary nested objects.
 pub fn project(raw: &Value) -> Result<ReplayGsi, &'static str> {
+    if !raw.is_object(){return Err("invalid_gsi_root");}
     fn fields(raw: &Value, names: &[&str]) -> Result<Value, &'static str> {
+        if !raw.is_object(){return Err("invalid_projection_object");}
         let mut result = serde_json::Map::new();
         for name in names {
             if let Some(value) = raw.get(*name) {
@@ -53,7 +55,7 @@ pub fn project(raw: &Value) -> Result<ReplayGsi, &'static str> {
         if couriers.len() > 8 { return Err("too_many_couriers"); }
         let mut result_couriers = serde_json::Map::new();
         for (key, value) in couriers {
-            if key.len() > 64 { return Err("invalid_courier"); }
+            if key.len() > 64 || !value.is_object() { return Err("invalid_courier"); }
             // Courier uses item0..5. Retain slot0..5 compatibility with existing replay fixtures.
             if let Some(items) = value.get("items") { result_couriers.insert(format!("courier{}", result_couriers.len()), json!({"items": signals(items, &[("item",6),("slot",6)], "invalid_courier_item_slot")?})); }
         }
@@ -70,6 +72,25 @@ pub fn project(raw: &Value) -> Result<ReplayGsi, &'static str> {
 mod tests {
     use super::*;
     fn fixture() -> Value { serde_json::from_str(include_str!("fixtures/techies-inventory.json")).unwrap() }
+
+    #[test]
+    fn rejects_malformed_objects_instead_of_silently_turning_them_into_empty_frames() {
+        for raw in [Value::Null,json!([]),json!(false),json!("snapshot")] {
+            assert_eq!(project(&raw).unwrap_err(),"invalid_gsi_root");
+        }
+        for section in ["player","hero","map"] {
+            for value in [json!(false),json!(42),json!([]),json!("value")] {
+                let mut raw=fixture();raw[section]=value;
+                assert_eq!(project(&raw).unwrap_err(),"invalid_projection_object");
+            }
+            let mut raw=fixture();raw[section]=Value::Null;assert!(project(&raw).is_ok());
+        }
+        for value in [Value::Null,json!(false),json!([]),json!("courier")] {
+            let mut raw=fixture();raw["couriers"]["SENSITIVE_FIXTURE"]=value;
+            assert_eq!(project(&raw).unwrap_err(),"invalid_courier");
+        }
+        assert!(project(&json!({})).is_ok());
+    }
 
     #[test]
     fn realistic_inventory_and_empty_slots_preserve_semantics_without_metadata() {

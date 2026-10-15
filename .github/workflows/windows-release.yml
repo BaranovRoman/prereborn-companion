@@ -135,7 +135,10 @@ jobs:
           cargo build --locked --manifest-path plugins/Cargo.toml -p companion-dota-plugin -p companion-hello-plugin
           cargo test --locked --manifest-path plugins/Cargo.toml -p companion-plugin-protocol
           cargo test --locked --manifest-path plugins/Cargo.toml -p companion-dota-plugin --lib
-          cargo test --locked --manifest-path plugins/Cargo.toml -p companion-dota-storage
+          cargo test --locked --manifest-path plugins/Cargo.toml -p companion-dota-plugin --test ipc -- --test-threads=1
+          # Keep the existing disk-latency assertions meaningful: do not run
+          # 140 SQLite/WAL fixtures concurrently against the runner's disk.
+          cargo test --locked --manifest-path plugins/Cargo.toml -p companion-dota-storage -- --test-threads=1
 
       - name: Secure storage smoke test (real Windows Credential Manager)
         run: cargo run --manifest-path apps/companion/src-tauri/Cargo.toml --example keyring_smoke

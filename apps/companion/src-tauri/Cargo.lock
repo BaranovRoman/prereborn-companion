@@ -555,9 +555,13 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "companion-dota-domain",
+ "companion-dota-storage",
  "companion-plugin-protocol",
+ "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
+ "tiny_http",
  "uuid",
  "winreg 0.52.0",
 ]
