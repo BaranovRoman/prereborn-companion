@@ -2,6 +2,18 @@
 //! Only owned kernel handles / a generation-named job are termination evidence.
 use std::{ffi::OsStr, fs::File, io, mem::size_of, os::windows::{ffi::OsStrExt, io::{FromRawHandle, OwnedHandle, AsRawHandle}, process::ExitStatusExt}, process::{Command, ExitStatus}, ptr, time::{Duration, Instant}};
 use windows_sys::Win32::{Foundation::*, Security::SECURITY_ATTRIBUTES, System::{JobObjects::*, Pipes::CreatePipe, Threading::*, SystemServices::{JOB_OBJECT_QUERY,JOB_OBJECT_TERMINATE}}};
+use windows_sys::Win32::System::SystemInformation::GetSystemWindowsDirectoryW;
+
+// Winsock providers may expand %SystemRoot% when loading their native DLL.
+// An entirely empty environment yielded WSAEPROVIDERFAILEDINIT (10106) in the
+// actual supervised worker. Supply only this OS-derived value, never the
+// caller's PATH, account tokens, signing secrets, proxies or profile variables.
+fn environment()->io::Result<Vec<u16>>{unsafe{
+    let mut root=vec![0u16;32768];let count=GetSystemWindowsDirectoryW(root.as_mut_ptr(),root.len() as u32) as usize;
+    if count==0{return Err(io::Error::last_os_error());}
+    if count>=root.len(){return Err(io::Error::new(io::ErrorKind::InvalidData,"system directory too long"));}
+    root.truncate(count);let mut env:Vec<u16>="SystemRoot=".encode_utf16().collect();env.extend(root);env.extend([0,0]);Ok(env)
+}}
 
 fn wide(s: &OsStr) -> io::Result<Vec<u16>> {
     let mut v:Vec<_>=s.encode_wide().collect();
@@ -142,8 +154,7 @@ pub fn spawn(command:&Command,generation:&str)->io::Result<Child>{unsafe {
     let program=wide(command.get_program())?;let mut line=quote(command.get_program())?;
     for arg in command.get_args(){line.push(32);line.extend(quote(arg)?);}line.push(0);
     let cwd=command.get_current_dir().map(|p|wide(p.as_os_str())).transpose()?;
-    // Runtime deliberately clears environment; do not inherit account credentials.
-    let env=[0u16,0];let mut pi=PROCESS_INFORMATION::default();
+    let env=environment()?;let mut pi=PROCESS_INFORMATION::default();
     if CreateProcessW(program.as_ptr(),line.as_mut_ptr(),ptr::null(),ptr::null(),1,EXTENDED_STARTUPINFO_PRESENT|CREATE_UNICODE_ENVIRONMENT|CREATE_NO_WINDOW,env.as_ptr().cast(),cwd.as_ref().map_or(ptr::null(),|x|x.as_ptr()),&startup.StartupInfo,&mut pi)==0{return Err(io::Error::last_os_error());}
     let process=own(pi.hProcess)?;let _thread=own(pi.hThread)?;
     // Capture actual membership/counter instead of assuming a new job reports TotalProcesses=1.
@@ -193,6 +204,9 @@ mod tests {
         if std::io::stdin().read_line(&mut generation).unwrap()>0 {
             verify_current_generation(generation.trim()).unwrap();
             assert!(verify_current_generation(&uuid::Uuid::new_v4().to_string()).is_err());
+            let names:Vec<_>=std::env::vars_os().map(|(k,_)|k.to_string_lossy().into_owned()).collect();
+            assert_eq!(names.len(),1);assert!(names[0].eq_ignore_ascii_case("SystemRoot"));
+            let _socket=std::net::TcpListener::bind("127.0.0.1:0").expect("supervised worker must initialize Winsock");
             println!("MEMBERSHIP_CONFIRMED");std::io::stdout().flush().unwrap();
         }
         std::thread::sleep(Duration::from_secs(30));
