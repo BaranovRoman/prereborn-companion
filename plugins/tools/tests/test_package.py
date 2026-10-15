@@ -3,6 +3,20 @@ from unittest.mock import patch
 spec=importlib.util.spec_from_file_location('package',pathlib.Path(__file__).parents[1]/'package.py')
 p=importlib.util.module_from_spec(spec);spec.loader.exec_module(p)
 class PackageTests(unittest.TestCase):
+    def test_api2_signed_ui_policy_is_part_of_the_manifest_not_lost_by_packaging(self):
+        with tempfile.TemporaryDirectory() as root:
+            root=pathlib.Path(root);ui=root/'ui';ui.mkdir();(ui/'index.html').write_text('installed UI')
+            binary=root/'worker.exe';binary.write_bytes(b'unit executable')
+            manifest=json.loads((p.ROOT/'plugins/dota/manifest.windows-live.json').read_text())
+            manifest.update(version='0.2.0',minApi=2,maxApi=2,author='Prereborn',uiCommands=['status','sound.summary','asset.import'],permissions=['ui','data.legacy','audio.play'])
+            template=root/'manifest.json';template.write_text(json.dumps(manifest))
+            # Serialization only; no signing secret or distributable is produced.
+            with patch.object(p,'sign',return_value='unit-test-placeholder'):
+                release=p.package(binary,ui,'0.2.0','windows','x86_64',root/'out',root/'key','https://github.com/example',template)
+            for field in ['author','uiCommands','permissions','minApi','maxApi']:
+                self.assertEqual(release['manifest'][field],manifest[field])
+            with zipfile.ZipFile(root/'out/dota2-0.2.0-windows-x86_64.zip') as archive:
+                self.assertEqual(json.loads(archive.read('manifest.json')),release['manifest'])
     def test_signed_archive_reconstruction_is_exact_and_rejects_changed_bytes(self):
         with tempfile.TemporaryDirectory() as root:
             root=pathlib.Path(root);ui=root/'dota/ui/dist';ui.mkdir(parents=True);(ui/'index.html').write_text('test')

@@ -59,6 +59,7 @@ impl Worker {
    crate::ui::empty(args).and_then(|_|self.command_inner(name))
   }else if !self.launch.capabilities.iter().any(|c|c=="ui"){Err("capability_denied".into())}
   else if name=="status"{crate::ui::empty(args).map(|_|self.status())}
+  else if name=="history.summary"{crate::ui::empty(args).and_then(|_|self.history.as_ref().ok_or_else(||"not_prepared".to_string())).and_then(|h|serde_json::to_value(h.summary()).map_err(|_|"history_encoding_failed".into()))}
   else if !self.launch.capabilities.iter().any(|c|matches!(c.as_str(),"data.legacy"|"data.private")){Err("capability_denied".into())}
   else{crate::ui::command(&self.launch.data_root,name,args)};
   if let Err(error)=&result{self.last_error=Some(error.clone());}

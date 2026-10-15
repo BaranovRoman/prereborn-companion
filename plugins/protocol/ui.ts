@@ -49,7 +49,7 @@ export function client(parent: Window = window.parent) {
       catch { return Promise.reject(new Error("invalid_plugin_request")); }
       const requestId = ++counter;
       return new Promise<T>((resolve,reject) => {
-        const timer = window.setTimeout(() => { pending.delete(requestId); reject(new Error("plugin_request_timeout")); },5000);
+        const timer = window.setTimeout(() => { pending.delete(requestId); reject(new Error("plugin_request_timeout")); },name === "asset.import" ? 120000 : 5000);
         pending.set(requestId,{resolve: value => resolve(value as T),reject,timer});
         parent.postMessage({type:"plugin-command",version:UI_VERSION,instance,requestId,name,args},"*");
       });

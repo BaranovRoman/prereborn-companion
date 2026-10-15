@@ -117,7 +117,11 @@ jobs:
 
       - name: Targeted plugin library, core shell and invoke tests
         if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''
-        run: pnpm --filter @prereborn/companion exec vitest run src/pages/PluginsPage.test.tsx src/plugins/api.test.ts src/core/interface/CoreShell.test.tsx
+        run: pnpm --filter @prereborn/companion exec vitest run src/pages/PluginsPage.test.tsx src/plugins/api.test.ts src/plugins/bridge.test.ts src/plugins/DotaPackageUI.test.tsx src/core/interface/CoreShell.test.tsx
+
+      - name: Independent installed plugin UI
+        if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''
+        run: pnpm --filter @prereborn/dota-ui build
 
       - name: Targeted production GSI projection regressions
         if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''

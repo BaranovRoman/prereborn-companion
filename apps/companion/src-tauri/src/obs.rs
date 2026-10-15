@@ -1727,14 +1727,10 @@ pub(crate) fn dispatch_plugin_scene(app:&AppHandle,requested:BroadcastScene)->co
     outcome
 }
 fn external_scene_request(config:&ConnectionSettings<'_>,desired:&str,deadline:Instant)->Result<(),String> {
- let mut socket=crate::core::obs_transport::open_before(config,deadline)?;
- crate::core::obs_transport::request_before(&mut socket,"SetCurrentProgramScene",json!({"sceneName":desired}),Some(deadline))?;Ok(())
+ crate::core::obs_transport::set_program_scene_before(config,desired,deadline)
 }
 fn fresh_program_scene(config:&ConnectionSettings<'_>,deadline:Instant)->Result<String,String> {
- let mut socket=crate::core::obs_transport::open_before(config,deadline)?;
- let result=crate::core::obs_transport::request_before(&mut socket,"GetCurrentProgramScene",json!({}),Some(deadline))?;
- let scene=result.pointer("/d/responseData/currentProgramSceneName").and_then(Value::as_str).filter(|v|!v.is_empty()&&v.len()<=512).ok_or("invalid_authoritative_scene")?;
- Ok(scene.into())
+ crate::core::obs_transport::program_scene_before(config,deadline)
 }
 // Handover preflight: fresh authoritative transport observation, no scene write/retry.
 pub(crate) fn fence_external_handover(app:&AppHandle)->Result<(),String> {
@@ -1768,11 +1764,9 @@ pub(crate) fn cold_transport_ready(app:&AppHandle)->bool {
   assert!(switch_scene_observed(&config,BroadcastScene::BetweenMatches,||sent=true).is_err());assert!(!sent);
  }
 }
-fn reconcile_plugin_scene(desired:&str,mut observe:impl FnMut()->Result<String,String>,mut switch:impl FnMut()->Result<(),String>)->companion_dota_domain::effects::Status {
+fn reconcile_plugin_scene(desired:&str,observe:impl FnMut()->Result<String,String>,switch:impl FnMut()->Result<(),String>)->companion_dota_domain::effects::Status {
  use companion_dota_domain::effects::Status;
- match observe(){Ok(scene) if scene==desired=>return Status::Completed,Err(_)=>return Status::Unknown,_=>()}
- let _=switch(); // no retry: even an error may have applied at OBS
- match observe(){Ok(scene) if scene==desired=>Status::Completed,_=>Status::Unknown}
+ if crate::core::obs_transport::reconcile_scene(desired,observe,switch){Status::Completed}else{Status::Unknown}
 }
 #[cfg(test)]
 mod external_reconciliation_tests {

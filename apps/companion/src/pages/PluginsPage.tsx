@@ -52,7 +52,7 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
     {!view && !error && <p role="status">Загрузка библиотеки…</p>}
     {view?.catalogError && <p role="status">{api.errorText(view.catalogError)} Установленные плагины доступны независимо от каталога.</p>}
     {view?.transfer.busy && <div className="plugin-transfer" role="status">
-      {view.transfer.stage === "activation" ? <p>Выполняется ручная native-операция Dota…</p> : <>
+      {["activation","operation","file_selection"].includes(view.transfer.stage) ? <p>Выполняется ручная операция плагина…</p> : <>
         <p>{view.transfer.stage === "verify_install" ? "Проверка и установка" : "Загрузка"}: {Math.round(view.transfer.received / 1024)} КБ</p>
         <progress value={view.transfer.total ? view.transfer.received : undefined} max={view.transfer.total ?? 1} />
         <Button onClick={() => void api.cancel().catch((e) => setError(api.errorText(e)))}>Отменить загрузку</Button>
@@ -63,11 +63,11 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
     {opened && view && !selected && <p role="status">Плагин больше не установлен. Пользовательские данные сохранены.</p>}
     {selected ? <article className="plugin-detail">
       <p>{selected.manifest?.description}</p>
-      <p>Версия {selected.installed.active} · {selected.id === "dota2" ? "Статус выполнения показан ниже" : selected.installed.enabled ? phaseText[selected.runtime?.phase ?? "stopped"] : "Отключён"}</p>
+      <p>Версия {selected.installed.active} · {selected.installed.enabled ? phaseText[selected.runtime?.phase ?? "stopped"] : "Отключён"}</p>
       <p>{selected.manifest?.author ? `Автор: ${selected.manifest.author}` : "Автор не указан в манифесте."}</p>
       {selected.installed.pending && <p role="status">Обновление {selected.installed.pending} будет активировано после остановки.</p>}
       {(selected.error || selected.runtime?.lastError) && <p role="alert">{api.errorText(selected.error ?? selected.runtime?.lastError)}</p>}
-      {selected.id === "dota2" ? <DotaControls disabled={disabled} run={run} /> : <div className="plugin-actions">
+      {selected.manifest?.execution === "live" ? <WorkerControls key={`controls-${selected.id}-${selected.installed.active}`} plugin={selected} disabled={disabled} run={run} /> : <div className="plugin-actions">
         <Button disabled={disabled} onClick={() => void run(() => api.action(selected.id, selected.installed.enabled ? "disable" : "enable"))}>{selected.installed.enabled ? "Отключить" : "Включить"}</Button>
         {selected.installed.enabled && selected.runtime?.phase !== "running" && <Button disabled={disabled} onClick={() => void run(() => api.action(selected.id, "start"))}>Запустить</Button>}
         <Button disabled={disabled || selected.runtime?.phase !== "running"} onClick={() => void run(() => api.action(selected.id, "stop"))}>Остановить</Button>
@@ -76,8 +76,8 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
       </div>}
       {view?.catalog.filter((r) => r.manifest.id === selected.id).map((r) => <div key={r.manifest.version}>{installButton(r)}</div>)}
       <small>При удалении пользовательские данные сохраняются.</small>
-      {selected.installed.enabled && selected.runtime?.phase === "running" && <PluginUI key={`${selected.id}-${selected.installed.active}`} plugin={selected} />}
-      {!selected.installed.enabled && <p>Чтобы открыть интерфейс плагина, включите его отдельным действием.</p>}
+      {((selected.manifest?.execution === "live" && selected.manifest.minApi>=2)|| (selected.installed.enabled && selected.runtime?.phase === "running")) && <PluginUI key={`ui-${selected.id}-${selected.installed.active}`} plugin={selected} />}
+      {selected.manifest?.execution !== "live" && !selected.installed.enabled && <p>Чтобы открыть интерфейс этого плагина, включите его отдельным действием.</p>}
     </article> : !opened && <>
       <h3>Установленные</h3>
       {view && view.installed.length === 0 && <p>Плагины ещё не установлены.</p>}
@@ -105,106 +105,38 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
   </section>;
 }
 
-function DotaControls({ disabled, run }: { disabled: boolean; run: (task: () => Promise<void>) => Promise<void> }) {
-  const [status, setStatus] = useState<api.DotaSafety | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [confirmed, setConfirmed] = useState(false);
-  const [action, setAction] = useState<string | null>(null);
-  const [result, setResult] = useState<{ text: string; mode: api.DotaSafety["runtime"]["mode"]; epoch: number | null } | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const actionPending = useRef(false);
-  const statusGeneration = useRef(0);
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    let disposed = false; let pending = false;
-    const refresh = async () => {
-      if (pending) return; pending = true;
-      const generation = statusGeneration.current;
-      try { const next = await api.dotaSafety(); if (!disposed && generation === statusGeneration.current) {
-        // Pending polling may update diagnostics, never overwrite a newer action post-state.
-        setStatus((previous) => actionPending.current && previous ? { ...previous, preparation: next.preparation } : next);
-        setError(null);
-      } }
-      catch (e) { if (!disposed) setError(api.errorText(e)); }
-      finally { pending = false; }
-    };
-    void refresh(); const timer = window.setInterval(() => void refresh(), 700);
-    return () => { disposed = true; mounted.current = false; window.clearInterval(timer); };
-  }, []);
-  const execute = async (nextAction: Parameters<typeof api.dotaAction>[0]) => {
-    // Synchronous guard also covers clicks before React applies disabled.
-    if (actionPending.current) return;
-    actionPending.current = true;
-    statusGeneration.current += 1;
-    setAction(nextAction); setResult(null); setActionError(null);
-    await run(async () => {
-      let acknowledged = false;
-      try {
-        await api.dotaAction(nextAction, nextAction === "disable" || confirmed);
-        acknowledged = true;
-        if (!mounted.current) return;
-        statusGeneration.current += 1;
-        const next = await api.dotaSafety();
-        if (!mounted.current) return;
-        setStatus(next); setError(null);
-        if (nextAction === "prepare" && (next.runtime.mode !== "built_in" || next.runtime.epoch === null ||
-          next.runtime.error || next.storageError || !next.quota || next.quota.unknown !== 0)) {
-          throw new Error(next.runtime.error ?? next.storageError ?? "preparation_post_state_unconfirmed");
-        }
-        setResult({ mode: next.runtime.mode, epoch: next.runtime.epoch, text: nextAction === "prepare"
-          ? `Подготовка подтверждена native: backup проверен, safety-таблицы готовы. BuiltIn · Epoch: ${next.runtime.epoch} · Unknown: ${next.quota!.unknown}. External не включён.`
-          : `Native-команда завершена. Runtime: ${next.runtime.mode} · Epoch: ${next.runtime.epoch ?? "—"}.` });
-      } catch (e) {
-        if (mounted.current) setActionError(`${acknowledged ? "Native-команда завершена, но итоговое состояние не подтверждено" : "Native-команда не подтвердила выполнение"}: ${api.errorText(e)}`);
-        throw e;
-      } finally {
-        actionPending.current = false;
-        statusGeneration.current += 1;
-        if (mounted.current) setAction(null);
-      }
-    });
+function WorkerControls({ plugin, disabled, run }: { plugin: api.Installed; disabled: boolean; run: (task: () => Promise<void>) => Promise<void> }) {
+  const [confirmed,setConfirmed]=useState(false);
+  const [pending,setPending]=useState<string|null>(null);
+  const [result,setResult]=useState<string|null>(null);
+  const [failure,setFailure]=useState<string|null>(null);
+  const inFlight=useRef(false);
+  const compatible=(plugin.manifest?.minApi??0)>=2;
+  const prepared=!!plugin.runtime?.state&&typeof plugin.runtime.state==="object"&&"prepared" in plugin.runtime.state&&plugin.runtime.state.prepared===true;
+  const execute=async(action:string)=>{
+    if(inFlight.current)return;inFlight.current=true;setPending(action);setFailure(null);setResult(null);
+    await run(async()=>{try{
+      await api.action(plugin.id,action);
+      setResult(action==="prepare"?"Подготовка подтверждена worker: backup проверен, хранилище подготовлено. Плагин ещё не включён.":action==="enable"?"Плагин включён вручную.":"Плагин остановлен. Пользовательские данные сохранены.");
+    }catch(e){setFailure(api.errorText(e));throw e;}finally{inFlight.current=false;setPending(null);}});
   };
-  const mode = status?.runtime.mode;
-  const busy = disabled || action !== null;
-  const nativePending = status?.preparation?.status === "pending";
-  const blocked = busy || nativePending || !confirmed || !status || !!status.runtime.activationBlocker;
-  const prepareReason = action ? "Ожидаем результат отправленной native-команды."
-    : disabled ? "Другая операция Plugin Manager ещё выполняется."
-    : nativePending ? "Native Prepare ещё выполняется."
-    : !confirmed ? "Не отмечено ручное подтверждение."
-    : !status ? "Ожидаем native safety status."
-    : status.runtime.activationBlocker ? api.errorText(status.runtime.activationBlocker)
-    : mode !== "built_in" ? `Подготовка недоступна в Runtime: ${mode}. Требуется безопасный возврат на BuiltIn.` : null;
-  return <div aria-label="Dota runtime" aria-busy={action !== null}>
-    <p>Runtime: {mode ?? "Проверка"} · Epoch: {status?.runtime.epoch ?? "—"}</p>
-    {mode === "external" && status?.sessionBound === false && <p role="status">External: ожидание игровой сессии. Запустите Dota и настоящий матч. Звуки и игровые эффекты в demo/idle без сессии не выполняются.</p>}
-    {status?.storageState === "not_prepared" && <p role="status">Safety-хранилище ещё не подготовлено. Выполните ручную подготовку; отсутствие safety-таблиц не является ошибкой истории.</p>}
-    {status?.quota && <p>Осталось операций: {status.quota.remainingOperations}. Unknown: {status.quota.unknown}.</p>}
-    {(error || status?.runtime.error || status?.runtime.activationBlocker) && <p role="alert">{error ?? api.errorText(status?.runtime.error ?? status?.runtime.activationBlocker)}</p>}
-    {status?.storageError && <p role="status">Хранилище для External не подтверждено: {api.errorText(status.storageError)}</p>}
-    {action && <p role="status">{action === "prepare" ? "Подготовка: ожидаем native preflight, backup и миграцию…" : "Ожидаем завершения native-команды…"}</p>}
-    {status?.runtime.lastProjectionError && <p role="alert">Последнее отклонение GSI: {status.runtime.lastProjectionError}. Всего отклонено: {status.runtime.projectionRejected ?? 0}. Причина сохранена независимо от fallback; показан только код причины.</p>}
-    {result && result.mode === mode && result.epoch === status?.runtime.epoch && <p role="status">{result.text}</p>}
-    {actionError && <p role="alert">{actionError}</p>}
-    {status?.preparation && <p role={status.preparation.status === "failed" ? "alert" : "status"}>
-      Native Prepare · Attempt: {status.preparation.attempt} · Этап: {status.preparation.stage} · Статус: {status.preparation.status}
-      {status.preparation.errorCode && <> · Код: {status.preparation.errorCode} — {api.errorText(status.preparation.errorCode)}</>}
-    </p>}
-    {status && !status.preparation && <p role="status">Native Prepare: в этом запуске attempt ещё не зарегистрирован.</p>}
-    {prepareReason && <p role="status">Prepare заблокирован: {prepareReason}</p>}
-    {!confirmed && <p>Чтобы отправить native-команду, отметьте ручное подтверждение ниже.</p>}
-    <label><input type="checkbox" disabled={busy} checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
-      Разрешаю ручную подготовку и переключение Dota. Подготовка создаст backup истории и добавит safety-таблицы. После новых записей старый backup восстанавливать нельзя.
-    </label>
-    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-      <Button disabled={blocked || mode !== "built_in"} onClick={() => void execute("prepare")}>Подготовить backup и миграцию</Button>
-      <Button disabled={blocked || !!actionError || mode !== "built_in" || !!status?.storageError || !!status?.runtime.error || !status?.quota || status.quota.unknown !== 0} onClick={() => void execute("enable")}>Включить External Dota</Button>
-      <Button disabled={busy || !status || !["external", "fallback", "draining"].includes(mode ?? "")} onClick={() => void execute("disable")}>Отключить External → BuiltIn</Button>
-      <Button disabled={busy || mode !== "draining" || !confirmed} onClick={() => void execute("recover")}>Подтвердить fences и вернуть BuiltIn</Button>
+  return <section aria-label="Управление плагином" aria-busy={pending!==null}>
+    {!compatible&&<p role="status">Установленный пакет использует старый API. Для запуска установите совместимое обновление из каталога.</p>}
+    {compatible&&!plugin.installed.enabled&&<>
+      <label><input type="checkbox" checked={confirmed} disabled={disabled||pending!==null} onChange={e=>setConfirmed(e.target.checked)}/>Разрешаю ручную подготовку хранилища. Перед изменением схемы будет проверен backup; существующие файлы сохраняются.</label>
+      {!confirmed&&<p>Подготовка заблокирована до ручного подтверждения.</p>}
+      <Button disabled={disabled||pending!==null||!confirmed} onClick={()=>void execute("prepare")}>Подготовить backup и миграцию</Button>
+      {!prepared&&<p>Перед включением необходимо подтвердить подготовку хранилища.</p>}
+    </>}
+    <div className="plugin-actions">
+      <Button disabled={disabled||pending!==null||!compatible||(!plugin.installed.enabled&&!prepared)} onClick={()=>void execute(plugin.installed.enabled?"disable":"enable")}>{plugin.installed.enabled?"Отключить":"Включить"}</Button>
+      {compatible&&(plugin.error||plugin.runtime?.phase==="failed")&&<Button disabled={disabled||pending!==null} onClick={()=>void execute("recover")}>Проверить остановку и восстановить</Button>}
+      <Button variant="danger" disabled={disabled||pending!==null} onClick={()=>void run(()=>api.action(plugin.id,"remove"))}>Удалить</Button>
     </div>
-    <small>Запуск только вручную. После перезапуска External не включается. При неподтверждённой остановке Dota остаётся Draining.</small>
-  </div>;
+    {pending&&<p role="status">{pending==="prepare"?"Проверка пакета, backup и подготовка хранилища…":"Ожидаем подтверждение native-команды…"}</p>}
+    {result&&<p role="status">{result}</p>}{failure&&<p role="alert">{failure}</p>}
+    <small>Включение только вручную. После перезапуска приложение не запускает live-плагин автоматически.</small>
+  </section>;
 }
 
 function PluginUI({ plugin }: { plugin: api.Installed }) {

@@ -5,3 +5,7 @@
 mod store;
 #[path = "../src/core/plugin_audio/host.rs"]
 mod host;
+#[path = "../src/core/plugin_audio/assets.rs"]
+mod assets;
+#[path = "../src/core/obs_transport.rs"]
+mod obs_transport;

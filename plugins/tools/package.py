@@ -94,6 +94,9 @@ def package(binary, ui, version, platform, arch, output, key, url, manifest_temp
             manifest[field] = template[field]
         if 'execution' in template:
             manifest['execution'] = template['execution']
+        for field in ['author', 'icon', 'uiCommands']:
+            if field in template:
+                manifest[field] = template[field]
     if not re.fullmatch(r'[a-z0-9-]{1,64}', manifest['id']) or not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.-]+)?',version):
         raise ValueError('Unsafe package identity/version')
     with tempfile.TemporaryDirectory() as directory:

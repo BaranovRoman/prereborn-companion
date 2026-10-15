@@ -1,5 +1,4 @@
-// OBS WebSocket transport only. Scene policy, GSI and stream-session ownership
-// remain in the built-in Dota adapter; this layer knows only host/port/password.
+// OBS WebSocket transport only: no scene policy, GSI or game/session types.
 use std::net::TcpStream;
 use std::time::{Duration,Instant};
 
@@ -15,6 +14,52 @@ pub(crate) struct ConnectionSettings<'a> {
     pub host: &'a str,
     pub port: u16,
     pub password: &'a str,
+}
+
+#[derive(Clone,Debug,serde::Serialize,serde::Deserialize,PartialEq)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+pub(crate) struct PublicSnapshot {
+    pub current_scene:String,
+    pub scenes:Vec<String>,
+    pub streaming:bool,
+    pub observed_at_ms:u64,
+}
+fn scene_name(value:&Value)->Result<String,String>{
+    value.as_str().filter(|s|!s.is_empty()&&s.len()<=256&&!s.chars().any(char::is_control)).map(str::to_string).ok_or("obs_scene_response_invalid".into())
+}
+/// Fresh, bounded authoritative state. No password/host/provider metadata or
+/// cached values are returned to a plugin. Failure never becomes streaming=false.
+pub(crate) fn snapshot_before(config:&ConnectionSettings<'_>,deadline:Instant)->Result<PublicSnapshot,String>{
+    let mut socket=open_before(config,deadline)?;
+    let result=request_before(&mut socket,"GetSceneList",json!({}),Some(deadline))?;
+    let items=result.pointer("/d/responseData/scenes").and_then(Value::as_array).filter(|a|a.len()<=128).ok_or("obs_scene_list_limit")?;
+    let mut scenes=Vec::with_capacity(items.len());
+    for item in items {let name=scene_name(&item["sceneName"])?;if scenes.contains(&name){return Err("obs_scene_list_invalid".into());}scenes.push(name);}
+    let result=request_before(&mut socket,"GetCurrentProgramScene",json!({}),Some(deadline))?;
+    let current_scene=scene_name(&result["d"]["responseData"]["currentProgramSceneName"])?;
+    let result=request_before(&mut socket,"GetStreamStatus",json!({}),Some(deadline))?;
+    let streaming=result.pointer("/d/responseData/outputActive").and_then(Value::as_bool).ok_or("obs_stream_state_invalid")?;
+    let observed_at_ms=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|_|"clock_unavailable")?.as_millis().try_into().map_err(|_|"clock_unavailable")?;
+    let snapshot=PublicSnapshot{current_scene,scenes,streaming,observed_at_ms};
+    if serde_json::to_vec(&snapshot).map_err(|_|"obs_state_encoding_failed")?.len()>24576{return Err("obs_public_state_limit".into());}Ok(snapshot)
+}
+pub(crate) fn program_scene_before(config:&ConnectionSettings<'_>,deadline:Instant)->Result<String,String>{
+    let mut socket=open_before(config,deadline)?;
+    let response=request_before(&mut socket,"GetCurrentProgramScene",json!({}),Some(deadline))?;
+    scene_name(&response["d"]["responseData"]["currentProgramSceneName"])
+}
+pub(crate) fn set_program_scene_before(config:&ConnectionSettings<'_>,desired:&str,deadline:Instant)->Result<(),String>{
+    scene_name(&Value::String(desired.into()))?;
+    let mut socket=open_before(config,deadline)?;
+    request_before(&mut socket,"SetCurrentProgramScene",json!({"sceneName":desired}),Some(deadline))?;Ok(())
+}
+/// Exactly the existing observe -> at most one write -> observe rule. True
+/// confirms desired state, never exactly-once command delivery. Cached state,
+/// write ACK alone and blind retry cannot establish this result.
+pub(crate) fn reconcile_scene(desired:&str,mut observe:impl FnMut()->Result<String,String>,mut switch:impl FnMut()->Result<(),String>)->bool{
+    match observe(){Ok(scene) if scene==desired=>return true,Err(_)=>return false,_=>()}
+    let _=switch();
+    matches!(observe(),Ok(scene) if scene==desired)
 }
 
 pub(crate) fn read_json(socket: &mut ObsSocket) -> Result<Value, String> {
@@ -228,6 +273,43 @@ pub(crate) fn request_before(socket:&mut ObsSocket,request_type:&str,request_dat
 mod tests {
     use super::*;
     use std::net::TcpListener;
+
+    #[test]
+    fn fresh_public_snapshot_has_real_stream_and_scene_state_but_no_credentials_or_raw_response() {
+        for valid_stream in [true,false] {
+            let listener=TcpListener::bind("127.0.0.1:0").unwrap();let port=listener.local_addr().unwrap().port();
+            let server=std::thread::spawn(move||{
+                let (stream,_)=listener.accept().unwrap();stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+                let mut socket=tungstenite::accept(stream).unwrap();
+                socket.send(Message::Text(json!({"op":0,"d":{}}).to_string().into())).unwrap();
+                let _:Value=serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();
+                socket.send(Message::Text(json!({"op":2,"d":{}}).to_string().into())).unwrap();
+                for (name,data) in [
+                    ("GetSceneList",json!({"scenes":[{"sceneName":"Scene A","sourceUuid":"not exported"}]})),
+                    ("GetCurrentProgramScene",json!({"currentProgramSceneName":"Scene A"})),
+                    ("GetStreamStatus",if valid_stream{json!({"outputActive":true,"outputBytes":123,"secret":"not exported"})}else{json!({"outputActive":"false"})}),
+                ] {
+                    let request:Value=serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();assert_eq!(request["d"]["requestType"],name);
+                    socket.send(Message::Text(json!({"op":7,"d":{"requestId":request["d"]["requestId"],"requestStatus":{"result":true},"responseData":data}}).to_string().into())).unwrap();
+                }
+            });
+            let result=snapshot_before(&ConnectionSettings{host:"127.0.0.1",port,password:"credential-only-in-core"},Instant::now()+Duration::from_secs(2));
+            server.join().unwrap();
+            if valid_stream{
+                let snapshot=result.unwrap();assert!(snapshot.streaming);assert_eq!(snapshot.current_scene,"Scene A");assert_eq!(snapshot.scenes,vec!["Scene A"]);
+                let encoded=serde_json::to_string(&snapshot).unwrap();assert!(!encoded.contains("credential"));assert!(!encoded.contains("sourceUuid"));assert!(!encoded.contains("outputBytes"));assert!(!encoded.contains("not exported"));
+            }else{assert_eq!(result.unwrap_err(),"obs_stream_state_invalid");}
+        }
+    }
+    #[test]
+    fn reconciliation_never_trusts_write_ack_or_cached_state_or_retries_an_ambiguous_write(){
+        assert!(!reconcile_scene("desired",||Err("unreachable".into()),||panic!("blind write")));
+        assert!(reconcile_scene("desired",||Ok("desired".into()),||panic!("duplicate write")));
+        let mut observations=[Ok("other".into()),Ok("desired".into())].into_iter();let mut writes=0;
+        assert!(reconcile_scene("desired",||observations.next().unwrap(),||{writes+=1;Err("reply lost".into())}));assert_eq!(writes,1);
+        let mut observations=[Ok("other".into()),Err("unreachable".into())].into_iter();let mut writes=0;
+        assert!(!reconcile_scene("desired",||observations.next().unwrap(),||{writes+=1;Ok(())}));assert_eq!(writes,1);
+    }
 
     #[test]
     fn authenticated_handshake_preserves_subscription_and_request_wire_contract() {

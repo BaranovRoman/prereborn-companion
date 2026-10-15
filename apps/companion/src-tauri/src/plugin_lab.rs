@@ -123,7 +123,7 @@ pub fn response(app: &tauri::AppHandle, path: &str) -> tauri::http::Response<Vec
             .header("X-Content-Type-Options", "nosniff")
             // 'self' fails against the sandbox's opaque origin in WKWebView.
             // Permit only assets from our bounded local protocol, not inline/eval/HTTP.
-            .header("Content-Security-Policy", "default-src 'none'; script-src plugin-ui: http://plugin-ui.localhost; style-src plugin-ui: http://plugin-ui.localhost; connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'")
+            .header("Content-Security-Policy", "default-src 'none'; script-src plugin-ui: http://plugin-ui.localhost; style-src plugin-ui: http://plugin-ui.localhost; img-src plugin-ui: http://plugin-ui.localhost https://cdn.cloudflare.steamstatic.com; connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'")
             .body(bytes).unwrap(),
         Err(_) => tauri::http::Response::builder().status(404).body(Vec::new()).unwrap(),
     }

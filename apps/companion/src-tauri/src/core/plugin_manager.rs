@@ -71,6 +71,7 @@ impl Service {
         self.hosts.get(id).is_some_and(|host| host.0.lock().map(|mut r| matches!(r.snapshot().phase, Phase::Running | Phase::Starting)).unwrap_or(true))
     }
     fn start(&mut self, id: &str) -> Result<(), String> {
+        if self.manifests.get(id).is_some_and(|m|m.execution==packages::ExecutionMode::Live&&m.min_api>=2){return self.enable_worker(id);}
         // User activation remains closed, including signed Live packages. BuiltIn is the default owner.
         // Fail closed even if a user edits the registry to enable dota2.
         if id == "dota2" { return Err("dota_live_activation_deferred".into()); }
@@ -85,6 +86,8 @@ impl Service {
         Ok(())
     }
     fn stop(&mut self, id: &str) -> Result<(), String> {
+        if self.workers.contains_key(id){return self.stop_worker(id);}
+        if let Some((_,audio))=&self.native{if audio.process(id)?.is_some_and(|p|p.phase!=super::plugin_audio::store::ProcessPhase::Stopped){return Err("previous_process_stop_unproven".into());}}
         if id == "dota2" && self.live_dota.is_some() { return Err("dota_live_coordinator_required".into()); }
         let stopped = if let Some(host) = self.hosts.get(id) { host.0.lock().map_err(|_| locked())?.stop().map(|_| ()) } else { Ok(()) };
         // Runtime stop reaps the child even on timeout/error. Activation is safe after failure too.
@@ -174,6 +177,12 @@ impl PluginManager {
             if let Ok(service) = guard.as_mut() {
                 for (id,p) in service.store.installed() {
                     if self.shutting_down.load(Ordering::SeqCst) { return; }
+                    // Restoring a registry never starts a live worker, prepares
+                    // history, or reacquires a previous process/owner epoch.
+                    if service.manifests.get(&id).is_some_and(|m|m.execution==packages::ExecutionMode::Live){
+                        if p.enabled{if let Err(e)=service.store.enable(&id,false){service.errors.insert(id,e);}}
+                        continue;
+                    }
                     if p.enabled { if let Err(e) = service.start(&id) { service.errors.insert(id, e); } }
                 }
             }
@@ -269,19 +278,25 @@ impl PluginManager {
         self.finish(&result); result
     }
     pub fn action(&self, id: &str, action: &str) -> Result<(), String> {
-        if self.busy.load(Ordering::SeqCst) { return Err("transfer_in_progress".into()); }
+        self.begin(Some(id.into()),"operation")?;
+        let result=(||{
         let mut guard = self.service.lock().map_err(|_| locked())?; let service = guard.as_mut().map_err(|e| e.clone())?;
         if self.shutting_down.load(Ordering::SeqCst) { return Err("plugin_manager_stopping".into()); }
         let result = match action {
+            "prepare"=>service.prepare_worker(id),
+            "open"=>service.open_worker(id),
+            "recover"=>service.recover_worker(id),
             "start" => service.start(id), "stop" => service.stop(id),
-            "enable" => { if id == "dota2" { Err("dota_live_activation_deferred".into()) } else { service.store.enable(id, true).and_then(|_| service.start(id)) } },
-            "disable" => service.store.enable(id, false).and_then(|_| service.stop(id)),
+            "enable" => { if service.manifests.get(id).is_some_and(|m|m.execution==packages::ExecutionMode::Live){service.enable_worker(id)}else if id == "dota2" { Err("dota_live_activation_deferred".into()) } else { service.store.enable(id, true).and_then(|_| service.start(id)) } },
+            "disable" => service.stop(id).and_then(|_|service.store.enable(id, false)),
             "remove" => service.stop(id).and_then(|_| service.store.remove(id)).map(|_| { service.hosts.remove(id); service.manifests.remove(id); }),
             "rollback" => { if service.running(id) { Err("stop_before_rollback".into()) } else { service.store.activate(id).and_then(|_| service.store.rollback(id)).map(|_| { if let Ok(m) = service.store.manifest(id, &service.store.installed()[id].active) { service.manifests.insert(id.to_string(), m); } }) } },
             _ => Err("unknown_plugin_action".into()),
         };
         match &result { Ok(_) => { service.errors.remove(id); }, Err(e) => { service.errors.insert(id.to_string(), e.clone()); } }
         result
+        })();
+        self.finish(&result);result
     }
     pub fn command(&self, id: &str, name: String, args: Value) -> Result<Value, String> {
         self.ui_command(id,name,args)
@@ -298,7 +313,11 @@ impl PluginManager {
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::SeqCst);
         self.cancel.store(true, Ordering::SeqCst);
-        if let Ok(mut guard) = self.service.lock() { if let Ok(service) = guard.as_mut() { for h in service.hosts.values() { if let Ok(mut r) = h.0.lock() { let _ = r.stop(); } } } }
+        if let Ok(mut guard) = self.service.lock() { if let Ok(service) = guard.as_mut() {
+            let ids=service.workers.keys().cloned().collect::<Vec<_>>();
+            for id in ids{if let Err(error)=service.stop_worker(&id){service.errors.insert(id,error);}}
+            for h in service.hosts.values() { if let Ok(mut r) = h.0.lock() { let _ = r.stop(); } }
+        } }
     }
 }
 enum Packet { Size(Option<u64>), Chunk(Vec<u8>), Done }
@@ -473,7 +492,7 @@ mod tests {
         assert!(manager.asset("/hello/0.1.0/index.html").is_ok());
         assert!(manager.asset("/hello/0.1.0/../manifest.json").is_err());
         manager.action("hello", "disable").unwrap();
-        assert!(manager.asset("/hello/0.1.0/index.html").is_err());
+        assert!(manager.asset("/hello/0.1.0/index.html").is_ok()); // Signed settings UI is independent of execution.
         manager.shutdown(); drop(manager);
         let manager = PluginManager::open(root); manager.restore();
         assert!(!manager.view().installed[0].installed.enabled);

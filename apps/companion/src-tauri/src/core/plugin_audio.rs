@@ -1,6 +1,7 @@
 //! Native managed-audio entry points. Legacy ACK routing is removed with BuiltIn.
 pub(crate) mod store;
 pub(crate) mod host;
+pub(crate) mod assets;
 pub(crate) use host::HostAudio;
 use companion_plugin_protocol::audio::{Token,Status,Fence};
 use tauri::Manager;

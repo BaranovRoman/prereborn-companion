@@ -52,6 +52,18 @@ pub fn command(root:&Path,name:&str,args:Value)->Result<Value>{
    if !settings.assets.iter().any(|a|a.id==b.asset_id){return Err("sound_asset_missing".into());}
    config::upsert_binding(&mut settings,&b.event_id,b.kind,&b.asset_id);commit(root,&settings)?
   },
+  "sound.import"=>{
+   #[derive(Deserialize)]#[serde(rename_all="camelCase",deny_unknown_fields)]struct Import{event_id:String,kind:GameSoundEventKind,asset:config::ManagedSoundAsset}
+   let b:Import=parse(args)?;bindable(&b.event_id,b.kind)?;
+   if uuid::Uuid::parse_str(&b.asset.id).is_err()||b.asset.original_name.is_empty()||b.asset.original_name.len()>512
+    ||b.asset.file_name.split('.').next()!=Some(b.asset.id.as_str())||b.asset.size_bytes==0||b.asset.size_bytes>assets::MAX_FILE_SIZE_BYTES{return Err("invalid_imported_asset".into());}
+   assets::validate_extension(Path::new(&b.asset.file_name))?;
+   if assets::read_plugin_file_from(&root.join("sounds"),&b.asset)?.len() as u64!=b.asset.size_bytes{return Err("imported_asset_changed".into());}
+   let (mut settings,_)=load(root)?;
+   if settings.assets.iter().any(|a|a.id==b.asset.id&&a!=&b.asset){return Err("imported_asset_conflict".into());}
+   if !settings.assets.iter().any(|a|a.id==b.asset.id){settings.assets.push(b.asset.clone());}
+   config::upsert_binding(&mut settings,&b.event_id,b.kind,&b.asset.id);commit(root,&settings)?
+  },
   "sound.remove"=>{
    let r:Remove=parse(args)?;if r.event_id.is_empty()||r.event_id.len()>128{return Err("invalid_event_id".into());}
    let (mut settings,_)=load(root)?;config::remove_binding(&mut settings,&r.event_id);commit(root,&settings)?
@@ -96,5 +108,19 @@ mod tests{
   assert_eq!(command(root.path(),"host.activate",json!({})).unwrap_err(),"unsupported_ui_command");
   assert!(command(root.path(),"sound.bind",json!({"eventId":"unsupported","kind":"abilityCast","assetId":"anything"})).is_err());
   assert_eq!(std::fs::read_dir(root.path()).unwrap().count(),0);
+ }
+ #[test]
+ fn imported_asset_is_bound_only_after_managed_copy_is_validated_and_commit_is_idempotent(){
+  let root=tempfile::tempdir().unwrap();std::fs::create_dir(root.path().join("sounds")).unwrap();
+  let id=uuid::Uuid::new_v4().to_string();let name=format!("{id}.wav");std::fs::write(root.path().join("sounds").join(&name),b"RIFF").unwrap();
+  let args=json!({"eventId":"techies_suicide","kind":"abilityCast","asset":{"id":id,"fileName":name,"originalName":"my-jump.wav","sizeBytes":4}});
+  command(root.path(),"sound.import",args.clone()).unwrap();command(root.path(),"sound.import",args.clone()).unwrap();
+  let settings=config::load_verified(&root.path().join("game-sounds-config.json")).unwrap();assert_eq!(settings.assets.len(),1);assert_eq!(settings.bindings.len(),1);
+  assert_eq!(settings.bindings[0].asset_id,id);assert_eq!(settings.bindings[0].event_id,"techies_suicide");
+  let before=std::fs::read(root.path().join("game-sounds-config.json")).unwrap();
+  let mut changed=args.clone();changed["asset"]["fileName"]=json!("../secret.wav");assert!(command(root.path(),"sound.import",changed).is_err());
+  let mut changed=args.clone();changed["asset"]["sizeBytes"]=json!(5);assert_eq!(command(root.path(),"sound.import",changed).unwrap_err(),"imported_asset_changed");
+  let mut changed=args;changed["asset"]["originalName"]=json!("changed.wav");assert_eq!(command(root.path(),"sound.import",changed).unwrap_err(),"imported_asset_conflict");
+  assert_eq!(std::fs::read(root.path().join("game-sounds-config.json")).unwrap(),before);
  }
 }

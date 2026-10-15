@@ -108,6 +108,21 @@ impl Service{
   self.store.enable(id,false)?;self.workers.remove(id);self.store.activate(id)?;
   drain.map(|_|())
  }
+ pub(super) fn recover_worker(&mut self,id:&str)->Result<(),String>{
+  if self.workers.contains_key(id){return self.stop_worker(id);}
+  let (app,audio)=self.native.as_ref().ok_or("plugin_transport_unavailable")?;
+  let Some(record)=audio.process(id)?else{return Ok(());};
+  if record.phase==ProcessPhase::Stopped{return Ok(());}
+  if !cfg!(windows){return Err("native_supervision_unsupported".into());}
+  let process=ProcessBinding{generation:record.process.generation,package:record.process.package};
+  audio.process_draining(&process,record.epoch)?;
+  // The kernel job identity (not a saved PID or timeout) proves that this
+  // exact generation can no longer run. Unknown receipts are never erased.
+  #[cfg(windows)] companion_plugin_protocol::windows::fence_generation(&process.generation)?;
+  audio.fence(id,|request|app.emit_to("main","plugin-audio-fence",request).map_err(|_|"frontend_audio_unavailable".into()))?;
+  audio.process_after_native_exit(&process,record.epoch)?;
+  self.store.enable(id,false)?;self.store.activate(id)?;Ok(())
+ }
  fn tasks(&self)->Vec<Task>{
   let Some((app,audio))=self.native.as_ref()else{return vec![];};
   self.workers.iter().filter(|(_,w)|w.active).filter_map(|(id,worker)|{
@@ -136,8 +151,46 @@ impl Task{
 }
 
 impl PluginManager{
+ fn asset_command(&self,id:&str,name:&str,args:Value)->Result<Value,String>{
+  let (worker,app,audio)={
+   let mut guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_mut().map_err(|e|e.clone())?;
+   let (_,manifest)=service.worker_pin(id)?;
+   if !manifest.permissions.iter().any(|p|p=="ui")||!manifest.permissions.iter().any(|p|p=="audio.play")
+    ||!manifest.permissions.iter().any(|p|matches!(p.as_str(),"data.legacy"|"data.private"))||!manifest.ui_commands.iter().any(|c|c==name){return Err("capability_denied".into());}
+   service.open_worker(id)?;
+   let worker=service.workers.get(id).cloned().ok_or("not_running")?;
+   let (app,audio)=service.native.as_ref().ok_or("plugin_transport_unavailable")?;
+   (worker,app.clone(),audio.clone())
+  };
+  audio.locked_authorize(&worker.binding,worker.epoch)?;
+  match name{
+   "asset.import"=>{
+    if args!=serde_json::json!({}){return Err("invalid_ui_arguments".into());}
+    self.begin(Some(id.into()),"file_selection")?;
+    let result=(||{
+    use tauri_plugin_dialog::DialogExt;
+    let picked=app.dialog().file().add_filter("Audio",&["wav","mp3","ogg"]).blocking_pick_file().ok_or("file_selection_cancelled")?;
+    let source=picked.into_path().map_err(|_|"audio_source_invalid")?;
+    // A modal picker can outlive disable/replacement; never continue under a
+    // generation which lost admission while the user was choosing a file.
+    audio.locked_authorize(&worker.binding,worker.epoch)?;
+    serde_json::to_value(super::super::plugin_audio::assets::import_selected(&worker.root,&source)?).map_err(|_|"asset_encoding_failed".into())
+    })();self.finish(&result.as_ref().map(|_|()).map_err(Clone::clone));result
+   },
+   "asset.preview"=>{
+    #[derive(Deserialize)]#[serde(rename_all="camelCase",deny_unknown_fields)]struct Preview{file_name:String,volume:u8}
+    let p:Preview=serde_json::from_value(args).map_err(|_|"invalid_ui_arguments")?;
+    let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|_|"clock_unavailable")?.as_millis() as u64;
+    let receipt=audio.play(&worker.pin,&worker.binding,worker.epoch,None,&worker.root.join("sounds"),&format!("preview:{}",uuid::Uuid::new_v4()),&p.file_name,p.volume,now.saturating_add(5000),
+     |payload|app.emit_to("main","plugin-audio-play",payload).map_err(|_|"frontend_audio_emit_failed".into()))?;
+    serde_json::to_value(receipt).map_err(|_|"receipt_encoding_failed".into())
+   },
+   _=>Err("command_not_allowed".into()),
+  }
+ }
  pub(super) fn ui_command(&self,id:&str,name:String,args:Value)->Result<Value,String>{
   if name.starts_with("host.")||name.len()>64||serde_json::to_vec(&args).map_err(|_|"invalid_ui_request")?.len()>8192{return Err("command_not_allowed".into());}
+  if matches!(name.as_str(),"asset.import"|"asset.preview"){return self.asset_command(id,&name,args);}
   let (host,process)={
    let mut guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_mut().map_err(|e|e.clone())?;
    let manifest=service.manifests.get(id).cloned().ok_or("not_installed")?;

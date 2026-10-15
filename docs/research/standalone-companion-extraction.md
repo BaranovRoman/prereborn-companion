@@ -177,3 +177,39 @@ Local targeted checks: 31 Dota library tests plus 8 external-process IPC tests;
 protocol/manager/Hello compatibility checks, 27 UI bridge/library tests, TypeScript
 and cargo check. Package UI replacement, OBS/backend/overlay integration and final
 physical core extraction remain required before any signing/publication.
+
+## Package UI and native command checkpoint (2026-10-16)
+
+Unsigned CI [38760476043](https://github.com/BaranovRoman/prereborn-companion/actions/runs/38760476043)
+passed on f526bf5. The following source changes are a subsequent checkpoint,
+not a published plugin or proof that the core is already Dota-free.
+
+The independent React package now reads the actual domain catalog, saved sound
+bindings/assets/volume and real history projection through the same worker IPC.
+The real item inspector, binding row and presentation categories have moved to
+plugin source; temporary legacy reexports remain until the final core cutover.
+The iframe has no Tauri API or audio player. Native file import uses an explicit
+system picker, a bounded protected copy and opaque metadata; the worker validates
+that managed copy and atomically saves its binding. Preview uses host admission
+and actual frontend receipts, never an iframe player or success-on-emit.
+
+API2 manager actions include manual prepare/enable/disable/recovery. Opening UI
+is separate from activation; restoring registry never starts a live package.
+Recovery uses exact native generation fencing and existing audio/Unknown gates.
+These paths still cannot activate while the new host is unattached; legacy startup
+must be removed first. Existing Dota package 0.1.0 is not upgraded or relabelled as
+compatible. Shared OBS transport now owns the existing fresh-observation/one-write/
+fresh-observation rule and a bounded credential-free authoritative snapshot; the
+old game-specific adapter maps the same result without duplicating its algorithm.
+
+Checks: 20 targeted frontend tests, both frontend typechecks, independent UI build,
+3 worker UI/file-preservation tests, 8 actual child IPC tests, 7 protocol tests,
+13 host audio/import tests, 7 manager tests (one signed local-package test ignored),
+5 generic OBS tests plus 2 existing reconciliation compatibility tests, cargo check
+and diff checks. Socket tests were rerun with localhost bind permission after the
+sandbox's EPERM; no real OBS or user data was used. New React keys are distinct
+for controls/iframe, preserving pending/result/error state during polling.
+
+Still required: full overlay/backend/OBS/lifecycle integration, removal of all
+remaining core game code/dependencies/assets, new signed API2 package/catalog,
+full-source Windows validation and the authorized stable publication sequence.

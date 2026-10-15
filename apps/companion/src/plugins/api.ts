@@ -24,16 +24,6 @@ export const cancel = () => invoke<void>("plugins_cancel");
 export const action = (id: string, action: string) => invoke<void>("plugins_action", { id, action });
 export const command = (id: string, text: string) => invoke<{ text: string }>("plugins_command", { id, name: "greet", args: { text } });
 export const request = (id: string, name: string, args: unknown) => invoke<unknown>("plugins_command", { id, name, args });
-export interface DotaSafety {
-  storageState?: "not_prepared" | "ready" | "error";
-  sessionBound?: boolean | null;
-  preparation?: { attempt: string; stage: string; status: "pending" | "succeeded" | "failed"; errorCode: string | null; startedAt: string; finishedAt: string | null } | null;
-  runtime: { mode: "built_in" | "draining" | "external" | "fallback"; epoch: number | null; queued: number; inFlight: number; lost: number; projectionRejected?: number; lastProjectionError?: string | null; error: string | null; activationBlocker: string | null };
-  quota: { unknown: number; remainingOperations: number } | null;
-  storageError: string | null;
-}
-export const dotaSafety = () => invoke<DotaSafety>("dota_runtime_safety_status");
-export const dotaAction = (action: "prepare" | "enable" | "disable" | "recover", confirmed: boolean) => invoke<void>("dota_runtime_action", { action, confirmed });
 
 export function errorText(error: unknown): string {
   const text = String(error);
