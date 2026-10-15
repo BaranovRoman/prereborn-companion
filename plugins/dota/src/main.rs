@@ -105,7 +105,7 @@ fn run_worker(launch:companion_dota_plugin::worker::Launch)->Result<(),String>{
         match message {
             Message::Command{id,name,args}=>match worker.command(&name,args){
                 Ok(result)=>{write_frame(&mut output,Message::State{data:worker.status()})?;write_frame(&mut output,Message::Reply{id,result})?;},
-                Err(code)=>write_frame(&mut output,Message::Error{id:Some(id),code,message:"Dota command failed; inspect plugin status".into()})?,
+                Err(code)=>{write_frame(&mut output,Message::State{data:worker.status()})?;write_frame(&mut output,Message::Error{id:Some(id),code,message:"Dota command failed; inspect plugin status".into()})?;},
             },
             Message::Stop=>{worker.stop()?;write_frame(&mut output,Message::Stopped)?;return Ok(());},
             _=>return Err("unexpected_message".into()),

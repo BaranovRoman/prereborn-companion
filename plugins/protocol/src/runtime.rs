@@ -235,10 +235,10 @@ impl Runtime {
         self.next_id = self.next_id.checked_add(1).ok_or("request_id_exhausted")?;
         let id = self.next_id;
         self.send(Message::Command { id, name: name.clone(), args })?;
-        // Only the verified native manual-preparation path can use this
-        // longer bounded window. A real backup may exceed the normal IPC
+        // Only verified native preparation/activation can use this longer
+        // bounded window. Backup validation may exceed the normal IPC
         // deadline; UI commands cannot invoke reserved host operations.
-        let deadline = Instant::now() + if max_args.is_some()&&name=="host.prepare" {Duration::from_secs(60)}else{TIMEOUT};
+        let deadline = Instant::now() + if max_args.is_some()&&matches!(name.as_str(),"host.prepare"|"host.activate") {Duration::from_secs(60)}else{TIMEOUT};
         let mut read_seen = false;
         let mut execution_seen = false;
         let mut effect_count=0;

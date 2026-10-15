@@ -28,9 +28,20 @@ impl companion_plugin_protocol::ProcessGrant for Pin{
 fn launch_bound_worker(root:&std::path::Path,capabilities:&[&str])->(companion_plugin_protocol::runtime::Runtime,Pin,companion_plugin_protocol::runtime::ProcessBinding){
     use sha2::{Digest,Sha256};
     use companion_plugin_protocol::{runtime::Runtime,PackageBinding};
-    let exe=std::path::PathBuf::from(env!("CARGO_BIN_EXE_companion-dota-plugin"));
+    let mut exe=std::path::PathBuf::from(env!("CARGO_BIN_EXE_companion-dota-plugin"));
     let hash=format!("{:x}",Sha256::digest(std::fs::read(&exe).unwrap()));
-    let binding=PackageBinding{id:"dota2".into(),version:env!("CARGO_PKG_VERSION").into(),executable_hash:hash,manifest_hash:"b".repeat(64)};
+    let mut binding=PackageBinding{id:"dota2".into(),version:env!("CARGO_PKG_VERSION").into(),executable_hash:hash,manifest_hash:"b".repeat(64)};
+    if capabilities.contains(&"overlay.publish"){
+        // Actual installed layout/parser/hash checks with fixture assets only;
+        // this is not proof of native OBS rendering or a signed distribution.
+        let package=root.join(".package-fixture");std::fs::create_dir_all(package.join("bin")).unwrap();std::fs::create_dir_all(package.join("ui/overlay")).unwrap();
+        let name=if cfg!(windows){"bin/worker.exe"}else{"bin/worker"};let copied=package.join(name);std::fs::copy(&exe,&copied).unwrap();exe=copied;
+        let ui=b"<!doctype html><title>overlay unit fixture</title>";
+        std::fs::write(package.join("ui/index.html"),ui).unwrap();std::fs::write(package.join("ui/overlay/index.html"),ui).unwrap();
+        let ui_hash=format!("{:x}",Sha256::digest(ui));
+        let manifest:companion_plugin_manager::Manifest=serde_json::from_value(json!({"schema":1,"id":"dota2","name":"Dota 2 fixture","description":"test only","version":env!("CARGO_PKG_VERSION"),"platform":std::env::consts::OS,"arch":std::env::consts::ARCH,"execution":"live","minApi":2,"maxApi":2,"executable":name,"ui":"ui/index.html","permissions":capabilities,"files":{(name):binding.executable_hash,"ui/index.html":ui_hash,"ui/overlay/index.html":ui_hash}})).unwrap();
+        let doc=serde_json::to_vec(&manifest).unwrap();std::fs::write(package.join("manifest.json"),&doc).unwrap();binding.manifest_hash=format!("{:x}",Sha256::digest(doc));
+    }
     let generation=uuid::Uuid::new_v4().to_string();
     let args=vec!["--worker".into(),json!({"dataRoot":root,"generation":generation,"package":binding,"capabilities":capabilities}).to_string()];
     let pin=Pin{binding,exe,capabilities:capabilities.iter().map(|s|(*s).into()).collect()};
@@ -79,6 +90,10 @@ fn supervised_worker_accepts_fresh_demo_and_bot_gsi_without_obs_and_reopens_the_
         write!(stream,"POST / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",body.len()).unwrap();
         let mut response=String::new();stream.read_to_string(&mut response).unwrap();assert!(response.starts_with("HTTP/1.1 200"));
     }
+    fn overlay(path:&str)->String{
+        let mut stream=TcpStream::connect("127.0.0.1:3666").unwrap();stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        write!(stream,"GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").unwrap();let mut response=String::new();stream.read_to_string(&mut response).unwrap();assert!(response.starts_with("HTTP/1.1 200"));response.split_once("\r\n\r\n").unwrap().1.into()
+    }
     fn poll(runtime:&mut companion_plugin_protocol::runtime::Runtime,n:u64)->serde_json::Value{
         let until=Instant::now()+Duration::from_secs(3);loop{
             let response=runtime.command("host.poll".into(),json!({})).unwrap();
@@ -89,11 +104,13 @@ fn supervised_worker_accepts_fresh_demo_and_bot_gsi_without_obs_and_reopens_the_
     let root=tempfile::tempdir().unwrap();std::fs::create_dir(root.path().join("sounds")).unwrap();
     std::fs::write(root.path().join("sounds/jump.wav"),b"RIFFtestWAVE").unwrap();
     std::fs::write(root.path().join("game-sounds-config.json"),json!({"schemaVersion":1,"enabled":true,"masterVolume":63,"bindings":[{"eventId":"techies_suicide","kind":"abilityCast","assetId":"jump"}],"assets":[{"id":"jump","fileName":"jump.wav","originalName":"jump.wav","sizeBytes":12}]}).to_string()).unwrap();
-    let caps=["data.legacy","audio.play"];
+    let caps=["ui","data.legacy","audio.play","overlay.publish"];
     let mut runtime=launch_installed_worker(root.path(),&caps);
     assert!(runtime.command("host.activate".into(),json!({})).unwrap_err().starts_with("not_prepared"));
     runtime.command("host.prepare".into(),json!({})).unwrap();
     let status=runtime.command("host.activate".into(),json!({})).unwrap();assert_eq!(status["awaitingSession"],true);assert_eq!(status["active"],true);
+    assert_eq!(status["overlay"]["running"],true);assert!(overlay("/overlay").contains("overlay unit fixture"));
+    let empty:serde_json::Value=serde_json::from_str(&overlay("/overlay/state")).unwrap();assert_eq!(empty["session"]["hasSession"],false);
     assert!(runtime.command("host.activate".into(),json!({})).unwrap_err().starts_with("already_active"));
     let mut raw:serde_json::Value=serde_json::from_str(include_str!("../../dota-domain/src/fixtures/techies-inventory.json")).unwrap();
     raw["map"]["matchid"]=json!("0");raw["map"]["customgamename"]=json!("hero_demo");raw["abilities"]["ability2"]["cooldown"]=json!(0);
@@ -103,6 +120,7 @@ fn supervised_worker_accepts_fresh_demo_and_bot_gsi_without_obs_and_reopens_the_
     send(&raw);assert_eq!(poll(&mut runtime,3)["soundIntents"],json!([]));
     raw["map"]["customgamename"]=json!("");send(&raw);let bots=poll(&mut runtime,4);
     let session=bots["status"]["session"].as_str().unwrap().to_string();assert_eq!(bots["status"]["awaitingSession"],false);
+    let state:serde_json::Value=serde_json::from_str(&overlay("/overlay/state")).unwrap();assert_eq!(state["scene"],"gameplay");assert_eq!(state["session"]["hasSession"],true);assert_eq!(state["session"]["currentMatch"]["heroId"],105);
     assert_eq!(bots["status"]["receipt"]["session"]["localId"],session);
     let epoch=bots["status"]["epoch"].as_u64().unwrap();
     runtime.command("host.stop".into(),json!({})).unwrap();runtime.stop().unwrap();runtime.stopped_confirmed().unwrap();

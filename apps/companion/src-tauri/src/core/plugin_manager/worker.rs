@@ -106,6 +106,7 @@ impl Service{
   audio.fence(id,|request|app.emit_to("main","plugin-audio-fence",request).map_err(|_|"frontend_audio_unavailable".into()))?;
   audio.process_after_native_exit(&worker.binding,worker.epoch)?;drop(runtime);
   self.store.enable(id,false)?;self.workers.remove(id);self.store.activate(id)?;
+  let installed=self.store.installed().get(id).cloned().ok_or("not_installed")?;self.manifests.insert(id.into(),self.store.manifest(id,&installed.active)?);
   drain.map(|_|())
  }
  pub(super) fn recover_worker(&mut self,id:&str)->Result<(),String>{
@@ -121,7 +122,8 @@ impl Service{
   #[cfg(windows)] companion_plugin_protocol::windows::fence_generation(&process.generation)?;
   audio.fence(id,|request|app.emit_to("main","plugin-audio-fence",request).map_err(|_|"frontend_audio_unavailable".into()))?;
   audio.process_after_native_exit(&process,record.epoch)?;
-  self.store.enable(id,false)?;self.store.activate(id)?;Ok(())
+  self.store.enable(id,false)?;self.store.activate(id)?;
+  let installed=self.store.installed().get(id).cloned().ok_or("not_installed")?;self.manifests.insert(id.into(),self.store.manifest(id,&installed.active)?);Ok(())
  }
  fn tasks(&self)->Vec<Task>{
   let Some((app,audio))=self.native.as_ref()else{return vec![];};
@@ -136,13 +138,20 @@ impl Task{
  fn poll(&self,stopping:&AtomicBool)->Result<(),String>{
   if stopping.load(Ordering::SeqCst){return Err("core_shutdown".into());}
   let worker=&self.worker;
-  let value={let mut runtime=self.host.0.lock().map_err(|_|locked())?;
-   runtime.command_verified(&worker.pin,&worker.binding,"host.poll".into(),serde_json::json!({}))?};
+  let mut runtime=self.host.0.lock().map_err(|_|locked())?;
+  let value=runtime.command_verified(&worker.pin,&worker.binding,"host.poll".into(),serde_json::json!({}))?;
+  // Keep child command serialization through admission/emit. A UI command
+  // cannot change the worker's committed context between its reply and our
+  // use of these intents. play() never waits for a frontend ACK and there is
+  // no history mutex in this process or callback back into PluginManager.
   let batch:Batch=serde_json::from_value(value).map_err(|_|"invalid_worker_batch")?;
   if batch.sound_intents.len()>32||batch.status.get("active")!=Some(&Value::Bool(true)){return Err("worker_admission_closed".into());}
+  let context=match batch.status.get("context"){Some(Value::Null)=>None,Some(Value::String(s))if !s.is_empty()&&s.len()<=128=>Some(s.as_str()),_=>return Err("invalid_worker_context".into())};
   for sound in batch.sound_intents{
    if stopping.load(Ordering::SeqCst){return Err("core_shutdown".into());}
    if sound.operation_key.is_empty()||sound.operation_key.len()>128||sound.context.as_ref().is_some_and(|s|s.is_empty()||s.len()>128){return Err("invalid_sound_intent".into());}
+   if sound.context.as_deref()!=context{return Err("effect_context_mismatch".into());}
+   if runtime.snapshot().phase!=Phase::Running{return Err("plugin_process_requires_recovery".into());}
    let key=format!("{}:{}",worker.binding.generation,packages::hash(sound.operation_key.as_bytes()));
    self.audio.play(&worker.pin,&worker.binding,worker.epoch,sound.context.as_deref(),&worker.root.join("sounds"),&key,&sound.asset_file,sound.volume,sound.deadline_ms,
     |payload|self.app.emit_to("main","plugin-audio-play",payload).map_err(|_|"frontend_audio_emit_failed".into()))?;
@@ -155,7 +164,7 @@ impl PluginManager{
   let (worker,app,audio)={
    let mut guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_mut().map_err(|e|e.clone())?;
    let (_,manifest)=service.worker_pin(id)?;
-   if !manifest.permissions.iter().any(|p|p=="ui")||!manifest.permissions.iter().any(|p|p=="audio.play")
+   if !manifest.permissions.iter().any(|p|p=="ui")||(name!="directory.pick"&&!manifest.permissions.iter().any(|p|p=="audio.play"))
     ||!manifest.permissions.iter().any(|p|matches!(p.as_str(),"data.legacy"|"data.private"))||!manifest.ui_commands.iter().any(|c|c==name){return Err("capability_denied".into());}
    service.open_worker(id)?;
    let worker=service.workers.get(id).cloned().ok_or("not_running")?;
@@ -164,6 +173,29 @@ impl PluginManager{
   };
   audio.locked_authorize(&worker.binding,worker.epoch)?;
   match name{
+   "audio.receipt"=>{
+    #[derive(Deserialize)]#[serde(rename_all="camelCase",deny_unknown_fields)]struct Query{operation_key:String}
+    let query:Query=serde_json::from_value(args).map_err(|_|"invalid_ui_arguments")?;
+    if query.operation_key.is_empty()||query.operation_key.len()>128{return Err("invalid_ui_arguments".into());}
+    let key=format!("{}:{}",worker.binding.generation,packages::hash(query.operation_key.as_bytes()));
+    let receipt=audio.receipt(id,&key)?;
+    if receipt.as_ref().is_some_and(|r|!matches!(r.action,super::super::plugin_audio::store::Action::Sound{..})||r.process.generation!=worker.binding.generation||r.process.package!=worker.binding.package){return Err("receipt_scope_denied".into());}
+    Ok(serde_json::json!({"receipt":receipt}))
+   },
+   "directory.pick"=>{
+    if args!=serde_json::json!({}){return Err("invalid_ui_arguments".into());}
+    self.begin(Some(id.into()),"file_selection")?;
+    let result=(||{
+     use tauri_plugin_dialog::DialogExt;
+     let picked=app.dialog().file().blocking_pick_folder().ok_or("file_selection_cancelled")?;
+     let path=picked.into_path().map_err(|_|"selected_directory_invalid")?.canonicalize().map_err(|_|"selected_directory_unavailable")?;
+     if !path.is_dir()||path.to_str().is_none_or(|p|p.len()>4096){return Err("selected_directory_invalid".into());}
+     audio.locked_authorize(&worker.binding,worker.epoch)?;
+     let host={let guard=self.service.lock().map_err(|_|locked())?;guard.as_ref().map_err(Clone::clone)?.hosts.get(id).cloned().ok_or("not_running")?};
+     let value=host.0.lock().map_err(|_|locked())?.command_verified(&worker.pin,&worker.binding,"host.directory".into(),serde_json::json!({"path":path}))?;
+     Ok(value)
+    })();self.finish(&result.as_ref().map(|_|()).map_err(Clone::clone));result
+   },
    "asset.import"=>{
     if args!=serde_json::json!({}){return Err("invalid_ui_arguments".into());}
     self.begin(Some(id.into()),"file_selection")?;
@@ -190,7 +222,7 @@ impl PluginManager{
  }
  pub(super) fn ui_command(&self,id:&str,name:String,args:Value)->Result<Value,String>{
   if name.starts_with("host.")||name.len()>64||serde_json::to_vec(&args).map_err(|_|"invalid_ui_request")?.len()>8192{return Err("command_not_allowed".into());}
-  if matches!(name.as_str(),"asset.import"|"asset.preview"){return self.asset_command(id,&name,args);}
+  if matches!(name.as_str(),"asset.import"|"asset.preview"|"directory.pick"|"audio.receipt"){return self.asset_command(id,&name,args);}
   let (host,process)={
    let mut guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_mut().map_err(|e|e.clone())?;
    let manifest=service.manifests.get(id).cloned().ok_or("not_installed")?;

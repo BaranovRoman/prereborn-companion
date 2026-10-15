@@ -6,7 +6,7 @@ export interface Manifest {
   execution?: "live" | "replay_only";
 }
 export interface Release { manifest: Manifest; url: string; sha256: string; signature: string }
-export interface Runtime { phase: "running" | "starting" | "stopped" | "failed"; lastError: string | null; state: unknown }
+export interface Runtime { phase: "running" | "starting" | "stopped" | "failed"; pluginVersion?: string|null; lastError: string | null; state: unknown }
 export interface Installed {
   id: string; manifest: Manifest | null; error: string | null; runtime: Runtime | null;
   installed: { active: string; previous: string | null; pending: string | null; enabled: boolean };

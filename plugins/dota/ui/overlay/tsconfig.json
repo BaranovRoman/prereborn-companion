@@ -17,5 +17,6 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["./**/*.ts", "./**/*.tsx", "../src/services/heroCatalog.ts"]
+  "include": ["./**/*.ts", "./**/*.tsx", "../src/services/heroCatalog.ts"],
+  "exclude": ["**/*.test.ts", "**/*.test.tsx"]
 }

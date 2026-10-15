@@ -3,7 +3,7 @@
 // rather than imported, same convention this whole directory already
 // follows for the rest of BetweenMatchesScene (see that file's own "hand-
 // maintained parallel implementation" comment) - not a shared component.
-import sceneStyles from "../../../../web/src/components/pages/stream/queue/queue-scene.module.scss";
+import sceneStyles from "../../../../../../apps/web/src/components/pages/stream/queue/queue-scene.module.scss";
 import styles from "./quiz-board.module.scss";
 
 export interface QuizBoardOption {

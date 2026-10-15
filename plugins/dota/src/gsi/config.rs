@@ -77,11 +77,21 @@ pub fn gsi_config_path(dota_path: &str) -> PathBuf {
 /// Writes the GSI config directly into the Dota install — the user should
 /// never have to hand-edit this file.
 pub fn install_gsi(dota_path: &str) -> Result<PathBuf, String> {
-    let target = gsi_config_path(dota_path);
-    let dir = target.parent().ok_or("Invalid GSI config path")?;
-
-    std::fs::create_dir_all(dir)
-        .map_err(|e| format!("Could not create GSI config directory {dir:?}: {e}"))?;
+    let root=std::path::Path::new(dota_path).canonicalize().map_err(|_|"dota_directory_unavailable")?;
+    if !root.join("game/dota").is_dir(){return Err("dota_directory_invalid".into());}
+    let mut directory=root.clone();
+    for component in ["game","dota","cfg","gamestate_integration"]{
+        directory.push(component);
+        match directory.symlink_metadata(){
+            Ok(metadata) if metadata.file_type().is_symlink()||!metadata.is_dir()=>return Err("gsi_directory_invalid".into()),
+            Ok(_)=>(),
+            Err(error) if error.kind()==std::io::ErrorKind::NotFound=>std::fs::create_dir(&directory).map_err(|_|"gsi_directory_unavailable")?,
+            Err(_)=>return Err("gsi_directory_unavailable".into()),
+        }
+        if !directory.canonicalize().map_err(|_|"gsi_directory_unavailable")?.starts_with(&root){return Err("gsi_directory_invalid".into());}
+    }
+    let target=directory.join(GSI_CONFIG_FILE_NAME);
+    if target.symlink_metadata().is_ok_and(|m|m.file_type().is_symlink()||!m.is_file()){return Err("gsi_config_invalid".into());}
 
     std::fs::write(&target, cfg_contents())
         .map_err(|e| format!("Could not write GSI config file {target:?}: {e}"))?;
@@ -92,6 +102,21 @@ pub fn install_gsi(dota_path: &str) -> Result<PathBuf, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn explicit_install_writes_the_existing_filename_and_endpoint_only_under_a_real_game_directory(){
+        let root=tempfile::tempdir().unwrap();assert!(install_gsi(root.path().to_str().unwrap()).is_err());
+        std::fs::create_dir_all(root.path().join("game/dota")).unwrap();
+        let path=install_gsi(root.path().to_str().unwrap()).unwrap();assert_eq!(path,gsi_config_path(root.path().canonicalize().unwrap().to_str().unwrap()));
+        let data=std::fs::read_to_string(&path).unwrap();assert!(data.contains("http://127.0.0.1:3665"));
+        install_gsi(root.path().to_str().unwrap()).unwrap();assert_eq!(std::fs::read_to_string(path).unwrap(),data);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn installation_cannot_follow_cfg_links_outside_the_selected_game(){
+        let root=tempfile::tempdir().unwrap();let outside=tempfile::tempdir().unwrap();std::fs::create_dir_all(root.path().join("game/dota")).unwrap();
+        std::os::unix::fs::symlink(outside.path(),root.path().join("game/dota/cfg")).unwrap();
+        assert!(install_gsi(root.path().to_str().unwrap()).is_err());assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(),0);
+    }
 
     #[test]
     fn cfg_contents_still_requests_every_known_section() {

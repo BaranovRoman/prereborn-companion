@@ -40,6 +40,9 @@ export interface Status {
   prepared: boolean; active: boolean; awaitingSession: boolean; session: string|null; epoch: number|null;
   lastError: string|null; processed: number; lastSequence: number|null;
   gsi: {received:number;accepted:number;rejected:number;dropped:number;lastError:string|null}|null;
+  detectedSounds?:number;plannedSounds?:number;droppedSoundIntents?:number;lastSoundOperation?:string|null;
 }
+export interface AudioReceipt {receipt:{status:"queued"|"playing"|"completed"|"cancelled"|"unknown";operationKey:string}|null}
 export interface Match { localId:string;matchId:string|null;heroId:number;state:string;result:string|null;kills:number|null;deaths:number|null;assists:number|null;startedAt:string;ratingAfter:number|null }
 export interface History {hasSession:boolean;ratingCurrent:number|null;wins:number;losses:number;currentMatch:Match|null;recentMatches:Match[]}
+export interface GsiInstallation {found:boolean;path?:string;installed:boolean}

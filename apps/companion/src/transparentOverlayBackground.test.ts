@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const css = readFileSync(new URL("../overlay-renderer/overlay-renderer.css", import.meta.url), "utf8");
+const css = readFileSync(new URL("../../../plugins/dota/ui/overlay/overlay-renderer.css", import.meta.url), "utf8");
 
 describe("OBS alpha background", () => {
   it("keeps the document and Between Matches scene transparent", () => {

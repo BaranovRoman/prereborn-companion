@@ -60,7 +60,8 @@ impl History {
   if response.status!=companion_dota_domain::effects::Status::Completed{return Err("match_result_unconfirmed".into());}
   Ok(response.receipt)
  }
- pub fn summary(&self)->db::summary::LocalSessionSummary {db::summary::get(&self.connection)}
+ pub fn summary(&self)->Result<db::summary::LocalSessionSummary,String> {db::summary::try_get(&self.connection).map_err(|_|"history_read_failed".into())}
+ pub fn confirm_prepared(&self)->Result<(),String>{transaction_schema::activation_preflight(&self.connection,&self.backup)}
  pub fn quota(&self)->Result<db::host_execution::live_effects::Quota,String>{db::host_execution::live_effects::quota(&self.connection)}
  pub fn session(&self)->Option<&str>{self.grant.as_ref().and_then(|g|g.session.as_deref())}
  pub fn epoch(&self)->Option<u64>{self.grant.as_ref().map(|g|g.lease.epoch)}
@@ -80,7 +81,7 @@ mod tests {
   assert!(!root.path().join("local-runtime.sqlite3").exists());
   let history=History::prepare(root.path()).unwrap();
   assert!(!history.active());assert_eq!(history.epoch(),None);assert!(history.existing_session().unwrap().is_none());
-  assert!(!history.summary().has_session);assert_eq!(history.quota().unwrap().unknown,0);
+  assert!(!history.summary().unwrap().has_session);assert_eq!(history.quota().unwrap().unknown,0);
   let backup_path=root.path().join("local-runtime.pre-external.sqlite3");let backup=std::fs::read(&backup_path).unwrap();
   assert!(matches!(History::prepare(root.path()),Err(error) if error=="second_coordinator_denied"));
   assert_eq!(std::fs::read(&backup_path).unwrap(),backup);

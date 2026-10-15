@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "tauri": "tauri",
-    "typecheck:overlay-renderer": "tsc --noEmit -p overlay-renderer/tsconfig.json",
+    "typecheck:overlay-renderer": "tsc --noEmit -p ../../plugins/dota/ui/overlay/tsconfig.json",
     "build:overlay-renderer": "pnpm typecheck:overlay-renderer && vite build --config vite.overlay-renderer.config.ts"
   },
   "dependencies": {

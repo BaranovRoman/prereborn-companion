@@ -1,8 +1,8 @@
-import { RedFogBackground } from "../../web/src/components/pages/stream/queue/red-fog-background";
-import treeFarUrl from "../../web/public/generated/chatgpt/trees-1.png";
-import treeMiddleUrl from "../../web/public/generated/chatgpt/trees-2.png";
-import treeNearUrl from "../../web/public/generated/chatgpt/trees-3.png";
-import styles from "../../web/src/components/pages/stream/queue/queue-scene.module.scss";
+import { RedFogBackground } from "../../../../apps/web/src/components/pages/stream/queue/red-fog-background";
+import treeFarUrl from "../../../../apps/web/public/generated/chatgpt/trees-1.png";
+import treeMiddleUrl from "../../../../apps/web/public/generated/chatgpt/trees-2.png";
+import treeNearUrl from "../../../../apps/web/public/generated/chatgpt/trees-3.png";
+import styles from "../../../../apps/web/src/components/pages/stream/queue/queue-scene.module.scss";
 
 export function Atmosphere({ seed = 123 }: { seed?: number }) {
   const treeStyle = { position: "absolute", inset: 0, width: "100%", height: "100%" } as const;

@@ -121,7 +121,9 @@ jobs:
 
       - name: Independent installed plugin UI
         if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''
-        run: pnpm --filter @prereborn/dota-ui build
+        run: |
+          pnpm --filter @prereborn/dota-ui build
+          pnpm --filter @prereborn/dota-ui exec vitest run overlay/OverlayApp.test.tsx overlay/widgets/SessionWidget.test.tsx overlay/widgets/RecentMatchesWidget.test.tsx
 
       - name: Targeted production GSI projection regressions
         if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''

@@ -19,6 +19,20 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 describe("installed Dota package UI",()=>{
+  it("shows the exact protected audio receipt without treating an emitted intent as completed playback",async()=>{
+    const previous=mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>{
+      if(name==="status")return {prepared:true,active:true,awaitingSession:true,lastError:null,processed:2,detectedSounds:1,plannedSounds:1,lastSoundOperation:"sound:bound-generation:2:0",gsi:null};
+      if(name==="audio.receipt")return {receipt:{operationKey:"core-qualified-key",status:"unknown"}};
+      if(name==="gsi.find")return {found:false,installed:false};
+      return previous(name,...args);
+    });
+    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});fireEvent.click(screen.getByRole("button",{name:"Настройки"}));
+    await screen.findByText(/Последний результат аудио ядра: unknown/);
+    expect(mocks.invoke).toHaveBeenCalledWith("audio.receipt",{operationKey:"sound:bound-generation:2:0"});
+    expect(screen.getByText(/обнаружено звуковых событий: 1/)).toBeTruthy();
+    expect(screen.queryByText(/Последний результат аудио ядра: completed/)).toBeNull();
+  });
   it("uses saved bindings and the protected host preview/import instead of iframe playback",async()=>{
     render(<Dota/>);fireEvent.click(await screen.findByRole("button",{name:/Techies/}));
     expect(screen.getByText("my-jump.wav")).toBeTruthy();
@@ -49,5 +63,24 @@ describe("installed Dota package UI",()=>{
     fireEvent.click(screen.getByRole("button",{name:"Выбрать файл"}));
     await screen.findAllByText(/file_selection_cancelled/);
     expect(mocks.invoke.mock.calls.some(([name])=>name==="sound.import")).toBe(false);
+  });
+  it("separates native directory selection, explicit GSI installation and runtime activation",async()=>{
+    const previous=mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>{
+      if(name==="gsi.find")return {found:false,installed:false};
+      if(name==="directory.pick")return {found:true,installed:false,path:"C:\\Steam\\dota 2 beta"};
+      if(name==="gsi.install")return {found:true,installed:true,path:"C:\\Steam\\dota 2 beta"};
+      return previous(name,...args);
+    });
+    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});fireEvent.click(screen.getByRole("button",{name:"Настройки"}));
+    await screen.findByText("Установка Dota не найдена автоматически.");
+    expect(screen.getByRole("button",{name:"Настроить GSI"}).hasAttribute("disabled")).toBe(true);
+    expect(mocks.invoke.mock.calls.some(([name])=>name==="gsi.install")).toBe(false);
+    fireEvent.click(screen.getByRole("button",{name:"Выбрать папку Dota"}));
+    await screen.findByText(/Dota найдена: C:/);
+    await waitFor(()=>expect(screen.getByRole("button",{name:"Настроить GSI"}).hasAttribute("disabled")).toBe(false));
+    fireEvent.click(screen.getByRole("button",{name:"Настроить GSI"}));await screen.findByText(/Файл GSI найден/);
+    expect(mocks.invoke.mock.calls.some(([name])=>String(name).startsWith("host."))).toBe(false);
+    expect(mocks.invoke).toHaveBeenCalledWith("gsi.install");
   });
 });

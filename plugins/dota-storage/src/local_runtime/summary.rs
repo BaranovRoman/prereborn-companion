@@ -157,23 +157,29 @@ const RECENT_MATCHES_DISPLAY: usize = 10;
 /// call site (`commands::get_local_session_summary`, `AppHandle` un-
 /// parameterized = `AppHandle<Wry>`) keeps compiling unchanged.
 pub fn get(conn:&rusqlite::Connection)->LocalSessionSummary {
-    let recent_matches: Vec<_> = store::list_recent_finalized_matches(conn, RECENT_MATCHES_LIMIT)
-        .unwrap_or_default()
+    project(conn,false).unwrap_or_default()
+}
+/// The installed worker reports storage failures instead of presenting an
+/// unavailable history as empty. Same SQL and projection as the legacy API.
+pub fn try_get(conn:&rusqlite::Connection)->rusqlite::Result<LocalSessionSummary>{project(conn,true)}
+fn read<T:Default>(result:rusqlite::Result<T>,strict:bool)->rusqlite::Result<T>{
+    if strict{result}else{Ok(result.unwrap_or_default())}
+}
+fn project(conn:&rusqlite::Connection,strict:bool)->rusqlite::Result<LocalSessionSummary>{
+    let recent_matches: Vec<_> = read(store::list_recent_finalized_matches(conn, RECENT_MATCHES_LIMIT),strict)?
         .iter()
         .take(RECENT_MATCHES_DISPLAY)
         .map(LocalMatchSummary::from)
         .collect();
-    let Some(session) = store::find_open_session(conn).ok().flatten() else {
-        return LocalSessionSummary {
-            rating_current: store::get_current_rating(conn).ok().flatten(),
+    let Some(session) = read(store::find_open_session(conn),strict)? else {
+        return Ok(LocalSessionSummary {
+            rating_current: read(store::get_current_rating(conn),strict)?,
             recent_matches,
             ..LocalSessionSummary::default()
-        };
+        });
     };
 
-    let current_match = store::find_active_match(conn, &session.local_id)
-        .ok()
-        .flatten()
+    let current_match = read(store::find_active_match(conn, &session.local_id),strict)?
         .map(|m| LocalMatchSummary::from(&m));
 
     // WK-137 - a gameplay session (no OBS stream active) still surfaces its
@@ -189,19 +195,19 @@ pub fn get(conn:&rusqlite::Connection)->LocalSessionSummary {
     // "no session yet" + match row render without any frontend change,
     // which is out of scope for this ticket.
     if !session.is_streamed {
-        return LocalSessionSummary {
+        return Ok(LocalSessionSummary {
             has_session: true,
             started_at: Some(session.started_at),
-            rating_current: session.rating_current.or_else(|| store::get_current_rating(conn).ok().flatten()),
+            rating_current: match session.rating_current{Some(rating)=>Some(rating),None=>read(store::get_current_rating(conn),strict)?},
             current_match,
             recent_matches,
             ..LocalSessionSummary::default()
-        };
+        });
     }
 
-    let (wins, losses) = store::session_match_tally(conn, &session.local_id).unwrap_or((0, 0));
+    let (wins, losses) = read(store::session_match_tally(conn, &session.local_id),strict)?;
 
-    LocalSessionSummary {
+    Ok(LocalSessionSummary {
         has_session: true,
         started_at: Some(session.started_at),
         rating_start: session.rating_start,
@@ -215,7 +221,7 @@ pub fn get(conn:&rusqlite::Connection)->LocalSessionSummary {
         losses,
         current_match,
         recent_matches,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -229,6 +235,20 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         schema::migrate(&conn).unwrap();
         conn
+    }
+    #[test]
+    fn strict_reader_preserves_the_real_legacy_projection_for_gameplay_and_streamed_sessions(){
+        let mut conn=test_conn();let now=Utc::now();
+        assert_eq!(try_get(&conn).unwrap(),get(&conn));
+        store::set_current_rating(&mut conn,2400).unwrap();let session=store::ensure_gameplay_session(&mut conn,now).unwrap();
+        store::create_match(&conn,&session.local_id,Some("42"),105,"radiant",RankedMode::Unknown,now).unwrap();
+        let gameplay=try_get(&conn).unwrap();assert_eq!(gameplay,get(&conn));assert!(gameplay.has_session);assert_eq!(gameplay.current_match.as_ref().unwrap().hero_id,105);assert_eq!(gameplay.rating_current,Some(2400));
+        store::mark_session_streamed(&mut conn,&session.local_id,now).unwrap();assert_eq!(try_get(&conn).unwrap(),get(&conn));
+    }
+    #[test]
+    fn worker_read_failure_is_not_reported_as_an_empty_success_and_legacy_adapter_still_defaults(){
+        let conn=test_conn();conn.execute_batch("DROP TABLE local_matches").unwrap();
+        assert!(try_get(&conn).is_err());assert_eq!(get(&conn),LocalSessionSummary::default());
     }
 
     // These tests exercise the query composition directly against a real

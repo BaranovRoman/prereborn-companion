@@ -213,3 +213,56 @@ for controls/iframe, preserving pending/result/error state during polling.
 Still required: full overlay/backend/OBS/lifecycle integration, removal of all
 remaining core game code/dependencies/assets, new signed API2 package/catalog,
 full-source Windows validation and the authorized stable publication sequence.
+
+## Overlay ownership and GSI setup checkpoint (2026-10-16)
+
+Unsigned Windows CI [38806279754](https://github.com/BaranovRoman/prereborn-companion/actions/runs/38806279754)
+passed on 25fd214. Subsequent source moves the actual renderer, widgets, styles,
+medals/minimap assets and hero presentation catalog into the Dota UI package. Its
+independent build produces the real self-contained overlay, not the replay page.
+The old compiled core renderer and core startup are still temporary dependencies;
+**physical extraction is not complete and this source must not be released yet**.
+
+The worker now owns the relocated overlay DTO and a bounded HTTP/SSE listener on
+127.0.0.1:3666 when its signed grant includes overlay.publish. Renderer bytes must
+match the exact pinned manifest and payload hash. HTTP/SSE threads read only a
+bounded published projection/config cache; they never touch SQLite or raw GSI.
+SSE excludes timestamps from diffing and uses a config content key for renderer
+cache invalidation (this is not a persisted match revision or write precondition).
+Known routes and managed images retain their existing URLs. The quiz POST route
+currently refuses with overlay_backend_unavailable; backend/account enrichment,
+chat, visibility controls and quiz forwarding still need integration before release.
+
+Settings include real Steam discovery, native directory selection and explicit
+GSI cfg installation. The iframe cannot submit a write path; only a verified
+native selection reaches host.directory. Existing filename/endpoint are retained,
+parent links cannot redirect installation outside the selected game, and neither
+selection nor installation prepares history, creates a session or activates GSI.
+
+Repeated Prepare revalidates the retained backup, leaves a damaged copy untouched,
+and publishes the actual error/post-state. The worker's strict history reader now
+uses the same real query/projection as the compatible legacy adapter, but reports
+query failure instead of a fake empty history. No SQL/game decision rule changed.
+
+Core keeps child-command serialization until sound admission/emit (never waiting
+for a frontend ACK under a history lock). Worker batches discard old-context sound
+intents after a session transition, preserve order of current intents and count
+these drops. Product diagnostics retain safe detected/planned counters and the
+last source operation; a protected, current-package/generation-scoped audio.receipt
+query shows the actual durable ACK. Emit, queued/playing and Unknown are not
+completion. No raw GSI/account/provider data is logged by this path.
+
+Targeted local checks: independent UI/real overlay build; 18 renderer widget tests
+plus alpha-background check; GSI/config/setup and repeated-backup tests; scope/order
+regressions; 4 strict/legacy history projection tests; 8 real-process IPC tests;
+13 native audio/import/receipt tests; frontend bridge/library tests, both TS checks,
+cargo check and diff checks. The Windows supervised demo/bot fixture now also checks
+the installed-layout manifest/hash loader and the real overlay HTTP route, using
+fixture HTML only. It is not native OBS rendering or audible game acceptance.
+
+Remaining release work is production OBS/backend/stream lifecycle/manual history
+and overlay controls, draft reminder/hotkey ownership, quota/recovery validation,
+removal of all core game dependencies/bootstrap/UI/assets and final signed package/
+catalog + updater validation. Unknown after frontend loss remains fail-closed;
+never clear it or infer old playback cessation from a PID/timeout alone. Native
+restart audio-fence proof must be reviewed as part of the final activation path.

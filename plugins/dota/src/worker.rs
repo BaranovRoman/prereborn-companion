@@ -38,38 +38,77 @@ impl Launch {
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct SoundIntent {operation_key:String,asset_file:String,volume:u8,deadline_ms:u64,context:Option<String>}
+fn retain_context(sounds:&mut Vec<SoundIntent>,context:Option<&str>)->u64{
+ let before=sounds.len();sounds.retain(|s|s.context.as_deref()==context);(before-sounds.len())as u64
+}
 
 pub struct Worker {
  launch:Launch, history:Option<History>, listener:Option<Listener>, pipeline:Pipeline,
+ overlay:Option<crate::overlay::server::Server>,last_overlay_at:Option<std::time::Instant>,scene:companion_dota_domain::broadcast_state::BroadcastState,
+ selected_directory:Option<PathBuf>,
+ dropped_sound_intents:u64,
+ detected_sounds:u64,planned_sounds:u64,last_sound_signal:Option<Value>,last_sound_operation:Option<String>,
  last_error:Option<String>, processed:u64, last_sequence:Option<u64>, last_analysis:Option<Value>,last_gsi:Option<Value>,last_receipt:Option<companion_dota_domain::match_execution::Receipt>,
 }
 impl Worker {
- pub fn new(launch:Launch)->Self{Self{launch,history:None,listener:None,pipeline:Default::default(),last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
+ pub fn new(launch:Launch)->Self{Self{launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,dropped_sound_intents:0,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
  pub fn status(&self)->Value{
   let history=self.history.as_ref();let active=history.is_some_and(History::active);
   json!({"prepared":history.is_some(),"active":active,"awaitingSession":active&&history.and_then(History::session).is_none(),
    "session":history.and_then(History::session),"epoch":history.and_then(History::epoch),"lastError":self.last_error,
    "gsi":self.listener.as_ref().map(|l|json!(l.status())).or(self.last_gsi.clone()),"processed":self.processed,"lastSequence":self.last_sequence,"analysis":self.last_analysis,
-   "receipt":self.last_receipt})
+   "receipt":self.last_receipt,"context":history.and_then(History::session),"droppedSoundIntents":self.dropped_sound_intents,"detectedSounds":self.detected_sounds,"plannedSounds":self.planned_sounds,"lastSoundSignal":self.last_sound_signal,"lastSoundOperation":self.last_sound_operation,"overlay":self.overlay.as_ref().map(|s|json!({"running":!s.closed(),"clients":s.clients()}))})
  }
  /// Commands are serialized by the existing stdio loop: one coordinator, one
  /// listener, and no duplicate preparation even when the UI repeats a request.
  pub fn command(&mut self,name:&str,args:Value)->Result<Value,String>{
-  let result=if name.starts_with("host."){
+  let result=if name=="host.directory"{
+   self.select_directory(args)
+  }else if name.starts_with("host."){
    crate::ui::empty(args).and_then(|_|self.command_inner(name))
   }else if !self.launch.capabilities.iter().any(|c|c=="ui"){Err("capability_denied".into())}
   else if name=="status"{crate::ui::empty(args).map(|_|self.status())}
-  else if name=="history.summary"{crate::ui::empty(args).and_then(|_|self.history.as_ref().ok_or_else(||"not_prepared".to_string())).and_then(|h|serde_json::to_value(h.summary()).map_err(|_|"history_encoding_failed".into()))}
   else if !self.launch.capabilities.iter().any(|c|matches!(c.as_str(),"data.legacy"|"data.private")){Err("capability_denied".into())}
+  else if name=="history.summary"{crate::ui::empty(args).and_then(|_|self.history.as_ref().ok_or_else(||"not_prepared".to_string())).and_then(History::summary).and_then(|summary|serde_json::to_value(summary).map_err(|_|"history_encoding_failed".into()))}
+  else if matches!(name,"gsi.find"|"gsi.install"){self.gsi_setup(name,args)}
   else{crate::ui::command(&self.launch.data_root,name,args)};
-  if let Err(error)=&result{self.last_error=Some(error.clone());}
+  if name.starts_with("host."){
+   if let Err(error)=&result{self.last_error=Some(error.clone());}
+   else if matches!(name,"host.prepare"|"host.activate"|"host.directory"){self.last_error=None;}
+  }
   result
+ }
+ fn select_directory(&mut self,args:Value)->Result<Value,String>{
+  #[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Selection{path:PathBuf}
+  if !self.launch.capabilities.iter().any(|c|matches!(c.as_str(),"data.legacy"|"data.private")){return Err("capability_denied".into());}
+  let selection:Selection=serde_json::from_value(args).map_err(|_|"invalid_directory_selection")?;
+  if !selection.path.is_absolute()||selection.path.as_os_str().to_string_lossy().len()>4096{return Err("invalid_directory_selection".into());}
+  let path=selection.path.canonicalize().map_err(|_|"dota_directory_unavailable")?;
+  if !crate::gsi::finder::validate_dota_path(path.to_str().ok_or("dota_directory_invalid")?){return Err("dota_directory_invalid".into());}
+  self.selected_directory=Some(path);self.gsi_setup("gsi.find",json!({}))
+ }
+ fn gsi_setup(&mut self,name:&str,args:Value)->Result<Value,String>{
+  crate::ui::empty(args)?;
+  let path=self.selected_directory.clone().or_else(||crate::gsi::finder::find_dota_auto().map(PathBuf::from));
+  let Some(path)=path else{return if name=="gsi.install"{Err("dota_directory_not_found".into())}else{Ok(json!({"found":false,"installed":false}))};};
+  let path=path.canonicalize().map_err(|_|"dota_directory_unavailable")?;let text=path.to_str().ok_or("dota_directory_invalid")?;
+  if !crate::gsi::finder::validate_dota_path(text){return Err("dota_directory_invalid".into());}
+  let target=crate::gsi::config::gsi_config_path(text);
+  if name=="gsi.install"{
+   if target.symlink_metadata().is_ok_and(|m|m.file_type().is_symlink())||!path.join("game/dota").canonicalize().map_err(|_|"dota_directory_invalid")?.starts_with(&path){return Err("gsi_directory_invalid".into());}
+   crate::gsi::config::install_gsi(text).map_err(|_|"gsi_config_write_failed")?;
+  }
+  Ok(json!({"found":true,"path":text,"installed":target.is_file()}))
  }
  fn command_inner(&mut self,name:&str)->Result<Value,String>{
   match name {
    "host.prepare"=>{
     if !self.launch.capabilities.iter().any(|c|matches!(c.as_str(),"data.legacy"|"data.private")){return Err("capability_denied".into());}
-    if self.history.is_none(){self.history=Some(History::prepare(&self.launch.data_root)?);}
+    if self.history.as_ref().is_some_and(History::active){return Err("already_active".into());}
+    if let Some(history)=self.history.as_ref(){
+     if let Err(error)=history.confirm_prepared(){self.history=None;return Err(error);}
+    }else{self.history=Some(History::prepare(&self.launch.data_root)?);}
+    self.last_error=None;
     Ok(self.status())
    },
    "host.activate"=>{
@@ -79,11 +118,13 @@ impl Worker {
     let proof=SupervisedProcess::current(&self.launch.generation)?;
     // Bind closed admission before durable activation. Never consume cached GSI.
     let listener=Listener::bind()?;
+    let overlay=if self.launch.capabilities.iter().any(|c|c=="overlay.publish"){Some(crate::overlay::server::Server::bind(&self.launch.data_root,&self.launch.package)?)}else{None};
     let mut permissions=vec![companion_dota_domain::match_execution::MATCH_EXECUTION_CAPABILITY.to_string()];
     for (host,internal) in [("audio.play","dota.sound.play"),("obs.scene","dota.obs.scene"),("overlay.publish","dota.overlay.update")]{if self.launch.capabilities.iter().any(|c|c==host){permissions.push(internal.into());}}
     self.history.as_mut().unwrap().activate(&proof,self.launch.package.clone(),permissions)?;
     if let Err(error)=listener.start_admission(){let _=self.history.as_mut().unwrap().drain();return Err(error);}
-    self.pipeline.reset();self.listener=Some(listener);self.last_error=None;
+    self.pipeline.reset();self.listener=Some(listener);self.overlay=overlay;self.last_overlay_at=None;self.scene=companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches;self.last_error=None;
+    if let Err(error)=self.publish_overlay(){return Err(self.close_after_error(error));}
     Ok(self.status())
    },
    "host.stop"=>{self.stop()?;Ok(self.status())},
@@ -93,18 +134,25 @@ impl Worker {
   }
  }
  pub fn stop(&mut self)->Result<(),String>{
+  self.overlay.take();self.last_overlay_at=None;
   if let Some(listener)=self.listener.take(){self.last_gsi=Some(json!(listener.status()));}
   self.pipeline.reset();
   if let Some(history)=self.history.as_mut(){history.drain()?;}
   Ok(())
  }
  fn poll(&mut self)->Result<Value,String>{
+  if self.overlay.as_ref().is_some_and(|s|s.closed()){return Err(self.close_after_error("overlay_listener_failed".into()));}
   if let Some(listener)=self.listener.as_ref().filter(|l|l.failed()||l.status().rejected>0){
-   let code=listener.status().last_error.unwrap_or("gsi_admission_failed").to_string();self.stop()?;return Err(code);
+   let code=listener.status().last_error.unwrap_or("gsi_admission_failed").to_string();return Err(self.close_after_error(code));
   }
-  let result=self.frames();
-  if result.is_err(){self.stop()?;}
-  result
+  let before=self.processed;let result=self.frames();
+  if result.is_ok()&&self.overlay.is_some()&&(before!=self.processed||self.last_overlay_at.is_none_or(|at|at.elapsed()>=std::time::Duration::from_secs(1))){
+   if let Err(error)=self.publish_overlay(){return Err(self.close_after_error(error));}
+  }
+  result.map_err(|error|self.close_after_error(error))
+ }
+ fn close_after_error(&mut self,error:String)->String{
+  match self.stop(){Ok(())=>error,Err(drain)=>format!("{error}; drain: {drain}")}
  }
  fn frames(&mut self)->Result<Value,String>{
   let mut sounds=Vec::new();
@@ -113,26 +161,49 @@ impl Worker {
    let Some(frame)=self.listener.as_ref().and_then(Listener::next)else{break;};
    let settings=config::load_verified(&self.launch.data_root.join("game-sounds-config.json"))?;
    let raw=serde_json::to_value(&frame.snapshot).map_err(|_|"projection_serialization_failed")?;
+   self.scene=companion_dota_domain::broadcast_state::BroadcastState::from_gsi(&raw);
    let result=self.pipeline.frame(&raw,frame.sequence,frame.observed_at_ms,Default::default(),&settings,&self.launch.data_root.join("sounds"))?;
+   self.detected_sounds=self.detected_sounds.checked_add(result.analysis.sound_signals.len() as u64).ok_or("sound_counter_exhausted")?;
+   self.planned_sounds=self.planned_sounds.checked_add(result.sounds.len() as u64).ok_or("sound_counter_exhausted")?;
+   if let Some(signal)=result.analysis.sound_signals.last(){self.last_sound_signal=Some(json!({"eventId":signal.id,"kind":signal.kind,"sequence":frame.sequence}));}
    if !result.sounds.is_empty()&&!self.launch.capabilities.iter().any(|c|c=="audio.play"){return Err("capability_denied".into());}
    let now=chrono::DateTime::from_timestamp_millis(i64::try_from(frame.observed_at_ms).map_err(|_|"gsi_time_invalid")?).ok_or("gsi_time_invalid")?;
    if let Some(receipt)=self.history.as_mut().ok_or("not_prepared")?.frame(frame.snapshot,now,frame.sequence)?{self.last_receipt=Some(receipt);}
    if sounds.len()+result.sounds.len()>32{return Err("sound_batch_exhausted".into());}
    for (index,sound) in result.sounds.into_iter().enumerate(){
-    sounds.push(SoundIntent{operation_key:format!("sound:{}:{}:{index}",self.launch.generation,frame.sequence),asset_file:sound.asset.file_name,volume:sound.volume,deadline_ms:frame.observed_at_ms.saturating_add(2000),context:self.history.as_ref().and_then(History::session).map(str::to_string)});
+    let key=format!("sound:{}:{}:{index}",self.launch.generation,frame.sequence);self.last_sound_operation=Some(key.clone());
+    sounds.push(SoundIntent{operation_key:key,asset_file:sound.asset.file_name,volume:sound.volume,deadline_ms:frame.observed_at_ms.saturating_add(2000),context:self.history.as_ref().and_then(History::session).map(str::to_string)});
    }
    self.last_analysis=Some(serde_json::to_value(result.analysis).map_err(|_|"analysis_serialization_failed")?);
    self.processed=self.processed.checked_add(1).ok_or("gsi_sequence_exhausted")?;self.last_sequence=Some(frame.sequence);
   }
   // These are intents, never playback receipts. The core must admit each one
   // durably and authenticate the frontend ACK before declaring playback done.
+  // A batch may cross demo/match/session boundaries; old-context cues must
+  // not be admitted after the final committed session has changed.
+  let dropped=retain_context(&mut sounds,self.history.as_ref().and_then(History::session));
+  self.dropped_sound_intents=self.dropped_sound_intents.checked_add(dropped).ok_or("sound_counter_exhausted")?;
   Ok(json!({"status":self.status(),"soundIntents":sounds}))
+ }
+ fn publish_overlay(&mut self)->Result<(),String>{
+  let Some(server)=&self.overlay else{return Ok(());};let root=&self.launch.data_root;
+  let layout=crate::overlay::saved(root,"overlay-layout.json",1024*1024)?;let queue=crate::overlay::saved(root,"queue-settings.json",128*1024)?;
+  let account=crate::overlay::saved(root,"account-overlay-data.json",128*1024)?;
+  let snapshot=crate::overlay::OverlayStateSnapshot{scene:self.scene,updated_at:chrono::Utc::now().to_rfc3339(),session:self.history.as_ref().ok_or("not_prepared")?.summary()?,layout_version:0,account,twitch_chat:None,overlay_visible:true,opendota_favorite_heroes:None,opendota_radar:None,quiz:None};
+  server.publish(&snapshot,layout,queue)?;self.last_overlay_at=Some(std::time::Instant::now());Ok(())
  }
 }
 
 #[cfg(test)]
 mod tests {
  use super::*;
+ #[test]
+ fn batching_never_releases_old_context_sounds_and_preserves_the_order_of_current_intents(){
+  let cue=|key:&str,context:Option<&str>|SoundIntent{operation_key:key.into(),asset_file:"managed.wav".into(),volume:63,deadline_ms:100,context:context.map(str::to_string)};
+  let mut sounds=vec![cue("demo",None),cue("old",Some("old-session")),cue("first",Some("resolved-session")),cue("second",Some("resolved-session"))];
+  assert_eq!(retain_context(&mut sounds,Some("resolved-session")),2);assert_eq!(sounds.iter().map(|s|s.operation_key.as_str()).collect::<Vec<_>>(),vec!["first","second"]);
+  assert_eq!(retain_context(&mut sounds,None),2);assert!(sounds.is_empty());
+ }
  fn worker(root:&std::path::Path)->Worker {
   Worker::new(Launch{data_root:root.into(),generation:uuid::Uuid::new_v4().to_string(),package:PackageBinding{id:"dota2".into(),version:env!("CARGO_PKG_VERSION").into(),executable_hash:"a".repeat(64),manifest_hash:"b".repeat(64)},capabilities:vec!["data.legacy".into()]})
  }
@@ -143,11 +214,32 @@ mod tests {
   assert_eq!(worker.command("host.poll",Value::Null).unwrap()["soundIntents"],json!([]));
   assert_eq!(std::fs::read_dir(root.path()).unwrap().count(),0);
   assert_eq!(worker.command("host.activate",Value::Null).unwrap_err(),"not_prepared");
-  worker.command("host.prepare",Value::Null).unwrap();
+  assert_eq!(worker.command("host.prepare",Value::Null).unwrap()["lastError"],Value::Null);
   let path=root.path().join("local-runtime.pre-external.sqlite3");let before=std::fs::read(&path).unwrap();
   worker.command("host.prepare",Value::Null).unwrap();assert_eq!(std::fs::read(path).unwrap(),before);
   assert_eq!(worker.status()["active"],false);assert_eq!(worker.status()["session"],Value::Null);
   assert_eq!(worker.command("host.prepare",json!({"dataRoot":"elsewhere"})).unwrap_err(),"unexpected_command_payload");
+ }
+ #[test]
+ fn manual_gsi_setup_uses_the_host_selected_directory_and_cannot_prepare_history_or_take_a_ui_path(){
+  let root=tempfile::tempdir().unwrap();let game=tempfile::tempdir().unwrap();std::fs::create_dir_all(game.path().join("game/dota")).unwrap();
+  let mut worker=worker(root.path());worker.launch.capabilities.push("ui".into());
+  assert!(worker.command("host.directory",json!({"path":game.path(),"dataRoot":root.path()})).is_err());
+  let selected=worker.command("host.directory",json!({"path":game.path()})).unwrap();assert_eq!(selected["found"],true);assert_eq!(selected["installed"],false);
+  assert_eq!(worker.command("gsi.install",json!({"path":"arbitrary"})).unwrap_err(),"unexpected_command_payload");
+  assert_eq!(worker.command("gsi.install",json!({})).unwrap()["installed"],true);
+  assert_eq!(worker.command("gsi.find",json!({})).unwrap()["path"],json!(game.path().canonicalize().unwrap()));
+  assert_eq!(worker.status()["prepared"],false);assert_eq!(worker.status()["active"],false);assert_eq!(worker.status()["session"],Value::Null);assert_eq!(worker.status()["gsi"],Value::Null);
+  assert_eq!(std::fs::read_dir(root.path()).unwrap().count(),0);
+  let file=crate::gsi::config::gsi_config_path(game.path().to_str().unwrap());assert!(std::fs::read_to_string(file).unwrap().contains("127.0.0.1:3665"));
+ }
+ #[test]
+ fn repeated_prepare_revalidates_the_saved_backup_and_never_replaces_a_damaged_copy(){
+  let root=tempfile::tempdir().unwrap();let mut worker=worker(root.path());worker.command("host.prepare",json!({})).unwrap();
+  let backup=root.path().join("local-runtime.pre-external.sqlite3");std::fs::write(&backup,b"damaged backup fixture").unwrap();
+  let error=worker.command("host.prepare",json!({})).unwrap_err();assert_eq!(worker.status()["prepared"],false);assert_eq!(worker.status()["lastError"],json!(error));
+  assert!(worker.command("host.prepare",json!({})).is_err());assert_eq!(std::fs::read(backup).unwrap(),b"damaged backup fixture");
+  assert_eq!(worker.status()["session"],Value::Null);assert_eq!(worker.status()["active"],false);
  }
  #[cfg(not(windows))]
  #[test]

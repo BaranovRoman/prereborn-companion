@@ -36,7 +36,8 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
   const installButton = (r: api.Release) => {
     const installed = view?.installed.find((p) => p.id === r.manifest.id);
     const current = installed?.installed.active === r.manifest.version || installed?.installed.pending === r.manifest.version;
-    const compatible = r.manifest.minApi <= (view?.apiVersion ?? 1) && r.manifest.maxApi >= 1;
+    const compatible = r.manifest.minApi <= (view?.apiVersion ?? 1) && r.manifest.maxApi >= 1
+      && (r.manifest.execution !== "live" || r.manifest.minApi >= 2);
     return <div className="plugin-actions">
       {!compatible && <p role="status">Несовместимая версия API</p>}
       <Button disabled={disabled || current || !compatible} onClick={() => void run(() => api.install(r.manifest.id, r.manifest.version))}>{current ? "Установлен" : installed ? "Обновить" : "Установить"}</Button>
@@ -112,7 +113,7 @@ function WorkerControls({ plugin, disabled, run }: { plugin: api.Installed; disa
   const [failure,setFailure]=useState<string|null>(null);
   const inFlight=useRef(false);
   const compatible=(plugin.manifest?.minApi??0)>=2;
-  const prepared=!!plugin.runtime?.state&&typeof plugin.runtime.state==="object"&&"prepared" in plugin.runtime.state&&plugin.runtime.state.prepared===true;
+  const prepared=plugin.runtime?.phase==="running"&&plugin.runtime.pluginVersion===plugin.installed.active&&!!plugin.runtime.state&&typeof plugin.runtime.state==="object"&&"prepared" in plugin.runtime.state&&plugin.runtime.state.prepared===true;
   const execute=async(action:string)=>{
     if(inFlight.current)return;inFlight.current=true;setPending(action);setFailure(null);setResult(null);
     await run(async()=>{try{

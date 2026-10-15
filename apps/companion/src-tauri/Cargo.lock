@@ -556,6 +556,7 @@ dependencies = [
  "chrono",
  "companion-dota-domain",
  "companion-dota-storage",
+ "companion-plugin-manager",
  "companion-plugin-protocol",
  "rusqlite",
  "serde",

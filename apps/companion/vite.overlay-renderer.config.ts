@@ -15,10 +15,10 @@ import { viteSingleFile } from "vite-plugin-singlefile";
 // checked-in static file. Regenerate + commit it whenever overlay-renderer/
 // source changes by running `pnpm build:overlay-renderer`.
 export default defineConfig({
-  root: "overlay-renderer",
+  root: "../../plugins/dota/ui/overlay",
   plugins: [react(), viteSingleFile()],
   build: {
-    outDir: "../src-tauri/src/overlay_server/renderer-dist",
+    outDir: "../../../../apps/companion/src-tauri/src/overlay_server/renderer-dist",
     emptyOutDir: true,
     cssCodeSplit: false,
     assetsInlineLimit: 100_000_000,

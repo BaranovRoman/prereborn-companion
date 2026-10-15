@@ -16,6 +16,7 @@ impl HostAudio{
  pub(crate) fn process_draining(&self,process:&ProcessBinding,epoch:u64)->Result<(),String>{self.locked()?.process_draining(process,epoch)}
  pub(crate) fn process_after_native_exit(&self,process:&ProcessBinding,epoch:u64)->Result<(),String>{self.locked()?.process_after_native_exit(process,epoch)}
  pub(crate) fn process(&self,plugin:&str)->Result<Option<store::ProcessRecord>,String>{self.locked()?.process(plugin)}
+ pub(crate) fn receipt(&self,plugin:&str,key:&str)->Result<Option<store::Receipt>,String>{self.locked()?.lookup(plugin,key)}
  pub(crate) fn locked_authorize(&self,process:&ProcessBinding,epoch:u64)->Result<(),String>{self.locked()?.authorize(process,epoch)}
  fn registry(&self,plugin:&str)->Result<Arc<PlaybackRegistry>,String>{
   let mut registries=self.registries.lock().map_err(|_|"audio_state_poisoned")?;
@@ -107,11 +108,14 @@ mod tests{
    let committed:store::Receipt=serde_json::from_str(&doc).unwrap();assert_eq!(committed.playback.as_ref(),Some(&payload.playback));assert_eq!(committed.status,Status::Unknown);
    assert_eq!(payload.volume,63);assert_eq!(BASE64.decode(&payload.base64).unwrap(),b"RIFFtestWAVE");Ok(())
   }).unwrap();
+  assert_eq!(audio.receipt("example","sound:1").unwrap().unwrap().status,Status::Unknown);
+  assert!(audio.receipt("other-plugin","sound:1").unwrap().is_none());
   let token=receipt.playback.unwrap();assert_eq!(receipt.status,Status::Unknown);assert!(token.scope.session.is_none());
   audio.ack(token.clone(),Status::Playing).unwrap();std::fs::remove_file(root.path().join("jump.wav")).unwrap();
   let saved=audio.play(&pin,&process,epoch,None,root.path(),"sound:1","jump.wav",63,0,|_|panic!("duplicate was emitted")).unwrap();assert_eq!(saved.status,Status::Playing);
   let mut stale=token.clone();stale.scope.epoch=6;assert!(audio.ack(stale,Status::Completed).is_err());
   audio.ack(token,Status::Completed).unwrap();
+  assert_eq!(audio.receipt("example","sound:1").unwrap().unwrap().status,Status::Completed);
   assert_eq!(audio.play(&pin,&process,epoch,None,root.path(),"sound:1","jump.wav",63,0,|_|panic!("completed operation was emitted")).unwrap().status,Status::Completed);
  }
  #[test]

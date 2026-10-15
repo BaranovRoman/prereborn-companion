@@ -1,9 +1,9 @@
 import { useRef, useState } from "react";
 import { getHeroById } from "../../src/services/heroCatalog";
-import logoUrl from "../../../web/public/logo-new.png";
+import logoUrl from "../../../../../apps/web/public/logo-new.png";
 import { Atmosphere } from "../Atmosphere";
 import type { LocalMatchSummary, LocalSessionSummary, OverlayStateSnapshot, QueueSettings } from "../types";
-import styles from "../../../web/src/components/pages/stream/queue/queue-scene.module.scss";
+import styles from "../../../../../apps/web/src/components/pages/stream/queue/queue-scene.module.scss";
 import parity from "./between-matches-parity.module.scss";
 import { QuizBoard } from "./quiz/QuizBoard";
 import { useCountdown } from "./quiz/useCountdown";
