@@ -3,24 +3,23 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { Button, Input } from "../components/ui";
 import * as api from "../plugins/api";
 import { greeting } from "../plugin-lab/bridge";
+import "./PluginsPage.css";
 
 const phaseText = { running: "Работает", starting: "Запускается", stopped: "Остановлен", failed: "Ошибка процесса" };
 
-export function PluginsPage() {
+export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = {}) {
   const [view, setView] = useState<api.View | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [opened, setOpened] = useState<string | null>(null);
+  const [opened, setOpened] = useState<string | null>(initialPluginId ?? null);
   const [local, setLocal] = useState("");
   const mounted = useRef(true);
   const refresh = useCallback(async () => {
-    try { const result = await api.view(); if (mounted.current) setView(result); }
+    try { const next = await api.view(); if (mounted.current) setView(next); }
     catch (e) { if (mounted.current) setError(api.errorText(e)); }
   }, []);
   useEffect(() => {
-    mounted.current = true;
-    void refresh();
-    let polling = false;
+    mounted.current = true; void refresh(); let polling = false;
     const timer = window.setInterval(() => {
       if (!polling) { polling = true; void refresh().finally(() => { polling = false; }); }
     }, 700);
@@ -31,64 +30,77 @@ export function PluginsPage() {
     try { await task(); } catch (e) { if (mounted.current) setError(api.errorText(e)); }
     finally { if (mounted.current) { setBusy(false); void refresh(); } }
   };
-  const disabled = busy || view?.transfer.busy;
-  const selected = view?.installed.find((p) => p.id === opened && p.installed.enabled && p.runtime?.phase === "running");
-  return <section className="page-content" aria-label="Плагины">
-    <h2>Плагины</h2>
-    <p>Официальные плагины Companion. По умолчанию Dota 2 работает встроенно.</p>
-    <Button disabled={disabled} onClick={() => void run(api.refresh)}>Обновить каталог</Button>
+  const disabled = busy || !!view?.transfer.busy;
+  const selected = view?.installed.find((p) => p.id === opened);
+  const installButton = (r: api.Release) => {
+    const installed = view?.installed.find((p) => p.id === r.manifest.id);
+    const current = installed?.installed.active === r.manifest.version || installed?.installed.pending === r.manifest.version;
+    const compatible = r.manifest.minApi <= 1 && r.manifest.maxApi >= 1;
+    return <div className="plugin-actions">
+      {!compatible && <p role="status">Несовместимая версия API</p>}
+      <Button disabled={disabled || current || !compatible} onClick={() => void run(() => api.install(r.manifest.id, r.manifest.version))}>{current ? "Установлен" : installed ? "Обновить" : "Установить"}</Button>
+      {view?.localInstallAllowed && <Button disabled={disabled || current || !compatible || !local.trim()} onClick={() => void run(() => api.install(r.manifest.id, r.manifest.version, local.trim()))}>Установить локальный подписанный пакет</Button>}
+    </div>;
+  };
+  return <section className="page-content plugin-library" aria-label="Плагины">
+    <header className="plugin-library__heading">
+      <div><h2>{selected ? selected.manifest?.name ?? selected.id : "Плагины"}</h2><p>{selected ? "Управление установленным плагином" : "Устанавливайте только нужные расширения Companion."}</p></div>
+      <Button disabled={disabled} onClick={() => void run(api.refresh)}>Обновить каталог</Button>
+    </header>
     {(error || view?.error) && <p role="alert">{error ?? api.errorText(view?.error)}</p>}
-    {view?.catalogError && <p role="status">{api.errorText(view.catalogError)} Используется сохранённый каталог.</p>}
-    {view?.transfer.busy && <div role="status">
+    {!view && !error && <p role="status">Загрузка библиотеки…</p>}
+    {view?.catalogError && <p role="status">{api.errorText(view.catalogError)} Установленные плагины доступны независимо от каталога.</p>}
+    {view?.transfer.busy && <div className="plugin-transfer" role="status">
       {view.transfer.stage === "activation" ? <p>Выполняется ручная native-операция Dota…</p> : <>
-      <p>{view.transfer.stage === "verify_install" ? "Проверка и установка" : "Загрузка"}: {Math.round(view.transfer.received / 1024)} КБ</p>
-      <progress value={view.transfer.total ? view.transfer.received : undefined} max={view.transfer.total ?? 1} />
-      <Button onClick={() => void api.cancel().catch((e) => setError(api.errorText(e)))}>Отменить загрузку</Button>
+        <p>{view.transfer.stage === "verify_install" ? "Проверка и установка" : "Загрузка"}: {Math.round(view.transfer.received / 1024)} КБ</p>
+        <progress value={view.transfer.total ? view.transfer.received : undefined} max={view.transfer.total ?? 1} />
+        <Button onClick={() => void api.cancel().catch((e) => setError(api.errorText(e)))}>Отменить загрузку</Button>
       </>}
     </div>}
     {view?.transfer.error && !error && <p role="alert">{api.errorText(view.transfer.error)}</p>}
-    <h3>Установленные</h3>
-    {view && view.installed.length === 0 && <p>Плагины ещё не установлены.</p>}
-    {view?.installed.map((p) => <article key={p.id} style={{ marginBlock: 16 }}>
-      <h4>{p.manifest?.name ?? p.id} · {p.installed.active}</h4>
-      <p>{p.manifest?.description}</p>
-      {p.id !== "dota2" && <p>{p.installed.enabled ? phaseText[p.runtime?.phase ?? "stopped"] : "Отключён"}</p>}
-      {p.installed.pending && <p role="status">Обновление {p.installed.pending} будет активировано после остановки.</p>}
-      {(p.error || p.runtime?.lastError) && <p role="alert">{api.errorText(p.error ?? p.runtime?.lastError)}</p>}
-      {p.id === "dota2" ? <DotaControls disabled={!!disabled} run={run} /> : <>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <Button disabled={disabled} onClick={() => void run(async () => {
-          if (!p.installed.enabled) await api.action(p.id, "enable");
-          else if (p.runtime?.phase !== "running") await api.action(p.id, "start");
-          if (mounted.current) setOpened(p.id);
-        })}>Открыть</Button>
-        <Button disabled={disabled} onClick={() => void run(() => api.action(p.id, p.installed.enabled ? "disable" : "enable"))}>{p.installed.enabled ? "Отключить" : "Включить"}</Button>
-        <Button disabled={disabled || p.runtime?.phase !== "running"} onClick={() => void run(() => api.action(p.id, "stop"))}>Остановить</Button>
-        {p.installed.previous && <Button disabled={disabled || p.runtime?.phase === "running"} onClick={() => void run(() => api.action(p.id, "rollback"))}>Откатить на {p.installed.previous}</Button>}
-        <Button variant="danger" disabled={disabled} onClick={() => void run(() => api.action(p.id, "remove"))}>Удалить</Button>
-      </div>
-      </>}
+    {opened && <Button onClick={() => setOpened(null)}>Все плагины</Button>}
+    {opened && view && !selected && <p role="status">Плагин больше не установлен. Пользовательские данные сохранены.</p>}
+    {selected ? <article className="plugin-detail">
+      <p>{selected.manifest?.description}</p>
+      <p>Версия {selected.installed.active} · {selected.id === "dota2" ? "Статус выполнения показан ниже" : selected.installed.enabled ? phaseText[selected.runtime?.phase ?? "stopped"] : "Отключён"}</p>
+      <p>Автор не указан в манифесте.</p>
+      {selected.installed.pending && <p role="status">Обновление {selected.installed.pending} будет активировано после остановки.</p>}
+      {(selected.error || selected.runtime?.lastError) && <p role="alert">{api.errorText(selected.error ?? selected.runtime?.lastError)}</p>}
+      {selected.id === "dota2" ? <DotaControls disabled={disabled} run={run} /> : <div className="plugin-actions">
+        <Button disabled={disabled} onClick={() => void run(() => api.action(selected.id, selected.installed.enabled ? "disable" : "enable"))}>{selected.installed.enabled ? "Отключить" : "Включить"}</Button>
+        {selected.installed.enabled && selected.runtime?.phase !== "running" && <Button disabled={disabled} onClick={() => void run(() => api.action(selected.id, "start"))}>Запустить</Button>}
+        <Button disabled={disabled || selected.runtime?.phase !== "running"} onClick={() => void run(() => api.action(selected.id, "stop"))}>Остановить</Button>
+        {selected.installed.previous && <Button disabled={disabled || selected.runtime?.phase === "running"} onClick={() => void run(() => api.action(selected.id, "rollback"))}>Откатить на {selected.installed.previous}</Button>}
+        <Button variant="danger" disabled={disabled} onClick={() => void run(() => api.action(selected.id, "remove"))}>Удалить</Button>
+      </div>}
+      {view?.catalog.filter((r) => r.manifest.id === selected.id).map((r) => <div key={r.manifest.version}>{installButton(r)}</div>)}
       <small>При удалении пользовательские данные сохраняются.</small>
-    </article>)}
-    <h3>Каталог</h3>
-    {view && view.catalog.length === 0 && <p>В сохранённом каталоге нет пакетов для этой системы.</p>}
-    {view?.catalog.map((r) => {
-      const installed = view.installed.find((p) => p.id === r.manifest.id);
-      const current = installed?.installed.active === r.manifest.version || installed?.installed.pending === r.manifest.version;
-      const compatible = r.manifest.minApi <= 1 && r.manifest.maxApi >= 1;
-      return <article key={`${r.manifest.id}-${r.manifest.version}`} style={{ marginBlock: 16 }}>
-        <h4>{r.manifest.name} · {r.manifest.version}</h4>
-        <p>{r.manifest.description}</p>
-        <p>{!compatible ? "Несовместимая версия API" : current ? "Установлен" : "Доступен"}</p>
-        <Button disabled={disabled || current || !compatible} onClick={() => void run(() => api.install(r.manifest.id, r.manifest.version))}>{installed ? "Обновить" : "Установить"}</Button>
-        {view.localInstallAllowed && <Button disabled={disabled || current || !compatible || !local.trim()} onClick={() => void run(() => api.install(r.manifest.id, r.manifest.version, local.trim()))}>Установить локальный подписанный пакет</Button>}
-      </article>;
-    })}
-    {view?.localInstallAllowed && <label>Путь к пакету для разработки (проверки подписи обязательны)<Input value={local} onChange={(e) => setLocal(e.target.value)} /></label>}
-    {selected && <div>
-      <Button onClick={() => setOpened(null)}>Закрыть UI</Button>
-      <PluginUI key={`${selected.id}-${selected.installed.active}`} plugin={selected} />
-    </div>}
+      {selected.installed.enabled && selected.runtime?.phase === "running" && <PluginUI key={`${selected.id}-${selected.installed.active}`} plugin={selected} />}
+      {!selected.installed.enabled && <p>Чтобы открыть интерфейс плагина, включите его отдельным действием.</p>}
+    </article> : !opened && <>
+      <h3>Установленные</h3>
+      {view && view.installed.length === 0 && <p>Плагины ещё не установлены.</p>}
+      <div className="plugin-grid" aria-label="Установленные плагины">
+        {view?.installed.map((p) => <article className="plugin-card" key={p.id}>
+          <span className="plugin-icon" aria-hidden="true">{(p.manifest?.name ?? p.id).slice(0, 1)}</span>
+          <h4>{p.manifest?.name ?? p.id}</h4><p>{p.manifest?.description ?? "Метаданные установленного пакета недоступны."}</p>
+          <p>Версия {p.installed.active} · {p.id === "dota2" ? "Статус выполнения — на странице плагина" : p.installed.enabled ? phaseText[p.runtime?.phase ?? "stopped"] : "Отключён"}</p>
+          <small>Автор не указан в манифесте.</small>
+          {(p.error || p.runtime?.lastError) && <p role="alert">{api.errorText(p.error ?? p.runtime?.lastError)}</p>}
+          <Button disabled={disabled} onClick={() => setOpened(p.id)}>Открыть</Button>
+        </article>)}
+      </div>
+      <h3>Каталог</h3>
+      {view && view.catalog.length === 0 && <p>{view.catalogError ? "Каталог сейчас недоступен. Установленные плагины показаны выше." : "В каталоге нет пакетов для этой системы."}</p>}
+      <div className="plugin-grid" aria-label="Каталог плагинов">
+        {view?.catalog.map((r) => <article className="plugin-card" key={`${r.manifest.id}-${r.manifest.version}`}>
+          <span className="plugin-icon" aria-hidden="true">{r.manifest.name.slice(0, 1)}</span>
+          <h4>{r.manifest.name}</h4><p>{r.manifest.description}</p><p>Версия {r.manifest.version}</p>
+          <small>Автор не указан в манифесте.</small>{installButton(r)}
+        </article>)}
+      </div>
+    </>}
+    {view?.localInstallAllowed && <details><summary>Диагностика установки</summary><label>Путь к пакету для разработки (проверки подписи обязательны)<Input value={local} onChange={(e) => setLocal(e.target.value)} /></label></details>}
   </section>;
 }
 

@@ -1,0 +1,19 @@
+.plugin-library { min-width: 0; }
+.plugin-library__heading { display: flex; flex-wrap: wrap; gap: 16px; align-items: start; justify-content: space-between; margin-bottom: 24px; }
+.plugin-library__heading h2 { margin-bottom: 6px; }
+.plugin-library__heading p { margin-bottom: 0; color: var(--muted); }
+.plugin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 16px; margin-bottom: 32px; }
+.plugin-card { min-width: 0; display: flex; flex-direction: column; align-items: start; gap: 12px; padding: 20px; border: 1px solid var(--ui-edge-soft); border-radius: 10px; background: var(--ui-well); }
+.plugin-card h4, .plugin-card p { margin: 0; overflow-wrap: anywhere; }
+.plugin-card h4 { font-size: 17px; }
+.plugin-card p { color: var(--muted); }
+.plugin-card small { color: var(--ui-text-soft); }
+.plugin-card > .ui-button, .plugin-card > .plugin-actions { margin-top: auto; }
+.plugin-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 9px; border: 1px solid var(--ui-edge-soft); background: var(--ui-panel); font-size: 20px; font-weight: 600; }
+.plugin-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.plugin-detail { margin-top: 24px; min-width: 0; }
+.plugin-detail > small { display: block; margin-block: 16px; color: var(--muted); }
+.plugin-detail iframe { display: block; width: 100%; min-height: 420px; border: 1px solid var(--ui-edge-soft); border-radius: 8px; background: var(--ui-well); }
+.plugin-transfer { padding: 16px; margin-block: 16px; border: 1px solid var(--ui-edge-soft); border-radius: 8px; }
+.plugin-transfer progress { width: 100%; margin-bottom: 12px; }
+.plugin-library details { margin-block: 20px; }

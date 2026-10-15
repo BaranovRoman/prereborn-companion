@@ -19,14 +19,14 @@ describe("PluginsPage", () => {
   it("shows cold waiting and demo restrictions from native state without starting or preparing", async () => {
     dota(); const next = safety(); next.runtime.mode = "external"; next.sessionBound = false; next.storageState = "ready";
     vi.mocked(api.dotaSafety).mockResolvedValue(next);
-    render(<PluginsPage />);
+    render(<PluginsPage initialPluginId={view.installed.some((p) => p.id === "dota2") ? "dota2" : undefined} />);
     expect(await screen.findByText(/External: ожидание игровой сессии/)).toBeTruthy();
     expect(screen.getByText(/demo\/idle без сессии не выполняются/)).toBeTruthy();
     expect(api.dotaAction).not.toHaveBeenCalled();
   });
   it("keeps projection rejection visible after successful fallback and hides obsolete enable success", async () => {
     dota();vi.mocked(api.dotaAction).mockResolvedValue();
-    render(<PluginsPage />);
+    render(<PluginsPage initialPluginId={view.installed.some((p) => p.id === "dota2") ? "dota2" : undefined} />);
     fireEvent.click(await screen.findByRole("checkbox"));
     const external=safety();external.runtime.mode="external";external.runtime.epoch=4;
     vi.mocked(api.dotaSafety).mockResolvedValue(external);
@@ -44,7 +44,7 @@ describe("PluginsPage", () => {
   it("shows not_prepared without a storage failure and keeps activation blocked", async () => {
     dota(); const next = safety(); next.quota = null; next.storageState = "not_prepared";
     vi.mocked(api.dotaSafety).mockResolvedValue(next);
-    render(<PluginsPage />);
+    render(<PluginsPage initialPluginId={view.installed.some((p) => p.id === "dota2") ? "dota2" : undefined} />);
     expect(await screen.findByText(/Safety-хранилище ещё не подготовлено/)).toBeTruthy();
     fireEvent.click(screen.getByRole("checkbox"));
     expect(screen.getByRole("button", { name: "Включить External Dota" }).hasAttribute("disabled")).toBe(true);
@@ -55,7 +55,7 @@ describe("PluginsPage", () => {
     dota();
     let complete!: () => void;
     vi.mocked(api.dotaAction).mockImplementation(() => new Promise<void>((resolve) => { complete = resolve; }));
-    render(<PluginsPage />);
+    render(<PluginsPage initialPluginId={view.installed.some((p) => p.id === "dota2") ? "dota2" : undefined} />);
     fireEvent.click(await screen.findByRole("checkbox"));
     const button = screen.getByRole("button", { name: "Подготовить backup и миграцию" });
     fireEvent.click(button); fireEvent.click(button);
@@ -78,7 +78,7 @@ describe("PluginsPage", () => {
   it("keeps the action error visible after successful status polling", async () => {
     dota();
     vi.mocked(api.dotaAction).mockRejectedValue("builtin_session_required");
-    render(<PluginsPage />);
+    render(<PluginsPage initialPluginId={view.installed.some((p) => p.id === "dota2") ? "dota2" : undefined} />);
     fireEvent.click(await screen.findByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Подготовить backup и миграцию" }));
     await screen.findByText(/Native-команда не подтвердила выполнение: Сначала начните/);
@@ -90,7 +90,7 @@ describe("PluginsPage", () => {
     dota();
     vi.mocked(api.dotaAction).mockResolvedValue();
     vi.mocked(api.dotaSafety).mockResolvedValueOnce(safety()).mockRejectedValue("storage_unavailable");
-    render(<PluginsPage />);
+    render(<PluginsPage initialPluginId={view.installed.some((p) => p.id === "dota2") ? "dota2" : undefined} />);
     fireEvent.click(await screen.findByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Подготовить backup и миграцию" }));
     expect(await screen.findByText(/Native-команда завершена, но итоговое состояние не подтверждено/)).toBeTruthy();
@@ -101,7 +101,7 @@ describe("PluginsPage", () => {
     dota(); const next = safety(); next.quota!.unknown = 1;
     vi.mocked(api.dotaAction).mockResolvedValue();
     vi.mocked(api.dotaSafety).mockResolvedValueOnce(safety()).mockResolvedValue(next);
-    render(<PluginsPage />);
+    render(<PluginsPage initialPluginId={view.installed.some((p) => p.id === "dota2") ? "dota2" : undefined} />);
     fireEvent.click(await screen.findByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: "Подготовить backup и миграцию" }));
     await screen.findByText(/Native-команда завершена, но итоговое состояние не подтверждено/);
@@ -110,7 +110,7 @@ describe("PluginsPage", () => {
   });
   it("labels native activation without offering download cancellation", async () => {
     view.transfer = { ...view.transfer, busy: true, stage: "activation" };
-    render(<PluginsPage />);
+    render(<PluginsPage initialPluginId={view.installed.some((p) => p.id === "dota2") ? "dota2" : undefined} />);
     expect(await screen.findByText(/Выполняется ручная native-операция Dota/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Отменить загрузку" })).toBeNull();
   });
@@ -118,7 +118,7 @@ describe("PluginsPage", () => {
     dota(); const next = safety();
     next.preparation = { attempt: "attempt-1", stage: "manager_admitted", status: "failed", errorCode: "history_busy", startedAt: "2026-10-14T00:00:00Z", finishedAt: "2026-10-14T00:00:01Z" };
     vi.mocked(api.dotaSafety).mockResolvedValue(next);
-    render(<PluginsPage />);
+    render(<PluginsPage initialPluginId={view.installed.some((p) => p.id === "dota2") ? "dota2" : undefined} />);
     expect(await screen.findByText(/Attempt: attempt-1.*Код: history_busy/)).toBeTruthy();
     await new Promise((resolve) => setTimeout(resolve, 750));
     expect(screen.getByText(/Attempt: attempt-1.*Код: history_busy/)).toBeTruthy();
@@ -128,7 +128,7 @@ describe("PluginsPage", () => {
     dota(); const next = safety();
     next.preparation = { attempt: "attempt-2", stage: "session_checked", status: "pending", errorCode: null, startedAt: "2026-10-14T00:00:00Z", finishedAt: null };
     vi.mocked(api.dotaSafety).mockResolvedValue(next);
-    render(<PluginsPage />);
+    render(<PluginsPage initialPluginId={view.installed.some((p) => p.id === "dota2") ? "dota2" : undefined} />);
     fireEvent.click(await screen.findByRole("checkbox"));
     expect(screen.getByText(/Prepare заблокирован: Native Prepare ещё выполняется/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Подготовить backup и миграцию" }).hasAttribute("disabled")).toBe(true);
@@ -141,7 +141,7 @@ describe("PluginsPage", () => {
     if (issue === "storage") next.storageError = "backup_unavailable";
     if (issue === "runtime") next.runtime.error = "obs_fence_unconfirmed";
     vi.mocked(api.dotaSafety).mockResolvedValue(next);
-    render(<PluginsPage />);
+    render(<PluginsPage initialPluginId={view.installed.some((p) => p.id === "dota2") ? "dota2" : undefined} />);
     fireEvent.click(await screen.findByRole("checkbox"));
     expect(screen.getByRole("button", { name: "Включить External Dota" }).hasAttribute("disabled")).toBe(true);
     if (issue === "storage") expect(screen.getByText(/Хранилище для External не подтверждено/)).toBeTruthy();
@@ -151,7 +151,7 @@ describe("PluginsPage", () => {
     view.installed = [{ id: "dota2", manifest: { ...manifest, id: "dota2", name: "Dota 2" }, error: null, installed: { active: "0.1.0", previous: null, pending: null, enabled: false }, runtime: null }];
     vi.mocked(api.dotaSafety).mockResolvedValue({ runtime: { mode: "built_in", epoch: null, queued: 0, inFlight: 0, lost: 0, error: null, activationBlocker: null }, quota: null, storageError: "storage_unavailable" });
     vi.mocked(api.dotaAction).mockResolvedValue();
-    render(<PluginsPage />);
+    render(<PluginsPage initialPluginId={view.installed.some((p) => p.id === "dota2") ? "dota2" : undefined} />);
     const prepare = await screen.findByRole("button", { name: "Подготовить backup и миграцию" });
     expect(prepare.hasAttribute("disabled")).toBe(true);
     fireEvent.click(screen.getByRole("checkbox"));
@@ -164,26 +164,40 @@ describe("PluginsPage", () => {
   it("does not offer activation when the platform fence is unavailable", async () => {
     view.installed = [{ id: "dota2", manifest: { ...manifest, id: "dota2" }, error: null, installed: { active: "0.1.0", previous: null, pending: null, enabled: false }, runtime: null }];
     vi.mocked(api.dotaSafety).mockResolvedValue({ runtime: { mode: "built_in", epoch: null, queued: 0, inFlight: 0, lost: 0, error: null, activationBlocker: "external_runtime_requires_windows_native_fences" }, quota: null, storageError: null });
-    render(<PluginsPage />);
+    render(<PluginsPage initialPluginId={view.installed.some((p) => p.id === "dota2") ? "dota2" : undefined} />);
     fireEvent.click(await screen.findByRole("checkbox"));
     expect(screen.getByRole("button", { name: "Подготовить backup и миграцию" }).hasAttribute("disabled")).toBe(true);
     expect(api.dotaAction).not.toHaveBeenCalled();
   });
   it("installs from the in-app catalog and hides local diagnostics in user mode", async () => {
-    render(<PluginsPage />);
+    render(<PluginsPage initialPluginId={view.installed.some((p) => p.id === "dota2") ? "dota2" : undefined} />);
     fireEvent.click(await screen.findByRole("button", { name: "Установить", exact: true }));
     await waitFor(() => expect(api.install).toHaveBeenCalledWith("hello", "0.1.0"));
     expect(screen.queryByText(/Путь к пакету/)).toBeNull();
   });
+  it("keeps installed cards available offline and opening a disabled plugin never enables it", async () => {
+    view.catalog=[]; view.catalogError="download_failed: 404";
+    view.installed=[{ id:"hello", manifest, error:null, installed:{ active:"0.1.0", previous:null, pending:null, enabled:false }, runtime:null }];
+    render(<PluginsPage />);
+    expect(await screen.findByLabelText("Установленные плагины")).toBeTruthy();
+    expect(screen.getByText("Hello World")).toBeTruthy();
+    expect(screen.getByText(/Каталог сейчас недоступен/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", {name:"Открыть"}));
+    expect(await screen.findByRole("button", {name:"Включить"})).toBeTruthy();
+    expect(api.action).not.toHaveBeenCalled();
+    expect(screen.queryByTitle("Hello World")).toBeNull();
+    fireEvent.click(screen.getByRole("button", {name:"Все плагины"}));
+    expect(screen.getByLabelText("Установленные плагины")).toBeTruthy();
+  });
   it("cancels a transfer and displays offline catalog errors", async () => {
     view.transfer = { ...view.transfer, busy: true, received: 500, total: 1000 }; view.catalogError = "download_failed: 404";
-    render(<PluginsPage />);
+    render(<PluginsPage initialPluginId={view.installed.some((p) => p.id === "dota2") ? "dota2" : undefined} />);
     fireEvent.click(await screen.findByRole("button", { name: "Отменить загрузку" }));
-    expect(api.cancel).toHaveBeenCalledOnce(); expect(screen.getByText(/Установленные плагины продолжают работать/)).toBeTruthy();
+    expect(api.cancel).toHaveBeenCalledOnce(); expect(screen.getByText(/Установленные плагины доступны независимо от каталога/)).toBeTruthy();
   });
   it("opens only a sandboxed UI and routes greetings only from that frame", async () => {
     view.installed = [{ id: "hello", manifest, error: null, installed: { active: "0.1.0", previous: null, pending: "0.2.0", enabled: true }, runtime: { phase: "running", lastError: null, state: null } }];
-    render(<PluginsPage />);
+    render(<PluginsPage initialPluginId={view.installed.some((p) => p.id === "dota2") ? "dota2" : undefined} />);
     fireEvent.click(await screen.findByRole("button", { name: "Открыть" }));
     const frame = await screen.findByTitle("Hello World") as HTMLIFrameElement;
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
@@ -197,7 +211,8 @@ describe("PluginsPage", () => {
   });
   it("offers disable and remove without deleting user data", async () => {
     view.installed = [{ id: "hello", manifest, error: null, installed: { active: "0.1.0", previous: "0.0.1", pending: null, enabled: true }, runtime: { phase: "stopped", lastError: null, state: null } }];
-    render(<PluginsPage />);
+    render(<PluginsPage initialPluginId={view.installed.some((p) => p.id === "dota2") ? "dota2" : undefined} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Открыть" }));
     fireEvent.click(await screen.findByRole("button", { name: "Отключить" }));
     await waitFor(() => expect(api.action).toHaveBeenCalledWith("hello", "disable"));
     await waitFor(() => expect(screen.getByRole("button", { name: "Удалить" }).hasAttribute("disabled")).toBe(false));
