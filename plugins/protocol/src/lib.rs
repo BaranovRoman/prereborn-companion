@@ -79,3 +79,17 @@ mod tests {
         assert_eq!(read_frame(&mut &b"{\"protocol\":1,\"message\":{\"type\":\"hello\",\"core_api\":1,\"capabilities\":[\"dota.diagnostic.execute\"]}}\n"[..]).unwrap_err(),"invalid_frame");
     }
 }
+
+/// Signed executable identity, pinned by the host's verified manager admission.
+#[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+pub struct PackageBinding {pub id:String,pub version:String,pub executable_hash:String,pub manifest_hash:String}
+/// Implemented by the verified host pin; IPC Hello cannot construct or grant rights.
+pub trait ProcessGrant {
+    fn executable(&self)->&std::path::Path;
+    fn binding(&self)->&PackageBinding;
+    fn permits(&self,capability:&str)->bool;
+}
+pub mod runtime;
+
+pub mod playback;

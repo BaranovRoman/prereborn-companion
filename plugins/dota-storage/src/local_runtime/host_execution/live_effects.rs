@@ -7,21 +7,21 @@ use companion_dota_domain::{effects::{Request as EffectRequest,Ack,Effect},owner
 struct Stored {family:String,session:String,ack:Ack,#[serde(default,skip_serializing_if="Option::is_none")] audio:Option<AudioReceipt>}
 #[derive(Serialize,Deserialize)]
 #[serde(deny_unknown_fields)]
-struct AudioReceipt {token:crate::game_sounds::audio_fence::Token,status:crate::game_sounds::audio_fence::Status}
-pub(crate) struct EffectAdmission {pub(crate) ack:Ack,pub(crate) fresh:bool,identity:String,session:String}
+struct AudioReceipt {token:companion_plugin_protocol::audio::Token,status:companion_plugin_protocol::audio::Status}
+pub struct EffectAdmission {pub ack:Ack,pub fresh:bool,identity:String,session:String}
 fn bounded_record(c:&Connection,key:&str)->Result<()> {
  let bad:bool=sql(c.query_row("SELECT EXISTS(SELECT 1 FROM pc_tx_ledger LEFT JOIN pc_tx_receipts USING(operation_key) WHERE operation_key=?1 AND (length(identity)!=64 OR length(CAST(receipt AS BLOB))>2048 OR length(checksum)!=64))",[key],|r|r.get(0)))?;
  if bad{return Err("receipt_corrupt".into());}Ok(())
 }
 impl Adapter {
- pub(crate) fn admit_effect(&mut self,c:&mut Connection,pin:&crate::core::plugin_manager::VerifiedMatchGrant<'_>,req:&EffectRequest,now:u64)->Result<EffectAdmission> {
-  let g=pin.grant();if !g.permits(req.effect.capability().permission()){return Err("capability_denied".into());}
-  self.admit_effect_internal(c,g.lease,g.session_id()?,Some(g.binding()),req,now,false)
+ pub fn admit_effect(&mut self,c:&mut Connection,pin:&impl ExecutionGrant,req:&EffectRequest,now:u64)->Result<EffectAdmission> {
+  let g=pin;if !g.permits(req.effect.capability().permission()){return Err("capability_denied".into());}
+  self.admit_effect_internal(c,g.lease(),g.session_id()?,Some(g.binding()),req,now,false)
  }
- pub(crate) fn admit_reminder(&mut self,c:&mut Connection,pin:&crate::core::plugin_manager::VerifiedMatchGrant<'_>,key:&str,now:u64)->Result<EffectAdmission> {
-  let g=pin.grant();if !g.permits("dota.sound.play"){return Err("capability_denied".into());}
-  let req=EffectRequest{api:1,lease:g.lease,correlation_id:key.into(),idempotency_key:key.into(),deadline_ms:now.saturating_add(2000),effect:Effect::Sound{event_id:"draft-stream-not-started".into(),kind:None}};
-  self.admit_effect_internal(c,g.lease,g.session_id()?,Some(g.binding()),&req,now,true)
+ pub fn admit_reminder(&mut self,c:&mut Connection,pin:&impl ExecutionGrant,key:&str,now:u64)->Result<EffectAdmission> {
+  let g=pin;if !g.permits("dota.sound.play"){return Err("capability_denied".into());}
+  let req=EffectRequest{api:1,lease:g.lease(),correlation_id:key.into(),idempotency_key:key.into(),deadline_ms:now.saturating_add(2000),effect:Effect::Sound{event_id:"draft-stream-not-started".into(),kind:None}};
+  self.admit_effect_internal(c,g.lease(),g.session_id()?,Some(g.binding()),&req,now,true)
  }
  #[cfg(test)]
  fn admit_effect_guarded(&mut self,c:&mut Connection,lease:Lease,session:&str,package:Option<&PackageBinding>,req:&EffectRequest,now:u64)->Result<EffectAdmission> {self.admit_effect_internal(c,lease,session,package,req,now,false)}
@@ -51,7 +51,7 @@ impl Adapter {
  }
  // Persist the playback identity BEFORE emitting to WebView. Queued/playing remain
  // ledger Unknown until an authenticated frontend observation proves a terminal result.
- pub(crate) fn bind_audio(&mut self,c:&mut Connection,a:&EffectAdmission,token:&crate::game_sounds::audio_fence::Token)->Result<()> {
+ pub fn bind_audio(&mut self,c:&mut Connection,a:&EffectAdmission,token:&companion_plugin_protocol::audio::Token)->Result<()> {
   if !a.fresh||!token.matches_context(a.ack.lease.epoch,Some(&a.session)){return Err("audio_admission_mismatch".into());}
   self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::verify(&tx,&self.expected_schema)?;
   bounded_record(&tx,&a.ack.idempotency_key)?;
@@ -59,11 +59,11 @@ impl Adapter {
   if identity!=a.identity||status!="unknown"||hash(&doc)!=checksum{return Err("audio_admission_mismatch".into());}
   let mut stored:Stored=serde_json::from_str(&doc).map_err(|_|"receipt_corrupt")?;
   if stored.audio.is_some()||stored.session!=a.session||stored.ack!=a.ack{return Err("audio_already_bound".into());}
-  stored.audio=Some(AudioReceipt{token:token.clone(),status:crate::game_sounds::audio_fence::Status::Queued});
+  stored.audio=Some(AudioReceipt{token:token.clone(),status:companion_plugin_protocol::audio::Status::Queued});
   write_audio(&tx,&a.ack.idempotency_key,&stored)?;sql(tx.commit())?;Ok(())
  }
- pub(crate) fn audio_ack(&mut self,c:&mut Connection,key:&str,token:&crate::game_sounds::audio_fence::Token,status:crate::game_sounds::audio_fence::Status)->Result<()> {
-  use crate::game_sounds::audio_fence::Status as Playback;
+ pub fn audio_ack(&mut self,c:&mut Connection,key:&str,token:&companion_plugin_protocol::audio::Token,status:companion_plugin_protocol::audio::Status)->Result<()> {
+  use companion_plugin_protocol::audio::Status as Playback;
   self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::verify(&tx,&self.expected_schema)?;bounded_record(&tx,key)?;
   let (doc,checksum):(String,String)=sql(tx.query_row("SELECT receipt,checksum FROM pc_tx_receipts WHERE operation_key=?1",[key],|r|Ok((r.get(0)?,r.get(1)?))))?;
   if hash(&doc)!=checksum{return Err("receipt_corrupt".into());}
@@ -75,14 +75,14 @@ impl Adapter {
   audio.status=status;stored.ack.status=match status{Playback::Completed=>Status::Completed,Playback::Cancelled=>Status::Rejected,_=>Status::Unknown};
   write_audio(&tx,key,&stored)?;sql(tx.commit())?;Ok(())
  }
- pub(crate) fn audio_result(&mut self,c:&mut Connection,a:&EffectAdmission)->Result<Option<Ack>> {
+ pub fn audio_result(&mut self,c:&mut Connection,a:&EffectAdmission)->Result<Option<Ack>> {
   self.bound(c)?;bounded_record(c,&a.ack.idempotency_key)?;
   let (doc,checksum):(String,String)=sql(c.query_row("SELECT receipt,checksum FROM pc_tx_receipts WHERE operation_key=?1",[&a.ack.idempotency_key],|r|Ok((r.get(0)?,r.get(1)?))))?;
   if hash(&doc)!=checksum{return Err("receipt_corrupt".into());}
   let stored:Stored=serde_json::from_str(&doc).map_err(|_|"receipt_corrupt")?;
-  Ok(stored.audio.map(|audio|Ack{status:if matches!(audio.status,crate::game_sounds::audio_fence::Status::Queued|crate::game_sounds::audio_fence::Status::Playing){Status::Accepted}else{stored.ack.status},..stored.ack}))
+  Ok(stored.audio.map(|audio|Ack{status:if matches!(audio.status,companion_plugin_protocol::audio::Status::Queued|companion_plugin_protocol::audio::Status::Playing){Status::Accepted}else{stored.ack.status},..stored.ack}))
  }
- pub(crate) fn settle_effect(&mut self,c:&mut Connection,admission:EffectAdmission,status:Status)->Result<Ack> {
+ pub fn settle_effect(&mut self,c:&mut Connection,admission:EffectAdmission,status:Status)->Result<Ack> {
   if !admission.fresh||status==Status::Accepted{return Err("effect_not_admitted".into());}
   self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::verify(&tx,&self.expected_schema)?;
   // Completion belongs to an already admitted operation, even when draining began meanwhile.
@@ -100,13 +100,13 @@ impl Adapter {
   sql(tx.commit())?;Ok(ack)
  }
 }
-pub(super) fn recover_pending_audio(c:&mut Connection)->Result<()> {
+pub fn recover_pending_audio(c:&mut Connection)->Result<()> {
  let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;
  let keys={let mut stmt=sql(tx.prepare("SELECT operation_key FROM pc_tx_receipts WHERE receipt LIKE '{\"family\":\"effect-v1\",%'"))?;let rows=sql(stmt.query_map([],|r|r.get::<_,String>(0)))?;sql(rows.collect::<rusqlite::Result<Vec<_>>>())?};
  for key in keys {
   bounded_record(&tx,&key)?;let (doc,checksum):(String,String)=sql(tx.query_row("SELECT receipt,checksum FROM pc_tx_receipts WHERE operation_key=?1",[&key],|r|Ok((r.get(0)?,r.get(1)?))))?;
   if hash(&doc)!=checksum{return Err("receipt_corrupt".into());}let mut stored:Stored=serde_json::from_str(&doc).map_err(|_|"receipt_corrupt")?;
-  if let Some(audio)=stored.audio.as_mut(){if matches!(audio.status,crate::game_sounds::audio_fence::Status::Queued|crate::game_sounds::audio_fence::Status::Playing){audio.status=crate::game_sounds::audio_fence::Status::Unknown;stored.ack.status=Status::Unknown;write_audio(&tx,&key,&stored)?;}}
+  if let Some(audio)=stored.audio.as_mut(){if matches!(audio.status,companion_plugin_protocol::audio::Status::Queued|companion_plugin_protocol::audio::Status::Playing){audio.status=companion_plugin_protocol::audio::Status::Unknown;stored.ack.status=Status::Unknown;write_audio(&tx,&key,&stored)?;}}
  }
  sql(tx.commit())?;Ok(())
 }
@@ -119,8 +119,8 @@ fn write_audio(c:&Connection,key:&str,stored:&Stored)->Result<()> {
 }
 #[derive(Serialize,Debug)]
 #[serde(rename_all="camelCase")]
-pub(crate) struct Quota {pub(crate) remaining_operations:u64,pub(crate) remaining_tickets:u64,pub(crate) remaining_receipt_bytes:u64,pub(crate) remaining_ticket_bytes:u64,pub(crate) remaining_revision_identities:u64,pub(crate) unknown:u64}
-pub(crate) fn quota(c:&Connection)->Result<Quota> {
+pub struct Quota {pub remaining_operations:u64,pub remaining_tickets:u64,pub remaining_receipt_bytes:u64,pub remaining_ticket_bytes:u64,pub remaining_revision_identities:u64,pub unknown:u64}
+pub fn quota(c:&Connection)->Result<Quota> {
  super::super::transaction_schema::version(c)?;
  let (operations,tickets,bytes,ticket_bytes,revisions):(u64,u64,u64,u64,u64)=sql(c.query_row("SELECT max(0,max_operations-(SELECT entries FROM pc_tx_usage WHERE kind='pc_tx_ledger')),max(0,max_tickets-(SELECT entries FROM pc_tx_usage WHERE kind='pc_tx_ticket')),max(0,max_receipt_bytes-(SELECT bytes FROM pc_tx_usage WHERE kind='pc_tx_receipts')),max(0,max_ticket_bytes-(SELECT bytes FROM pc_tx_usage WHERE kind='pc_tx_ticket')),max(0,max_revisions-(SELECT entries FROM pc_tx_usage WHERE kind='pc_tx_revision')) FROM pc_tx_limits WHERE id=1",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))))?;
  Ok(Quota{remaining_operations:operations,remaining_tickets:tickets,remaining_receipt_bytes:bytes,remaining_ticket_bytes:ticket_bytes,remaining_revision_identities:revisions,unknown:sql(c.query_row("SELECT count(*) FROM pc_tx_ledger WHERE status='unknown'",[],|r|r.get(0)))?})
@@ -206,7 +206,7 @@ mod corruption_tests {
 
 #[cfg(test)]
 mod audio_receipt_tests {
- use super::*;use crate::{game_sounds::audio_fence::{AudioFence,Status as Playback},local_runtime::transaction_authorization as auth};use companion_dota_domain::ownership::Owner;
+ use super::*;use companion_plugin_protocol::{playback::PlaybackRegistry as AudioFence,audio::Status as Playback};use crate::local_runtime::transaction_authorization as auth;use companion_dota_domain::ownership::Owner;
  fn seeded()->(super::super::FixtureAdapter,String,Lease) {
   let (fixture,session,_)=Fixture::seeded().unwrap();let mut h=Adapter::install(fixture).unwrap();let lease=auth::confirm_fenced(&mut h.conn,Lease{owner:Owner::BuiltIn,epoch:1}).unwrap();auth::bind_builtin_session(&mut h.conn,lease,&session).unwrap();(h,session,lease)
  }
@@ -214,12 +214,12 @@ mod audio_receipt_tests {
  #[test]
  fn durable_audio_identity_progress_completion_cancel_and_stale_ack() {
   for terminal in [Playback::Completed,Playback::Cancelled] {
-   let (mut h,s,l)=seeded();let req=request(l);let a=h.adapter.admit_effect_guarded(&mut h.conn,l,&s,None,&req,0).unwrap();let fence=AudioFence::default();let token=fence.admit(Some(l),Some(&s)).unwrap();
+   let (mut h,s,l)=seeded();let req=request(l);let a=h.adapter.admit_effect_guarded(&mut h.conn,l,&s,None,&req,0).unwrap();let fence=AudioFence::default();let token=fence.admit(Some(l.epoch),Some(&s)).unwrap();
    h.adapter.bind_audio(&mut h.conn,&a,&token).unwrap();assert!(h.adapter.bind_audio(&mut h.conn,&a,&token).is_err());
    assert_eq!(h.adapter.audio_result(&mut h.conn,&a).unwrap().unwrap().status,Status::Accepted);
    h.adapter.audio_ack(&mut h.conn,&req.idempotency_key,&token,Playback::Playing).unwrap();
    assert!(h.adapter.audio_ack(&mut h.conn,&req.idempotency_key,&token,Playback::Queued).is_err());
-   let wrong=fence.admit(Some(Lease{epoch:l.epoch+1,..l}),Some(&s)).unwrap();assert!(h.adapter.audio_ack(&mut h.conn,&req.idempotency_key,&wrong,terminal).is_err());
+   let wrong=fence.admit(Some(l.epoch+1),Some(&s)).unwrap();assert!(h.adapter.audio_ack(&mut h.conn,&req.idempotency_key,&wrong,terminal).is_err());
    h.adapter.audio_ack(&mut h.conn,&req.idempotency_key,&token,terminal).unwrap();h.adapter.audio_ack(&mut h.conn,&req.idempotency_key,&token,terminal).unwrap();
    assert!(h.adapter.audio_ack(&mut h.conn,&req.idempotency_key,&token,Playback::Playing).is_err());
    let duplicate=h.adapter.admit_effect_guarded(&mut h.conn,l,&s,None,&req,1001).unwrap();assert!(!duplicate.fresh);assert_eq!(duplicate.ack.status,if terminal==Playback::Completed{Status::Completed}else{Status::Rejected});
@@ -228,7 +228,7 @@ mod audio_receipt_tests {
  }
  #[test]
  fn unknown_and_lost_frontend_never_readmit_and_quota_rolls_back_ack() {
-  let (mut h,s,l)=seeded();let req=request(l);let a=h.adapter.admit_effect_guarded(&mut h.conn,l,&s,None,&req,0).unwrap();let fence=AudioFence::default();let token=fence.admit(Some(l),Some(&s)).unwrap();h.adapter.bind_audio(&mut h.conn,&a,&token).unwrap();
+  let (mut h,s,l)=seeded();let req=request(l);let a=h.adapter.admit_effect_guarded(&mut h.conn,l,&s,None,&req,0).unwrap();let fence=AudioFence::default();let token=fence.admit(Some(l.epoch),Some(&s)).unwrap();h.adapter.bind_audio(&mut h.conn,&a,&token).unwrap();
   h.adapter.audio_ack(&mut h.conn,&req.idempotency_key,&token,Playback::Unknown).unwrap();
   assert!(h.adapter.audio_ack(&mut h.conn,&req.idempotency_key,&token,Playback::Playing).is_err());assert_eq!(h.adapter.audio_result(&mut h.conn,&a).unwrap().unwrap().status,Status::Unknown);
   assert!(!h.adapter.admit_effect_guarded(&mut h.conn,l,&s,None,&req,0).unwrap().fresh);
@@ -240,7 +240,7 @@ mod audio_receipt_tests {
  #[test]
  fn queued_after_crash_reopen_is_unknown_and_never_dispatchable() {
   let (fixture,s,_)=Fixture::seeded().unwrap();let mut h=Adapter::install(fixture.clone()).unwrap();let l=auth::confirm_fenced(&mut h.conn,Lease{owner:Owner::BuiltIn,epoch:1}).unwrap();auth::bind_builtin_session(&mut h.conn,l,&s).unwrap();
-  let req=request(l);let a=h.adapter.admit_effect_guarded(&mut h.conn,l,&s,None,&req,0).unwrap();let token=AudioFence::default().admit(Some(l),Some(&s)).unwrap();h.adapter.bind_audio(&mut h.conn,&a,&token).unwrap();drop(h);
+  let req=request(l);let a=h.adapter.admit_effect_guarded(&mut h.conn,l,&s,None,&req,0).unwrap();let token=AudioFence::default().admit(Some(l.epoch),Some(&s)).unwrap();h.adapter.bind_audio(&mut h.conn,&a,&token).unwrap();drop(h);
   let mut c=fixture.connect().unwrap();let mut adapter=Adapter::attach(&mut c).unwrap();let next=auth::confirm_fenced(&mut c,l).unwrap();auth::bind_builtin_session(&mut c,next,&s).unwrap();let mut req=req;req.lease=next;
   let cached=adapter.admit_effect_guarded(&mut c,next,&s,None,&req,0).unwrap();assert!(!cached.fresh);assert_eq!(cached.ack.status,Status::Unknown);
  }

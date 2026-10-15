@@ -101,20 +101,7 @@ pub fn init(app: &AppHandle) {
 /// change that made playback depend on backend reachability would have to
 /// thread a new parameter into this signature, which
 /// `playback_resolution_never_depends_on_backend_state` below pins against.
-fn resolve_playback<'a>(
-    detected: &[GameSoundEvent],
-    bindings: &[config::SoundBinding],
-    known_assets: &'a [config::ManagedSoundAsset],
-) -> Vec<(String, &'a config::ManagedSoundAsset)> {
-    detected
-        .iter()
-        .filter_map(|event| {
-            let binding = bindings.iter().find(|b| b.event_id == event.id && b.kind == event.kind)?;
-            let asset = known_assets.iter().find(|a| a.id == binding.asset_id)?;
-            Some((event.id.clone(), asset))
-        })
-        .collect()
-}
+use companion_dota_plugin::sounds::resolve_playback;
 
 /// Entry point called from server/mod.rs's process_gsi_body, mirroring
 /// obs::handle_gsi - the one place raw GSI reaches this feature. Everything

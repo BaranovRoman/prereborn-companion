@@ -127,7 +127,7 @@ fn installed_process_roundtrip_parity_poststate_and_fenced_fallback() {
  let mut effects=0;
  for (index,state) in [game,"menu",game,post,post].into_iter().enumerate(){
   let frame=f.frame(index as u64+1,state);
-  crate::local_runtime::host_execution::tests::legacy_apply(&mut legacy,&f.session,&frame.snapshot,index as i64+1);
+  transaction_tests::legacy_apply(&mut legacy,&f.session,&frame.snapshot,index as i64+1);
   p.process(&f.manager,&f.history,&f.gate,frame,ReplayContext::default(),|_,_,_|{effects+=1;EffectStatus::Completed}).unwrap();
   let guard=f.history.lock();assert_eq!(transaction_tests::normalized(&legacy,&seed),transaction_tests::normalized(guard.as_ref().unwrap(),&seed),"transition {index}");
  }

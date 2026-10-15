@@ -150,6 +150,15 @@ pub fn spawn(command:&Command,generation:&str)->io::Result<Child>{unsafe {
     let initial=capture(job.as_raw_handle()).ok();
     Ok(Child{process,job,pid:pi.dwProcessId,initial,termination:None,stdin:Some(stdin),stdout:Some(stdout),stderr:Some(stderr)})
 }}
+/// The worker must prove membership in its exact generation job before opening
+/// live ingestion. A PID, command-line UUID or inherited parent job is insufficient.
+pub fn verify_current_generation(generation:&str)->Result<(),String>{unsafe {
+    let n=name(generation).map_err(|_|"invalid_process_generation")?;
+    let job=own(OpenJobObjectW(JOB_OBJECT_QUERY,0,n.as_ptr())).map_err(|_|"process_supervision_unproven")?;
+    let mut member=0;
+    if IsProcessInJob(GetCurrentProcess(),job.as_raw_handle(),&mut member)==0||member==0{return Err("process_supervision_unproven".into());}
+    Ok(())
+}}
 // Explicit recovery only. Never called from normal bootstrap. No saved-PID lookup or kill by PID.
 pub fn fence_generation(generation:&str)->Result<(),String>{unsafe {
     let n=name(generation).map_err(|_|"invalid_process_generation")?;
@@ -179,7 +188,14 @@ mod tests {
         loop {if child.try_wait().unwrap().is_some(){return;}assert!(Instant::now()<deadline,"owned kernel handle did not signal exit");std::thread::sleep(Duration::from_millis(5));}
     }
     #[test] #[ignore] fn worker_fixture(){
-        use std::io::Write;println!("WORKER_READY");std::io::stdout().flush().unwrap();std::thread::sleep(Duration::from_secs(30));
+        use std::io::Write;println!("WORKER_READY");std::io::stdout().flush().unwrap();
+        let mut generation=String::new();
+        if std::io::stdin().read_line(&mut generation).unwrap()>0 {
+            verify_current_generation(generation.trim()).unwrap();
+            assert!(verify_current_generation(&uuid::Uuid::new_v4().to_string()).is_err());
+            println!("MEMBERSHIP_CONFIRMED");std::io::stdout().flush().unwrap();
+        }
+        std::thread::sleep(Duration::from_secs(30));
     }
     #[test] #[ignore] fn tree_fixture(){
         use std::io::{BufRead,Write};
@@ -188,6 +204,19 @@ mod tests {
         let mut reader=std::io::BufReader::new(child.stdout.take().unwrap());
         loop {let mut line=String::new();assert!(reader.read_line(&mut line).unwrap()>0);if line.contains("WORKER_READY"){break;}}
         println!("WORKER_READY");std::io::stdout().flush().unwrap();std::thread::sleep(Duration::from_secs(30));
+    }
+    #[test] fn worker_confirms_own_generation_not_parent_job_or_command_line(){
+        use std::io::{BufRead,Write};
+        assert!(verify_current_generation("not-a-generation").is_err());
+        assert!(verify_current_generation(&uuid::Uuid::new_v4().to_string()).is_err());
+        let generation=uuid::Uuid::new_v4().to_string();
+        let fixture=format!("{}::worker_fixture",module_path!().split_once("::").unwrap().1);
+        let mut command=Command::new(std::env::current_exe().unwrap());command.args(["--ignored","--exact",&fixture,"--nocapture"]);
+        let mut child=spawn(&command,&generation).unwrap();let mut reader=std::io::BufReader::new(child.stdout.take().unwrap());
+        loop {let mut line=String::new();assert!(reader.read_line(&mut line).unwrap()>0);if line.contains("WORKER_READY"){break;}}
+        writeln!(child.stdin.as_mut().unwrap(),"{generation}").unwrap();
+        loop {let mut line=String::new();assert!(reader.read_line(&mut line).unwrap()>0);if line.contains("MEMBERSHIP_CONFIRMED"){break;}}
+        child.kill().unwrap();wait_exit(&mut child);
     }
     #[test] fn spawn_failure_and_generation_collision_fail_closed(){
         let generation=uuid::Uuid::new_v4().to_string();

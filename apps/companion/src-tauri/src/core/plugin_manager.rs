@@ -46,6 +46,12 @@ impl MatchExecutionGrant {
 }
 pub(crate) struct VerifiedMatchGrant<'a>(&'a MatchExecutionGrant);
 impl VerifiedMatchGrant<'_> {pub(crate) fn grant(&self)->&MatchExecutionGrant{self.0}}
+impl companion_plugin_protocol::ProcessGrant for VerifiedMatchGrant<'_> {
+ fn executable(&self)->&std::path::Path {self.0.executable()}
+ fn binding(&self)->&companion_plugin_protocol::PackageBinding {self.0.binding()}
+ fn permits(&self,capability:&str)->bool {self.0.permits(capability)}
+}
+
 fn execution_binding(store:&Store,explicit:&[&str])->Result<(companion_dota_domain::match_execution::PackageBinding,PathBuf),String> {
     use companion_dota_domain::match_execution::{PackageBinding,MATCH_EXECUTION_CAPABILITY};
     if !explicit.contains(&MATCH_EXECUTION_CAPABILITY){return Err("capability_denied".into());}
@@ -485,4 +491,9 @@ mod tests {
 pub(crate) fn fixture_installed(root:PathBuf,key:&str,release:&Release,bytes:&[u8])->PluginManager {
     let mut store=Store::open(root,key).unwrap();store.install(bytes,release,false,&AtomicBool::new(false)).unwrap();
     PluginManager{service:Arc::new(Mutex::new(Ok(Service{store,catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None,live_dota:None}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default()}
+}
+
+impl companion_dota_storage::local_runtime::host_execution::ExecutionGrant for VerifiedMatchGrant<'_> {
+ fn lease(&self)->companion_dota_domain::ownership::Lease {self.0.lease}
+ fn session(&self)->Option<&str> {self.0.session.as_deref()}
 }

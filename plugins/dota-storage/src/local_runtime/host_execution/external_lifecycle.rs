@@ -2,14 +2,14 @@
 use super::*;
 use companion_dota_domain::session_lifecycle::{self as lifecycle,LifecycleDecision as Decision,SessionLifecycleView};
 #[derive(Debug)]
-pub(crate) struct Outcome {pub(crate) session:Option<String>,pub(crate) stream_ended:Option<bool>}
+pub struct Outcome {pub session:Option<String>,pub stream_ended:Option<bool>}
 #[derive(Serialize)]
 struct LifecycleReceipt {family:&'static str,before:u64,after:u64,decision:Option<Decision>,resolved_session:String,interrupted:Vec<String>,sessions:Vec<SessionReceipt>}
 impl Adapter {
- pub(crate) fn external_lifecycle(&mut self,c:&mut Connection,pin:&crate::core::plugin_manager::VerifiedMatchGrant<'_>,streaming:Option<bool>,snapshot:Option<&ReplayGsi>,now:DateTime<Utc>,sweep:bool)->Result<Outcome> {
-  let grant=pin.grant();if !grant.permits(MATCH_EXECUTION_CAPABILITY){return Err("capability_denied".into());}
-  if grant.session.is_none(){return self.cold_lifecycle(c,grant.lease,Some(grant.binding()),snapshot,now);}
-  self.lifecycle_guarded(c,grant.lease,grant.session_id()?,Some(grant.binding()),streaming,snapshot,now,sweep)
+ pub fn external_lifecycle(&mut self,c:&mut Connection,pin:&impl ExecutionGrant,streaming:Option<bool>,snapshot:Option<&ReplayGsi>,now:DateTime<Utc>,sweep:bool)->Result<Outcome> {
+  let grant=pin;if !grant.permits(MATCH_EXECUTION_CAPABILITY){return Err("capability_denied".into());}
+  if grant.session().is_none(){return self.cold_lifecycle(c,grant.lease(),Some(grant.binding()),snapshot,now);}
+  self.lifecycle_guarded(c,grant.lease(),grant.session_id()?,Some(grant.binding()),streaming,snapshot,now,sweep)
  }
  fn lifecycle_guarded(&mut self,c:&mut Connection,lease:companion_dota_domain::ownership::Lease,session:&str,package:Option<&PackageBinding>,streaming:Option<bool>,snapshot:Option<&ReplayGsi>,now:DateTime<Utc>,sweep:bool)->Result<Outcome> {
   self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::verify(&tx,&self.expected_schema)?;

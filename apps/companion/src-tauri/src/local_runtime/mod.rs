@@ -36,6 +36,9 @@
 // (game_sounds/mod.rs) - the reference architecture this module was built
 // to match.
 
+#[cfg(test)]
+#[path="../../../../../plugins/dota-storage/src/local_runtime/transaction_tests.rs"]
+pub(crate) mod transaction_tests;
 mod detector;
 mod gsi;
 pub mod lifecycle;
@@ -43,8 +46,6 @@ mod model;
 mod schema;
 mod store;
 pub(crate) mod transaction_facade;
-#[cfg(test)]
-pub(crate) mod transaction_tests;
 #[cfg(test)]
 mod match_shadow_tests;
 pub(crate) mod host_execution;

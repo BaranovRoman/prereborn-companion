@@ -3,6 +3,8 @@ name = "companion-dota-storage"
 version = "0.1.0"
 edition = "2021"
 [dependencies]
+companion-plugin-protocol = { path = "../protocol" }
+sha2 = "0.10"
 companion-dota-domain = { path = "../dota-domain" }
 chrono = { version = "0.4", features = ["clock"] }
 rusqlite = { version = "0.31", features = ["bundled"] }

@@ -550,14 +550,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "companion-dota-plugin"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "companion-dota-domain",
+ "companion-plugin-protocol",
+ "serde",
+ "serde_json",
+ "uuid",
+ "winreg 0.52.0",
+]
+
+[[package]]
 name = "companion-dota-storage"
 version = "0.1.0"
 dependencies = [
  "chrono",
  "companion-dota-domain",
+ "companion-plugin-protocol",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "uuid",
 ]
 
@@ -955,6 +970,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "companion-dota-domain",
+ "companion-dota-plugin",
  "companion-dota-storage",
  "companion-plugin-manager",
  "companion-plugin-protocol",

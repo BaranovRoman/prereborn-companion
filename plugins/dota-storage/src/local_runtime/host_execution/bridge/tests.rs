@@ -3,7 +3,7 @@ use serde_json::{json,Value};
 use super::super::super::transaction_tests as parity;
 fn now(n:i64)->DateTime<Utc>{DateTime::from_timestamp(1700000000+n,0).unwrap()}
 fn snapshot(game:&str,state:&str)->ReplayGsi {
-    crate::core::dota_observer::project(&json!({"player":{"activity":"playing","team_name":"radiant","kills":3},"hero":{"id":105},"map":{"game_state":state,"matchid":game,"win_team":"radiant"}})).unwrap()
+    companion_dota_domain::projection::project(&json!({"player":{"activity":"playing","team_name":"radiant","kills":3},"hero":{"id":105},"map":{"game_state":state,"matchid":game,"win_team":"radiant"}})).unwrap()
 }
 fn setup()->(Host,Fixture,String,String) {
     let(fixture,s,m)=Fixture::seeded().unwrap();let mut host=Host::open(fixture.clone(),&s).unwrap();host.start().unwrap();(host,fixture,s,m)

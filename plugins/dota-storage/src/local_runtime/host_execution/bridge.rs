@@ -1,6 +1,6 @@
 //! Fixture-only diagnostic driver; reuses Runtime, Ownership and the transaction adapter.
 use super::*;
-use crate::core::plugin_runtime::Runtime;
+use companion_plugin_protocol::runtime::Runtime;
 use companion_dota_domain::ownership::{Ownership,Phase,Owner,Lease};
 
 #[derive(Clone,Serialize,Deserialize)]
@@ -14,7 +14,7 @@ fn save(c:&Connection,value:&DiagnosticOwner)->Result<()> {
     sql(c.execute("INSERT INTO pc_tx_diagnostic_owner VALUES(1,?1) ON CONFLICT(id) DO UPDATE SET doc=excluded.doc",[encode(value)?]))?;Ok(())
 }
 fn epoch(phase:Phase)->u64 {match phase {Phase::Active(l)=>l.epoch,Phase::Draining{old,..}=>old.epoch,Phase::Vacant{epoch}=>epoch}}
-fn binary()->PathBuf {PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../plugins/target/debug").join(if cfg!(windows){"companion-dota-plugin.exe"}else{"companion-dota-plugin"})}
+fn binary()->PathBuf {PathBuf::from(std::env::var_os("COMPANION_TEST_PLUGIN_DIR").unwrap_or_else(||std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/debug").into_os_string())).join(if cfg!(windows){"companion-dota-plugin.exe"}else{"companion-dota-plugin"})}
 
 struct Host {
     runtime:Runtime,adapter:FixtureAdapter,scope:DiagnosticScope,expected:Option<Prepared>,confirmed:Option<Receipt>,owns_process:bool,blocked:bool,last_sequence:Option<u64>,

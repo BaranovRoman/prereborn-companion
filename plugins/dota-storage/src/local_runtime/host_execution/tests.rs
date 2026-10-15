@@ -1,24 +1,19 @@
 use super::*;
-use super::super::{transaction_tests as parity,gsi,model::{LocalMatchState,MatchResult}};
+use super::super::{transaction_tests as parity,model::{LocalMatchState,MatchResult}};
 use serde_json::json;
 fn now(n:i64)->DateTime<Utc>{DateTime::from_timestamp(1700000000+n,0).unwrap()}
 fn frame(game:&str,state:&str,winner:Option<&str>)->ReplayGsi {
-    crate::core::dota_observer::project(&json!({"player":{"activity":"playing","team_name":"radiant","kills":4},"hero":{"id":105},"map":{"game_state":state,"matchid":game,"win_team":winner},"items":{"slot8":{"name":"item_tango","charges":3}}})).unwrap()
+    companion_dota_domain::projection::project(&json!({"player":{"activity":"playing","team_name":"radiant","kills":4},"hero":{"id":105},"map":{"game_state":state,"matchid":game,"win_team":winner},"items":{"slot8":{"name":"item_tango","charges":3}}})).unwrap()
 }
 fn request(adapter:&mut FixtureAdapter,s:&str,key:&str,at:i64,snapshot:ReplayGsi)->Request {
     let prepared=adapter.prepare(s,snapshot,RankedMode::Ranked,now(at),at as u64).unwrap();
     let plan=rules::analyze(&prepared.data.context,&prepared.data.snapshot,at as u64).detector.unwrap();prepared.request(key,"correlation",plan)
 }
-fn worker()->crate::core::plugin_runtime::Runtime {
-    let path=std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../plugins/target/debug").join(if cfg!(windows){"companion-dota-plugin.exe"}else{"companion-dota-plugin"});
-    let mut w=crate::core::plugin_runtime::Runtime::default();w.start_expected(&path,&[],"dota2",Some("0.1.0")).unwrap();w
+fn worker()->companion_plugin_protocol::runtime::Runtime {
+    let path=std::path::PathBuf::from(std::env::var_os("COMPANION_TEST_PLUGIN_DIR").unwrap_or_else(||std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/debug").into_os_string())).join(if cfg!(windows){"companion-dota-plugin.exe"}else{"companion-dota-plugin"});
+    let mut w=companion_plugin_protocol::runtime::Runtime::default();w.start_expected(&path,&[],"dota2",Some("0.1.0")).unwrap();w
 }
-pub(crate) fn legacy_apply(c:&mut Connection,s:&str,raw:&ReplayGsi,at:i64) {
-    let before=store::find_active_match(c,s).unwrap();let parsed=gsi::parse(&serde_json::to_value(raw).unwrap()).unwrap();
-    detector::handle_snapshot(c,s,RankedMode::Ranked,&parsed,now(at)).unwrap();
-    let after=store::find_active_match(c,s).unwrap();let terminal=before.filter(|_|after.is_none()).and_then(|a|store::find_match(c,&a.local_id).unwrap());
-    if let Some(session)=store::find_session(c,s).unwrap(){if rules::should_end_gameplay(session.is_streamed,terminal.is_some()){store::finalize_session_end(c,s,now(at)).unwrap();}}
-}
+pub use super::super::transaction_tests::legacy_apply;
 #[test]
 fn external_plan_full_write_set_parity_and_exact_identity_receipts() {
     let (fixture,s,m)=Fixture::seeded().unwrap();let old_path=fixture.root.path().join("legacy.sqlite3");std::fs::copy(&fixture.path,&old_path).unwrap();let mut old=Connection::open(&old_path).unwrap();let seed=parity::ids(&old);let mut adapter=Adapter::install(fixture).unwrap();let mut w=worker();
@@ -68,7 +63,7 @@ fn conditional_insert_ignore_resolves_original_uuid_key_and_actual_session_closu
 #[test]
 fn external_plan_parity_for_partial_conflicting_probable_and_distinct_matches() {
     let game="DOTA_GAMERULES_STATE_GAME_IN_PROGRESS";let post="DOTA_GAMERULES_STATE_POST_GAME";
-    let partial=crate::core::dota_observer::project(&json!({"map":{"game_state":game,"matchid":"42"},"player":{"activity":"playing"}})).unwrap();
+    let partial=companion_dota_domain::projection::project(&json!({"map":{"game_state":game,"matchid":"42"},"player":{"activity":"playing"}})).unwrap();
     let cases=vec![
         vec![(1,frame("42",game,None)),(2,partial),(3,frame("42",post,None)),(4,frame("42","menu",None))],
         vec![(1,frame("42",game,None)),(2,frame("42",post,Some("radiant"))),(3,frame("42",post,Some("dire")))],

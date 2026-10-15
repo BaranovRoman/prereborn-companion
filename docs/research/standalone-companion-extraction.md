@@ -62,3 +62,31 @@ Native user Windows game/audio/OBS acceptance must be reported separately from f
 ## Sources
 
 Repository source and `prereborn-v0.5.90`; no external architectural claims used.
+
+## Extraction checkpoint (2026-10-15)
+
+- Neutral CoreShell is the active root: overview/chat/speech/OBS/plugins/settings.
+  Core playback hooks own transport only; the previous game shell is no longer mounted.
+- The real store/schema/detector/facade/outbox SQL, transaction coordinator, safety
+  migration, durable authorization, indexed ledger, revisions, receipts and history
+  projections now live in `plugins/dota-storage`. Core uses temporary reexports.
+- Managed audio settings/assets/binding resolution and Steam GSI discovery/config
+  generation now live in `plugins/dota`. Existing filenames and data formats remain.
+  A strict settings reader preserves invalid/future files; settings saves are atomic.
+- Protocol crate owns the single child runtime, Windows job supervisor, opaque package
+  identity and playback tracker. Core supplies verified borrowed grants; IPC Hello
+  still cannot grant capabilities. Legacy Dota-specific command policies remain until
+  the new generic host API and worker ingestion are wired; they must be removed before release.
+- Local checks: 600 frontend tests; 144 storage/coordinator regressions plus the
+  2 relocated history projection tests; 22 plugin sound/GSI tests; 7 protocol tests;
+  7 core runtime tests; 33 core live IPC/fencing tests. Cargo check passes.
+- Explicit ignored long-stream test was run without reducing the frame count:
+  288,000 real SQLite prepare/commit cycles passed in 1115.99 seconds. Assertions:
+  2 ledger rows, 0 Unknown, 9,998 operation/ticket slots remaining, receipts <32 KiB,
+  tickets <16 KiB, persisted revision advance of two writes per frame. This is the
+  telemetry storage budget, not a real eight-hour game/audio/OBS acceptance run.
+
+This checkpoint is **not releasable**: core still bootstraps BuiltIn and contains game
+backend/UI/assets; worker does not yet own production GSI/history/overlay/full UI.
+The published 0.5.94 and Dota 0.1.0 are unchanged. No release/signing gate is satisfied
+by these relocation tests alone, and no user-native game/audio smoke is claimed.

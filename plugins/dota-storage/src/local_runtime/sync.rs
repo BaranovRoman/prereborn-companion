@@ -119,3 +119,10 @@ pub fn apply_one_correction(
     }
     Ok(())
 }
+
+/// Same cached mode read used by the legacy detector; no network access.
+pub fn cached_ranked_mode(conn:&Connection)->super::model::RankedMode {
+    match conn.query_row("SELECT value FROM sync_meta WHERE key = ?1",["cached_game_mode"],|r|r.get::<_,String>(0)) {
+        Ok(value)=>super::model::RankedMode::from_db_str(&value),Err(_)=>super::model::RankedMode::Unknown,
+    }
+}

@@ -114,9 +114,9 @@ jobs:
         run: |
           cargo test --manifest-path apps/companion/src-tauri/Cargo.toml --test windows_supervisor -- --test-threads=1
 
-      - name: Targeted Dota Prepare UI and invoke tests
+      - name: Targeted plugin library, core shell and invoke tests
         if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''
-        run: pnpm --filter @prereborn/companion exec vitest run src/pages/PluginsPage.test.tsx src/plugins/api.test.ts
+        run: pnpm --filter @prereborn/companion exec vitest run src/pages/PluginsPage.test.tsx src/plugins/api.test.ts src/core/interface/CoreShell.test.tsx
 
       - name: Targeted production GSI projection regressions
         if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''
@@ -130,7 +130,12 @@ jobs:
         timeout-minutes: 15
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/apps/companion/src-tauri/target
-        run: cargo test --locked --manifest-path plugins/Cargo.toml -p companion-dota-storage
+          COMPANION_TEST_PLUGIN_DIR: ${{ github.workspace }}/apps/companion/src-tauri/target/debug
+        run: |
+          cargo build --locked --manifest-path plugins/Cargo.toml -p companion-dota-plugin -p companion-hello-plugin
+          cargo test --locked --manifest-path plugins/Cargo.toml -p companion-plugin-protocol
+          cargo test --locked --manifest-path plugins/Cargo.toml -p companion-dota-plugin --lib
+          cargo test --locked --manifest-path plugins/Cargo.toml -p companion-dota-storage
 
       - name: Secure storage smoke test (real Windows Credential Manager)
         run: cargo run --manifest-path apps/companion/src-tauri/Cargo.toml --example keyring_smoke

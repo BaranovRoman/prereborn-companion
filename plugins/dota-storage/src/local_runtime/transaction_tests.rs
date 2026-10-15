@@ -8,22 +8,22 @@ use std::collections::{BTreeMap,BTreeSet};
 #[allow(dead_code)] mod legacy {include!("fixtures/legacy_store_9d46cc5.rs");}
 fn now(n:i64)->DateTime<Utc> {DateTime::from_timestamp(1700000000+n,0).unwrap()}
 fn tables(conn:&Connection)->Vec<String> {conn.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'pc8_%' AND name NOT LIKE 'pc_tx_%' ORDER BY name").unwrap().query_map([],|r|r.get(0)).unwrap().collect::<Result<_,_>>().unwrap()}
-pub(crate) fn dump(conn:&Connection)->BTreeMap<String,Vec<Vec<Value>>> {
+pub fn dump(conn:&Connection)->BTreeMap<String,Vec<Vec<Value>>> {
  tables(conn).into_iter().map(|table| {
   let mut stmt=conn.prepare(&format!("SELECT * FROM {table} ORDER BY rowid")).unwrap();let width=stmt.column_count();
   let rows=stmt.query_map([],|r|Ok((0..width).map(|i|match r.get_ref(i).unwrap() {ValueRef::Null=>Value::Null,ValueRef::Integer(n)=>json!(n),ValueRef::Real(n)=>json!(n),ValueRef::Text(t)=>Value::String(std::str::from_utf8(t).unwrap().into()),ValueRef::Blob(_)=>panic!("unexpected blob")}).collect())).unwrap().collect::<Result<Vec<_>,_>>().unwrap();(table,rows)
  }).collect()
 }
-pub(crate) fn ids(conn:&Connection)->BTreeSet<String> {
+pub fn ids(conn:&Connection)->BTreeSet<String> {
  ["local_sessions","local_matches","sync_outbox"].into_iter().flat_map(|table|{let col=if table=="sync_outbox"{"id"}else{"local_id"};conn.prepare(&format!("SELECT {col} FROM {table} ORDER BY rowid")).unwrap().query_map([],|r|r.get::<_,String>(0)).unwrap().collect::<Result<Vec<_>,_>>().unwrap()}).collect()
 }
-pub(crate) fn normalized(conn:&Connection,seed:&BTreeSet<String>)->Value {
+pub fn normalized(conn:&Connection,seed:&BTreeSet<String>)->Value {
  let mut mappings=BTreeMap::new();
  for table in ["local_sessions","local_matches","sync_outbox"] {let col=if table=="sync_outbox"{"id"}else{"local_id"};let generated=conn.prepare(&format!("SELECT {col} FROM {table} ORDER BY rowid")).unwrap().query_map([],|r|r.get::<_,String>(0)).unwrap().collect::<Result<Vec<_>,_>>().unwrap();for(i,id)in generated.iter().enumerate(){assert!(uuid::Uuid::parse_str(id).is_ok());if !seed.contains(id){mappings.insert(id.clone(),format!("generated:{table}:{i}"));}}}
  fn walk(value:&mut Value,map:&BTreeMap<String,String>){match value {Value::String(s)=>{for(id,label)in map { *s=s.replace(id,label); }},Value::Array(a)=>for v in a {walk(v,map)},Value::Object(o)=>for v in o.values_mut(){walk(v,map)},_=>{}}}
  let mut value=serde_json::to_value(dump(conn)).unwrap();walk(&mut value,&mappings);value
 }
-pub(crate) fn seed(path:&std::path::Path)->(String,String) {let mut c=Connection::open(path).unwrap();schema::migrate(&c).unwrap();legacy::set_current_rating(&mut c,1000).unwrap();let s=legacy::ensure_gameplay_session(&mut c,now(0)).unwrap();legacy::create_match(&c,&s.local_id,None,14,"radiant",model::RankedMode::Ranked,now(1)).unwrap();let m=legacy::find_active_match(&c,&s.local_id).unwrap().unwrap();(s.local_id,m.local_id)}
+pub fn seed(path:&std::path::Path)->(String,String) {let mut c=Connection::open(path).unwrap();schema::migrate(&c).unwrap();legacy::set_current_rating(&mut c,1000).unwrap();let s=legacy::ensure_gameplay_session(&mut c,now(0)).unwrap();legacy::create_match(&c,&s.local_id,None,14,"radiant",model::RankedMode::Ranked,now(1)).unwrap();let m=legacy::find_active_match(&c,&s.local_id).unwrap().unwrap();(s.local_id,m.local_id)}
 fn step(conn:&mut Connection,old:bool,n:u8,session:&str,matched:&str) {
  use model::{RankedMode as R,MatchResult as M};
  let telemetry=gsi::MatchTelemetry{kills:Some(4),deaths:None,assists:Some(2),inventory:(0..9).map(|i|if i==8{Some("item_tango".into())}else{None}).collect()};
@@ -114,4 +114,11 @@ fn rollback(c:&mut Connection)->rusqlite::Result<()> {
  assert!(c.execute("INSERT INTO pc8_ledger VALUES('op1','different','completed')",[]).is_err());
  assert_eq!(c.query_row("SELECT payload_hash,status FROM pc8_ledger WHERE operation_key='op1'",[],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?))).unwrap(),("identity1".into(),"unknown".into()));
  assert!(rollback(&mut c).is_err());
+}
+
+pub fn legacy_apply(c:&mut Connection,s:&str,raw:&companion_dota_domain::contracts::ReplayGsi,at:i64) {
+    let before=store::find_active_match(c,s).unwrap();let parsed=gsi::parse(&serde_json::to_value(raw).unwrap()).unwrap();
+    super::detector::handle_snapshot(c,s,model::RankedMode::Ranked,&parsed,now(at)).unwrap();
+    let after=store::find_active_match(c,s).unwrap();let terminal=before.filter(|_|after.is_none()).and_then(|a|store::find_match(c,&a.local_id).unwrap());
+    if let Some(session)=store::find_session(c,s).unwrap(){if companion_dota_domain::match_shadow::should_end_gameplay(session.is_streamed,terminal.is_some()){store::finalize_session_end(c,s,now(at)).unwrap();}}
 }
