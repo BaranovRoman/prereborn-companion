@@ -41,8 +41,12 @@ export interface Status {
   lastError: string|null; processed: number; lastSequence: number|null;
   gsi: {received:number;accepted:number;rejected:number;dropped:number;lastError:string|null}|null;
   detectedSounds?:number;plannedSounds?:number;droppedSoundIntents?:number;lastSoundOperation?:string|null;
+  streaming?:boolean|null;streamEnded?:boolean;
 }
 export interface AudioReceipt {receipt:{status:"queued"|"playing"|"completed"|"cancelled"|"unknown";operationKey:string}|null}
-export interface Match { localId:string;matchId:string|null;heroId:number;state:string;result:string|null;kills:number|null;deaths:number|null;assists:number|null;startedAt:string;ratingAfter:number|null }
+export interface Match { localId:string;matchId:string|null;heroId:number;state:string;result:string|null;kills:number|null;deaths:number|null;assists:number|null;startedAt:string;ratingAfter:number|null;detectedRatingDelta?:number|null;ratingDeltaCorrection?:number;rankedMode?:"ranked"|"unranked"|"unknown";rankedModeDetected?:"ranked"|"unranked"|"unknown" }
 export interface History {hasSession:boolean;ratingCurrent:number|null;wins:number;losses:number;currentMatch:Match|null;recentMatches:Match[]}
 export interface GsiInstallation {found:boolean;path?:string;installed:boolean}
+export type HistoryEdit = {kind:"rating";rating:number}|{kind:"match_delta";local_id:string;delta:number|null}|{kind:"match_mode";local_id:string;ranked:boolean|null}|{kind:"continue_session"|"end_session"|"recover_interrupted"};
+export interface EditContext {revision:number;session:string|null;active:boolean}
+export interface EditReceipt {operationKey:string;beforeRevision:number;revision:number;resolvedSession:string|null;streamEnded:boolean}

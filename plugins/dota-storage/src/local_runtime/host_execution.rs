@@ -385,3 +385,4 @@ use fixture::FixtureAdapter;
 pub mod live_effects;
 
 pub mod external_lifecycle;
+pub mod manual;

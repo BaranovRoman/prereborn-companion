@@ -19,6 +19,31 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 describe("installed Dota package UI",()=>{
+  it("writes MMR only with a fresh native context and displays success only after its exact receipt",async()=>{
+    const previous=mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async(name:string,args?:unknown)=>{
+      if(name==="history.context")return {active:true,revision:7,session:"preserved-session"};
+      if(name==="history.edit"){const request=args as {operationKey:string;expectedRevision:number;session:string};return {operationKey:request.operationKey,beforeRevision:7,revision:8,resolvedSession:request.session,streamEnded:false};}
+      return previous(name,args);
+    });
+    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});fireEvent.click(screen.getByRole("button",{name:"История"}));await screen.findByText(/Текущий MMR: 2400/);
+    fireEvent.change(screen.getByRole("spinbutton",{name:"Текущий MMR"}),{target:{value:"2500"}});fireEvent.click(screen.getByRole("button",{name:"Сохранить MMR"}));
+    await screen.findByText("Изменение сохранено в истории.");
+    expect(mocks.invoke).toHaveBeenCalledWith("history.edit",expect.objectContaining({operationKey:expect.stringMatching(/^manual:[0-9a-f-]{36}$/),expectedRevision:7,session:"preserved-session",edit:{kind:"rating",rating:2500}}));
+  });
+  it("does not optimistically apply or automatically retry a stale history write",async()=>{
+    const previous=mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async(name:string,args?:unknown)=>{
+      if(name==="history.context")return {active:true,revision:7,session:"preserved-session"};
+      if(name==="history.edit")throw new Error("stale_revision");
+      return previous(name,args);
+    });
+    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});fireEvent.click(screen.getByRole("button",{name:"История"}));await screen.findByText(/Текущий MMR: 2400/);
+    fireEvent.change(screen.getByRole("spinbutton",{name:"Текущий MMR"}),{target:{value:"2500"}});fireEvent.click(screen.getByRole("button",{name:"Сохранить MMR"}));
+    await screen.findByRole("alert");expect(screen.getByRole("alert").textContent).toContain("stale_revision");
+    expect(screen.queryByText("Изменение сохранено в истории.")).toBeNull();expect(screen.getByText(/Текущий MMR: 2400/)).toBeTruthy();
+    expect(mocks.invoke.mock.calls.filter(([name])=>name==="history.edit")).toHaveLength(1);
+  });
   it("shows the exact protected audio receipt without treating an emitted intent as completed playback",async()=>{
     const previous=mocks.invoke.getMockImplementation()!;
     mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>{

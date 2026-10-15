@@ -60,6 +60,30 @@ impl History {
   if response.status!=companion_dota_domain::effects::Status::Completed{return Err("match_result_unconfirmed".into());}
   Ok(response.receipt)
  }
+ /// The same serialized writer handles idle watchdog/OBS lifecycle ticks and
+ /// GSI frames. No cached snapshot is used to bootstrap a gameplay session.
+ pub fn tick(&mut self,streaming:Option<bool>,now:chrono::DateTime<chrono::Utc>,sweep:bool)->Result<Option<bool>,String>{
+  let g=self.grant.as_mut().ok_or("worker_inactive")?;
+  let outcome=self.adapter.external_lifecycle(&mut self.connection,g,streaming,None,now,sweep)?;
+  g.session=outcome.session;
+  Ok(outcome.stream_ended)
+ }
+ pub fn edit_context(&self)->Result<serde_json::Value,String>{
+  let revision:u64=self.connection.query_row("SELECT value FROM pc_tx_epoch WHERE id=1",[],|r|r.get(0)).map_err(|_|"history_read_failed")?;
+  Ok(serde_json::json!({"revision":revision,"session":self.session(),"active":self.active()}))
+ }
+ pub fn edit(&mut self,request:db::host_execution::manual::EditRequest)->Result<db::host_execution::manual::EditReceipt,String>{
+  let grant=self.grant.as_mut().ok_or("worker_inactive")?;
+  let receipt=self.adapter.manual_edit(&mut self.connection,grant,&request,chrono::Utc::now())?;
+  // A recovered receipt describes its original commit. It cannot roll current
+  // context back to an earlier session: reread the actual durable owner binding.
+  grant.session=ownership::runtime_session(&self.connection,grant.lease,Some(&grant.package))?;
+  Ok(receipt)
+ }
+ pub fn session_ended(&self)->Result<bool,String>{
+  let Some(id)=self.session()else{return Ok(false);};
+  Ok(store::find_session(&self.connection,id).map_err(|_|"history_read_failed")?.ok_or("session_missing")?.ended_at.is_some())
+ }
  pub fn summary(&self)->Result<db::summary::LocalSessionSummary,String> {db::summary::try_get(&self.connection).map_err(|_|"history_read_failed".into())}
  pub fn confirm_prepared(&self)->Result<(),String>{transaction_schema::activation_preflight(&self.connection,&self.backup)}
  pub fn quota(&self)->Result<db::host_execution::live_effects::Quota,String>{db::host_execution::live_effects::quota(&self.connection)}

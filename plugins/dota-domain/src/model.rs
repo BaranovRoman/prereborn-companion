@@ -124,7 +124,7 @@ impl RankedMode {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalSession {
     pub local_id: String,
     pub backend_id: Option<String>,
@@ -154,7 +154,7 @@ pub struct LocalSession {
     pub sync_state: SyncState,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalMatch {
     pub local_id: String,
     pub session_local_id: String,

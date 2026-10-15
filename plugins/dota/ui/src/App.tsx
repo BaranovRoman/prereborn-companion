@@ -3,6 +3,7 @@ import * as api from "./api";
 import type { GameSoundCatalog, GameSoundEventKind, GameSoundSettings, ManagedSoundAsset, TrackedHero } from "./services/dotaCompanionApi";
 import { ItemsCatalog } from "./components/sounds/ItemsCatalog";
 import { SoundBindingRow } from "./components/sounds/SoundBindingRow";
+import { HistoryPanel } from "./components/HistoryPanel";
 
 export function Dota() {
   const [tab,setTab] = useState("heroes"); const [query,setQuery] = useState(""); const [hero,setHero] = useState<TrackedHero|null>(null);
@@ -28,7 +29,7 @@ export function Dota() {
     if(tab!=="history")return;let disposed=false;
     void api.invoke<api.History>("history.summary").then(h=>{if(!disposed)setHistory(h);}).catch(e=>{if(!disposed)setError(String(e));});
     return()=>{disposed=true;};
-  },[tab,status?.lastSequence]);
+  },[tab,status?.lastSequence,status?.session,status?.streamEnded]);
   useEffect(()=>{
     if(tab!=="settings")return;let disposed=false;
     void api.invoke<api.GsiInstallation>("gsi.find").then(value=>{if(!disposed)setGsi(value);}).catch(e=>{if(!disposed)setError(String(e));});
@@ -43,7 +44,6 @@ export function Dota() {
     const asset=settings?.assets.find(a=>a.id===assetId);if(!asset)throw new Error("sound_asset_missing");
     await api.invoke("asset.preview",{fileName:asset.fileName,volume:settings!.masterVolume});
   };
-  const matches=history?[...(history.currentMatch?[history.currentMatch]:[]),...history.recentMatches]:[];
   return <main>
     <header><div><h1>Dota 2</h1><p role="status">{!status?"Подключение к плагину…":!status.active?"Плагин выключен — настройки доступны":status.awaitingSession?"Ожидание игровой сессии · звуки доступны и в опробовании героя":"Плагин работает"}</p></div>
       {status?.gsi&&<span>{status.processed} кадров обработано</span>}</header>
@@ -58,7 +58,7 @@ export function Dota() {
           </>}</article>)}</div>
       </section>:<section><label>Поиск героя <input value={query} onChange={e=>setQuery(e.target.value)} /></label><div className="hero-grid">{catalog.heroes.filter(h=>`${h.displayName} ${h.id}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map(h=><button key={h.id} onClick={()=>setHero(h)}><img src={h.iconUrl} alt="" loading="lazy" width={72} height={40}/><span>{h.displayName}</span>{h.abilities.some(a=>settings.bindings.some(b=>b.eventId===a.id))&&<small>♪ Настроен звук</small>}</button>)}</div></section>)}
       {tab==="items"&&<ItemsCatalog items={catalog.items} settings={settings} onChooseFile={choose} onPreview={preview} onRemove={remove}/>}
-      {tab==="history"&&<section><h2>История матчей</h2>{!history?<p>Чтение истории…</p>:<><p>Текущий MMR: {history.ratingCurrent??"не задан"} · Победы: {history.wins} · Поражения: {history.losses}</p>{matches.length===0?<p>Завершённых матчей пока нет.</p>:<div className="history">{matches.map(m=><article key={m.localId}><strong>{m.matchId?`Матч ${m.matchId}`:"Локальный матч"}</strong><p>{m.state} · {m.result??"результат не определён"}</p><p>K/D/A: {m.kills??"—"}/{m.deaths??"—"}/{m.assists??"—"}</p><time>{new Date(m.startedAt).toLocaleString()}</time></article>)}</div>}</>}</section>}
+      {tab==="history"&&<HistoryPanel history={history} active={status?.active===true} reload={async()=>setHistory(await api.invoke<api.History>("history.summary"))}/>}
       {tab==="settings"&&<section><h2>Звуковые реакции</h2><label><input type="checkbox" checked={settings.enabled} disabled={busy} onChange={e=>{void run(()=>api.invoke("sound.master",{enabled:e.target.checked,volume:settings.masterVolume})).catch(()=>{});}}/> Включены</label>
         <label>Громкость <input type="range" min="0" max="100" defaultValue={settings.masterVolume} disabled={busy} onPointerUp={e=>{void run(()=>api.invoke("sound.master",{enabled:settings.enabled,volume:Number(e.currentTarget.value)})).catch(()=>{});}} onKeyUp={e=>{if(e.key.startsWith("Arrow"))void run(()=>api.invoke("sound.master",{enabled:settings.enabled,volume:Number(e.currentTarget.value)})).catch(()=>{});}}/></label>
         <p>Звуки используют выбранное в Companion устройство вывода. OBS и трансляция для них не требуются. Удаление привязки сохраняет загруженный файл.</p>

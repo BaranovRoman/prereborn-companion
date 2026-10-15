@@ -61,6 +61,10 @@ fn stale_verified_task_is_rejected_before_it_can_send_a_command_to_the_current_p
 fn installed_worker_uses_real_ipc_for_manual_idempotent_preparation_and_keeps_launch_authority_out_of_commands(){
     let root=tempfile::tempdir().unwrap();let mut runtime=launch_installed_worker(root.path(),&["data.legacy"]);
     assert_eq!(runtime.command("host.status".into(),json!({})).unwrap()["prepared"],false);
+    assert!(runtime.command("host.poll".into(),json!({"streamObservation":{"observedAtMs":0,"streaming":true,"password":"forbidden"}})).unwrap_err().starts_with("invalid_poll_context"));
+    let idle=runtime.command("host.poll".into(),json!({"streamObservation":{"observedAtMs":0,"streaming":true}})).unwrap();
+    assert_eq!(idle["status"]["session"],serde_json::Value::Null);assert_eq!(idle["status"]["streaming"],serde_json::Value::Null);
+    assert!(!root.path().join("local-runtime.sqlite3").exists());
     assert!(!root.path().join("local-runtime.sqlite3").exists());
     let denied=runtime.command("host.prepare".into(),json!({"dataRoot":"untrusted"})).unwrap_err();assert!(denied.starts_with("unexpected_command_payload"));
     assert_eq!(runtime.command("host.status".into(),json!({})).unwrap()["prepared"],false);
@@ -104,7 +108,7 @@ fn supervised_worker_accepts_fresh_demo_and_bot_gsi_without_obs_and_reopens_the_
     let root=tempfile::tempdir().unwrap();std::fs::create_dir(root.path().join("sounds")).unwrap();
     std::fs::write(root.path().join("sounds/jump.wav"),b"RIFFtestWAVE").unwrap();
     std::fs::write(root.path().join("game-sounds-config.json"),json!({"schemaVersion":1,"enabled":true,"masterVolume":63,"bindings":[{"eventId":"techies_suicide","kind":"abilityCast","assetId":"jump"}],"assets":[{"id":"jump","fileName":"jump.wav","originalName":"jump.wav","sizeBytes":12}]}).to_string()).unwrap();
-    let caps=["ui","data.legacy","audio.play","overlay.publish"];
+    let caps=["ui","data.legacy","audio.play","overlay.publish","obs.scene"];
     let mut runtime=launch_installed_worker(root.path(),&caps);
     assert!(runtime.command("host.activate".into(),json!({})).unwrap_err().starts_with("not_prepared"));
     runtime.command("host.prepare".into(),json!({})).unwrap();
@@ -128,9 +132,18 @@ fn supervised_worker_accepts_fresh_demo_and_bot_gsi_without_obs_and_reopens_the_
     runtime.command("host.prepare".into(),json!({})).unwrap();let resumed=runtime.command("host.activate".into(),json!({})).unwrap();
     assert_eq!(resumed["session"],session);assert!(resumed["epoch"].as_u64().unwrap()>epoch);
     send(&raw);assert_eq!(poll(&mut runtime,1)["soundIntents"],json!([]));
+    let at=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+    let streaming=runtime.command("host.poll".into(),json!({"streamObservation":{"observedAtMs":at,"streaming":true}})).unwrap();
+    assert_eq!(streaming["status"]["streaming"],true);assert_eq!(streaming["status"]["session"],session);
+    let context=runtime.command("history.context".into(),json!({})).unwrap();assert_eq!(context["session"],session);
+    let request=json!({"operationKey":format!("manual:{}",uuid::Uuid::new_v4()),"expectedRevision":context["revision"],"session":session,"edit":{"kind":"rating","rating":2450}});
+    let receipt=runtime.command("history.edit".into(),request.clone()).unwrap();assert_eq!(receipt["session"]["local_id"],session);assert_eq!(receipt["session"]["rating_current"],2450);
+    assert_eq!(runtime.command("history.edit".into(),request).unwrap(),receipt);
     runtime.command("host.stop".into(),json!({})).unwrap();runtime.stop().unwrap();runtime.stopped_confirmed().unwrap();
     let c=rusqlite::Connection::open(root.path().join("local-runtime.sqlite3")).unwrap();
     assert_eq!(c.query_row("SELECT count(*) FROM local_sessions",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+    assert_eq!(c.query_row("SELECT is_streamed FROM local_sessions",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+    assert_eq!(c.query_row("SELECT rating_current FROM local_sessions",[],|r|r.get::<_,i64>(0)).unwrap(),2450);
 }
 #[test] fn actual_process_analyzes_replay_and_refuses_live_commands() {
     let mut p=Process::new(&[]); p.send(Message::Hello {core_api:CORE_API});

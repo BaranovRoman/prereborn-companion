@@ -14,7 +14,7 @@ impl ProcessGrant for Pin{
  fn permits(&self,cap:&str)->bool{self.permissions.iter().any(|p|p==cap)}
 }
 #[derive(Clone)]
-pub(super) struct WorkerProcess{pin:Pin,binding:ProcessBinding,epoch:u64,root:PathBuf,active:bool,polling:Arc<AtomicBool>}
+pub(super) struct WorkerProcess{pin:Pin,binding:ProcessBinding,epoch:u64,root:PathBuf,active:bool,polling:Arc<AtomicBool>,stream_observation:Arc<Mutex<Option<companion_plugin_protocol::obs::StreamObservation>>>,effect_context:Arc<Mutex<Option<Option<String>>>>}
 struct Task{worker:WorkerProcess,host:PluginHost,app:tauri::AppHandle,audio:Arc<HostAudio>}
 struct PollGuard(Arc<AtomicBool>);
 impl Drop for PollGuard{fn drop(&mut self){self.0.store(false,Ordering::SeqCst);}}
@@ -67,7 +67,7 @@ impl Service{
    audio.process_after_native_exit(&process,epoch)?;return Err(error);
   }
   drop(runtime);
-  self.workers.insert(id.into(),WorkerProcess{pin,binding:process,epoch,root,active:false,polling:Default::default()});self.manifests.insert(id.into(),manifest);Ok(())
+  self.workers.insert(id.into(),WorkerProcess{pin,binding:process,epoch,root,active:false,polling:Default::default(),stream_observation:Default::default(),effect_context:Default::default()});self.manifests.insert(id.into(),manifest);Ok(())
  }
  pub(super) fn prepare_worker(&mut self,id:&str)->Result<(),String>{
   self.open_worker(id)?;
@@ -135,11 +135,35 @@ impl Service{
  }
 }
 impl Task{
+ fn stream_observation(&self)->Result<companion_plugin_protocol::obs::StreamObservation,String>{
+  use companion_plugin_protocol::obs::StreamObservation;
+  use std::time::{Instant,Duration,SystemTime,UNIX_EPOCH};
+  let now=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_|"clock_unavailable")?.as_millis() as u64;
+  let mut cached=self.worker.stream_observation.lock().map_err(|_|"obs_observation_poisoned")?;
+  if let Some(value)=cached.as_ref().filter(|v|now>=v.observed_at_ms&&now-v.observed_at_ms<1000){return Ok(value.clone());}
+  let streaming=if self.worker.pin.permits("obs.scene"){
+   // Reuse the current credential owner during extraction. The public worker
+   // input contains only fresh OBS truth, never config/password or cached GSI.
+   use tauri::Manager;
+   let config={let state=self.app.state::<crate::state::AppState>();let inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;inner.obs_config.clone()};
+   // Automatic scene switching is independent of observing a real stream.
+   // Preserve the existing watcher rule even when config.enabled is false.
+   let connection=super::super::obs_transport::ConnectionSettings{host:&config.host,port:config.port,password:&config.password};
+   let result=super::super::obs_transport::stream_status_before(&connection,Instant::now()+Duration::from_millis(500));
+   let state=self.app.state::<crate::state::AppState>();let inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;
+   if inner.obs_config.host==config.host&&inner.obs_config.port==config.port&&inner.obs_config.password==config.password{result.ok()}else{None}
+  }else{None};
+  let observation=StreamObservation{observed_at_ms:SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_|"clock_unavailable")?.as_millis() as u64,streaming};
+  *cached=Some(observation.clone());Ok(observation)
+ }
  fn poll(&self,stopping:&AtomicBool)->Result<(),String>{
   if stopping.load(Ordering::SeqCst){return Err("core_shutdown".into());}
   let worker=&self.worker;
+  // OBS IO is outside both process command and history locks. An unavailable
+  // transport supplies None; it can never fabricate an authoritative stop.
+  let observation=self.stream_observation()?;
   let mut runtime=self.host.0.lock().map_err(|_|locked())?;
-  let value=runtime.command_verified(&worker.pin,&worker.binding,"host.poll".into(),serde_json::json!({}))?;
+  let value=runtime.command_verified(&worker.pin,&worker.binding,"host.poll".into(),serde_json::json!({"streamObservation":observation}))?;
   // Keep child command serialization through admission/emit. A UI command
   // cannot change the worker's committed context between its reply and our
   // use of these intents. play() never waits for a frontend ACK and there is
@@ -147,6 +171,15 @@ impl Task{
   let batch:Batch=serde_json::from_value(value).map_err(|_|"invalid_worker_batch")?;
   if batch.sound_intents.len()>32||batch.status.get("active")!=Some(&Value::Bool(true)){return Err("worker_admission_closed".into());}
   let context=match batch.status.get("context"){Some(Value::Null)=>None,Some(Value::String(s))if !s.is_empty()&&s.len()<=128=>Some(s.as_str()),_=>return Err("invalid_worker_context".into())};
+  let next_context=context.map(str::to_string);
+  let mut previous=worker.effect_context.lock().map_err(|_|"effect_context_poisoned")?;
+  if previous.as_ref().is_some_and(|old|old!=&next_context){
+   // The child command lock prevents a concurrent session edit until pending
+   // and active audio from the previous committed scope is actually fenced.
+   self.audio.fence(&worker.pin.package.id,|request|self.app.emit_to("main","plugin-audio-fence",request).map_err(|_|"frontend_audio_unavailable".into()))?;
+   self.audio.reopen(&worker.pin.package.id)?;
+  }
+  *previous=Some(next_context);drop(previous);
   for sound in batch.sound_intents{
    if stopping.load(Ordering::SeqCst){return Err("core_shutdown".into());}
    if sound.operation_key.is_empty()||sound.operation_key.len()>128||sound.context.as_ref().is_some_and(|s|s.is_empty()||s.len()>128){return Err("invalid_sound_intent".into());}

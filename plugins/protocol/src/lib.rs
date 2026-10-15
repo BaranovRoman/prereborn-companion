@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod obs;
 #[cfg(windows)]
 pub mod windows;
 

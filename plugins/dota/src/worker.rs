@@ -42,34 +42,44 @@ fn retain_context(sounds:&mut Vec<SoundIntent>,context:Option<&str>)->u64{
  let before=sounds.len();sounds.retain(|s|s.context.as_deref()==context);(before-sounds.len())as u64
 }
 
+#[derive(Default,Deserialize)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+struct PollContext{stream_observation:Option<companion_plugin_protocol::obs::StreamObservation>}
+
 pub struct Worker {
  launch:Launch, history:Option<History>, listener:Option<Listener>, pipeline:Pipeline,
  overlay:Option<crate::overlay::server::Server>,last_overlay_at:Option<std::time::Instant>,scene:companion_dota_domain::broadcast_state::BroadcastState,
  selected_directory:Option<PathBuf>,
  dropped_sound_intents:u64,
+ last_lifecycle_at:Option<std::time::Instant>,last_watchdog_at:Option<std::time::Instant>,stream_ended:bool,streaming:Option<bool>,
  detected_sounds:u64,planned_sounds:u64,last_sound_signal:Option<Value>,last_sound_operation:Option<String>,
  last_error:Option<String>, processed:u64, last_sequence:Option<u64>, last_analysis:Option<Value>,last_gsi:Option<Value>,last_receipt:Option<companion_dota_domain::match_execution::Receipt>,
 }
 impl Worker {
- pub fn new(launch:Launch)->Self{Self{launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,dropped_sound_intents:0,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
+ pub fn new(launch:Launch)->Self{Self{launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,dropped_sound_intents:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
  pub fn status(&self)->Value{
   let history=self.history.as_ref();let active=history.is_some_and(History::active);
   json!({"prepared":history.is_some(),"active":active,"awaitingSession":active&&history.and_then(History::session).is_none(),
-   "session":history.and_then(History::session),"epoch":history.and_then(History::epoch),"lastError":self.last_error,
+   "session":history.and_then(History::session),"epoch":history.and_then(History::epoch),"lastError":self.last_error,"streaming":self.streaming,"streamEnded":self.stream_ended,
    "gsi":self.listener.as_ref().map(|l|json!(l.status())).or(self.last_gsi.clone()),"processed":self.processed,"lastSequence":self.last_sequence,"analysis":self.last_analysis,
-   "receipt":self.last_receipt,"context":history.and_then(History::session),"droppedSoundIntents":self.dropped_sound_intents,"detectedSounds":self.detected_sounds,"plannedSounds":self.planned_sounds,"lastSoundSignal":self.last_sound_signal,"lastSoundOperation":self.last_sound_operation,"overlay":self.overlay.as_ref().map(|s|json!({"running":!s.closed(),"clients":s.clients()}))})
+   "receipt":self.last_receipt,"context":self.effect_context(),"droppedSoundIntents":self.dropped_sound_intents,"detectedSounds":self.detected_sounds,"plannedSounds":self.planned_sounds,"lastSoundSignal":self.last_sound_signal,"lastSoundOperation":self.last_sound_operation,"overlay":self.overlay.as_ref().map(|s|json!({"running":!s.closed(),"clients":s.clients()}))})
  }
+ fn effect_context(&self)->Option<String>{self.history.as_ref().and_then(History::session).map(|id|if self.stream_ended{format!("{id}:ended")}else{id.to_string()})}
  /// Commands are serialized by the existing stdio loop: one coordinator, one
  /// listener, and no duplicate preparation even when the UI repeats a request.
  pub fn command(&mut self,name:&str,args:Value)->Result<Value,String>{
   let result=if name=="host.directory"{
    self.select_directory(args)
+  }else if name=="host.poll"{
+   serde_json::from_value(if args.is_null(){json!({})}else{args}).map_err(|_|"invalid_poll_context".to_string()).and_then(|context|self.poll(context))
   }else if name.starts_with("host."){
    crate::ui::empty(args).and_then(|_|self.command_inner(name))
   }else if !self.launch.capabilities.iter().any(|c|c=="ui"){Err("capability_denied".into())}
   else if name=="status"{crate::ui::empty(args).map(|_|self.status())}
   else if !self.launch.capabilities.iter().any(|c|matches!(c.as_str(),"data.legacy"|"data.private")){Err("capability_denied".into())}
   else if name=="history.summary"{crate::ui::empty(args).and_then(|_|self.history.as_ref().ok_or_else(||"not_prepared".to_string())).and_then(History::summary).and_then(|summary|serde_json::to_value(summary).map_err(|_|"history_encoding_failed".into()))}
+  else if name=="history.context"{crate::ui::empty(args).and_then(|_|self.history.as_ref().ok_or_else(||"not_prepared".to_string())).and_then(History::edit_context)}
+  else if name=="history.edit"{self.history_edit(args)}
   else if matches!(name,"gsi.find"|"gsi.install"){self.gsi_setup(name,args)}
   else{crate::ui::command(&self.launch.data_root,name,args)};
   if name.starts_with("host."){
@@ -77,6 +87,16 @@ impl Worker {
    else if matches!(name,"host.prepare"|"host.activate"|"host.directory"){self.last_error=None;}
   }
   result
+ }
+ fn history_edit(&mut self,args:Value)->Result<Value,String>{
+  let request=serde_json::from_value(args).map_err(|_|"invalid_history_edit")?;
+  let history=self.history.as_mut().ok_or("not_prepared")?;
+  let receipt=history.edit(request)?;
+  self.stream_ended=history.session_ended()?;
+  self.last_lifecycle_at=None;
+  // Committed changes are visible through the same real summary/revisions on
+  // the next poll. A renderer failure cannot cause this edit to be replayed.
+  serde_json::to_value(receipt).map_err(|_|"history_encoding_failed".into())
  }
  fn select_directory(&mut self,args:Value)->Result<Value,String>{
   #[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Selection{path:PathBuf}
@@ -123,12 +143,11 @@ impl Worker {
     for (host,internal) in [("audio.play","dota.sound.play"),("obs.scene","dota.obs.scene"),("overlay.publish","dota.overlay.update")]{if self.launch.capabilities.iter().any(|c|c==host){permissions.push(internal.into());}}
     self.history.as_mut().unwrap().activate(&proof,self.launch.package.clone(),permissions)?;
     if let Err(error)=listener.start_admission(){let _=self.history.as_mut().unwrap().drain();return Err(error);}
-    self.pipeline.reset();self.listener=Some(listener);self.overlay=overlay;self.last_overlay_at=None;self.scene=companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches;self.last_error=None;
+    self.pipeline.reset();self.listener=Some(listener);self.overlay=overlay;self.last_overlay_at=None;self.last_lifecycle_at=None;self.last_watchdog_at=None;self.stream_ended=false;self.streaming=None;self.scene=companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches;self.last_error=None;
     if let Err(error)=self.publish_overlay(){return Err(self.close_after_error(error));}
     Ok(self.status())
    },
    "host.stop"=>{self.stop()?;Ok(self.status())},
-   "host.poll"=>self.poll(),
    "host.status"=>Ok(self.status()),
    _=>Err("unsupported_worker_command".into()),
   }
@@ -140,10 +159,21 @@ impl Worker {
   if let Some(history)=self.history.as_mut(){history.drain()?;}
   Ok(())
  }
- fn poll(&mut self)->Result<Value,String>{
+ fn poll(&mut self,context:PollContext)->Result<Value,String>{
   if self.overlay.as_ref().is_some_and(|s|s.closed()){return Err(self.close_after_error("overlay_listener_failed".into()));}
   if let Some(listener)=self.listener.as_ref().filter(|l|l.failed()||l.status().rejected>0){
    let code=listener.status().last_error.unwrap_or("gsi_admission_failed").to_string();return Err(self.close_after_error(code));
+  }
+  let now=chrono::Utc::now();
+  let now_ms=u64::try_from(now.timestamp_millis()).map_err(|_|"clock_unavailable")?;
+  let streaming=if self.launch.capabilities.iter().any(|c|c=="obs.scene"){context.stream_observation.and_then(|o|o.fresh_streaming(now_ms))}else{None};
+  let changed=self.streaming!=streaming;self.streaming=streaming;
+  if self.history.as_ref().is_some_and(History::active)&&(changed||self.last_lifecycle_at.is_none_or(|at|at.elapsed()>=std::time::Duration::from_secs(2))){
+   let sweep=self.last_watchdog_at.is_none_or(|at|at.elapsed()>=std::time::Duration::from_secs(60));
+   match self.history.as_mut().unwrap().tick(streaming,now,sweep){
+    Ok(ended)=>{if let Some(ended)=ended{self.stream_ended=ended;}self.last_lifecycle_at=Some(std::time::Instant::now());if sweep{self.last_watchdog_at=self.last_lifecycle_at;}},
+    Err(error)=>return Err(self.close_after_error(error)),
+   }
   }
   let before=self.processed;let result=self.frames();
   if result.is_ok()&&self.overlay.is_some()&&(before!=self.processed||self.last_overlay_at.is_none_or(|at|at.elapsed()>=std::time::Duration::from_secs(1))){
@@ -172,7 +202,7 @@ impl Worker {
    if sounds.len()+result.sounds.len()>32{return Err("sound_batch_exhausted".into());}
    for (index,sound) in result.sounds.into_iter().enumerate(){
     let key=format!("sound:{}:{}:{index}",self.launch.generation,frame.sequence);self.last_sound_operation=Some(key.clone());
-    sounds.push(SoundIntent{operation_key:key,asset_file:sound.asset.file_name,volume:sound.volume,deadline_ms:frame.observed_at_ms.saturating_add(2000),context:self.history.as_ref().and_then(History::session).map(str::to_string)});
+    sounds.push(SoundIntent{operation_key:key,asset_file:sound.asset.file_name,volume:sound.volume,deadline_ms:frame.observed_at_ms.saturating_add(2000),context:self.effect_context()});
    }
    self.last_analysis=Some(serde_json::to_value(result.analysis).map_err(|_|"analysis_serialization_failed")?);
    self.processed=self.processed.checked_add(1).ok_or("gsi_sequence_exhausted")?;self.last_sequence=Some(frame.sequence);
@@ -181,7 +211,7 @@ impl Worker {
   // durably and authenticate the frontend ACK before declaring playback done.
   // A batch may cross demo/match/session boundaries; old-context cues must
   // not be admitted after the final committed session has changed.
-  let dropped=retain_context(&mut sounds,self.history.as_ref().and_then(History::session));
+  let dropped=retain_context(&mut sounds,self.effect_context().as_deref());
   self.dropped_sound_intents=self.dropped_sound_intents.checked_add(dropped).ok_or("sound_counter_exhausted")?;
   Ok(json!({"status":self.status(),"soundIntents":sounds}))
  }
@@ -189,7 +219,8 @@ impl Worker {
   let Some(server)=&self.overlay else{return Ok(());};let root=&self.launch.data_root;
   let layout=crate::overlay::saved(root,"overlay-layout.json",1024*1024)?;let queue=crate::overlay::saved(root,"queue-settings.json",128*1024)?;
   let account=crate::overlay::saved(root,"account-overlay-data.json",128*1024)?;
-  let snapshot=crate::overlay::OverlayStateSnapshot{scene:self.scene,updated_at:chrono::Utc::now().to_rfc3339(),session:self.history.as_ref().ok_or("not_prepared")?.summary()?,layout_version:0,account,twitch_chat:None,overlay_visible:true,opendota_favorite_heroes:None,opendota_radar:None,quiz:None};
+  let scene=companion_dota_domain::broadcast_state::resolve(self.scene,self.stream_ended,false);
+  let snapshot=crate::overlay::OverlayStateSnapshot{scene,updated_at:chrono::Utc::now().to_rfc3339(),session:self.history.as_ref().ok_or("not_prepared")?.summary()?,layout_version:0,account,twitch_chat:None,overlay_visible:true,opendota_favorite_heroes:None,opendota_radar:None,quiz:None};
   server.publish(&snapshot,layout,queue)?;self.last_overlay_at=Some(std::time::Instant::now());Ok(())
  }
 }
@@ -240,6 +271,17 @@ mod tests {
   let error=worker.command("host.prepare",json!({})).unwrap_err();assert_eq!(worker.status()["prepared"],false);assert_eq!(worker.status()["lastError"],json!(error));
   assert!(worker.command("host.prepare",json!({})).is_err());assert_eq!(std::fs::read(backup).unwrap(),b"damaged backup fixture");
   assert_eq!(worker.status()["session"],Value::Null);assert_eq!(worker.status()["active"],false);
+ }
+ #[test]
+ fn history_edits_require_actual_activation_and_cannot_gain_ownership_from_ui_arguments(){
+  let root=tempfile::tempdir().unwrap();let mut worker=worker(root.path());worker.launch.capabilities.push("ui".into());
+  assert_eq!(worker.command("history.context",json!({})).unwrap_err(),"not_prepared");worker.command("host.prepare",json!({})).unwrap();
+  let context=worker.command("history.context",json!({})).unwrap();assert_eq!(context["active"],false);assert_eq!(context["session"],Value::Null);
+  let request=json!({"operationKey":format!("manual:{}",uuid::Uuid::new_v4()),"expectedRevision":context["revision"],"session":null,"edit":{"kind":"rating","rating":1234}});
+  assert_eq!(worker.command("history.edit",request.clone()).unwrap_err(),"worker_inactive");
+  let mut forged=request;forged["epoch"]=json!(1);assert_eq!(worker.command("history.edit",forged).unwrap_err(),"invalid_history_edit");
+  assert_eq!(worker.command("history.summary",json!({})).unwrap()["hasSession"],false);
+  assert_eq!(worker.status()["active"],false);assert_eq!(worker.status()["gsi"],Value::Null);
  }
  #[cfg(not(windows))]
  #[test]

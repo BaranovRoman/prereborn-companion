@@ -149,4 +149,15 @@ mod tests{
   assert!(audio.owns(&two));assert_eq!(audio.locked().unwrap().lookup("other","sound:1").unwrap().unwrap().status,Status::Playing);
   audio.ack(two,Status::Completed).unwrap();
  }
+ #[test]
+ fn a_new_committed_context_requires_cancellation_of_the_old_playback_and_fences_its_late_ack(){
+  let root=tempfile::tempdir().unwrap();std::fs::write(root.path().join("jump.wav"),b"RIFFtestWAVE").unwrap();
+  let audio=HostAudio::open(&root.path().join("transport.sqlite3")).unwrap();let(pin,process)=pin();let epoch=audio.reserve_process(&process).unwrap().epoch;audio.process_ready(&process,epoch).unwrap();
+  let old=audio.play(&pin,&process,epoch,None,root.path(),"sound:demo","jump.wav",70,now_ms()+2000,|_|Ok(())).unwrap().playback.unwrap();audio.ack(old.clone(),Status::Playing).unwrap();
+  audio.fence("example",|fence|{assert_eq!(fence.playback_ids,vec![old.id.clone()]);audio.ack(old.clone(),Status::Cancelled)?;audio.confirm(&fence,true)}).unwrap();audio.reopen("example").unwrap();
+  let new=audio.play(&pin,&process,epoch,Some("real-session"),root.path(),"sound:match","jump.wav",70,now_ms()+2000,|_|Ok(())).unwrap().playback.unwrap();
+  assert_ne!(old.scope.generation,new.scope.generation);assert!(new.matches_context(epoch,Some("real-session")));
+  assert!(audio.ack(old.clone(),Status::Playing).is_err());assert_eq!(audio.receipt("example","sound:demo").unwrap().unwrap().status,Status::Cancelled);
+  audio.ack(new,Status::Completed).unwrap();
+ }
 }

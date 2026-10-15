@@ -266,3 +266,45 @@ removal of all core game dependencies/bootstrap/UI/assets and final signed packa
 catalog + updater validation. Unknown after frontend loss remains fail-closed;
 never clear it or infer old playback cessation from a PID/timeout alone. Native
 restart audio-fence proof must be reviewed as part of the final activation path.
+
+## Stream lifecycle and real user edits checkpoint (2026-10-16)
+
+Unsigned Windows run 38813824275 passed for da5d09c (NSIS, existing packaged
+smoke, supervised GSI/overlay worker fixture); this still builds the transitional
+core with BuiltIn present, not the final separated release.
+
+The installed-worker scheduler now obtains correlated GetStreamStatus truth from
+the credential-owning core outside process/history locks. Only the boolean and a
+bounded-age observation cross IPC. Scene automation being disabled does not disable
+stream observation; unavailable, malformed, future or >2s-old observations are
+Unknown, never a synthetic stop. Worker idle ticks use the existing domain lifecycle
+and transactional facade every 2s and the real ended-session watchdog every 60s.
+A confirmed OBS stream start can bind one real streamed session while cold; absent
+OBS/demo without game evidence still cannot manufacture a session. Durable lifecycle
+receipts, binding, session/outbox/revision changes share the same transaction.
+
+Manual MMR, match delta/mode corrections, stale-session acknowledgement/end and
+stale interrupted-match recovery now execute through the same Adapter and original
+Facade/store operations. Typed bounded requests carry operation UUID, actual SQL
+revision and session precondition. Receipt and entire write-set commit together;
+stale/context/Unknown/quota failures roll back. A duplicate returns its checksummed
+receipt even after reopen/new fenced epoch, without re-enqueueing or taking a new
+identity. Recovery refreshes context from durable ownership, not an old receipt.
+The independent React history editor waits for the exact native receipt and does
+not optimistically report success or automatically replay stale/uncertain requests.
+A worker cannot acquire activation/ownership through history UI command arguments.
+
+Core scopes sound playback to the worker's last committed opaque effect context.
+On a context change it confirms cancellation of pending/active plugin audio before
+reopening admission; old ACKs are fenced. This path does not wait under history or
+Manager locks and does not touch Twitch/TTS. Stream closure changes the opaque
+context too. This scheduler remains unattached until BuiltIn has been removed.
+
+Targeted checks: 4 lifecycle/store tests including real write-set parity and idle
+watchdog, 3 manual edit full write-set/rollback/reopen tests, 6 worker tests, 8 real
+IPC tests on macOS; 7 independent Dota UI tests and both TypeScript projects;
+correlated typed OBS transport test, context audio cancellation test, cargo check.
+The Windows fixture additionally covers real worker IPC stream graduation and
+manual receipt replay (synthetic OBS input; not native OBS/audio/game acceptance).
+Production OBS scene automation, authenticated backend/outbox transport, remaining
+plugin UI/overlay controls and final core extraction/signing are still outstanding.

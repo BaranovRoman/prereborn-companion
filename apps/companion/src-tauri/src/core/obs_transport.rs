@@ -48,6 +48,11 @@ pub(crate) fn program_scene_before(config:&ConnectionSettings<'_>,deadline:Insta
     let response=request_before(&mut socket,"GetCurrentProgramScene",json!({}),Some(deadline))?;
     scene_name(&response["d"]["responseData"]["currentProgramSceneName"])
 }
+pub(crate) fn stream_status_before(config:&ConnectionSettings<'_>,deadline:Instant)->Result<bool,String>{
+    let mut socket=open_before(config,deadline)?;
+    let response=request_before(&mut socket,"GetStreamStatus",json!({}),Some(deadline))?;
+    response.pointer("/d/responseData/outputActive").and_then(Value::as_bool).ok_or("obs_stream_state_invalid".into())
+}
 pub(crate) fn set_program_scene_before(config:&ConnectionSettings<'_>,desired:&str,deadline:Instant)->Result<(),String>{
     scene_name(&Value::String(desired.into()))?;
     let mut socket=open_before(config,deadline)?;
@@ -273,6 +278,22 @@ pub(crate) fn request_before(socket:&mut ObsSocket,request_type:&str,request_dat
 mod tests {
     use super::*;
     use std::net::TcpListener;
+
+    #[test]
+    fn lifecycle_stream_observation_requires_correlated_typed_obs_truth() {
+        for (wire,expected) in [(json!(true),Some(true)),(json!(false),Some(false)),(json!("false"),None),(Value::Null,None)] {
+            let listener=TcpListener::bind("127.0.0.1:0").unwrap();let port=listener.local_addr().unwrap().port();
+            let server=std::thread::spawn(move||{
+                let (stream,_)=listener.accept().unwrap();let mut socket=tungstenite::accept(stream).unwrap();
+                socket.send(Message::Text(json!({"op":0,"d":{}}).to_string().into())).unwrap();let _=socket.read().unwrap();
+                socket.send(Message::Text(json!({"op":2,"d":{}}).to_string().into())).unwrap();
+                let request:Value=serde_json::from_str(socket.read().unwrap().to_text().unwrap()).unwrap();assert_eq!(request["d"]["requestType"],"GetStreamStatus");
+                socket.send(Message::Text(json!({"op":7,"d":{"requestId":request["d"]["requestId"],"requestStatus":{"result":true},"responseData":{"outputActive":wire}}}).to_string().into())).unwrap();
+            });
+            let result=stream_status_before(&ConnectionSettings{host:"127.0.0.1",port,password:"not exported"},Instant::now()+Duration::from_secs(2));
+            assert_eq!(result.ok(),expected);server.join().unwrap();
+        }
+    }
 
     #[test]
     fn fresh_public_snapshot_has_real_stream_and_scene_state_but_no_credentials_or_raw_response() {
