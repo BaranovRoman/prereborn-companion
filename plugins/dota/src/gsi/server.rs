@@ -17,7 +17,12 @@ impl Listener {
  /// against another live owner or quietly takes a different endpoint.
  pub fn bind()->Result<Self,String>{Self::bind_address("127.0.0.1:3665")}
  fn bind_address(address:&str)->Result<Self,String>{
-  let server=Arc::new(tiny_http::Server::http(address).map_err(|_|"gsi_bind_failed")?);
+  let server=Arc::new(tiny_http::Server::http(address).map_err(|error|{
+   // Keep the native cause without logging the request, body, path or account.
+   // This distinguishes a busy port from a Windows socket/provider failure.
+   error.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error)
+    .map(|code|format!("gsi_bind_failed:os={code}")).unwrap_or_else(||"gsi_bind_failed".into())
+  })?);
   let (tx,frames)=mpsc::sync_channel(CAPACITY);
   let counters=Arc::new(Counters::default());let stop=Arc::new(AtomicBool::new(false));let admission=Arc::new(AtomicBool::new(false));
   let listener=Self{server:server.clone(),stop:stop.clone(),admission:admission.clone(),counters:counters.clone(),frames};
