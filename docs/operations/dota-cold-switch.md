@@ -1,7 +1,12 @@
 # Dota Cold Switch: implementation and Windows acceptance
 
+Update: stable 0.5.94 was subsequently authorized and published through the existing updater.
+Use [the stable release report and first Cold Switch steps](companion-0.5.94-release.md).
+The unsigned candidate evidence below records the earlier validation stage.
+
 Implements the approved audit `3073745` on `codex/plugin-runtime-prototype`.
-No release, package update, signing, main merge or automatic migration is authorized here.
+The initial implementation approval excluded release/signing. Package updates, main merge
+and automatic migration remain excluded; the subsequent stable release approval is recorded above.
 The existing signed Dota 0.1.0 worker and IPC v1 are reused unchanged.
 
 ## Production behavior
