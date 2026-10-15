@@ -118,6 +118,12 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''
         run: pnpm --filter @prereborn/companion exec vitest run src/pages/PluginsPage.test.tsx src/plugins/api.test.ts
 
+      - name: Targeted production GSI projection regressions
+        if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''
+        shell: bash
+        timeout-minutes: 15
+        run: cargo test --locked --manifest-path apps/companion/src-tauri/Cargo.toml --test dota_projection
+
       - name: Secure storage smoke test (real Windows Credential Manager)
         run: cargo run --manifest-path apps/companion/src-tauri/Cargo.toml --example keyring_smoke
 

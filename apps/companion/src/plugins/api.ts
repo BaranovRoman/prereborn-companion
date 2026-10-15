@@ -24,7 +24,7 @@ export interface DotaSafety {
   storageState?: "not_prepared" | "ready" | "error";
   sessionBound?: boolean | null;
   preparation?: { attempt: string; stage: string; status: "pending" | "succeeded" | "failed"; errorCode: string | null; startedAt: string; finishedAt: string | null } | null;
-  runtime: { mode: "built_in" | "draining" | "external" | "fallback"; epoch: number | null; queued: number; inFlight: number; lost: number; error: string | null; activationBlocker: string | null };
+  runtime: { mode: "built_in" | "draining" | "external" | "fallback"; epoch: number | null; queued: number; inFlight: number; lost: number; projectionRejected?: number; lastProjectionError?: string | null; error: string | null; activationBlocker: string | null };
   quota: { unknown: number; remainingOperations: number } | null;
   storageError: string | null;
 }

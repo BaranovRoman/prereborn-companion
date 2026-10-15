@@ -1,0 +1,104 @@
+{
+  "auth": {
+    "token": "SENSITIVE_FIXTURE"
+  },
+  "provider": {
+    "steamid": "SENSITIVE_FIXTURE"
+  },
+  "player": {
+    "activity": "playing",
+    "team_name": "radiant",
+    "steamid": "SENSITIVE_FIXTURE"
+  },
+  "hero": {
+    "id": 105
+  },
+  "map": {
+    "game_state": "DOTA_GAMERULES_STATE_GAME_IN_PROGRESS",
+    "matchid": "0"
+  },
+  "items": {
+    "slot0": {
+      "name": "empty"
+    },
+    "slot1": {
+      "name": "empty"
+    },
+    "slot2": {
+      "name": "empty"
+    },
+    "slot3": {
+      "name": "empty"
+    },
+    "slot4": {
+      "name": "empty"
+    },
+    "slot5": {
+      "name": "empty"
+    },
+    "slot6": {
+      "name": "empty"
+    },
+    "slot7": {
+      "name": "empty"
+    },
+    "slot8": {
+      "name": "empty"
+    },
+    "stash0": {
+      "name": "empty"
+    },
+    "stash1": {
+      "name": "empty"
+    },
+    "stash2": {
+      "name": "empty"
+    },
+    "stash3": {
+      "name": "empty"
+    },
+    "stash4": {
+      "name": "empty"
+    },
+    "stash5": {
+      "name": "empty"
+    },
+    "teleport0": {
+      "name": "item_tpscroll",
+      "cooldown": 0
+    },
+    "neutral0": {
+      "name": "empty"
+    }
+  },
+  "abilities": {
+    "ability2": {
+      "name": "techies_suicide",
+      "cooldown": 0
+    }
+  },
+  "couriers": {
+    "SENSITIVE_FIXTURE": {
+      "items": {
+        "item0": {
+          "name": "empty"
+        },
+        "item1": {
+          "name": "empty"
+        },
+        "item2": {
+          "name": "empty"
+        },
+        "item3": {
+          "name": "empty"
+        },
+        "item4": {
+          "name": "empty"
+        },
+        "item5": {
+          "name": "empty"
+        }
+      }
+    }
+  }
+}

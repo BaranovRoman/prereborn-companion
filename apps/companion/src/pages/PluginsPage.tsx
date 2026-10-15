@@ -97,7 +97,7 @@ function DotaControls({ disabled, run }: { disabled: boolean; run: (task: () => 
   const [error, setError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [action, setAction] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
+  const [result, setResult] = useState<{ text: string; mode: api.DotaSafety["runtime"]["mode"]; epoch: number | null } | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const actionPending = useRef(false);
   const statusGeneration = useRef(0);
@@ -139,9 +139,9 @@ function DotaControls({ disabled, run }: { disabled: boolean; run: (task: () => 
           next.runtime.error || next.storageError || !next.quota || next.quota.unknown !== 0)) {
           throw new Error(next.runtime.error ?? next.storageError ?? "preparation_post_state_unconfirmed");
         }
-        setResult(nextAction === "prepare"
+        setResult({ mode: next.runtime.mode, epoch: next.runtime.epoch, text: nextAction === "prepare"
           ? `Подготовка подтверждена native: backup проверен, safety-таблицы готовы. BuiltIn · Epoch: ${next.runtime.epoch} · Unknown: ${next.quota!.unknown}. External не включён.`
-          : `Native-команда завершена. Runtime: ${next.runtime.mode} · Epoch: ${next.runtime.epoch ?? "—"}.`);
+          : `Native-команда завершена. Runtime: ${next.runtime.mode} · Epoch: ${next.runtime.epoch ?? "—"}.` });
       } catch (e) {
         if (mounted.current) setActionError(`${acknowledged ? "Native-команда завершена, но итоговое состояние не подтверждено" : "Native-команда не подтвердила выполнение"}: ${api.errorText(e)}`);
         throw e;
@@ -171,7 +171,8 @@ function DotaControls({ disabled, run }: { disabled: boolean; run: (task: () => 
     {(error || status?.runtime.error || status?.runtime.activationBlocker) && <p role="alert">{error ?? api.errorText(status?.runtime.error ?? status?.runtime.activationBlocker)}</p>}
     {status?.storageError && <p role="status">Хранилище для External не подтверждено: {api.errorText(status.storageError)}</p>}
     {action && <p role="status">{action === "prepare" ? "Подготовка: ожидаем native preflight, backup и миграцию…" : "Ожидаем завершения native-команды…"}</p>}
-    {result && <p role="status">{result}</p>}
+    {status?.runtime.lastProjectionError && <p role="alert">Последнее отклонение GSI: {status.runtime.lastProjectionError}. Всего отклонено: {status.runtime.projectionRejected ?? 0}. Причина сохранена независимо от fallback; показан только код причины.</p>}
+    {result && result.mode === mode && result.epoch === status?.runtime.epoch && <p role="status">{result.text}</p>}
     {actionError && <p role="alert">{actionError}</p>}
     {status?.preparation && <p role={status.preparation.status === "failed" ? "alert" : "status"}>
       Native Prepare · Attempt: {status.preparation.attempt} · Этап: {status.preparation.stage} · Статус: {status.preparation.status}

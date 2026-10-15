@@ -24,6 +24,23 @@ describe("PluginsPage", () => {
     expect(screen.getByText(/demo\/idle без сессии не выполняются/)).toBeTruthy();
     expect(api.dotaAction).not.toHaveBeenCalled();
   });
+  it("keeps projection rejection visible after successful fallback and hides obsolete enable success", async () => {
+    dota();vi.mocked(api.dotaAction).mockResolvedValue();
+    render(<PluginsPage />);
+    fireEvent.click(await screen.findByRole("checkbox"));
+    const external=safety();external.runtime.mode="external";external.runtime.epoch=4;
+    vi.mocked(api.dotaSafety).mockResolvedValue(external);
+    fireEvent.click(screen.getByRole("button", {name:"Включить External Dota"}));
+    expect(await screen.findByText(/Native-команда завершена. Runtime: external/)).toBeTruthy();
+    const fallback=safety();fallback.runtime.epoch=5;fallback.runtime.projectionRejected=1;fallback.runtime.lastProjectionError="invalid_courier_item_slot";
+    vi.mocked(api.dotaSafety).mockResolvedValue(fallback);
+    expect(await screen.findByText(/Последнее отклонение GSI: invalid_courier_item_slot/)).toBeTruthy();
+    expect(screen.queryByText(/Native-команда завершена. Runtime: external/)).toBeNull();
+    expect(screen.getByText(/Runtime: built_in · Epoch: 5/)).toBeTruthy();
+    await new Promise((resolve)=>setTimeout(resolve,750));
+    expect(screen.getByText(/Последнее отклонение GSI: invalid_courier_item_slot/)).toBeTruthy();
+    expect(api.dotaAction).toHaveBeenCalledTimes(1);
+  });
   it("shows not_prepared without a storage failure and keeps activation blocked", async () => {
     dota(); const next = safety(); next.quota = null; next.storageState = "not_prepared";
     vi.mocked(api.dotaSafety).mockResolvedValue(next);

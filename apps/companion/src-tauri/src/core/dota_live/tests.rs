@@ -28,6 +28,26 @@ impl Fixture {
  }
 }
 #[test]
+fn cold_switch_realistic_inventory_reaches_binding_worker_and_blast_off_intent() {
+ let f=Fixture::cold();let mut p=handover_optional(&f.manager,&f.history,&f.gate,None,&f.backup,&[MATCH_EXECUTION_CAPABILITY,"dota.sound.play","dota.obs.scene","dota.overlay.update"],||Ok(())).unwrap();
+ let mut raw:Value=serde_json::from_str(include_str!("../dota_observer/fixtures/techies-inventory.json")).unwrap();
+ let mut sounds=Vec::new();let mut session=None;
+ for n in 0..3 {
+  if n>0{raw["abilities"]["ability2"]["cooldown"]=serde_json::json!(25);}
+  f.gate.enqueue(&raw);assert_eq!(f.gate.status().mode,Mode::External);
+  let frame=f.gate.next().expect("valid inventory must reach the production mailbox");
+  p.lifecycle(&f.manager,&f.history,&f.gate,None,Some(&frame.snapshot),frame.at).unwrap();
+  if let Some(id)=&session{assert_eq!(p.grant.session.as_ref(),Some(id));}else{session=p.grant.session.clone();assert!(session.is_some());}
+  assert!(auth::session_bound(f.history.lock().as_ref().unwrap()).unwrap());
+  p.process(&f.manager,&f.history,&f.gate,frame,ReplayContext::default(),|effect,_,_|{
+   if let Effect::Sound{event_id,..}=effect{sounds.push(event_id.clone());}EffectStatus::Completed
+  }).unwrap();
+ }
+ assert_eq!(sounds,vec!["techies_suicide"]);
+ {let c=f.history.lock();let c=c.as_ref().unwrap();assert_eq!(c.query_row("SELECT count(*) FROM local_sessions",[],|r|r.get::<_,i64>(0)).unwrap(),1);}
+ assert_eq!(f.gate.status().projection_rejected,0);p.fallback(&f.history,&f.gate,||Ok(())).unwrap();assert!(f.gate.builtin().is_some());
+}
+#[test]
 fn cold_switch_process_waits_without_session_or_effects_and_falls_back() {
  let f=Fixture::cold();let mut p=handover_optional(&f.manager,&f.history,&f.gate,None,&f.backup,&[MATCH_EXECUTION_CAPABILITY,"dota.sound.play","dota.obs.scene","dota.overlay.update"],||Ok(())).unwrap();
  assert!(p.grant.session.is_none());assert!(f.gate.builtin().is_none());

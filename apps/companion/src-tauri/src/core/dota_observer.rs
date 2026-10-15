@@ -1,7 +1,7 @@
 //! Explicit debug-only observer. No listener, storage, grants or effect dispatcher.
 //! Ingest only projects bounded fields and try-locks a bounded mailbox; IPC lives on its own thread.
 use std::{collections::VecDeque, path::PathBuf, sync::{Arc, Mutex, atomic::{AtomicBool, AtomicU64, Ordering}}, time::{Duration, Instant}};
-use companion_dota_domain::{contracts::{ReplayContext, ReplayGsi, ReplayInput}, events::{self, PendingConfirmations}, broadcast_state::{self, BroadcastState}, gsi};
+use companion_dota_domain::{contracts::{ReplayContext, ReplayInput}, events::{self, PendingConfirmations}, broadcast_state::{self, BroadcastState}, gsi};
 use serde::Serialize;
 use companion_dota_domain::match_shadow::{self, Analysis, Context as MatchInput};
 use serde_json::{json, Value};
@@ -23,62 +23,8 @@ pub fn enabled(debug: bool, args: &[String]) -> bool {
     debug && args.iter().any(|arg| arg == "--dota-gsi-observer")
 }
 
-/// Whitelist before deserialization. Never clone the original JSON or arbitrary nested objects.
-pub fn project(raw: &Value) -> Result<ReplayGsi, &'static str> {
-    fn fields(raw: &Value, names: &[&str]) -> Result<Value, &'static str> {
-        let mut result = serde_json::Map::new();
-        for name in names {
-            if let Some(value) = raw.get(*name) {
-                if value.is_object() || value.is_array() || value.as_str().is_some_and(|s| s.len() > 128) {
-                    return Err("invalid_projection_field");
-                }
-                result.insert((*name).into(), value.clone());
-            }
-        }
-        Ok(Value::Object(result))
-    }
-    fn signals(raw: &Value) -> Result<Value, &'static str> {
-        let map = raw.as_object().ok_or("invalid_slots")?;
-        if map.len() > 32 { return Err("too_many_slots"); }
-        let mut result = serde_json::Map::new();
-        for (key, value) in map {
-            let index = key.strip_prefix("slot").or_else(|| key.strip_prefix("ability"));
-            if !index.is_some_and(|i| !i.is_empty() && i.bytes().all(|c| c.is_ascii_digit()) && i.parse::<u8>().is_ok_and(|i| i < 32)) {
-                return Err("invalid_slot");
-            }
-            result.insert(key.clone(), fields(value, &["name", "cooldown", "charges"])?);
-        }
-        Ok(Value::Object(result))
-    }
-    let mut result = serde_json::Map::new();
-    for (name, allowed) in [
-        ("player", &["activity", "team_name", "kills", "deaths", "assists"][..]),
-        ("map", &["game_state", "matchid", "customgamename", "win_team"][..]),
-        ("hero", &["id"][..]),
-    ] {
-        if let Some(value) = raw.get(name).filter(|v| !v.is_null()) {
-            result.insert(name.into(), fields(value, allowed)?);
-        }
-    }
-    for name in ["items", "abilities"] {
-        if let Some(value) = raw.get(name).filter(|v| !v.is_null()) { result.insert(name.into(), signals(value)?); }
-    }
-    if let Some(raw) = raw.get("couriers").filter(|v| !v.is_null()) {
-        let couriers = raw.as_object().ok_or("invalid_couriers")?;
-        if couriers.len() > 8 { return Err("too_many_couriers"); }
-        let mut result_couriers = serde_json::Map::new();
-        for (key, value) in couriers {
-            if key.len() > 64 { return Err("invalid_courier"); }
-            if let Some(items) = value.get("items") { result_couriers.insert(format!("courier{}", result_couriers.len()), json!({"items": signals(items)?})); }
-        }
-        result.insert("couriers".into(), Value::Object(result_couriers));
-    }
-    let projected: ReplayGsi = serde_json::from_value(Value::Object(result)).map_err(|_| "invalid_projection")?;
-    if serde_json::to_vec(&projected).map_err(|_| "invalid_projection")?.len() > companion_plugin_protocol::MAX_FRAME - 8192 {
-        return Err("projection_too_large");
-    }
-    Ok(projected)
-}
+mod projection;
+pub use projection::project;
 
 /// Independent invocation of the existing built-in pure functions, not Replay::apply.
 #[derive(Default)]
@@ -287,7 +233,10 @@ impl Observer {
             let last = self.0.last_time.swap(at, Ordering::SeqCst);
             if at.saturating_sub(last) > RECONNECT_MS { self.0.generation.fetch_add(1, Ordering::SeqCst);self.0.reconnects.fetch_add(1,Ordering::SeqCst); }
         }
-        let snapshot = match project(raw) { Ok(snapshot) => snapshot, Err(_) => { self.0.lost.fetch_add(1, Ordering::SeqCst); self.0.generation.fetch_add(1, Ordering::SeqCst); return; } };
+        let snapshot = match project(raw) { Ok(snapshot) => snapshot, Err(code) => {
+            self.0.lost.fetch_add(1, Ordering::SeqCst); self.0.generation.fetch_add(1, Ordering::SeqCst);
+            if let Ok(mut status)=self.0.status.try_lock(){status.last_error=Some(code);} return;
+        } };
         let Ok(mut queue) = self.0.queue.try_lock() else { self.0.lost.fetch_add(1, Ordering::SeqCst); self.0.generation.fetch_add(1, Ordering::SeqCst); return; };
         if queue.len() == CAPACITY {
             self.0.lost.fetch_add(queue.len() as u64, Ordering::SeqCst); queue.clear(); self.0.generation.fetch_add(1, Ordering::SeqCst);

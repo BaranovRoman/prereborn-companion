@@ -8,7 +8,7 @@ const ACTIVATION_BLOCKER:&str="external_runtime_requires_windows_native_fences";
 #[derive(Clone,Copy,Debug,PartialEq,Serialize)]
 #[serde(rename_all="snake_case")]
 pub(crate) enum Mode {BuiltIn,Draining,External,Fallback}
-struct Inner {obs_revision:u64,overlay:Option<companion_dota_domain::broadcast_state::BroadcastState>,mode:Mode,lease:Option<Lease>,in_flight:usize,sequence:u64,queue:VecDeque<Frame>,lost:u64,error:Option<String>}
+struct Inner {obs_revision:u64,overlay:Option<companion_dota_domain::broadcast_state::BroadcastState>,mode:Mode,lease:Option<Lease>,in_flight:usize,sequence:u64,queue:VecDeque<Frame>,lost:u64,error:Option<String>,projection_rejected:u64,last_projection_error:Option<&'static str>}
 struct Shared {inner:Mutex<Inner>,drained:Condvar,transition:Mutex<()>,gap:AtomicBool,preparation:Mutex<Option<Preparation>>}
 #[derive(Clone,Serialize)]
 #[serde(rename_all="camelCase")]
@@ -21,9 +21,9 @@ impl Drop for Admission {fn drop(&mut self){let mut i=self.shared.inner.lock().u
 pub(crate) struct Frame {pub(crate) snapshot:ReplayGsi,pub(crate) context:companion_dota_domain::contracts::ReplayContext,pub(crate) sequence:u64,pub(crate) at:chrono::DateTime<chrono::Utc>}
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
-pub(crate) struct Status {mode:Mode,epoch:Option<u64>,queued:usize,in_flight:usize,lost:u64,error:Option<String>,activation_blocker:Option<&'static str>}
+pub(crate) struct Status {mode:Mode,epoch:Option<u64>,queued:usize,in_flight:usize,lost:u64,error:Option<String>,projection_rejected:u64,last_projection_error:Option<&'static str>,activation_blocker:Option<&'static str>}
 impl Default for LiveDota {
- fn default()->Self {Self(Arc::new(Shared{inner:Mutex::new(Inner{obs_revision:0,overlay:None,mode:Mode::BuiltIn,lease:None,in_flight:0,sequence:0,queue:VecDeque::with_capacity(CAPACITY),lost:0,error:None}),drained:Condvar::new(),transition:Mutex::new(()),gap:AtomicBool::new(false),preparation:Mutex::new(None)}))}
+ fn default()->Self {Self(Arc::new(Shared{inner:Mutex::new(Inner{obs_revision:0,overlay:None,mode:Mode::BuiltIn,lease:None,in_flight:0,sequence:0,queue:VecDeque::with_capacity(CAPACITY),lost:0,error:None,projection_rejected:0,last_projection_error:None}),drained:Condvar::new(),transition:Mutex::new(()),gap:AtomicBool::new(false),preparation:Mutex::new(None)}))}
 }
 impl LiveDota {
  fn begin_preparation(&self)->Result<String,String> {
@@ -71,7 +71,7 @@ impl LiveDota {
   if i.mode==Mode::BuiltIn {i.overlay=Some(legacy);legacy}else{i.overlay.unwrap_or(BroadcastState::BetweenMatches)}
  }
  pub(crate) fn publish_overlay(&self,lease:Lease,state:companion_dota_domain::broadcast_state::BroadcastState)->Result<(),String>{let mut i=self.0.inner.lock().map_err(|_|"admission_poisoned")?;if i.mode!=Mode::External||i.lease!=Some(lease){return Err("ownership_fenced".into());}i.overlay=Some(state);Ok(())}
- pub(crate) fn status(&self)->Status {let i=self.0.inner.lock().unwrap();Status{mode:i.mode,epoch:i.lease.map(|l|l.epoch),queued:i.queue.len(),in_flight:i.in_flight,lost:i.lost,error:i.error.clone(),activation_blocker:if cfg!(windows){None}else{Some(ACTIVATION_BLOCKER)}}}
+ pub(crate) fn status(&self)->Status {let i=self.0.inner.lock().unwrap();Status{mode:i.mode,epoch:i.lease.map(|l|l.epoch),queued:i.queue.len(),in_flight:i.in_flight,lost:i.lost,error:i.error.clone(),projection_rejected:i.projection_rejected,last_projection_error:i.last_projection_error,activation_blocker:if cfg!(windows){None}else{Some(ACTIVATION_BLOCKER)}}}
  pub(crate) fn request_obs_reconciliation(&self){if let Ok(mut i)=self.0.inner.lock(){if i.mode==Mode::External{i.obs_revision=i.obs_revision.saturating_add(1);}}}
  pub(crate) fn obs_frame(&self,lease:Lease,snapshot:ReplayGsi,context:companion_dota_domain::contracts::ReplayContext)->Option<Frame> {
   let mut i=self.0.inner.lock().ok()?;if i.mode!=Mode::External||i.lease!=Some(lease)||!i.queue.is_empty(){return None;}
@@ -91,6 +91,7 @@ impl LiveDota {
   // Projection and try-lock never wait for plugin IO or the history coordinator.
   let snapshot=super::dota_observer::project(raw);
   let Ok(mut i)=self.0.inner.try_lock() else{self.0.gap.store(true,Ordering::SeqCst);return;};if i.mode!=Mode::External{return;}
+  if let Err(code)=snapshot.as_ref(){i.projection_rejected=i.projection_rejected.saturating_add(1);i.last_projection_error=Some(*code);}
   if i.queue.len()==CAPACITY||snapshot.is_err()||i.sequence==u64::MAX {
    i.lost=i.lost.saturating_add(1);i.queue.clear();i.mode=Mode::Fallback;i.error=Some("snapshot_gap_requires_fenced_fallback".into());self.0.drained.notify_all();return;
   }
@@ -150,6 +151,18 @@ pub(crate) fn beta_capacity_preflight(c:&rusqlite::Connection)->Result<(),String
 #[cfg(test)]
 mod tests {
  use super::*;use std::sync::atomic::{AtomicUsize,Ordering};
+ #[test]
+ fn projection_diagnostics_survive_successful_fallback_without_raw_data() {
+  let gate=LiveDota::default();let old=Lease{owner:Owner::BuiltIn,epoch:1};
+  let external=gate.switch(old,Owner::External,Duration::from_secs(1),||Ok(()),||Ok(()),||Ok(Lease{owner:Owner::External,epoch:2}),|_|Ok(())).unwrap();
+  gate.enqueue(&serde_json::json!({"items":{"personal_secret":{"name":"PRIVATE"}}}));
+  assert_eq!(gate.status().mode,Mode::Fallback);assert!(gate.next().is_none());assert!(gate.builtin().is_none());
+  gate.failed(external,"process_crashed");
+  gate.switch(external,Owner::BuiltIn,Duration::from_secs(1),||Ok(()),||Ok(()),||Ok(Lease{owner:Owner::BuiltIn,epoch:3}),|_|Ok(())).unwrap();
+  let status=gate.status();assert_eq!(status.mode,Mode::BuiltIn);assert!(status.error.is_none());
+  assert_eq!(status.projection_rejected,1);assert_eq!(status.last_projection_error,Some("invalid_item_slot"));
+  let serialized=serde_json::to_string(&status).unwrap();assert!(!serialized.contains("personal_secret"));assert!(!serialized.contains("PRIVATE"));
+ }
  #[test]
  fn switch_roundtrip_drains_all_admissions_and_never_overlaps() {
   let gate=LiveDota::default();let old=Lease{owner:Owner::BuiltIn,epoch:1};let held=gate.builtin().unwrap();
