@@ -124,3 +124,37 @@ The core integration is still incomplete and **not releasable**. In particular,
 the verified manager is not yet wired to this worker entry point, the generic
 durable audio/OBS transport and complete plugin UI/overlay/backend are not yet
 connected, and core still contains temporary BuiltIn compatibility dependencies.
+
+## Host transport checkpoint (2026-10-15)
+
+The generic managed-audio implementation now has indexed durable receipts and a
+process journal independent of Dota types/history. This code is not yet initialized
+or fed by PluginManager. It therefore does not create a new DB or alter the running
+legacy pipeline at application startup. No new plugin activation path is open.
+
+The intended host transport database is distinct from worker history; no cross-DB
+atomicity is claimed. Each admission commits the exact package/generation, payload
+identity and playback token before emit. Queued/playing remain unconfirmed; only an
+authenticated terminal ACK settles them. Unknown survives reopen and blocks fresh
+effects/takeover. One playback ID cannot represent two operation keys. Process
+reservation precedes spawn, reopen leaves Draining, epochs are monotonic, and exit
+must be proved by the native caller. No PID/timeout is an exit proof.
+
+Ten targeted tests pass locally: admission-before-emit, completion/cancellation,
+duplicate return after managed-file removal, payload/context conflicts, stale token,
+frontend Unknown/reopen, single coordinator, corruption/incompatible schema, process
+journal restart fencing/epoch reuse, cancellation without waiting under the ledger,
+and 10,000 retained keys refusing new admission without deleting old receipts. The
+same actual modules are selected in Windows CI without the combined Tauri lib-test
+loader limitation. Native WebView playback and final manager wiring remain untested.
+
+Windows runs 38745334724 and 38747483981 passed manual worker preparation but failed
+the first supervised GSI bind. The second preserved native code **10106**, not an
+address-in-use error. The supervisor supplied an entirely empty environment. A
+minimal fix supplies only OS-derived SystemRoot (GetSystemWindowsDirectoryW), still
+excluding caller credentials/environment; the existing native membership fixture
+also verifies that sole environment entry and an actual loopback bind. Windows
+confirmation of this fix is pending; publication remains blocked.
+
+References: [Microsoft Winsock error codes](https://learn.microsoft.com/en-us/windows/win32/winsock/windows-sockets-error-codes-2),
+[CreateProcessW environment format](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw).

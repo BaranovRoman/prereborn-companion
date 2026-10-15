@@ -25,7 +25,7 @@ impl Launch {
   if uuid::Uuid::parse_str(&launch.generation).is_err(){return Err("invalid_process_generation".into());}
   if launch.package.id!="dota2"||launch.package.version!=env!("CARGO_PKG_VERSION")
    ||[&launch.package.executable_hash,&launch.package.manifest_hash].iter().any(|h|h.len()!=64||!h.bytes().all(|b|b.is_ascii_hexdigit())){return Err("package_identity_mismatch".into());}
-  if launch.capabilities.len()>8||launch.capabilities.iter().any(|c|!matches!(c.as_str(),"dota.match.execute"|"dota.sound.play"|"dota.obs.scene"|"dota.overlay.publish")){return Err("capability_denied".into());}
+  if launch.capabilities.len()>8||launch.capabilities.iter().any(|c|!matches!(c.as_str(),"dota.match.execute"|"dota.sound.play"|"dota.obs.scene"|"dota.overlay.update")){return Err("capability_denied".into());}
   let executable=std::env::current_exe().map_err(|_|"executable_unavailable")?;
   let mut file=std::fs::File::open(executable).map_err(|_|"executable_unavailable")?;
   let mut hash=Sha256::new();let mut block=[0;65536];
@@ -37,7 +37,7 @@ impl Launch {
 
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
-pub struct SoundIntent {operation_key:String,asset_file:String,volume:u8}
+pub struct SoundIntent {operation_key:String,asset_file:String,volume:u8,deadline_ms:u64}
 
 pub struct Worker {
  launch:Launch, history:Option<History>, listener:Option<Listener>, pipeline:Pipeline,
@@ -110,7 +110,7 @@ impl Worker {
    if let Some(receipt)=self.history.as_mut().ok_or("not_prepared")?.frame(frame.snapshot,now,frame.sequence)?{self.last_receipt=Some(receipt);}
    if sounds.len()+result.sounds.len()>32{return Err("sound_batch_exhausted".into());}
    for (index,sound) in result.sounds.into_iter().enumerate(){
-    sounds.push(SoundIntent{operation_key:format!("sound:{}:{}:{index}",self.launch.generation,frame.sequence),asset_file:sound.asset.file_name,volume:sound.volume});
+    sounds.push(SoundIntent{operation_key:format!("sound:{}:{}:{index}",self.launch.generation,frame.sequence),asset_file:sound.asset.file_name,volume:sound.volume,deadline_ms:frame.observed_at_ms.saturating_add(2000)});
    }
    self.last_analysis=Some(serde_json::to_value(result.analysis).map_err(|_|"analysis_serialization_failed")?);
    self.processed=self.processed.checked_add(1).ok_or("gsi_sequence_exhausted")?;self.last_sequence=Some(frame.sequence);
