@@ -543,6 +543,7 @@ name = "companion-dota-domain"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "companion-plugin-protocol",
  "serde",
  "serde_json",
  "sha2",
@@ -579,6 +580,8 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "uuid",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]

@@ -1,9 +1,7 @@
-import "./App.css";
-import "./components/ui/ui.css";
-import { AppShell } from "./components/AppShell";
+import { CoreShell } from "./core/interface/CoreShell";
 
 function App() {
-  return <AppShell />;
+  return <CoreShell />;
 }
 
 export default App;

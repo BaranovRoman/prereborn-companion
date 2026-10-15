@@ -29,7 +29,7 @@ describe("game-only fence", () => {
 it("unload reports Unknown for pending game audio without claiming cancellation", async () => {
   const { invoke } = await import("@tauri-apps/api/core");const registry = new GameAudioFenceRegistry();const cancel = vi.fn(() => true);
   const playback = token("unloading");registry.track(playback, cancel);registry.unload();
-  expect(invoke).toHaveBeenLastCalledWith("game_audio_ack", { token: playback, status: "unknown" });expect(cancel).not.toHaveBeenCalled();
+  expect(invoke).toHaveBeenLastCalledWith("plugin_audio_ack", { token: playback, status: "unknown" });expect(cancel).not.toHaveBeenCalled();
 });
 
 it("a reloaded registry cannot prove fencing playbacks it never owned", () => {

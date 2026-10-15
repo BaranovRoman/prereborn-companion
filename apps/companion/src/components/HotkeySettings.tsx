@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { DEFAULT_OVERLAY_TOGGLE_SHORTCUT, DEFAULT_SKIP_SHORTCUT, shortcutFromKeyboardEvent } from "../chat/hotkey-format";
-import type { SkipHotkeyStatus } from "../services/dotaCompanionApi";
+import type { SkipHotkeyStatus } from "../core/contracts";
 import { Checkbox, SettingsGroup, SettingsRow } from "./ui";
 
 // Any hotkey status this file renders (Skip TTS, overlay toggle, ...) is the
@@ -137,7 +137,7 @@ export function HotkeySettings({ status, busy, onUpdate, overlay }: Props) {
         onUpdate={onUpdate}
       />
       <p className="hotkey-settings__hint">
-        Работает даже когда Companion свёрнут в трей или фокус в другом приложении (Dota, OBS). Останавливает
+        Работает даже когда Companion свёрнут в трей или фокус в другом приложении. Останавливает
         текущую озвучку немедленно и переходит к следующему сообщению очереди; сама очередь не очищается, TTS не
         выключается. Никаких звуков при пропуске не воспроизводится.
       </p>

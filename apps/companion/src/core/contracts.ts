@@ -61,3 +61,17 @@ export interface TtsTraceEventInput {
   stages: Record<string, number>;
   detail?: unknown;
 }
+
+export interface SteamIntegrationStatus {
+  connected: boolean;
+  steamId64?: string;
+  connectedAt?: string;
+  lastSyncedAt?: string | null;
+  lastSyncStatus?: string | null;
+  profile?: { displayName: string; avatarUrl: string | null; profileUrl: string | null } | null;
+}
+export interface DonationAlertsIntegrationStatus {
+  connected: boolean;
+  configured: boolean;
+  displayName?: string;
+}

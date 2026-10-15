@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../services/dotaCompanionApi", () => ({
+vi.mock("../core/api", () => ({
   getSteamIntegrationStatus: vi.fn(),
   disconnectSteam: vi.fn(),
   getTwitchIntegrationStatus: vi.fn(),
@@ -25,7 +25,7 @@ import {
   getSteamIntegrationStatus,
   getTwitchIntegrationStatus,
   openStreamSettings,
-} from "../services/dotaCompanionApi";
+} from "../core/api";
 // eslint-disable-next-line import/order
 import { IntegrationsPanel } from "./IntegrationsPanel";
 
@@ -85,7 +85,7 @@ describe("IntegrationsPanel - Steam (unchanged reference behavior)", () => {
     render(<IntegrationsPanel />);
 
     await waitFor(() => expect(screen.getByText("CoolStreamer")).toBeTruthy());
-    expect(screen.getByText(/OpenDota/)).toBeTruthy();
+    expect(screen.getByText(/Привязка аккаунта Steam для возможностей установленных расширений/)).toBeTruthy();
   });
 
   it("unlinking Steam requires an explicit confirmation step and explains the consequence", async () => {
@@ -102,7 +102,7 @@ describe("IntegrationsPanel - Steam (unchanged reference behavior)", () => {
     expect(mockedDisconnectSteam).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Отвязать" }));
-    expect(screen.getByText(/Локальная история Companion, GSI, OBS и MMR не затрагиваются/)).toBeTruthy();
+    expect(screen.getByText(/Пользовательские файлы не удаляются/)).toBeTruthy();
     expect(mockedDisconnectSteam).not.toHaveBeenCalled();
 
     mockedSteamStatus.mockResolvedValue({ connected: false });

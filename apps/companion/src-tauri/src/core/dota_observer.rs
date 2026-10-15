@@ -23,8 +23,7 @@ pub fn enabled(debug: bool, args: &[String]) -> bool {
     debug && args.iter().any(|arg| arg == "--dota-gsi-observer")
 }
 
-mod projection;
-pub use projection::project;
+pub use companion_dota_domain::projection::project;
 
 /// Independent invocation of the existing built-in pure functions, not Replay::apply.
 #[derive(Default)]

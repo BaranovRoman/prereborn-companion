@@ -30,7 +30,7 @@ impl Fixture {
 #[test]
 fn cold_switch_realistic_inventory_reaches_binding_worker_and_blast_off_intent() {
  let f=Fixture::cold();let mut p=handover_optional(&f.manager,&f.history,&f.gate,None,&f.backup,&[MATCH_EXECUTION_CAPABILITY,"dota.sound.play","dota.obs.scene","dota.overlay.update"],||Ok(())).unwrap();
- let mut raw:Value=serde_json::from_str(include_str!("../dota_observer/fixtures/techies-inventory.json")).unwrap();
+ let mut raw:Value=serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"),"/../../../plugins/dota-domain/src/fixtures/techies-inventory.json"))).unwrap();
  let mut sounds=Vec::new();let mut session=None;
  for n in 0..3 {
   if n>0{raw["abilities"]["ability2"]["cooldown"]=serde_json::json!(25);}

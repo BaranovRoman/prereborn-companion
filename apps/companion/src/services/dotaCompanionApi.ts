@@ -38,7 +38,7 @@ export const removeGameplayReference = () => invoke<void>("remove_gameplay_refer
 // WK-133 rename - was `openTwitchSettings`: opens the web dashboard's
 // `/stream` settings page, where Twitch AND Steam account linking both live
 // (see IntegrationsPanel.tsx, which reuses this same call for Steam).
-export const openStreamSettings = () => invoke<void>("open_stream_settings");
+export { openStreamSettings } from "../core/api";
 
 // WK-83 - startup "продолжить прошлый стрим?" prompt.
 export const getStreamSession = () => invoke<StreamSessionSummary>("get_stream_session");
@@ -71,31 +71,8 @@ export const getHeroLocalStats = (heroId: number) => invoke<HeroLocalStats>("get
 // controllers/stream/steam.ts, twitch.ts, opendota.ts) - passed through as
 // `serde_json::Value` on the Rust side (same convention as
 // getStreamSession/getAccountOverlayData), typed here on the frontend.
-export interface SteamIntegrationStatus {
-  connected: boolean;
-  steamId64?: string;
-  connectedAt?: string;
-  lastSyncedAt?: string | null;
-  lastSyncStatus?: string | null;
-  profile?: { displayName: string; avatarUrl: string | null; profileUrl: string | null } | null;
-}
-export const getSteamIntegrationStatus = () =>
-  invoke<SteamIntegrationStatus>("get_steam_integration_status");
-export const disconnectSteam = () => invoke<void>("disconnect_steam");
-
-// WK-133 follow-up - DonationAlerts, missed by the original audit: a real
-// existing OAuth account integration (apps/api's
-// donation-alerts-integration-service.ts) already consumed by Companion's
-// own overlay renderer (topDonors -> Between Matches "Donaters" panel).
-export interface DonationAlertsIntegrationStatus {
-  connected: boolean;
-  configured: boolean;
-  displayName?: string;
-}
-export const getDonationAlertsIntegrationStatus = () =>
-  invoke<DonationAlertsIntegrationStatus>("get_donation_alerts_integration_status");
-export const connectDonationAlerts = () => invoke<void>("connect_donation_alerts");
-export const disconnectDonationAlerts = () => invoke<void>("disconnect_donation_alerts");
+export type { SteamIntegrationStatus, DonationAlertsIntegrationStatus } from "../core/contracts";
+export { getSteamIntegrationStatus, disconnectSteam, getDonationAlertsIntegrationStatus, connectDonationAlerts, disconnectDonationAlerts } from "../core/api";
 
 export type HeroOpenDotaStats =
   | {

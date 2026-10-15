@@ -335,6 +335,7 @@ pub fn run() {
             commands::preview_game_sound,
             commands::log_game_sound_timing,
             game_sounds::audio_fence::game_audio_ack,
+            core::plugin_audio::plugin_audio_ack,
             game_sounds::audio_fence::game_audio_fence_ack,
         ])
         .build(tauri::generate_context!())

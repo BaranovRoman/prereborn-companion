@@ -22,7 +22,7 @@ function localDependencies(entry: string, seen = new Set<string>()): Set<string>
 }
 
 describe("core boundary", () => {
-  it.each(["core/api.ts", "chat/chat-model.ts", "chat/useTwitchChatSession.ts"])(
+  it.each(["core/api.ts", "chat/chat-model.ts", "chat/useTwitchChatSession.ts", "core/audio/playbackRegistry.ts", "core/audio/playbackModel.ts", "core/audio/useManagedPluginAudio.ts"])(
     "%s has no transitive dependency on Dota contracts or the legacy facade",
     (entry) => {
       const files = [...localDependencies(resolve(sourceRoot, entry))];

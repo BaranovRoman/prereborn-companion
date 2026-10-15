@@ -67,6 +67,6 @@ export function errorText(error: unknown): string {
     cold_state_changed: "Появилась сессия или незавершённый матч. Cold switch остановлен; история сохранена.",
     session_unbound: "External ожидает настоящую игровую сессию. Игровые эффекты пока заблокированы.",
   };
-  if (text.includes("download_failed")) return "GitHub недоступен или пакет ещё не опубликован. Установленные плагины продолжают работать.";
+  if (text.includes("download_failed")) return "Источник загрузки недоступен или пакет ещё не опубликован. Установленные пакеты сохранены; состояние запуска показано отдельно.";
   return messages[text.replace(/^Error: /, "")] ?? text;
 }

@@ -13,3 +13,4 @@ pub mod match_transactions;
 pub mod match_shadow;
 pub mod match_execution;
 pub mod session_lifecycle;
+pub mod projection;

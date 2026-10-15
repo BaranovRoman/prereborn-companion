@@ -1,12 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { gameAudioFence, stopGameAudio, type GameAudioFence } from "./game-audio-fence";
-import { listen } from "@tauri-apps/api/event";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { applySinkId } from "../audio/outputDevice";
-import { BoundedGameSoundQueue, base64ToObjectUrl, type GameSoundPlayback } from "./game-sound-model";
+import { base64ToObjectUrl, type GameSoundPlayback } from "./game-sound-model";
 import * as api from "../services/dotaCompanionApi";
+import { useManagedPluginAudio } from "../core/audio/useManagedPluginAudio";
 import type {
-  GameSoundCatalog, GameSoundEventKind, GameSoundPlayNotification, GameSoundSettings,
+  GameSoundCatalog, GameSoundEventKind, GameSoundSettings,
 } from "../services/dotaCompanionApi";
 
 // WK-106 - Custom Game Sounds. Rust (game_sounds/mod.rs's handle_gsi) is the
@@ -28,21 +26,9 @@ export function useGameSoundEngine(overallVolume: number = 100) {
   const [settings, setSettings] = useState<GameSoundSettings | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const queue = useRef(new BoundedGameSoundQueue());
-  const playing = useRef(false);
-  const mounted = useRef(true);
-  const currentAudio = useRef<HTMLAudioElement | null>(null);
-  const currentToken = useRef<string | undefined>(undefined);
-  const cancelCurrent = useRef<(() => boolean) | null>(null);
   const previewAudio = useRef<HTMLAudioElement | null>(null);
-  // Rust already only emits "game-sound-play" while the master toggle is on
-  // (see game_sounds/mod.rs's handle_gsi) - this ref is belt-and-suspenders
-  // defense-in-depth against a stale `settings` React state briefly lagging
-  // behind an in-flight setMaster(false) call, not the primary gate.
-  const settingsRef = useRef(settings);
-  settingsRef.current = settings;
-  const overallRef = useRef(overallVolume);
-  overallRef.current = overallVolume;
+  const overallRef = useRef(overallVolume); overallRef.current = overallVolume;
+  useManagedPluginAudio({ enabled: !!settings?.enabled, eventName: "game-sound-play", fenceEvent: "game-audio-fence", fenceAckCommand: "game_audio_fence_ack", onTiming: logTiming }, overallVolume);
 
   useEffect(() => {
     let active = true;
@@ -55,60 +41,6 @@ export function useGameSoundEngine(overallVolume: number = 100) {
       .catch((cause) => { if (active) setError(String(cause)); });
     return () => { active = false; };
   }, []);
-
-  const playNext = useCallback(() => {
-    if (!mounted.current || playing.current) return;
-    const next = queue.current.takeNext();
-    if (!next) return;
-    if (!gameAudioFence.accepts(next.playback)) { playNext(); return; }
-    playing.current = true;
-    currentToken.current = next.playback?.id;
-    playPayload(next, () => {
-      playing.current = false;
-      playNext();
-    }, currentAudio, overallRef.current, cancelCurrent);
-  }, []);
-
-  useEffect(() => {
-    mounted.current = true;
-    const unlistenPromise = listen<GameSoundPlayNotification>("game-sound-play", (event) => {
-      const item: GameSoundPlayback = event.payload;
-      if (!mounted.current || !settingsRef.current?.enabled || !gameAudioFence.accepts(item.playback)) {
-        gameAudioFence.report(item.playback, "cancelled"); return;
-      }
-      if (!gameAudioFence.track(item.playback, () => {
-        if (currentAudio.current && currentToken.current === item.playback?.id) return cancelCurrent.current?.() ?? false;
-        return true; // queued command has been revoked before it can construct Audio
-      })) { gameAudioFence.report(item.playback, "unknown"); return; }
-      logTiming(item, "frontend-received");
-      if (playing.current) {
-        // Bounded burst policy - a drop here is silent by design (задача:
-        // "новое событие либо игнорируется, либо встаёт в bounded
-        // очередь"), not surfaced as an error.
-        if (!queue.current.enqueue(item)) gameAudioFence.report(item.playback, "cancelled");
-        return;
-      }
-      playing.current = true;
-      currentToken.current = item.playback?.id;
-      playPayload(item, () => {
-        playing.current = false;
-        playNext();
-      }, currentAudio, overallRef.current, cancelCurrent);
-    });
-    const fenceListener = listen<GameAudioFence>("game-audio-fence", ({ payload }) => {
-      const stopped = gameAudioFence.fence(payload);
-      // Revocation precedes cancellation callbacks, so completion cannot start an old queued clip.
-      void invoke("game_audio_fence_ack", { request: payload, stopped }).catch(() => {});
-    });
-    return () => {
-      mounted.current = false;
-      let queued: GameSoundPlayback | null;
-      while ((queued = queue.current.takeNext())) gameAudioFence.report(queued.playback, "cancelled");
-      void unlistenPromise.then((unlisten) => unlisten());
-      void fenceListener.then((unlisten) => unlisten());
-      cancelCurrent.current?.();
-    };
-  }, [playNext]);
 
   const setMaster = useCallback(async (enabled: boolean, volume: number) => {
     try {
@@ -182,53 +114,6 @@ export function useGameSoundEngine(overallVolume: number = 100) {
 // exactly once, whether playback finished normally or errored (задача:
 // "playback error не ломает listener" - errors clean up and hand control
 // back to the queue instead of leaving `playing` stuck true forever).
-function playPayload(
-  item: GameSoundPlayback,
-  done: () => void,
-  currentAudio: MutableRefObject<HTMLAudioElement | null>,
-  overallVolume: number,
-  cancelCurrent: MutableRefObject<(() => boolean) | null>,
-) {
-  let url: string;
-  let audio: HTMLAudioElement;
-  try {
-    url = base64ToObjectUrl(item.base64, item.mime);
-    try { audio = new Audio(url); } catch (cause) { URL.revokeObjectURL(url); throw cause; }
-  } catch {
-    gameAudioFence.report(item.playback, "cancelled"); // no player was created
-    done();
-    return;
-  }
-  audio.volume = (item.volume / 100) * (overallVolume / 100);
-  currentAudio.current = audio;
-  let finished = false;
-  const cleanup = (status: "completed" | "cancelled" | "unknown") => {
-    if (finished) return;
-    finished = true;
-    gameAudioFence.report(item.playback, status);
-    cancelCurrent.current = null;
-    URL.revokeObjectURL(url);
-    if (currentAudio.current === audio) currentAudio.current = null;
-    done();
-  };
-  cancelCurrent.current = () => {
-    const stopped = stopGameAudio(audio);
-    if (stopped) cleanup("cancelled"); else gameAudioFence.report(item.playback, "unknown");
-    return stopped;
-  };
-  gameAudioFence.setCancellation(item.playback, cancelCurrent.current);
-  audio.onended = () => cleanup("completed");
-  audio.onerror = () => { if (stopGameAudio(audio)) cleanup("cancelled"); else gameAudioFence.report(item.playback, "unknown"); };
-  logTiming(item, "audio-play-requested");
-  // Reliability follow-up - fire-and-forget: routing to the selected output
-  // device must never delay when playback actually starts (mirrors this
-  // function's own "playback error не ломает listener" no-blocking policy).
-  void applySinkId(audio);
-  audio.play()
-    .then(() => { if (!finished) { logTiming(item, "audio-playing"); gameAudioFence.report(item.playback, "playing"); } })
-    .catch(() => { if (!finished) { if (stopGameAudio(audio)) cleanup("cancelled"); else gameAudioFence.report(item.playback, "unknown"); } });
-}
-
 // WK-108 latency addendum - fire-and-forget breadcrumb into the shared
 // rolling log (see game_sounds/mod.rs's log_frontend_timing/now_ms doc
 // comments): correlates against Rust's own gsi-received/detected/play-

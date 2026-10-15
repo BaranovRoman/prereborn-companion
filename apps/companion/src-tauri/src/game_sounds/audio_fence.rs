@@ -1,22 +1,9 @@
 //! Game-only WebView playback receipts. No Twitch/TTS queue references.
 use std::{collections::HashMap, sync::{Mutex, Condvar}, time::{Duration, Instant}};
-use serde::{Serialize, Deserialize};
 use tauri::{AppHandle, Manager, Emitter};
 use companion_dota_domain::ownership::Lease;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all="camelCase", deny_unknown_fields)]
-pub(crate) struct Scope { instance:String, generation:u32, epoch:u64, session:Option<String> }
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct Token { id:String, scope:Scope }
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all="snake_case")]
-pub(crate) enum Status { Queued, Playing, Completed, Cancelled, Unknown }
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(rename_all="camelCase", deny_unknown_fields)]
-pub(crate) struct Fence { instance:String, generation:u32, request_id:String,playback_ids:Vec<String> }
-impl Token {pub(crate) fn matches(&self,lease:Lease,session:&str)->bool {self.scope.epoch==lease.epoch&&self.scope.session.as_deref()==Some(session)}}
+pub(crate) use companion_plugin_protocol::audio::{Scope, Token, Status, Fence};
 struct Inner { scope:Scope, blocked:bool, pending:HashMap<String,(Token,Status)>, fence:Option<(Fence,Option<bool>)>, durable:HashMap<String,String> }
 pub(crate) struct AudioFence { inner:Mutex<Inner>, changed:Condvar }
 impl Default for AudioFence {

@@ -52,7 +52,7 @@ impl Adapter {
  // Persist the playback identity BEFORE emitting to WebView. Queued/playing remain
  // ledger Unknown until an authenticated frontend observation proves a terminal result.
  pub(crate) fn bind_audio(&mut self,c:&mut Connection,a:&EffectAdmission,token:&crate::game_sounds::audio_fence::Token)->Result<()> {
-  if !a.fresh||!token.matches(a.ack.lease,&a.session){return Err("audio_admission_mismatch".into());}
+  if !a.fresh||!token.matches_context(a.ack.lease.epoch,Some(&a.session)){return Err("audio_admission_mismatch".into());}
   self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::verify(&tx,&self.expected_schema)?;
   bounded_record(&tx,&a.ack.idempotency_key)?;
   let (identity,status,doc,checksum):(String,String,String,String)=sql(tx.query_row("SELECT identity,status,receipt,checksum FROM pc_tx_ledger JOIN pc_tx_receipts USING(operation_key) WHERE operation_key=?1",[&a.ack.idempotency_key],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))))?;
@@ -69,7 +69,7 @@ impl Adapter {
   if hash(&doc)!=checksum{return Err("receipt_corrupt".into());}
   let mut stored:Stored=serde_json::from_str(&doc).map_err(|_|"receipt_corrupt")?;
   let audio=stored.audio.as_mut().ok_or("audio_not_bound")?;
-  if stored.family!="effect-v1"||stored.ack.idempotency_key!=key||audio.token!=*token||!token.matches(stored.ack.lease,&stored.session){return Err("playback_scope_mismatch".into());}
+  if stored.family!="effect-v1"||stored.ack.idempotency_key!=key||audio.token!=*token||!token.matches_context(stored.ack.lease.epoch,Some(&stored.session)){return Err("playback_scope_mismatch".into());}
   if audio.status==status{return Ok(());}
   if matches!(audio.status,Playback::Completed|Playback::Cancelled)||(audio.status==Playback::Unknown&&!matches!(status,Playback::Completed|Playback::Cancelled))||(audio.status==Playback::Playing&&status==Playback::Queued){return Err("playback_terminal_or_regression".into());}
   audio.status=status;stored.ack.status=match status{Playback::Completed=>Status::Completed,Playback::Cancelled=>Status::Rejected,_=>Status::Unknown};

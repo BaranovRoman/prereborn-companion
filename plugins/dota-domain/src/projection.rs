@@ -1,5 +1,5 @@
 //! Bounded GSI projection shared by the production gate and diagnostic observer.
-use companion_dota_domain::contracts::ReplayGsi;
+use crate::contracts::ReplayGsi;
 use serde_json::{json, Value};
 
 /// Whitelist before deserialization. Never clone the original JSON or arbitrary nested objects.
@@ -78,16 +78,16 @@ mod tests {
         let value = serde_json::to_value(&projected).unwrap();
         assert!(!value.to_string().contains("SENSITIVE_FIXTURE"));
         // Signal's existing wire format materializes absent cooldown/charges as null.
-        let signals = |v: Value| serde_json::to_value(serde_json::from_value::<std::collections::BTreeMap<String, companion_dota_domain::contracts::Signal>>(v).unwrap()).unwrap();
+        let signals = |v: Value| serde_json::to_value(serde_json::from_value::<std::collections::BTreeMap<String, crate::contracts::Signal>>(v).unwrap()).unwrap();
         assert_eq!(value["items"], signals(original["items"].clone()));
         assert_eq!(value["couriers"]["courier0"]["items"], signals(original["couriers"]["SENSITIVE_FIXTURE"]["items"].clone()));
-        assert_eq!(companion_dota_domain::gsi::parse(&original), companion_dota_domain::gsi::parse(&value));
-        assert!(companion_dota_domain::match_shadow::is_new_match_evidence(&companion_dota_domain::gsi::parse(&value).unwrap()));
-        let mut replay = companion_dota_domain::replay::Replay::default();
+        assert_eq!(crate::gsi::parse(&original), crate::gsi::parse(&value));
+        assert!(crate::match_shadow::is_new_match_evidence(&crate::gsi::parse(&value).unwrap()));
+        let mut replay = crate::replay::Replay::default();
         for sequence in 1..=2 {
             let mut raw = fixture();
             if sequence == 2 { raw["abilities"]["ability2"]["cooldown"] = json!(25); }
-            let result = replay.apply(companion_dota_domain::contracts::ReplayInput {
+            let result = replay.apply(crate::contracts::ReplayInput {
                 sequence, observed_at_ms: sequence * 1000, snapshot: project(&raw).unwrap(), context: Default::default(), match_context: None,
             }).unwrap();
             if sequence == 1 { assert!(result.sound_signals.is_empty()); }
@@ -125,8 +125,8 @@ mod tests {
             else {after["items"]["stash0"]=json!({"name":"item_flask"});}
             let previous=serde_json::to_value(project(&before).unwrap()).unwrap();
             let current=serde_json::to_value(project(&after).unwrap()).unwrap();
-            let expected=companion_dota_domain::events::detect_events(Some(&before),&after);
-            let actual=companion_dota_domain::events::detect_events(Some(&previous),&current);
+            let expected=crate::events::detect_events(Some(&before),&after);
+            let actual=crate::events::detect_events(Some(&previous),&current);
             assert_eq!(actual,expected);assert!(actual.is_empty());
         }
     }

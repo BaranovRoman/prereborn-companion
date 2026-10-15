@@ -124,6 +124,14 @@ jobs:
         timeout-minutes: 15
         run: cargo test --locked --manifest-path apps/companion/src-tauri/Cargo.toml --test dota_projection
 
+      - name: Relocated Dota SQLite and detector regression tests
+        if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''
+        shell: bash
+        timeout-minutes: 15
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/apps/companion/src-tauri/target
+        run: cargo test --locked --manifest-path plugins/Cargo.toml -p companion-dota-storage
+
       - name: Secure storage smoke test (real Windows Credential Manager)
         run: cargo run --manifest-path apps/companion/src-tauri/Cargo.toml --example keyring_smoke
 

@@ -45,3 +45,10 @@ export const diagnosticsTraceTtsFrontend = (event: TtsTraceEventInput) =>
 export const getSkipHotkeyStatus = () => invoke<SkipHotkeyStatus>("get_skip_hotkey_status");
 export const setSkipHotkey = (enabled: boolean, shortcut: string) =>
   invoke<SkipHotkeyStatus>("set_skip_hotkey", { enabled, shortcut });
+
+export const openStreamSettings = () => invoke<void>("open_stream_settings");
+export const getSteamIntegrationStatus = () => invoke<import("./contracts").SteamIntegrationStatus>("get_steam_integration_status");
+export const disconnectSteam = () => invoke<void>("disconnect_steam");
+export const getDonationAlertsIntegrationStatus = () => invoke<import("./contracts").DonationAlertsIntegrationStatus>("get_donation_alerts_integration_status");
+export const connectDonationAlerts = () => invoke<void>("connect_donation_alerts");
+export const disconnectDonationAlerts = () => invoke<void>("disconnect_donation_alerts");

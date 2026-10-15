@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { TwitchChatSession } from "../chat/useTwitchChatSession";
-import { openStreamSettings, type TwitchChatMessage } from "../services/dotaCompanionApi";
+import { openStreamSettings, type TwitchChatMessage } from "../core/api";
 
 // WK-78 - polling, dedup, the TTS queue/playback and unread counting used to
 // live here and stopped the moment this page unmounted (e.g. switching to

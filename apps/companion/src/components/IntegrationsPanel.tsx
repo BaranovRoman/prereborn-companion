@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Badge, Button } from "./ui";
-import * as api from "../services/dotaCompanionApi";
+import * as api from "../core/api";
 import type {
   DonationAlertsIntegrationStatus,
   SteamIntegrationStatus,
   TwitchIntegrationStatus,
-} from "../services/dotaCompanionApi";
+} from "../core/api";
 
 type Load<T> = { kind: "loading" } | { kind: "error" } | { kind: "ready"; value: T };
 
@@ -74,9 +74,9 @@ export function IntegrationsPanel() {
         identity={steam.kind === "ready" && steam.value.connected
           ? steam.value.profile?.displayName ?? `SteamID ${steam.value.steamId64 ?? ""}`
           : null}
-        hint="Используется для: идентификации Dota-аккаунта и статистики OpenDota в Hero Detail."
+        hint="Привязка аккаунта Steam для возможностей установленных расширений."
         errorLabel="Не удалось получить статус Steam."
-        disconnectWarning="Статистика OpenDota станет недоступна до повторной привязки. Локальная история Companion, GSI, OBS и MMR не затрагиваются."
+        disconnectWarning="Привязка Steam будет удалена. Возможности расширений, использующих Steam, станут недоступны до повторного подключения. Пользовательские файлы не удаляются."
         onConnect={api.openStreamSettings}
         onDisconnect={api.disconnectSteam}
         onReload={loadSteam}

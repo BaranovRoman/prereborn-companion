@@ -1,6 +1,6 @@
 import type { ChatSettings } from "../../chat/chat-model";
 import type { TwitchChatSession } from "../../chat/useTwitchChatSession";
-import type { SileroVoice } from "../../services/dotaCompanionApi";
+import type { SileroVoice } from "../../core/contracts";
 import { Checkbox, Radio, Select } from "../ui";
 
 const SILERO_VOICES: { value: SileroVoice; label: string }[] = [
