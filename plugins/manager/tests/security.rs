@@ -40,7 +40,7 @@ fn rejects_corruption_signatures_unsafe_archives_incompatibility_and_cancel() {
     assert!(s.install(&damaged, &good, false, &AtomicBool::new(false)).is_err());
     let mut unsigned = good.clone(); unsigned.signature = "forged".into();
     assert!(s.install(&bytes, &unsigned, false, &AtomicBool::new(false)).is_err());
-    let mut incompatible = good.clone(); incompatible.manifest.min_api = 2; incompatible.manifest.max_api = 2;
+    let mut incompatible = good.clone(); incompatible.manifest.min_api = companion_plugin_protocol::CORE_API+1; incompatible.manifest.max_api = companion_plugin_protocol::CORE_API+1;
     assert_eq!(s.install(&bytes, &incompatible, false, &AtomicBool::new(false)).unwrap_err(), "incompatible_api");
     for name in ["traversal", "symlink", "duplicate", "damaged", "oversized"] {
         let meta: Release = serde_json::from_slice(&fixture(&format!("{name}.json"))).unwrap();
@@ -66,6 +66,21 @@ fn signed_catalog_and_portable_path_validation() {
     assert!(catalog(&bytes, &sig, TRUSTED_KEY).is_err());
     let mut tampered = bytes; tampered[10] ^= 1; assert!(catalog(&tampered, &sig, TEST_KEY).is_err());
     for name in ["../x", "/x", "a//b", "x\\b", "a:stream", "CON.txt", "com1", "a.", "a%20b", "a/../b"] { assert!(safe_path(name).is_err(), "{name}"); }
+}
+#[test]
+fn api2_live_permissions_and_ui_commands_are_explicit_and_old_metadata_roundtrips_unchanged(){
+    let old=release("0.1.0").manifest;
+    let before=serde_json::to_value(&old).unwrap();assert!(before.get("author").is_none());assert!(before.get("uiCommands").is_none());
+    assert_eq!(serde_json::to_value(serde_json::from_value::<Manifest>(before.clone()).unwrap()).unwrap(),before);
+    let mut current=old.clone();current.id="independent-game".into();current.min_api=2;current.max_api=2;current.execution=ExecutionMode::Live;
+    current.permissions=vec!["ui".into(),"data.legacy".into(),"audio.play".into(),"obs.scene".into()];current.author=Some("Example publisher".into());current.ui_commands=vec!["status".into(),"sound.settings".into()];
+    current.validate().unwrap();
+    let mut bad=current.clone();bad.ui_commands.push("host.activate".into());assert_eq!(bad.validate().unwrap_err(),"invalid_ui_commands");
+    let mut bad=current.clone();bad.permissions.push("data.private".into());assert_eq!(bad.validate().unwrap_err(),"unsupported_permissions");
+    let mut bad=current.clone();bad.permissions.push("sql".into());assert_eq!(bad.validate().unwrap_err(),"unsupported_permissions");
+    let mut bad=current.clone();bad.permissions.push("audio.play".into());assert_eq!(bad.validate().unwrap_err(),"unsupported_permissions");
+    let mut bad=current.clone();bad.min_api=1;assert_eq!(bad.validate().unwrap_err(),"unsupported_permissions");
+    let mut bad=old;bad.execution=ExecutionMode::ReplayOnly;bad.permissions.push("audio.play".into());assert_eq!(bad.validate().unwrap_err(),"unsupported_permissions");
 }
 #[test]
 fn tampered_payload_blocks_launch_and_failed_update_keeps_active() {

@@ -128,6 +128,11 @@ impl Store {
  }
  pub fn quota(&self)->Result<Quota>{Self::quota_in(&self.conn)}
  pub fn uncertain(&self)->Result<bool>{sql(self.conn.query_row("SELECT EXISTS(SELECT 1 FROM transport_effects WHERE json_extract(receipt,'$.uncertain')=1 AND json_extract(receipt,'$.status') NOT IN ('completed','cancelled'))",[],|r|r.get(0)))}
+ pub fn uncertain_for(&self,plugin:&str)->Result<bool>{sql(self.conn.query_row("SELECT EXISTS(SELECT 1 FROM transport_effects WHERE plugin=?1 AND json_extract(receipt,'$.uncertain')=1 AND json_extract(receipt,'$.status') NOT IN ('completed','cancelled'))",[plugin],|r|r.get(0)))}
+ pub fn quota_for(&self,plugin:&str)->Result<Quota>{
+  let mut quota=self.quota()?;let (unknown,pending):(u64,u64)=sql(self.conn.query_row("SELECT coalesce(sum(json_extract(receipt,'$.status')='unknown'),0),coalesce(sum(json_extract(receipt,'$.status') IN ('queued','playing')),0) FROM transport_effects WHERE plugin=?1",[plugin],|r|Ok((r.get(0)?,r.get(1)?))))?;
+  quota.unknown=unknown;quota.pending=pending;Ok(quota)
+ }
  fn decode_process(doc:&str,checksum:&str)->Result<ProcessRecord>{
   if doc.len()>2048||hash(doc)!=checksum{return Err("transport_process_corrupt".into());}
   let record:ProcessRecord=serde_json::from_str(doc).map_err(|_|"transport_process_corrupt")?;

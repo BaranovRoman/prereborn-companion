@@ -1,21 +1,31 @@
 //! Shared host audio implementation; the native adapter supplies only emit.
 use super::store;
 use companion_plugin_protocol::{audio::{Token,Status,Fence},playback::PlaybackRegistry,runtime::ProcessBinding,ProcessGrant};
-use std::{io::Read,path::Path,sync::Mutex,time::{Duration,SystemTime,UNIX_EPOCH}};
+use std::{collections::BTreeMap,io::Read,path::Path,sync::{Arc,Mutex},time::{Duration,SystemTime,UNIX_EPOCH}};
 use base64::{engine::general_purpose::STANDARD as BASE64,Engine};
 
-pub(crate) struct HostAudio{registry:PlaybackRegistry,ledger:Mutex<store::Store>}
+pub(crate) struct HostAudio{registries:Mutex<BTreeMap<String,Arc<PlaybackRegistry>>>,ledger:Mutex<store::Store>}
 #[derive(serde::Serialize,Clone)]
 #[serde(rename_all="camelCase")]
 pub(crate) struct Payload{playback:Token,event_id:String,base64:String,mime:&'static str,volume:u8,correlation_id:String,emitted_at_ms:u64}
 impl HostAudio{
- pub(crate) fn open(path:&Path)->Result<Self,String>{Ok(Self{registry:Default::default(),ledger:Mutex::new(store::Store::open(path)?)})}
+ pub(crate) fn open(path:&Path)->Result<Self,String>{Ok(Self{registries:Default::default(),ledger:Mutex::new(store::Store::open(path)?)})}
  fn locked(&self)->Result<std::sync::MutexGuard<'_,store::Store>,String>{self.ledger.lock().map_err(|_|"transport_store_poisoned".into())}
  pub(crate) fn reserve_process(&self,process:&ProcessBinding)->Result<store::ProcessRecord,String>{self.locked()?.reserve_process(process)}
  pub(crate) fn process_ready(&self,process:&ProcessBinding,epoch:u64)->Result<(),String>{self.locked()?.process_ready(process,epoch)}
  pub(crate) fn process_draining(&self,process:&ProcessBinding,epoch:u64)->Result<(),String>{self.locked()?.process_draining(process,epoch)}
  pub(crate) fn process_after_native_exit(&self,process:&ProcessBinding,epoch:u64)->Result<(),String>{self.locked()?.process_after_native_exit(process,epoch)}
  pub(crate) fn process(&self,plugin:&str)->Result<Option<store::ProcessRecord>,String>{self.locked()?.process(plugin)}
+ pub(crate) fn locked_authorize(&self,process:&ProcessBinding,epoch:u64)->Result<(),String>{self.locked()?.authorize(process,epoch)}
+ fn registry(&self,plugin:&str)->Result<Arc<PlaybackRegistry>,String>{
+  let mut registries=self.registries.lock().map_err(|_|"audio_state_poisoned")?;
+  if !registries.contains_key(plugin)&&registries.len()>=128{return Err("audio_scope_quota".into());}
+  Ok(registries.entry(plugin.into()).or_default().clone())
+ }
+ fn binding(&self,token:&Token)->Result<(Arc<PlaybackRegistry>,String),String>{
+  let registries:Vec<_>=self.registries.lock().map_err(|_|"audio_state_poisoned")?.values().cloned().collect();
+  for registry in registries{if let Ok(Some(key))=registry.durable_key(token){return Ok((registry,key));}}Err("playback_scope_mismatch".into())
+ }
  pub(crate) fn play(&self,pin:&impl ProcessGrant,process:&ProcessBinding,epoch:u64,context:Option<&str>,root:&Path,key:&str,file:&str,volume:u8,deadline:u64,emit:impl FnOnce(&Payload)->Result<(),String>)->Result<store::Receipt,String>{
   let action=store::Action::Sound{asset_file:file.into(),volume};
   if !pin.permits(action.permission())||pin.binding()!=&process.package{return Err("capability_denied".into());}
@@ -25,36 +35,42 @@ impl HostAudio{
   if let Some(receipt)=ledger.lookup(&process.package.id,key)?{
    if receipt.process!=process.into()||receipt.action!=action||receipt.playback.as_ref().is_none_or(|t|!t.matches_context(epoch,context)){return Err("idempotency_conflict".into());}return Ok(receipt);
   }
-  if ledger.uncertain()?{return Err("unknown_effects_require_explicit_reconciliation".into());}
+  if ledger.uncertain_for(&process.package.id)?{return Err("unknown_effects_require_explicit_reconciliation".into());}
+  let quota=ledger.quota()?;if quota.unknown+quota.pending>=64{return Err("transport_pending_full".into());}
   let now=now_ms();if deadline<=now||deadline-now>30000{return Err("sound_deadline_expired".into());}
   let (bytes,mime)=read_asset(root,file)?;
-  let token=self.registry.admit(Some(epoch),context)?;
+  let registry=self.registry(&process.package.id)?;let token=registry.admit(Some(epoch),context)?;
   let admission=match ledger.admit(process,key,action,Some(token.clone())){
-   Ok(a)=>a,Err(e)=>{let _=self.registry.ack(token,Status::Cancelled);return Err(e);},
+   Ok(a)=>a,Err(e)=>{let _=registry.ack(token,Status::Cancelled);return Err(e);},
   };
-  if !admission.fresh{let _=self.registry.ack(token,Status::Cancelled);return Ok(admission.receipt);}
+  if !admission.fresh{let _=registry.ack(token,Status::Cancelled);return Ok(admission.receipt);}
   let qualified=format!("{}/{}",process.package.id,key);
   // Receipt/token is committed before native emit; ACK cannot free the registry
   // until its durable state is committed. Never wait for WebView under this lock.
-  self.registry.bind(&token,&qualified)?;
+  registry.bind(&token,&qualified)?;
   let payload=Payload{playback:token.clone(),event_id:key.into(),base64:BASE64.encode(bytes),mime,volume,correlation_id:key.into(),emitted_at_ms:now};
-  if let Err(error)=emit(&payload){ledger.audio_ack(&process.package.id,key,&token,Status::Unknown)?;self.registry.ack(token,Status::Unknown)?;return Err(error);}
+  if let Err(error)=emit(&payload){ledger.audio_ack(&process.package.id,key,&token,Status::Unknown)?;registry.ack(token,Status::Unknown)?;return Err(error);}
   Ok(admission.receipt)
  }
- pub(crate) fn owns(&self,token:&Token)->bool{matches!(self.registry.durable_key(token),Ok(Some(_)))}
+ pub(crate) fn owns(&self,token:&Token)->bool{self.binding(token).is_ok()}
  pub(crate) fn ack(&self,token:Token,status:Status)->Result<(),String>{
   let mut ledger=self.locked()?;
-  let qualified=self.registry.durable_key(&token)?.ok_or("audio_not_bound")?;
+  let (registry,qualified)=self.binding(&token)?;
   let (plugin,key)=qualified.split_once('/').ok_or("audio_not_bound")?;
-  ledger.audio_ack(plugin,key,&token,status)?;self.registry.ack(token,status)
+  ledger.audio_ack(plugin,key,&token,status)?;registry.ack(token,status)
  }
- pub(crate) fn fence(&self,emit:impl FnOnce(Fence)->Result<(),String>)->Result<(),String>{
-  let request=self.registry.begin()?;emit(request)?;
-  self.registry.wait(Duration::from_secs(2))?;
-  let quota=self.locked()?.quota()?;if quota.unknown!=0||quota.pending!=0{return Err("unknown_effects_require_explicit_reconciliation".into());}Ok(())
+ pub(crate) fn fence(&self,plugin:&str,emit:impl FnOnce(Fence)->Result<(),String>)->Result<(),String>{
+  let registry=self.registries.lock().map_err(|_|"audio_state_poisoned")?.get(plugin).cloned();
+  if let Some(registry)=registry{let request=registry.begin()?;emit(request)?;registry.wait(Duration::from_secs(2))?;}
+  let quota=self.locked()?.quota_for(plugin)?;if quota.unknown!=0||quota.pending!=0{return Err("unknown_effects_require_explicit_reconciliation".into());}Ok(())
  }
- pub(crate) fn confirm(&self,request:&Fence,stopped:bool)->Result<(),String>{self.registry.confirm(request,stopped)}
- pub(crate) fn reopen(&self)->Result<(),String>{self.registry.reopen()}
+ pub(crate) fn confirm(&self,request:&Fence,stopped:bool)->Result<(),String>{
+  let registries:Vec<_>=self.registries.lock().map_err(|_|"audio_state_poisoned")?.values().cloned().collect();
+  for registry in registries{if registry.confirm(request,stopped).is_ok(){return Ok(());}}Err("stale_audio_fence".into())
+ }
+ pub(crate) fn reopen(&self,plugin:&str)->Result<(),String>{
+  let registry=self.registries.lock().map_err(|_|"audio_state_poisoned")?.get(plugin).cloned();if let Some(registry)=registry{registry.reopen()?;}Ok(())
+ }
 }
 fn now_ms()->u64{SystemTime::now().duration_since(UNIX_EPOCH).map(|t|t.as_millis().min(u128::from(u64::MAX)) as u64).unwrap_or(0)}
 fn read_asset(root:&Path,file:&str)->Result<(Vec<u8>,&'static str),String>{
@@ -114,7 +130,19 @@ mod tests{
   let epoch=audio.reserve_process(&process).unwrap().epoch;audio.process_ready(&process,epoch).unwrap();
   let receipt=audio.play(&pin,&process,epoch,None,root.path(),"sound:1","jump.wav",70,now_ms()+2000,|_|Ok(())).unwrap();let token=receipt.playback.unwrap();
   audio.ack(token.clone(),Status::Playing).unwrap();audio.process_draining(&process,epoch).unwrap();
-  audio.fence(|request|{assert_eq!(request.playback_ids,vec![token.id.clone()]);audio.ack(token.clone(),Status::Cancelled)?;audio.confirm(&request,true)}).unwrap();
-  assert!(audio.ack(token,Status::Playing).is_err());audio.reopen().unwrap();assert_eq!(audio.locked().unwrap().quota().unwrap().unknown,0);
+  audio.fence("example",|request|{assert_eq!(request.playback_ids,vec![token.id.clone()]);audio.ack(token.clone(),Status::Cancelled)?;audio.confirm(&request,true)}).unwrap();
+  assert!(audio.ack(token,Status::Playing).is_err());audio.reopen("example").unwrap();assert_eq!(audio.locked().unwrap().quota().unwrap().unknown,0);
+ }
+ #[test]
+ fn one_plugins_fence_does_not_cancel_another_plugins_pending_playback(){
+  let root=tempfile::tempdir().unwrap();std::fs::write(root.path().join("jump.wav"),b"RIFFtestWAVE").unwrap();let audio=HostAudio::open(&root.path().join("transport.sqlite3")).unwrap();let (first,first_process)=pin();let (mut other,mut other_process)=pin();
+  other.binding.id="other".into();other_process.package=other.binding.clone();
+  for process in [&first_process,&other_process]{let epoch=audio.reserve_process(process).unwrap().epoch;audio.process_ready(process,epoch).unwrap();}
+  let one=audio.play(&first,&first_process,1,None,root.path(),"sound:1","jump.wav",70,now_ms()+2000,|_|Ok(())).unwrap().playback.unwrap();
+  let two=audio.play(&other,&other_process,1,None,root.path(),"sound:1","jump.wav",70,now_ms()+2000,|_|Ok(())).unwrap().playback.unwrap();
+  audio.ack(one.clone(),Status::Playing).unwrap();audio.ack(two.clone(),Status::Playing).unwrap();
+  audio.fence("example",|request|{assert_eq!(request.playback_ids,vec![one.id.clone()]);audio.ack(one.clone(),Status::Cancelled)?;audio.confirm(&request,true)}).unwrap();
+  assert!(audio.owns(&two));assert_eq!(audio.locked().unwrap().lookup("other","sound:1").unwrap().unwrap().status,Status::Playing);
+  audio.ack(two,Status::Completed).unwrap();
  }
 }

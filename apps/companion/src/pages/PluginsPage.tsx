@@ -3,6 +3,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { Button, Input } from "../components/ui";
 import * as api from "../plugins/api";
 import { greeting } from "../plugin-lab/bridge";
+import { ready as uiReady, request as uiRequest, UI_VERSION } from "../../../../plugins/protocol/ui";
 import "./PluginsPage.css";
 
 const phaseText = { running: "Работает", starting: "Запускается", stopped: "Остановлен", failed: "Ошибка процесса" };
@@ -35,7 +36,7 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
   const installButton = (r: api.Release) => {
     const installed = view?.installed.find((p) => p.id === r.manifest.id);
     const current = installed?.installed.active === r.manifest.version || installed?.installed.pending === r.manifest.version;
-    const compatible = r.manifest.minApi <= 1 && r.manifest.maxApi >= 1;
+    const compatible = r.manifest.minApi <= (view?.apiVersion ?? 1) && r.manifest.maxApi >= 1;
     return <div className="plugin-actions">
       {!compatible && <p role="status">Несовместимая версия API</p>}
       <Button disabled={disabled || current || !compatible} onClick={() => void run(() => api.install(r.manifest.id, r.manifest.version))}>{current ? "Установлен" : installed ? "Обновить" : "Установить"}</Button>
@@ -63,7 +64,7 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
     {selected ? <article className="plugin-detail">
       <p>{selected.manifest?.description}</p>
       <p>Версия {selected.installed.active} · {selected.id === "dota2" ? "Статус выполнения показан ниже" : selected.installed.enabled ? phaseText[selected.runtime?.phase ?? "stopped"] : "Отключён"}</p>
-      <p>Автор не указан в манифесте.</p>
+      <p>{selected.manifest?.author ? `Автор: ${selected.manifest.author}` : "Автор не указан в манифесте."}</p>
       {selected.installed.pending && <p role="status">Обновление {selected.installed.pending} будет активировано после остановки.</p>}
       {(selected.error || selected.runtime?.lastError) && <p role="alert">{api.errorText(selected.error ?? selected.runtime?.lastError)}</p>}
       {selected.id === "dota2" ? <DotaControls disabled={disabled} run={run} /> : <div className="plugin-actions">
@@ -85,7 +86,7 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
           <span className="plugin-icon" aria-hidden="true">{(p.manifest?.name ?? p.id).slice(0, 1)}</span>
           <h4>{p.manifest?.name ?? p.id}</h4><p>{p.manifest?.description ?? "Метаданные установленного пакета недоступны."}</p>
           <p>Версия {p.installed.active} · {p.id === "dota2" ? "Статус выполнения — на странице плагина" : p.installed.enabled ? phaseText[p.runtime?.phase ?? "stopped"] : "Отключён"}</p>
-          <small>Автор не указан в манифесте.</small>
+          <small>{p.manifest?.author ? `Автор: ${p.manifest.author}` : "Автор не указан в манифесте."}</small>
           {(p.error || p.runtime?.lastError) && <p role="alert">{api.errorText(p.error ?? p.runtime?.lastError)}</p>}
           <Button disabled={disabled} onClick={() => setOpened(p.id)}>Открыть</Button>
         </article>)}
@@ -96,7 +97,7 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
         {view?.catalog.map((r) => <article className="plugin-card" key={`${r.manifest.id}-${r.manifest.version}`}>
           <span className="plugin-icon" aria-hidden="true">{r.manifest.name.slice(0, 1)}</span>
           <h4>{r.manifest.name}</h4><p>{r.manifest.description}</p><p>Версия {r.manifest.version}</p>
-          <small>Автор не указан в манифесте.</small>{installButton(r)}
+          <small>{r.manifest.author ? `Автор: ${r.manifest.author}` : "Автор не указан в манифесте."}</small>{installButton(r)}
         </article>)}
       </div>
     </>}
@@ -209,12 +210,35 @@ function DotaControls({ disabled, run }: { disabled: boolean; run: (task: () => 
 function PluginUI({ plugin }: { plugin: api.Installed }) {
   const frame = useRef<HTMLIFrameElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const policy = JSON.stringify(plugin.manifest?.uiCommands ?? []);
+  const legacy = (plugin.manifest?.maxApi ?? 1) < 2;
   useEffect(() => {
-    let ready = false; let disposed = false; let pending = false;
+    let ready = false; let disposed = false; let pending = false; let lastRequest = 0; let inFlight = 0;
+    let instance: string;
+    try { instance = Array.from(crypto.getRandomValues(new Uint32Array(4)), n => n.toString(16).padStart(8,"0")).join(""); }
+    catch { setError("Безопасный канал интерфейса недоступен."); return; }
+    const commands: string[] = JSON.parse(policy);
     const timeout = window.setTimeout(() => { if (!ready) setError("UI плагина не подтвердил загрузку. Проверьте WebView и CSP."); }, 8000);
     const handler = async (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow) return;
-      if (event.data?.type === "hello-ui-ready" && event.data.version === 1) { ready = true; window.clearTimeout(timeout); return; }
+      if (uiReady(event,frame.current?.contentWindow ?? null)) {
+        ready = true; window.clearTimeout(timeout); setError(null);
+        frame.current?.contentWindow?.postMessage({type:"plugin-host-ready",version:UI_VERSION,instance,pluginId:plugin.id,pluginVersion:plugin.installed.active},"*"); return;
+      }
+      if (legacy && event.data?.type === "hello-ui-ready" && event.data.version === 1) { ready = true; window.clearTimeout(timeout); return; }
+      const request = uiRequest(event,frame.current?.contentWindow ?? null,instance,commands);
+      if (ready && request) {
+        const reply = (result: unknown, error?: string) => { if (!disposed) frame.current?.contentWindow?.postMessage({type:"plugin-result",version:UI_VERSION,instance,requestId:request.requestId,ok:!error,result,error},"*"); };
+        if (request.requestId <= lastRequest) { reply(null,"stale_ui_request"); return; }
+        lastRequest = request.requestId;
+        if (inFlight >= 8) { reply(null,"plugin_request_quota"); return; }
+        inFlight++;
+        try { reply(await api.request(plugin.id,request.name,request.args)); }
+        catch (e) { const message = api.errorText(e); reply(null,message); if (!disposed) setError(message); }
+        finally { inFlight--; }
+        return;
+      }
+      if (!legacy) return;
       const text = greeting(event, frame.current?.contentWindow ?? null);
       if (!ready || text === null || pending) return;
       pending = true;
@@ -225,11 +249,13 @@ function PluginUI({ plugin }: { plugin: api.Installed }) {
       finally { pending = false; }
     };
     window.addEventListener("message", handler);
+    frame.current?.contentWindow?.postMessage({type:"plugin-host-probe",version:UI_VERSION},"*");
     return () => { disposed = true; window.clearTimeout(timeout); window.removeEventListener("message", handler); };
-  }, [plugin.id]);
+  }, [plugin.id,plugin.installed.active,policy,legacy]);
   const relative = plugin.manifest?.ui.replace(/^ui\//, "") ?? "index.html";
   return <div>{error && <p role="alert">{error}</p>}
     <iframe ref={frame} title={plugin.manifest?.name ?? plugin.id} sandbox="allow-scripts" referrerPolicy="no-referrer"
-      src={convertFileSrc(`${plugin.id}/${plugin.installed.active}/${relative}`, "plugin-ui")} style={{ width: "100%", height: 300 }} />
+      onLoad={() => frame.current?.contentWindow?.postMessage({type:"plugin-host-probe",version:UI_VERSION},"*")}
+      src={convertFileSrc(`${plugin.id}/${plugin.installed.active}/${relative}`, "plugin-ui")} style={{ width: "100%", height: 480 }} />
   </div>;
 }

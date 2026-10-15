@@ -158,3 +158,22 @@ confirmation of this fix is pending; publication remains blocked.
 
 References: [Microsoft Winsock error codes](https://learn.microsoft.com/en-us/windows/win32/winsock/windows-sockets-error-codes-2),
 [CreateProcessW environment format](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessw).
+
+## Verified worker/UI grants checkpoint
+
+Unsigned Windows CI [38750365996](https://github.com/BaranovRoman/prereborn-companion/actions/runs/38750365996)
+passed on c6da167, including the supervised worker's real loopback bind after
+supplying OS-derived SystemRoot, storage regressions, NSIS and packaged smoke.
+This is not a native user's GSI/audio/OBS acceptance test.
+
+The next source checkpoint negotiates Core API 1/2 over unchanged IPC v1, preserves
+old manifest signatures, binds API2 UI commands to signed allowlists and actual
+process generation, and uses a nonce/source/correlation-checked sandbox bridge.
+The manager's new worker adapter remains unattached until legacy bootstrap and
+OBS game automation are removed. No two production game pipelines are enabled.
+
+Local targeted checks: 31 Dota library tests plus 8 external-process IPC tests;
+11 generic durable transport tests (including independent plugin audio fences),
+protocol/manager/Hello compatibility checks, 27 UI bridge/library tests, TypeScript
+and cargo check. Package UI replacement, OBS/backend/overlay integration and final
+physical core extraction remain required before any signing/publication.

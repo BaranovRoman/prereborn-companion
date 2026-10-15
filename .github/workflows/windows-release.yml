@@ -135,6 +135,7 @@ jobs:
         run: |
           cargo build --locked --manifest-path plugins/Cargo.toml -p companion-dota-plugin -p companion-hello-plugin
           cargo test --locked --manifest-path plugins/Cargo.toml -p companion-plugin-protocol
+          cargo test --locked --manifest-path plugins/Cargo.toml -p companion-hello-plugin --test ipc
           cargo test --locked --manifest-path plugins/Cargo.toml -p companion-dota-plugin --lib
           cargo test --locked --manifest-path plugins/Cargo.toml -p companion-dota-plugin --test ipc -- --test-threads=1
           # Keep the existing disk-latency assertions meaningful: do not run

@@ -3,3 +3,4 @@ pub mod sounds;
 pub mod gsi;
 pub mod history;
 pub mod worker;
+pub mod ui;

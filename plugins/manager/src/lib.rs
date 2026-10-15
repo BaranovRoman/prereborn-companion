@@ -4,7 +4,7 @@ use std::{collections::{BTreeMap, BTreeSet}, fs::{self, File}, io::{Read, Write}
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use minisign_verify::{PublicKey, Signature};
-use companion_plugin_protocol::CORE_API;
+use companion_plugin_protocol::{CORE_API,MIN_CORE_API};
 
 pub const TRUSTED_KEY: &str = include_str!("../trusted.pub");
 pub const MAX_PACKAGE: u64 = 32 * 1024 * 1024;
@@ -21,6 +21,12 @@ pub struct Manifest {
     pub permissions: Vec<String>, pub files: BTreeMap<String, String>,
     #[serde(default,skip_serializing_if="ExecutionMode::is_replay")]
     pub execution:ExecutionMode,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub author:Option<String>,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    pub icon:Option<String>,
+    #[serde(default,skip_serializing_if="Vec::is_empty")]
+    pub ui_commands:Vec<String>,
 }
 #[derive(Clone,Copy,Debug,Default,Serialize,Deserialize,PartialEq)]
 #[serde(rename_all="snake_case")]
@@ -67,7 +73,7 @@ pub fn safe_path(value: &str) -> Result<()> {
     Ok(())
 }
 fn valid_id(id: &str) -> Result<()> {
-    if id.is_empty() || id.len() > 64 || !id.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-') || (id.contains("dota") && id != "dota2") {
+    if id.is_empty() || id.len() > 64 || !id.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-') {
         return Err("invalid_or_reserved_plugin_id".into());
     }
     Ok(())
@@ -80,21 +86,31 @@ fn valid_version(version: &str) -> Result<()> {
 impl Manifest {
     pub fn validate(&self) -> Result<()> {
         valid_id(&self.id)?; valid_version(&self.version)?;
-        if self.schema != 1 || self.min_api > self.max_api { return Err("invalid_manifest".into()); }
+        if self.schema != 1 || self.min_api==0 || self.min_api > self.max_api { return Err("invalid_manifest".into()); }
         if self.name.is_empty() || self.name.len() > 100 || self.description.len() > 1000 { return Err("invalid_description".into()); }
         if !matches!(self.platform.as_str(), "macos" | "windows" | "linux") || !matches!(self.arch.as_str(), "aarch64" | "x86_64") {
             return Err("unsupported_target".into());
         }
-        let live=self.id=="dota2"&&self.execution==ExecutionMode::Live&&self.permissions.contains(&"ui".into())&&self.permissions.contains(&"dota.match.execute".into())
+        // API1 live metadata is readable solely for installed-data/update
+        // compatibility. Its old permission names cannot grant API2 execution.
+        let legacy_live=self.max_api<2&&self.execution==ExecutionMode::Live&&self.permissions.contains(&"ui".into())&&self.permissions.contains(&"dota.match.execute".into())
             &&self.permissions.iter().all(|p|matches!(p.as_str(),"ui"|"dota.match.execute"|"dota.sound.play"|"dota.obs.scene"|"dota.overlay.update"))
             &&self.permissions.iter().collect::<std::collections::BTreeSet<_>>().len()==self.permissions.len();
-        if !live && (self.execution!=ExecutionMode::ReplayOnly||self.permissions != ["ui"]) { return Err("unsupported_permissions".into()); }
+        let live=self.min_api>=2&&self.execution==ExecutionMode::Live&&self.permissions.contains(&"ui".into())
+            &&self.permissions.iter().all(|p|matches!(p.as_str(),"ui"|"audio.play"|"obs.scene"|"overlay.publish"|"data.private"|"data.legacy"|"backend.access"))
+            &&!(self.permissions.contains(&"data.private".into())&&self.permissions.contains(&"data.legacy".into()))
+            &&self.permissions.iter().collect::<std::collections::BTreeSet<_>>().len()==self.permissions.len();
+        if !legacy_live&&!live && (self.execution!=ExecutionMode::ReplayOnly||self.permissions != ["ui"]) { return Err("unsupported_permissions".into()); }
+        if self.author.as_ref().is_some_and(|a|a.is_empty()||a.len()>120||a.chars().any(char::is_control)){return Err("invalid_author".into());}
+        if self.ui_commands.len()>96||self.ui_commands.iter().collect::<BTreeSet<_>>().len()!=self.ui_commands.len()
+            ||self.ui_commands.iter().any(|c|c.is_empty()||c.len()>64||c.starts_with("host.")||!c.bytes().all(|b|b.is_ascii_lowercase()||b.is_ascii_digit()||b"._".contains(&b))){return Err("invalid_ui_commands".into());}
         safe_path(&self.executable)?; safe_path(&self.ui)?;
         if !self.executable.starts_with("bin/") || !self.ui.starts_with("ui/") || !self.ui.ends_with(".html") ||
             !self.files.contains_key(&self.executable) || !self.files.contains_key(&self.ui) || self.files.len() > 512 {
             return Err("invalid_payload".into());
         }
         let mut names = BTreeSet::new();
+        if let Some(icon)=&self.icon{safe_path(icon)?;if !icon.starts_with("ui/")||!self.files.contains_key(icon)||!matches!(Path::new(icon).extension().and_then(|s|s.to_str()),Some("png"|"svg"|"webp")){return Err("invalid_icon".into());}}
         for (name, digest) in &self.files {
             safe_path(name)?;
             if !checksum(digest) || !names.insert(name.to_ascii_lowercase()) || (!name.starts_with("bin/") && !name.starts_with("ui/")) {
@@ -105,7 +121,7 @@ impl Manifest {
     }
     pub fn compatible(&self) -> Result<()> {
         self.validate()?;
-        if self.min_api > CORE_API || self.max_api < CORE_API { return Err("incompatible_api".into()); }
+        if self.min_api > CORE_API || self.max_api < MIN_CORE_API { return Err("incompatible_api".into()); }
         if self.platform != std::env::consts::OS || self.arch != std::env::consts::ARCH { return Err("incompatible_platform".into()); }
         Ok(())
     }

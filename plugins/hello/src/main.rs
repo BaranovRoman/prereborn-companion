@@ -6,9 +6,7 @@ fn run() -> Result<(), String> {
     let mode = std::env::args().nth(1).unwrap_or_default();
     let mut input = BufReader::new(io::stdin());
     let mut output = io::stdout();
-    if !matches!(read_frame(&mut input)?, Some(Message::Hello { core_api: CORE_API })) {
-        return Err("expected_hello".into());
-    }
+    let api=match read_frame(&mut input)?{Some(Message::Hello{core_api}) if (companion_plugin_protocol::MIN_CORE_API..=CORE_API).contains(&core_api)=>core_api,_=>return Err("expected_hello".into())};
     // Explicit fault fixtures for lifecycle tests; never enabled by the UI.
     match mode.as_str() {
         "exit" => std::process::exit(23),
@@ -19,7 +17,7 @@ fn run() -> Result<(), String> {
     }
     write_frame(&mut output, Message::Ready {
         id: "hello".into(), version: env!("CARGO_PKG_VERSION").into(),
-        min_core_api: if mode == "incompatible" { 2 } else { 1 }, max_core_api: 1,
+        min_core_api: if mode == "incompatible" { api+1 } else { api }, max_core_api: if mode=="incompatible"{api+1}else{api},
     })?;
     write_frame(&mut output, Message::State { data: json!({"greetings": 0}) })?;
     let mut greetings = 0;

@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 export interface Manifest {
   id: string; name: string; description: string; version: string; platform: string; arch: string;
   minApi: number; maxApi: number; ui: string; permissions: string[];
+  author?: string; icon?: string; uiCommands?: string[];
+  execution?: "live" | "replay_only";
 }
 export interface Release { manifest: Manifest; url: string; sha256: string; signature: string }
 export interface Runtime { phase: "running" | "starting" | "stopped" | "failed"; lastError: string | null; state: unknown }
@@ -10,6 +12,7 @@ export interface Installed {
   installed: { active: string; previous: string | null; pending: string | null; enabled: boolean };
 }
 export interface View {
+  apiVersion?: number;
   installed: Installed[]; catalog: Release[]; error: string | null; catalogError: string | null;
   localInstallAllowed: boolean;
   transfer: { busy: boolean; id: string | null; received: number; total: number | null; stage: string; error: string | null };
@@ -20,6 +23,7 @@ export const install = (id: string, version: string, local?: string) => invoke<v
 export const cancel = () => invoke<void>("plugins_cancel");
 export const action = (id: string, action: string) => invoke<void>("plugins_action", { id, action });
 export const command = (id: string, text: string) => invoke<{ text: string }>("plugins_command", { id, name: "greet", args: { text } });
+export const request = (id: string, name: string, args: unknown) => invoke<unknown>("plugins_command", { id, name, args });
 export interface DotaSafety {
   storageState?: "not_prepared" | "ready" | "error";
   sessionBound?: boolean | null;

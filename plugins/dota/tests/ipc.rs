@@ -19,35 +19,53 @@ impl Process {
 }
 impl Drop for Process {fn drop(&mut self){let _=self.child.kill();let _=self.child.wait();}}
 
-fn launch_installed_worker(root:&std::path::Path,capabilities:&[&str])->companion_plugin_protocol::runtime::Runtime{
+struct Pin{binding:companion_plugin_protocol::PackageBinding,exe:std::path::PathBuf,capabilities:Vec<String>}
+impl companion_plugin_protocol::ProcessGrant for Pin{
+    fn binding(&self)->&companion_plugin_protocol::PackageBinding{&self.binding}
+    fn executable(&self)->&std::path::Path{&self.exe}
+    fn permits(&self,cap:&str)->bool{self.capabilities.iter().any(|c|c==cap)}
+}
+fn launch_bound_worker(root:&std::path::Path,capabilities:&[&str])->(companion_plugin_protocol::runtime::Runtime,Pin,companion_plugin_protocol::runtime::ProcessBinding){
     use sha2::{Digest,Sha256};
-    use companion_plugin_protocol::{runtime::Runtime,PackageBinding,ProcessGrant};
-    struct Pin{binding:PackageBinding,exe:std::path::PathBuf,capabilities:Vec<String>}
-    impl ProcessGrant for Pin{
-        fn binding(&self)->&PackageBinding{&self.binding}
-        fn executable(&self)->&std::path::Path{&self.exe}
-        fn permits(&self,cap:&str)->bool{self.capabilities.iter().any(|c|c==cap)}
-    }
+    use companion_plugin_protocol::{runtime::Runtime,PackageBinding};
     let exe=std::path::PathBuf::from(env!("CARGO_BIN_EXE_companion-dota-plugin"));
     let hash=format!("{:x}",Sha256::digest(std::fs::read(&exe).unwrap()));
     let binding=PackageBinding{id:"dota2".into(),version:env!("CARGO_PKG_VERSION").into(),executable_hash:hash,manifest_hash:"b".repeat(64)};
     let generation=uuid::Uuid::new_v4().to_string();
     let args=vec!["--worker".into(),json!({"dataRoot":root,"generation":generation,"package":binding,"capabilities":capabilities}).to_string()];
-    let mut runtime=Runtime::default();runtime.start_verified_args(&Pin{binding,exe,capabilities:capabilities.iter().map(|s|(*s).into()).collect()},generation,&args).unwrap();runtime
+    let pin=Pin{binding,exe,capabilities:capabilities.iter().map(|s|(*s).into()).collect()};
+    let mut runtime=Runtime::default();let process=runtime.start_verified_args(&pin,generation,&args).unwrap();(runtime,pin,process)
+}
+fn launch_installed_worker(root:&std::path::Path,capabilities:&[&str])->companion_plugin_protocol::runtime::Runtime{launch_bound_worker(root,capabilities).0}
+#[test]
+fn stale_verified_task_is_rejected_before_it_can_send_a_command_to_the_current_process(){
+    let root=tempfile::tempdir().unwrap();let (mut runtime,pin,binding)=launch_bound_worker(root.path(),&["ui","data.legacy"]);
+    let mut stale=binding.clone();stale.generation=uuid::Uuid::new_v4().to_string();
+    assert_eq!(runtime.command_verified(&pin,&stale,"host.prepare".into(),json!({})).unwrap_err(),"process_binding_denied");
+    assert!(!root.path().join("local-runtime.sqlite3").exists());assert_eq!(runtime.snapshot().phase,companion_plugin_protocol::runtime::Phase::Running);
+    assert_eq!(runtime.command_verified(&pin,&binding,"host.prepare".into(),json!({})).unwrap()["prepared"],true);
+    runtime.stop().unwrap();runtime.stopped_confirmed().unwrap();
 }
 #[test]
 fn installed_worker_uses_real_ipc_for_manual_idempotent_preparation_and_keeps_launch_authority_out_of_commands(){
-    let root=tempfile::tempdir().unwrap();let mut runtime=launch_installed_worker(root.path(),&[]);
-    assert_eq!(runtime.command("dota.status".into(),json!({})).unwrap()["prepared"],false);
+    let root=tempfile::tempdir().unwrap();let mut runtime=launch_installed_worker(root.path(),&["data.legacy"]);
+    assert_eq!(runtime.command("host.status".into(),json!({})).unwrap()["prepared"],false);
     assert!(!root.path().join("local-runtime.sqlite3").exists());
-    let denied=runtime.command("dota.prepare".into(),json!({"dataRoot":"untrusted"})).unwrap_err();assert!(denied.starts_with("unexpected_command_payload"));
-    assert_eq!(runtime.command("dota.status".into(),json!({})).unwrap()["prepared"],false);
-    let prepared=runtime.command("dota.prepare".into(),json!({})).unwrap();
+    let denied=runtime.command("host.prepare".into(),json!({"dataRoot":"untrusted"})).unwrap_err();assert!(denied.starts_with("unexpected_command_payload"));
+    assert_eq!(runtime.command("host.status".into(),json!({})).unwrap()["prepared"],false);
+    let prepared=runtime.command("host.prepare".into(),json!({})).unwrap();
     assert_eq!(prepared["prepared"],true);assert_eq!(prepared["active"],false);assert_eq!(prepared["session"],serde_json::Value::Null);
     let backup_path=root.path().join("local-runtime.pre-external.sqlite3");let backup=std::fs::read(&backup_path).unwrap();
-    assert_eq!(runtime.command("dota.prepare".into(),json!({})).unwrap()["active"],false);
+    assert_eq!(runtime.command("host.prepare".into(),json!({})).unwrap()["active"],false);
     assert_eq!(std::fs::read(backup_path).unwrap(),backup);
     runtime.stop().unwrap();runtime.stopped_confirmed().unwrap();
+}
+#[test]
+fn ui_only_grant_cannot_prepare_or_acquire_data_rights_through_command_args(){
+    let root=tempfile::tempdir().unwrap();let mut runtime=launch_installed_worker(root.path(),&["ui"]);
+    assert!(runtime.command("host.prepare".into(),json!({})).unwrap_err().starts_with("capability_denied"));
+    assert!(runtime.command("host.prepare".into(),json!({"capabilities":["data.legacy"]})).unwrap_err().starts_with("unexpected_command_payload"));
+    assert!(!root.path().join("local-runtime.sqlite3").exists());runtime.stop().unwrap();runtime.stopped_confirmed().unwrap();
 }
 
 // Actual Windows job + localhost HTTP + IPC + temporary real SQLite. This is
@@ -63,7 +81,7 @@ fn supervised_worker_accepts_fresh_demo_and_bot_gsi_without_obs_and_reopens_the_
     }
     fn poll(runtime:&mut companion_plugin_protocol::runtime::Runtime,n:u64)->serde_json::Value{
         let until=Instant::now()+Duration::from_secs(3);loop{
-            let response=runtime.command("dota.poll".into(),json!({})).unwrap();
+            let response=runtime.command("host.poll".into(),json!({})).unwrap();
             if response["status"]["processed"].as_u64().unwrap()>=n{return response;}
             assert!(Instant::now()<until,"GSI was not processed");std::thread::sleep(Duration::from_millis(10));
         }
@@ -71,12 +89,12 @@ fn supervised_worker_accepts_fresh_demo_and_bot_gsi_without_obs_and_reopens_the_
     let root=tempfile::tempdir().unwrap();std::fs::create_dir(root.path().join("sounds")).unwrap();
     std::fs::write(root.path().join("sounds/jump.wav"),b"RIFFtestWAVE").unwrap();
     std::fs::write(root.path().join("game-sounds-config.json"),json!({"schemaVersion":1,"enabled":true,"masterVolume":63,"bindings":[{"eventId":"techies_suicide","kind":"abilityCast","assetId":"jump"}],"assets":[{"id":"jump","fileName":"jump.wav","originalName":"jump.wav","sizeBytes":12}]}).to_string()).unwrap();
-    let caps=["dota.match.execute","dota.sound.play"];
+    let caps=["data.legacy","audio.play"];
     let mut runtime=launch_installed_worker(root.path(),&caps);
-    assert!(runtime.command("dota.enable".into(),json!({})).unwrap_err().starts_with("not_prepared"));
-    runtime.command("dota.prepare".into(),json!({})).unwrap();
-    let status=runtime.command("dota.enable".into(),json!({})).unwrap();assert_eq!(status["awaitingSession"],true);assert_eq!(status["active"],true);
-    assert!(runtime.command("dota.enable".into(),json!({})).unwrap_err().starts_with("already_active"));
+    assert!(runtime.command("host.activate".into(),json!({})).unwrap_err().starts_with("not_prepared"));
+    runtime.command("host.prepare".into(),json!({})).unwrap();
+    let status=runtime.command("host.activate".into(),json!({})).unwrap();assert_eq!(status["awaitingSession"],true);assert_eq!(status["active"],true);
+    assert!(runtime.command("host.activate".into(),json!({})).unwrap_err().starts_with("already_active"));
     let mut raw:serde_json::Value=serde_json::from_str(include_str!("../../dota-domain/src/fixtures/techies-inventory.json")).unwrap();
     raw["map"]["matchid"]=json!("0");raw["map"]["customgamename"]=json!("hero_demo");raw["abilities"]["ability2"]["cooldown"]=json!(0);
     send(&raw);let first=poll(&mut runtime,1);assert_eq!(first["status"]["session"],serde_json::Value::Null);assert_eq!(first["soundIntents"],json!([]));
@@ -87,12 +105,12 @@ fn supervised_worker_accepts_fresh_demo_and_bot_gsi_without_obs_and_reopens_the_
     let session=bots["status"]["session"].as_str().unwrap().to_string();assert_eq!(bots["status"]["awaitingSession"],false);
     assert_eq!(bots["status"]["receipt"]["session"]["localId"],session);
     let epoch=bots["status"]["epoch"].as_u64().unwrap();
-    runtime.command("dota.disable".into(),json!({})).unwrap();runtime.stop().unwrap();runtime.stopped_confirmed().unwrap();
-    let mut runtime=launch_installed_worker(root.path(),&caps);assert_eq!(runtime.command("dota.status".into(),json!({})).unwrap()["active"],false);
-    runtime.command("dota.prepare".into(),json!({})).unwrap();let resumed=runtime.command("dota.enable".into(),json!({})).unwrap();
+    runtime.command("host.stop".into(),json!({})).unwrap();runtime.stop().unwrap();runtime.stopped_confirmed().unwrap();
+    let mut runtime=launch_installed_worker(root.path(),&caps);assert_eq!(runtime.command("host.status".into(),json!({})).unwrap()["active"],false);
+    runtime.command("host.prepare".into(),json!({})).unwrap();let resumed=runtime.command("host.activate".into(),json!({})).unwrap();
     assert_eq!(resumed["session"],session);assert!(resumed["epoch"].as_u64().unwrap()>epoch);
     send(&raw);assert_eq!(poll(&mut runtime,1)["soundIntents"],json!([]));
-    runtime.command("dota.disable".into(),json!({})).unwrap();runtime.stop().unwrap();runtime.stopped_confirmed().unwrap();
+    runtime.command("host.stop".into(),json!({})).unwrap();runtime.stop().unwrap();runtime.stopped_confirmed().unwrap();
     let c=rusqlite::Connection::open(root.path().join("local-runtime.sqlite3")).unwrap();
     assert_eq!(c.query_row("SELECT count(*) FROM local_sessions",[],|r|r.get::<_,i64>(0)).unwrap(),1);
 }

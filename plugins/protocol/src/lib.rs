@@ -7,7 +7,8 @@ use serde_json::Value;
 use std::io::{BufRead, Read, Write};
 
 pub const PROTOCOL: u32 = 1;
-pub const CORE_API: u32 = 1;
+pub const CORE_API: u32 = 2;
+pub const MIN_CORE_API: u32 = 1;
 pub const MAX_FRAME: usize = 64 * 1024;
 
 #[derive(Debug, Serialize, Deserialize)]

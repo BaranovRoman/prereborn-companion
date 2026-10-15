@@ -6,6 +6,7 @@ use serde::Serialize;
 use serde_json::Value;
 use std::{collections::BTreeMap, io::Write, path::PathBuf, sync::{mpsc, Arc, Mutex, atomic::{AtomicBool, Ordering}}, time::Duration};
 use tauri::Manager;
+mod worker;
 
 const CATALOG_URL: &str = "https://github.com/BaranovRoman/prereborn-companion-plugins/releases/download/catalog-v1/catalog.json";
 const CATALOG_SIGNATURE_URL: &str = "https://github.com/BaranovRoman/prereborn-companion-plugins/releases/download/catalog-v1/catalog.minisig";
@@ -19,6 +20,8 @@ struct Service {
     store: Store, catalog: Catalog, hosts: BTreeMap<String, PluginHost>,
     manifests: BTreeMap<String, Manifest>, errors: BTreeMap<String, String>, catalog_error: Option<String>,
     live_dota: Option<companion_dota_domain::ownership::Lease>,
+    workers:BTreeMap<String,worker::WorkerProcess>,
+    native:Option<(tauri::AppHandle,Arc<super::plugin_audio::HostAudio>)>,
 }
 #[derive(Clone)]
 pub struct PluginManager {
@@ -31,7 +34,7 @@ pub struct PluginManager {
 pub struct Row { id: String, installed: Installed, manifest: Option<Manifest>, runtime: Option<Snapshot>, error: Option<String> }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct View { installed: Vec<Row>, catalog: Vec<Release>, catalog_error: Option<String>, transfer: Transfer, error: Option<String>, local_install_allowed: bool }
+pub struct View { installed: Vec<Row>, catalog: Vec<Release>, catalog_error: Option<String>, transfer: Transfer, error: Option<String>, local_install_allowed: bool,api_version:u32 }
 fn locked() -> String { "plugin_manager_lock_poisoned".into() }
 pub(crate) struct MatchExecutionGrant {
     binding:companion_dota_domain::match_execution::PackageBinding,executable:PathBuf,
@@ -77,7 +80,7 @@ impl Service {
         if !installed.enabled { return Err("plugin_disabled".into()); }
         let (executable, manifest) = self.store.executable(id, &installed.active)?;
         let host = self.hosts.entry(id.to_string()).or_insert_with(PluginHost::new);
-        host.0.lock().map_err(|_| locked())?.start_expected(&executable, &[], id, Some(&manifest.version))?;
+        host.0.lock().map_err(|_| locked())?.start_expected_api(&executable, &[], id, Some(&manifest.version),manifest.max_api.min(companion_plugin_protocol::CORE_API))?;
         self.manifests.insert(id.to_string(), manifest); self.errors.remove(id);
         Ok(())
     }
@@ -155,7 +158,7 @@ impl PluginManager {
                 },
                 Err(_) => packages::catalog(SEED, SEED_SIG, TRUSTED_KEY)?,
             };
-            let mut service = Service { store, catalog, hosts: BTreeMap::new(), manifests: BTreeMap::new(), errors: BTreeMap::new(), catalog_error, live_dota: None };
+            let mut service = Service { store, catalog, hosts: BTreeMap::new(), manifests: BTreeMap::new(), errors: BTreeMap::new(), catalog_error, live_dota: None,workers:Default::default(),native:None };
             for (id, p) in service.store.installed() {
                 match service.store.verify(&id, &p.active) {
                     Ok(m) => { service.manifests.insert(id, m); },
@@ -179,7 +182,7 @@ impl PluginManager {
     pub fn view(&self) -> View {
         let transfer = self.transfer.lock().map(|p| p.clone()).unwrap_or_default();
         let local_install_allowed = cfg!(debug_assertions);
-        let mut view = View { installed: Vec::new(), catalog: Vec::new(), catalog_error: None, transfer, error: None, local_install_allowed };
+        let mut view = View { installed: Vec::new(), catalog: Vec::new(), catalog_error: None, transfer, error: None, local_install_allowed,api_version:companion_plugin_protocol::CORE_API };
         let Ok(guard) = self.service.lock() else { view.error = Some(locked()); return view; };
         match guard.as_ref() {
             Err(e) => view.error = Some(e.clone()),
@@ -281,16 +284,14 @@ impl PluginManager {
         result
     }
     pub fn command(&self, id: &str, name: String, args: Value) -> Result<Value, String> {
-        if id != "hello" || name != "greet" { return Err("command_not_allowed".into()); }
-        let host = { let guard = self.service.lock().map_err(|_| locked())?; guard.as_ref().map_err(|e| e.clone())?.hosts.get(id).cloned().ok_or("not_running")? };
-        let result = host.0.lock().map_err(|_| locked())?.command(name, args); result
+        self.ui_command(id,name,args)
     }
     pub fn asset(&self, path: &str) -> Result<(Vec<u8>, &'static str), String> {
         let mut parts = path.trim_start_matches('/').splitn(3, '/');
         let id = parts.next().ok_or("missing_id")?; let version = parts.next().ok_or("missing_version")?; let asset = parts.next().ok_or("missing_asset")?;
         let guard = self.service.lock().map_err(|_| locked())?; let service = guard.as_ref().map_err(|e| e.clone())?;
         let installed = service.store.installed().get(id).cloned().ok_or("not_installed")?;
-        if installed.active != version || !installed.enabled || !service.running(id) { return Err("inactive_plugin_ui".into()); }
+        if installed.active != version { return Err("inactive_plugin_ui".into()); }
         let file = service.store.ui_asset(id, version, asset)?;
         crate::plugin_lab::asset(file.parent().ok_or("missing_parent")?, file.file_name().and_then(|s| s.to_str()).ok_or("invalid_asset")?)
     }
@@ -381,7 +382,7 @@ pub async fn plugins_command(app: tauri::AppHandle, id: String, name: String, ar
 mod tests {
     use super::*;
     fn fixture_manager(root:PathBuf,key:&str)->PluginManager {
-        PluginManager{service:Arc::new(Mutex::new(Ok(Service{store:Store::open(root,key).unwrap(),catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None,live_dota:None}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default()}
+        PluginManager{service:Arc::new(Mutex::new(Ok(Service{store:Store::open(root,key).unwrap(),catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None,live_dota:None,workers:Default::default(),native:None}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default()}
     }
     #[test]
     fn live_transition_serializes_installs_and_preserves_the_actual_coordinator() {
@@ -490,7 +491,7 @@ mod tests {
 #[cfg(test)]
 pub(crate) fn fixture_installed(root:PathBuf,key:&str,release:&Release,bytes:&[u8])->PluginManager {
     let mut store=Store::open(root,key).unwrap();store.install(bytes,release,false,&AtomicBool::new(false)).unwrap();
-    PluginManager{service:Arc::new(Mutex::new(Ok(Service{store,catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None,live_dota:None}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default()}
+    PluginManager{service:Arc::new(Mutex::new(Ok(Service{store,catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None,live_dota:None,workers:Default::default(),native:None}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default()}
 }
 
 impl companion_dota_storage::local_runtime::host_execution::ExecutionGrant for VerifiedMatchGrant<'_> {

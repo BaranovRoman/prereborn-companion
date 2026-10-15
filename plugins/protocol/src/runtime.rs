@@ -113,6 +113,12 @@ impl Runtime {
         self.start_expected(executable, args, "hello", None)
     }
     pub fn start_expected(&mut self, executable: &Path, args: &[String], expected_id: &str, expected_version: Option<&str>) -> Result<Snapshot, String> {
+        self.start_expected_api(executable,args,expected_id,expected_version,CORE_API)
+    }
+    /// Select the API declared by the verified manifest. IPC framing remains v1;
+    /// old UI-only packages may use API1 without gaining any API2 permission.
+    pub fn start_expected_api(&mut self, executable:&Path,args:&[String],expected_id:&str,expected_version:Option<&str>,api:u32)->Result<Snapshot,String>{
+        if !(crate::MIN_CORE_API..=CORE_API).contains(&api){return Err("incompatible_plugin".into());}
         self.poll();
         if matches!(self.snapshot.phase, Phase::Running | Phase::Starting) { return Err("already_running".into()); }
         self.reap();
@@ -156,10 +162,10 @@ impl Runtime {
         std::thread::spawn(move || { let mut buffer = [0; 4096]; while matches!(stderr.read(&mut buffer), Ok(n) if n > 0) {} });
         self.child = Some(child);
         self.output = Some(rx);
-        self.send(Message::Hello { core_api: CORE_API })?;
+        self.send(Message::Hello { core_api: api })?;
         match self.receive(Instant::now() + HANDSHAKE_TIMEOUT)? {
             Message::Ready { id, version, min_core_api, max_core_api }
-                if id == expected_id && expected_version.map_or(true, |v| v == version) && min_core_api <= CORE_API && CORE_API <= max_core_api => {
+                if id == expected_id && expected_version.map_or(true, |v| v == version) && min_core_api <= api && api <= max_core_api => {
                     self.snapshot.phase = Phase::Running;
                     self.identity = Some(id);
                     self.snapshot.plugin_version = Some(version);
@@ -197,25 +203,32 @@ impl Runtime {
         if self.identity.as_deref()!=Some("dota2")||self.process.as_ref()!=Some(binding)||&binding.package!=pin.binding()
             ||!pin.permits("dota.match.execute")
             ||!matches!(name.as_str(),"dota.live_frame"|"dota.live_recover"|"dota.live_effects"){return Err("process_binding_denied".into());}
-        self.command_with_handlers(name,args,&mut |_|Err("capability_denied".into()),Some(&mut executor))
+        self.command_with_handlers(name,args,&mut |_|Err("capability_denied".into()),Some(&mut executor),None)
     }
     pub fn command(&mut self, name: String, args: Value) -> Result<Value, String> {
         self.command_with_reader(name, args, |_| Err("capability_denied".into()))
     }
+    /// A delayed host task cannot consume a frame from a replacement process.
+    /// The manager supplies the verified pin and performs command/capability policy.
+    pub fn command_verified(&mut self,pin:&impl crate::ProcessGrant,binding:&ProcessBinding,name:String,args:Value)->Result<Value,String>{
+        self.poll();
+        if self.process.as_ref()!=Some(binding)||&binding.package!=pin.binding()||!pin.permits("ui"){return Err("process_binding_denied".into());}
+        self.command_with_handlers(name,args,&mut |_|Err("capability_denied".into()),None,Some(8192))
+    }
     pub fn command_with_reader(&mut self, name: String, args: Value, mut reader: impl FnMut(Value)->Result<Value,String>) -> Result<Value, String> {
-        self.command_with_handlers(name,args,&mut reader,None)
+        self.command_with_handlers(name,args,&mut reader,None,None)
     }
     // Fixture-only capability: never exposed through PluginManager or Tauri commands.
     #[doc(hidden)]
     pub fn command_diagnostic(&mut self,name:String,args:Value,capabilities:&[&str],mut executor:impl FnMut(Value)->Result<Value,String>)->Result<Value,String> {
         if self.identity.as_deref()!=Some("dota2") || !capabilities.contains(&"dota.diagnostic.execute")
             || !matches!(name.as_str(),"dota.diagnostic_frame"|"dota.diagnostic_recover") {return Err("capability_denied".into());}
-        self.command_with_handlers(name,args,&mut |_|Err("capability_denied".into()),Some(&mut executor))
+        self.command_with_handlers(name,args,&mut |_|Err("capability_denied".into()),Some(&mut executor),None)
     }
-    fn command_with_handlers(&mut self,name:String,args:Value,reader:&mut dyn FnMut(Value)->Result<Value,String>,mut executor:Option<&mut dyn FnMut(Value)->Result<Value,String>>)->Result<Value,String> {
+    fn command_with_handlers(&mut self,name:String,args:Value,reader:&mut dyn FnMut(Value)->Result<Value,String>,mut executor:Option<&mut dyn FnMut(Value)->Result<Value,String>>,max_args:Option<usize>)->Result<Value,String> {
         self.poll();
         if self.snapshot.phase != Phase::Running { return Err("not_running".into()); }
-        let limit = if executor.is_some() {32768} else if self.identity.as_deref() == Some("dota2") && matches!(name.as_str(), "dota.replay" | "dota.watchdog_shadow") { crate::MAX_FRAME - 256 } else { 512 };
+        let limit = max_args.unwrap_or_else(||if executor.is_some() {32768} else if self.identity.as_deref() == Some("dota2") && matches!(name.as_str(), "dota.replay" | "dota.watchdog_shadow") { crate::MAX_FRAME - 256 } else { 512 });
         if name.len() > 64 || serde_json::to_vec(&args).map_err(|e| e.to_string())?.len() > limit {
             return Err("command_too_large".into());
         }
@@ -333,14 +346,15 @@ mod writer_deadline_tests {
     fn child_not_reading_stdin_cannot_hold_writer_forever() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("blocked-reader");
-        std::fs::write(&path, "#!/bin/sh\nprintf '%s\\n' '{\"protocol\":1,\"message\":{\"type\":\"ready\",\"id\":\"dota2\",\"version\":\"0.1.0\",\"min_core_api\":1,\"max_core_api\":1}}'\nexec /bin/sleep 30\n").unwrap();
+        let ready=serde_json::to_string(&crate::Frame{protocol:crate::PROTOCOL,message:Message::Ready{id:"fixture".into(),version:"0.1.0".into(),min_core_api:CORE_API,max_core_api:CORE_API}}).unwrap();
+        std::fs::write(&path,format!("#!/bin/sh\nprintf '%s\\n' '{ready}'\nexec /bin/sleep 30\n")).unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
         let mut runtime = Runtime::default();
-        runtime.start_expected(&path, &[], "dota2", Some("0.1.0")).unwrap();
+        runtime.start_expected(&path, &[], "fixture", Some("0.1.0")).unwrap();
         let started = Instant::now();
         let mut error = None;
         for id in 0..16 {
-            if let Err(e) = runtime.send(Message::Command { id, name:"dota.replay".into(), args:json!({"fixture":"x".repeat(60_000)}) }) { error = Some(e); break; }
+            if let Err(e) = runtime.send(Message::Command { id, name:"payload".into(), args:json!({"fixture":"x".repeat(60_000)}) }) { error = Some(e); break; }
         }
         assert!(error.unwrap().contains("write_timeout"));
         assert!(started.elapsed() < Duration::from_secs(5));
