@@ -21,6 +21,14 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 describe("installed Dota package UI",()=>{
+  it("keeps overlay backend errors visible in diagnostics without presenting them as GSI failure",async()=>{
+    const previous=mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async(name:string,args?:unknown)=>name==="status"?{prepared:true,active:true,awaitingSession:true,processed:2,lastError:null,overlayBackendError:"backend_response_limit"}:previous(name,args));
+    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});
+    fireEvent.click(screen.getByRole("button",{name:"Настройки"}));
+    expect(await screen.findByText(/Overlay backend: backend_response_limit/)).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toContain("Ожидание игровой сессии");
+  });
   it("waits for the worker receipt before reporting overlay visibility changed",async()=>{
     const previous=mocks.invoke.getMockImplementation()!;let resolve!:(v:unknown)=>void;let visible=true;
     mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>{

@@ -2,6 +2,7 @@ pub mod audio;
 pub mod obs;
 pub mod backend;
 pub mod media;
+pub mod chat;
 #[cfg(windows)]
 pub mod windows;
 

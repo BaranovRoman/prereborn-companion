@@ -43,7 +43,7 @@ export interface Status {
   lastError: string|null; processed: number; lastSequence: number|null;
   gsi: {received:number;accepted:number;rejected:number;dropped:number;lastError:string|null}|null;
   detectedSounds?:number;plannedSounds?:number;droppedSoundIntents?:number;lastSoundOperation?:string|null;
-  streaming?:boolean|null;streamEnded?:boolean;backendError?:string|null;backendUpdates?:number;obsError?:string|null;
+  streaming?:boolean|null;streamEnded?:boolean;backendError?:string|null;overlayBackendError?:string|null;backendUpdates?:number;obsError?:string|null;
 }
 export interface AudioReceipt {receipt:{status:"queued"|"playing"|"completed"|"cancelled"|"unknown";operationKey:string}|null}
 export interface Match { localId:string;matchId:string|null;heroId:number;state:string;result:string|null;kills:number|null;deaths:number|null;assists:number|null;startedAt:string;ratingAfter:number|null;detectedRatingDelta?:number|null;ratingDeltaCorrection?:number;rankedMode?:"ranked"|"unranked"|"unknown";rankedModeDetected?:"ranked"|"unranked"|"unknown" }

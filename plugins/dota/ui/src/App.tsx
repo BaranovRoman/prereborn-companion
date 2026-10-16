@@ -79,7 +79,7 @@ export function Dota() {
           <button disabled={busy||!gsi?.found} onClick={()=>{void run(async()=>setGsi(await api.invoke<api.GsiInstallation>("gsi.install"))).catch(()=>{});}}>Настроить GSI</button>
         </div><p>После изменения GSI перезапустите Dota. Адрес приёма остаётся 127.0.0.1:3665; OBS overlay — 127.0.0.1:3666/overlay.</p>
         <details><summary>Диагностика Dota</summary>
-          <p>Состояние OBS stream: {status?.streaming==null?"неизвестно":status.streaming?"идёт трансляция":"трансляция остановлена"}. {status?.backendError?`Backend: ${status.backendError}`:""}</p>
+          <p>Состояние OBS stream: {status?.streaming==null?"неизвестно":status.streaming?"идёт трансляция":"трансляция остановлена"}. {status?.backendError?`Backend: ${status.backendError}`:""} {status?.overlayBackendError?`Overlay backend: ${status.overlayBackendError}`:""}</p>
           <p>Обработано GSI: {status?.processed??0} · обнаружено звуковых событий: {status?.detectedSounds??0} · подготовлено запросов: {status?.plannedSounds??0} · отброшено при смене контекста: {status?.droppedSoundIntents??0}.</p>
           <p>Последний результат аудио ядра: {audioReceipt?.receipt?.status??"нет подтверждённого admission"}. queued/playing и отправка события не подтверждают завершение воспроизведения.</p>
           <pre>{JSON.stringify({worker:status,audio:audioReceipt},null,2)}</pre>

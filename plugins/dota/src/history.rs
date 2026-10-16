@@ -80,6 +80,9 @@ impl History {
  pub fn refresh_account(&mut self,mode:Option<&str>,rating:Option<i64>)->Result<(),String>{
   let grant=self.grant.as_ref().ok_or("worker_inactive")?;self.adapter.refresh_account(&mut self.connection,grant,mode,rating)
  }
+ pub fn quiz_transition(&mut self,between:bool)->Result<Option<String>,String>{
+  let grant=self.grant.as_ref().ok_or("worker_inactive")?;self.adapter.quiz_transition(&mut self.connection,grant,between,chrono::Utc::now())
+ }
  pub fn pending_sync(&mut self)->Result<Option<db::sync::OutboxRow>,String>{
   let grant=self.grant.as_ref().ok_or("worker_inactive")?;self.adapter.pending_sync(&mut self.connection,grant,chrono::Utc::now())
  }

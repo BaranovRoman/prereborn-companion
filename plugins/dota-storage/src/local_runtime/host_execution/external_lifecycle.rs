@@ -49,6 +49,32 @@ impl Adapter {
   let doc=encode(&serde_json::json!({"family":"sync-cutover-v1","cutoverAt":cutover,"revision":revision}))?;
   Self::sync_receipt(&tx,&format!("sync-cutover:{}:{revision}",pin.lease().epoch),&hash(&doc),&doc)?;sql(tx.commit())
  }
+ /// Persist only actual quiz scene transitions. The existing outbox UUID,
+ /// desired scene and receipt commit together without creating a game session.
+ pub fn quiz_transition(&mut self,c:&mut Connection,pin:&impl ExecutionGrant,between:bool,now:DateTime<Utc>)->Result<Option<String>>{
+  if !pin.permits("dota.overlay.update"){return Err("capability_denied".into());}
+  self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;self.sync_scope(&tx,pin)?;
+  let prior=sql(super::super::sync::meta_get(&tx,"plugin_quiz_scene"))?;
+  let previous:Option<(u64,bool)>=prior.map(|value|serde_json::from_str(&value).map_err(|_|"quiz_state_corrupt".to_string())).transpose()?;
+  if previous==Some((pin.lease().epoch,between))||previous.is_none()&&!between{return Ok(None);}
+  let enter=between&&(previous!=Some((pin.lease().epoch,true)));let leave=!between&&previous.is_some_and(|(_,active)|active);
+  sql(super::super::sync::meta_set(&tx,"plugin_quiz_scene",&encode(&(pin.lease().epoch,between))?))?;
+  if !enter&&!leave{sql(tx.commit())?;return Ok(None);}
+  let event=if enter{"between_matches_entered"}else{"between_matches_left"};
+  sql(Facade::new(&tx).enqueue("overlay",&pin.binding().id,event,&serde_json::json!({}),now))?;
+  let id:String=sql(tx.query_row("SELECT id FROM sync_outbox WHERE rowid=last_insert_rowid()",[],|row|row.get(0)))?;
+  let doc=encode(&serde_json::json!({"family":"quiz-outbox-v1","id":id,"plugin":pin.binding().id,"event":event,"createdAt":now.to_rfc3339(),"epoch":pin.lease().epoch}))?;
+  Self::sync_receipt(&tx,&format!("quiz-outbox:{id}"),&hash(&doc),&doc)?;sql(tx.commit())?;Ok(Some(id))
+ }
+ fn quiz_outbox_eligible(tx:&Transaction<'_>,row:&super::super::sync::OutboxRow,cutover:DateTime<Utc>,plugin:&str)->Result<bool>{
+  if row.entity_type!="overlay"||row.entity_local_id!=plugin||!matches!(row.event_type.as_str(),"between_matches_entered"|"between_matches_left"){return Ok(false);}
+  let saved:Option<(String,String,String,String)>=sql(tx.query_row("SELECT identity,status,CASE WHEN length(CAST(receipt AS BLOB))<=2048 THEN receipt ELSE NULL END,checksum FROM pc_tx_ledger JOIN pc_tx_receipts USING(operation_key) WHERE operation_key=?1",[format!("quiz-outbox:{}",row.id)],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional())?;
+  let (identity,status,doc,checksum)=saved.ok_or("quiz_receipt_missing")?;
+  if doc.len()>2048||status!="completed"||identity!=hash(&doc)||checksum!=hash(&doc){return Err("receipt_corrupt".into());}
+  let receipt:serde_json::Value=serde_json::from_str(&doc).map_err(|_|"receipt_corrupt")?;
+  if receipt["family"]!="quiz-outbox-v1"||receipt["id"]!=row.id||receipt["plugin"]!=plugin||receipt["event"]!=row.event_type||row.payload!="{}"{return Err("quiz_outbox_scope_mismatch".into());}
+  Ok(receipt["createdAt"].as_str().and_then(lifecycle::parse_rfc3339).is_some_and(|created|created>=cutover))
+ }
  pub fn pending_sync(&mut self,c:&mut Connection,pin:&impl ExecutionGrant,now:DateTime<Utc>)->Result<Option<super::super::sync::OutboxRow>> {
   self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;self.sync_scope(&tx,pin)?;
   let cutover=sql(super::super::sync::meta_get(&tx,"cutover_at"))?.and_then(|s|companion_dota_domain::session_lifecycle::parse_rfc3339(&s)).ok_or("sync_cutover_invalid")?;
@@ -57,7 +83,7 @@ impl Adapter {
   // Bounded legacy-shadow skipping. Continue on the next tick, never starve GSI.
   for _ in 0..8 {
    let Some(row)=sql(super::super::sync::next_pending(&tx,now))?else{sql(tx.commit())?;return Ok(None);};
-   if sql(super::super::sync::is_eligible(&tx,&row,cutover))?{
+   if sql(super::super::sync::is_eligible(&tx,&row,cutover))?||Self::quiz_outbox_eligible(&tx,&row,cutover,&pin.binding().id)?{
     if row.attempts<0||uuid::Uuid::parse_str(&row.id).is_err(){return Err("outbox_corrupt".into());}
     let key=format!("outbox-admit:{}:{}",row.id,row.attempts);let identity=hash(&encode(&("outbox-admission-v1",&row))?);
     let saved:Option<(String,String,String,String)>=sql(tx.query_row("SELECT identity,status,CASE WHEN length(CAST(receipt AS BLOB))<=2048 THEN receipt ELSE NULL END,checksum FROM pc_tx_ledger JOIN pc_tx_receipts USING(operation_key) WHERE operation_key=?1",[&key],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional())?;
@@ -283,17 +309,39 @@ mod sync_bookkeeping_tests {
  use super::*;use crate::local_runtime::{transaction_authorization as auth,transaction_schema,sync};
  use companion_dota_domain::ownership::{Lease,Owner};
  struct Pin{package:PackageBinding,lease:Lease,session:Option<String>}
- impl companion_plugin_protocol::ProcessGrant for Pin{fn binding(&self)->&PackageBinding{&self.package}fn executable(&self)->&std::path::Path{std::path::Path::new("transaction-fixture")}fn permits(&self,cap:&str)->bool{matches!(cap,MATCH_EXECUTION_CAPABILITY|"backend.access")}}
+ impl companion_plugin_protocol::ProcessGrant for Pin{fn binding(&self)->&PackageBinding{&self.package}fn executable(&self)->&std::path::Path{std::path::Path::new("transaction-fixture")}fn permits(&self,cap:&str)->bool{matches!(cap,MATCH_EXECUTION_CAPABILITY|"backend.access"|"dota.overlay.update")}}
  impl ExecutionGrant for Pin{fn lease(&self)->Lease{self.lease}fn session(&self)->Option<&str>{self.session.as_deref()}}
- fn ready()->(tempfile::TempDir,Connection,Adapter,Pin,DateTime<Utc>){
+ fn ready()->(tempfile::TempDir,Connection,Adapter,Pin,DateTime<Utc>){ready_with_session(true)}
+ fn ready_with_session(create:bool)->(tempfile::TempDir,Connection,Adapter,Pin,DateTime<Utc>){
   let root=tempfile::tempdir().unwrap();let mut c=Connection::open(root.path().join("isolated.sqlite3")).unwrap();schema::migrate(&c).unwrap();transaction_schema::migrate(&mut c,&root.path().join("backup.sqlite3")).unwrap();let mut adapter=Adapter::attach(&mut c).unwrap();
   let old=auth::confirm_fenced(&mut c,Lease{owner:Owner::BuiltIn,epoch:1}).unwrap();let package=PackageBinding{id:"dota2".into(),version:"0.2.0".into(),executable_hash:"a".repeat(64),manifest_hash:"b".repeat(64)};
   // SQL/ownership fixture only. Native OS proof is covered by the Windows
   // real-process test, never forged by the production activation path.
   auth::begin_cold(&mut c,old,Owner::External,Some(package.clone())).unwrap();let lease=Lease{owner:Owner::External,epoch:old.epoch+1};auth::process_starting(&mut c,lease,&package,&uuid::Uuid::new_v4().to_string()).unwrap();auth::confirm_fenced(&mut c,old).unwrap();
   let mut pin=Pin{package,lease,session:None};adapter.initialize_sync(&mut c,&pin).unwrap();assert!(store::find_open_session(&c).unwrap().is_none());
-  let now=Utc::now()+chrono::Duration::seconds(1);pin.session=adapter.external_lifecycle(&mut c,&pin,Some(true),None,now,false).unwrap().session;
+  let now=Utc::now()+chrono::Duration::seconds(1);if create{pin.session=adapter.external_lifecycle(&mut c,&pin,Some(true),None,now,false).unwrap().session;}
   (root,c,adapter,pin,now+chrono::Duration::seconds(1))
+ }
+ #[test]
+ fn quiz_scene_outbox_is_atomic_deduplicated_and_does_not_create_a_session(){
+  let(root,mut c,mut adapter,pin,now)=ready_with_session(false);
+  let before_sessions:i64=c.query_row("SELECT count(*) FROM local_sessions",[],|r|r.get(0)).unwrap();
+  let first=adapter.quiz_transition(&mut c,&pin,true,now).unwrap().unwrap();assert!(adapter.quiz_transition(&mut c,&pin,true,now).unwrap().is_none());
+  let row:sync::OutboxRow=sync::next_pending(&c,now).unwrap().filter(|row|row.id==first).unwrap_or_else(||{
+   c.execute("UPDATE sync_outbox SET delivered_at=?1 WHERE id!=?2",params![now.to_rfc3339(),first]).unwrap();sync::next_pending(&c,now).unwrap().unwrap()
+  });
+  let tx=c.transaction().unwrap();assert!(Adapter::quiz_outbox_eligible(&tx,&row,now-chrono::Duration::seconds(1),"dota2").unwrap());assert!(!Adapter::quiz_outbox_eligible(&tx,&row,now+chrono::Duration::seconds(1),"dota2").unwrap());tx.commit().unwrap();
+  assert_eq!(adapter.pending_sync(&mut c,&pin,now).unwrap().unwrap().id,first);
+  let count:u64=c.query_row("SELECT count(*) FROM pc_tx_ledger",[],|r|r.get(0)).unwrap();c.execute("UPDATE pc_tx_limits SET max_operations=?1",[count]).unwrap();
+  assert_eq!(adapter.quiz_transition(&mut c,&pin,false,now).unwrap_err(),"safety_quota_exhausted");
+  let phase=sync::meta_get(&c,"plugin_quiz_scene").unwrap().unwrap();assert_eq!(serde_json::from_str::<(u64,bool)>(&phase).unwrap(),(pin.lease.epoch,true));
+  c.execute("UPDATE pc_tx_limits SET max_operations=max_operations+2",[]).unwrap();let last=adapter.quiz_transition(&mut c,&pin,false,now).unwrap().unwrap();assert_ne!(last,first);
+  assert_eq!(c.query_row("SELECT count(*) FROM local_sessions",[],|r|r.get::<_,i64>(0)).unwrap(),before_sessions);
+  assert_eq!(before_sessions,0);
+  drop(adapter);drop(c);let mut c=Connection::open(root.path().join("isolated.sqlite3")).unwrap();let mut adapter=Adapter::attach(&mut c).unwrap();
+  assert_eq!(adapter.quiz_transition(&mut c,&pin,true,now).unwrap_err(),"ownership_fenced");
+  assert_eq!(c.query_row("SELECT count(*) FROM sync_outbox WHERE id IN (?1,?2)",params![first,last],|r|r.get::<_,u64>(0)).unwrap(),2);
+  assert_eq!(c.query_row("SELECT count(*) FROM pc_tx_receipts WHERE operation_key IN (?1,?2)",params![format!("quiz-outbox:{first}"),format!("quiz-outbox:{last}")],|r|r.get::<_,u64>(0)).unwrap(),2);
  }
  #[test]
  fn server_correction_batch_matches_real_legacy_write_set_and_cursor_and_receipt_are_atomic(){

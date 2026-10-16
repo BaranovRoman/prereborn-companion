@@ -121,7 +121,7 @@ impl Manifest {
             &&self.permissions.iter().all(|p|matches!(p.as_str(),"ui"|"dota.match.execute"|"dota.sound.play"|"dota.obs.scene"|"dota.overlay.update"))
             &&self.permissions.iter().collect::<std::collections::BTreeSet<_>>().len()==self.permissions.len();
         let live=self.min_api>=2&&self.execution==ExecutionMode::Live&&self.permissions.contains(&"ui".into())
-            &&self.permissions.iter().all(|p|matches!(p.as_str(),"ui"|"audio.play"|"obs.scene"|"overlay.publish"|"data.private"|"data.legacy"|"backend.access"))
+            &&self.permissions.iter().all(|p|matches!(p.as_str(),"ui"|"audio.play"|"obs.scene"|"overlay.publish"|"data.private"|"data.legacy"|"backend.access"|"chat.read"))
             &&!(self.permissions.contains(&"data.private".into())&&self.permissions.contains(&"data.legacy".into()))
             &&self.permissions.iter().collect::<std::collections::BTreeSet<_>>().len()==self.permissions.len();
         if !legacy_live&&!live && (self.execution!=ExecutionMode::ReplayOnly||self.permissions != ["ui"]) { return Err("unsupported_permissions".into()); }

@@ -50,8 +50,12 @@ pub(crate) fn request_plugin_resource(origin:&str,token:&str,resource:&companion
     use std::io::Read;
     if resource.authorize(request).is_err(){return Response::failed(request,"backend_resource_denied");}
     let client=match reqwest::blocking::Client::builder().timeout(Duration::from_millis(1000)).connect_timeout(Duration::from_millis(500)).redirect(reqwest::redirect::Policy::none()).build(){Ok(client)=>client,Err(_)=>return Response::failed(request,"backend_client_unavailable")};
-    let url=format!("{origin}{}",resource.path);
-    let mut call=match resource.method{Method::Get=>client.get(url),Method::Post=>client.post(url),Method::Put=>client.put(url)}.bearer_auth(token).query(&request.query);
+    // The signed template permits only a canonical positive u32, validated
+    // above. All other path bytes come from the verified package manifest.
+    let mut query=request.query.clone();
+    let path=if resource.path.contains("{id}") { resource.path.replace("{id}",&query.remove("id").unwrap()) } else {resource.path.clone()};
+    let url=format!("{origin}{path}");
+    let mut call=match resource.method{Method::Get=>client.get(url),Method::Post=>client.post(url),Method::Put=>client.put(url)}.bearer_auth(token).query(&query);
     if let Some(body)=&request.body{call=call.json(body);}
     let response=match call.send(){Ok(response)=>response,Err(_)=>return Response::failed(request,"backend_result_unknown")};let status=response.status();
     if !status.is_success(){return Response{operation_key:request.operation_key.clone(),status:Some(status.as_u16()),body:None,error:Some("backend_http_rejected".into())};}
@@ -95,6 +99,17 @@ pub(crate) fn request_plugin_resource(origin:&str,token:&str,resource:&companion
    let encoded=serde_json::to_string(&response).unwrap();assert!(!encoded.contains("unit-credential"));assert!(!encoded.contains("must not escape"));
    if expected.is_none(){assert_eq!(response.body.unwrap()["currentMmr"],2300);}else{assert!(response.body.is_none());}
   }
+ }
+ #[test]
+ fn numeric_resource_template_reaches_the_exact_signed_route_without_a_path_query(){
+  let listener=TcpListener::bind("127.0.0.1:0").unwrap();let address=listener.local_addr().unwrap();
+  let server=std::thread::spawn(move||{let(mut stream,_)=listener.accept().unwrap();stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();let mut bytes=[0;4096];let n=stream.read(&mut bytes).unwrap();let head=String::from_utf8_lossy(&bytes[..n]);
+   assert!(head.starts_with("GET /api/stream/integrations/opendota/hero-stats/105 HTTP/1.1\r\n"));
+   write!(stream,"HTTP/1.1 200 OK\r\nContent-Length: 15\r\nConnection: close\r\n\r\n{{\"status\":\"ok\"}}").unwrap();
+  });
+  let grant=Resource{path:"/stream/integrations/opendota/hero-stats/{id}".into(),method:Method::Get,query_keys:vec!["id".into()],max_request:0,max_response:1024};
+  let request=Request{resource:"hero-stats".into(),operation_key:"read:105".into(),query:[("id".into(),"105".into())].into(),body:None};
+  let result=request_plugin_resource(&format!("http://{address}/api"),"unit-credential",&grant,&request);server.join().unwrap();assert_eq!(result.error,None);assert_eq!(result.body.unwrap()["status"],"ok");
  }
  #[test]
  fn a_manifest_route_or_query_violation_is_rejected_before_network_io(){

@@ -797,3 +797,40 @@ Twitch hook tests: 31 passed; core TypeScript passed. Package editor/preview
 checks: 26 passed; package TypeScript passed. Local generic audio/ledger checks:
 28 passed, one long workload deferred to the mandatory dedicated Windows step.
 These do not assert real Windows GSI, Techies audio or OBS smoke success.
+
+## Actual overlay backend refresh, quiz outbox and chat (2026-10-16)
+
+The existing worker's single pending HTTP slot now refreshes layout/queue (60s),
+favorite heroes/profile radar (90s) and enabled Between Matches quiz state (2s).
+Match sync/corrections keep priority. The actual backend accepts up to three
+favorite IDs. Failures retain the last confirmed enrichment and appear as a
+separate overlayBackendError in package diagnostics. A late background GET
+cannot overwrite settings confirmed by the editor: its real response is still
+consumed, but its obsolete document is discarded. Selected worker tests pass.
+
+Signed backend resources may additionally grant read-only /stream/integrations/
+routes and a single canonical positive-u32 {id} segment. The host substitutes
+only that validated ID, removes it from query, and never accepts an arbitrary
+path, origin, auth/connect/callback route or method. Query names preserve the
+actual backend's heroIds spelling. Three protocol tests and an actual bounded
+loopback HTTP test pass; existing origin/token/response limits are unchanged.
+
+Quiz scene transitions use the existing transaction facade/outbox and reserved
+receipts on the same writer. Scene state, original outbox UUID and receipt commit
+atomically, deduplicate repeated polls, and work without a fake match/session.
+Only these typed overlay rows with an intact matching receipt and post-cutover
+time pass the existing sync admission; legacy match/session eligibility is
+unchanged. Four selected sync bookkeeping tests pass, including quota rollback,
+original UUID retention, no session creation, and stale-owner refusal after
+reopen. Quiz geometry forwarding is still unfinished; polling alone is not
+claimed as a complete quiz port.
+
+An explicit signed chat.read capability supplies a <=8 KiB/20-message public
+projection from the existing core chat cache through host.poll. No extra Twitch
+connection/poller or TTS queue exists. The observation keeps its original time
+and expires after 5s; account changes revoke the cached authority, including a
+request finishing after the account changed. Only message IDs/display names/
+text/color/time and public connectivity leave core, never user/account IDs or
+tokens. Protocol projection, core account-expiry and worker capability-expiry
+regressions pass. Package App tests: 14 passed; package TypeScript passed.
+None of these tests constitute real Windows native GSI/audio/OBS acceptance.

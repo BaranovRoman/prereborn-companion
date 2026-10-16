@@ -354,11 +354,12 @@ pub async fn get_twitch_chat(app: &AppHandle) -> Result<serde_json::Value, Strin
         .core.companion_token
         .clone()
         .ok_or_else(|| "Сначала добавьте companion token.".to_string())?;
+    let account=token.clone();
     let fetch_app=app.clone();
     let response = tauri::async_runtime::spawn_blocking(move || fetch_twitch_chat(&fetch_app,&token))
         .await
         .map_err(|e| format!("Internal error: {e}"))??;
-    let (merged, previous_count, current_count) = cache_twitch_chat_response(app, response);
+    let (merged, previous_count, current_count) = cache_twitch_chat_response(app, response, &account)?;
     if current_count != previous_count {
         storage::append_rolling_log(
             app,
@@ -643,9 +644,13 @@ fn merge_twitch_chat_status(
     incoming
 }
 
-fn cache_twitch_chat_response(app: &AppHandle, incoming: serde_json::Value) -> (serde_json::Value, usize, usize) {
+fn cache_twitch_chat_response(app: &AppHandle, incoming: serde_json::Value, account:&str) -> Result<(serde_json::Value, usize, usize),String> {
     let state = app.state::<AppState>();
     let mut inner = state.0.lock().unwrap();
+    if inner.core.companion_token.as_deref()!=Some(account){return Err("chat_account_changed".into());}
+    use sha2::{Digest,Sha256};
+    let authority=format!("{:x}",Sha256::digest(account.as_bytes()));
+    if inner.core.twitch_chat_authority.as_ref()!=Some(&authority){inner.core.twitch_chat=None;}
     let previous_count = inner.core.twitch_chat.as_ref()
         .and_then(|value| value.get("messages"))
         .and_then(serde_json::Value::as_array)
@@ -653,7 +658,9 @@ fn cache_twitch_chat_response(app: &AppHandle, incoming: serde_json::Value) -> (
     let merged = merge_twitch_chat_status(inner.core.twitch_chat.as_ref(), incoming);
     let current_count = merged.get("messages").and_then(serde_json::Value::as_array).map_or(0, Vec::len);
     inner.core.twitch_chat = Some(merged.clone());
-    (merged, previous_count, current_count)
+    inner.core.twitch_chat_observed_at_ms=u64::try_from(chrono::Utc::now().timestamp_millis()).ok();
+    inner.core.twitch_chat_authority=Some(authority);
+    Ok((merged, previous_count, current_count))
 }
 
 fn fetch_twitch_chat(app:&AppHandle,token: &str) -> Result<serde_json::Value, String> {

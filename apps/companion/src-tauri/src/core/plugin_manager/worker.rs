@@ -278,7 +278,11 @@ impl Task{
   let observation=self.stream_observation(scene_observation.as_ref())?;
   let mut runtime=self.host.0.lock().map_err(|_|locked())?;
   let scene_receipt=worker.scene_receipt.lock().map_err(|_|"obs_receipt_poisoned")?.take();
-  let args=serde_json::json!({"streamObservation":observation,"sceneObservation":scene_observation,"sceneReceipt":scene_receipt});
+  let chat=if worker.pin.permits("chat.read"){
+   let now=u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_|"clock_unavailable")?;
+   self.app.state::<crate::state::AppState>().0.lock().map_err(|_|"account_state_unavailable")?.core.plugin_chat(now)
+  }else{None};
+  let args=serde_json::json!({"streamObservation":observation,"sceneObservation":scene_observation,"sceneReceipt":scene_receipt,"chat":chat});
   let value=if worker.pin.permits("backend.access"){
    runtime.command_verified_reader(&worker.pin,&worker.binding,args,|value|{
     use companion_plugin_protocol::backend::{Request,Response};

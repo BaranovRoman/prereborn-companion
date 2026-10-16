@@ -25,7 +25,7 @@ impl Launch {
   if uuid::Uuid::parse_str(&launch.generation).is_err(){return Err("invalid_process_generation".into());}
   if launch.package.id!="dota2"||launch.package.version!=env!("CARGO_PKG_VERSION")
    ||[&launch.package.executable_hash,&launch.package.manifest_hash].iter().any(|h|h.len()!=64||!h.bytes().all(|b|b.is_ascii_hexdigit())){return Err("package_identity_mismatch".into());}
-  if launch.capabilities.len()>8||launch.capabilities.iter().any(|c|!matches!(c.as_str(),"ui"|"data.legacy"|"data.private"|"audio.play"|"obs.scene"|"overlay.publish"|"backend.access")){return Err("capability_denied".into());}
+  if launch.capabilities.len()>8||launch.capabilities.iter().any(|c|!matches!(c.as_str(),"ui"|"data.legacy"|"data.private"|"audio.play"|"obs.scene"|"overlay.publish"|"backend.access"|"chat.read")){return Err("capability_denied".into());}
   let executable=std::env::current_exe().map_err(|_|"executable_unavailable")?;
   let mut file=std::fs::File::open(executable).map_err(|_|"executable_unavailable")?;
   let mut hash=Sha256::new();let mut block=[0;65536];
@@ -44,11 +44,14 @@ fn retain_context(sounds:&mut Vec<SoundIntent>,context:Option<&str>)->u64{
 
 #[derive(Default,Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
-struct PollContext{stream_observation:Option<companion_plugin_protocol::obs::StreamObservation>,scene_observation:Option<companion_plugin_protocol::obs::SceneObservation>,scene_receipt:Option<companion_plugin_protocol::obs::SceneReceipt>}
+struct PollContext{chat:Option<companion_plugin_protocol::chat::Snapshot>,stream_observation:Option<companion_plugin_protocol::obs::StreamObservation>,scene_observation:Option<companion_plugin_protocol::obs::SceneObservation>,scene_receipt:Option<companion_plugin_protocol::obs::SceneReceipt>}
 
 pub struct Worker {
+ chat:Option<companion_plugin_protocol::chat::Snapshot>,
  overlay_hotkey:crate::overlay::hotkey::Controller,overlay_visible:bool,show_summary:bool,
  pending_backend:Option<companion_plugin_protocol::backend::Request>,
+ obsolete_overlay_request:Option<String>,
+ overlay_refresh:std::collections::BTreeMap<String,std::time::Instant>,overlay_resources:std::collections::BTreeMap<String,Value>,overlay_backend_error:Option<String>,
  launch:Launch, history:Option<History>, listener:Option<Listener>, pipeline:Pipeline,
  overlay:Option<crate::overlay::server::Server>,last_overlay_at:Option<std::time::Instant>,scene:companion_dota_domain::broadcast_state::BroadcastState,
  selected_directory:Option<PathBuf>,obs:crate::obs::Controller,reminder:companion_dota_domain::draft_reminder::Tracker,
@@ -61,11 +64,11 @@ pub struct Worker {
  last_error:Option<String>, processed:u64, last_sequence:Option<u64>, last_analysis:Option<Value>,last_gsi:Option<Value>,last_receipt:Option<companion_dota_domain::match_execution::Receipt>,
 }
 impl Worker {
- pub fn new(launch:Launch)->Self{let mut hotkey=crate::overlay::hotkey::Controller::default();hotkey.load(&launch.data_root);Self{overlay_hotkey:hotkey,overlay_visible:true,show_summary:false,pending_backend:None,launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,obs:Default::default(),reminder:Default::default(),dropped_sound_intents:0,audio_sequence:0,speech_sequence:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,next_sync_at:None,pending_sync:None,backend_updates:0,next_corrections_at:None,pending_corrections:None,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
+ pub fn new(launch:Launch)->Self{let mut hotkey=crate::overlay::hotkey::Controller::default();hotkey.load(&launch.data_root);Self{chat:None,overlay_hotkey:hotkey,overlay_visible:true,show_summary:false,pending_backend:None,obsolete_overlay_request:None,overlay_refresh:Default::default(),overlay_resources:Default::default(),overlay_backend_error:None,launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,obs:Default::default(),reminder:Default::default(),dropped_sound_intents:0,audio_sequence:0,speech_sequence:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,next_sync_at:None,pending_sync:None,backend_updates:0,next_corrections_at:None,pending_corrections:None,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
  pub fn status(&self)->Value{
   let history=self.history.as_ref();let active=history.is_some_and(History::active);
   json!({"overlayVisible":self.overlay_visible,"showSummary":self.show_summary,"overlayHotkey":self.overlay_hotkey.status(),"prepared":history.is_some(),"active":active,"awaitingSession":active&&history.and_then(History::session).is_none(),
-   "session":history.and_then(History::session),"epoch":history.and_then(History::epoch),"lastError":self.last_error,"streaming":self.streaming,"streamEnded":self.stream_ended,"obsError":self.obs.error,"obsReceipt":self.obs.last_receipt,"backendError":self.backend_error,"backendUpdates":self.backend_updates,
+   "session":history.and_then(History::session),"epoch":history.and_then(History::epoch),"lastError":self.last_error,"streaming":self.streaming,"streamEnded":self.stream_ended,"obsError":self.obs.error,"obsReceipt":self.obs.last_receipt,"backendError":self.backend_error,"overlayBackendError":self.overlay_backend_error,"backendUpdates":self.backend_updates,
    "gsi":self.listener.as_ref().map(|l|json!(l.status())).or(self.last_gsi.clone()),"processed":self.processed,"lastSequence":self.last_sequence,"analysis":self.last_analysis,
    "receipt":self.last_receipt,"context":self.effect_context(),"droppedSoundIntents":self.dropped_sound_intents,"detectedSounds":self.detected_sounds,"plannedSounds":self.planned_sounds,"lastSoundSignal":self.last_sound_signal,"lastSoundOperation":self.last_sound_operation,"overlay":self.overlay.as_ref().map(|s|json!({"running":!s.closed(),"clients":s.clients()}))})
  }
@@ -87,10 +90,10 @@ impl Worker {
     self.pending_corrections=Some(since.clone());
     return Ok(Some(Request{resource:"corrections".into(),operation_key:format!("corrections:{}:{}",self.launch.generation,self.account_request_sequence),query:[("since".into(),since)].into(),body:None}));
    }
-   if self.next_sync_at.is_some_and(|at|at>std::time::Instant::now()){return Ok(None);}
+   if self.next_sync_at.is_some_and(|at|at>std::time::Instant::now()){return self.overlay_backend_request();}
    self.next_sync_at=Some(std::time::Instant::now()+std::time::Duration::from_secs(2));
    if self.pending_sync.is_some(){return Err("backend_request_in_flight".into());}
-   let Some(row)=self.history.as_mut().unwrap().pending_sync()?else{return Ok(None);};
+   let Some(row)=self.history.as_mut().unwrap().pending_sync()?else{return self.overlay_backend_request();};
    let payload:Value=match serde_json::from_str(&row.payload){Ok(value)=>value,Err(_)=>{self.history.as_mut().unwrap().settle_sync(&row,"rejected")?;self.backend_error=Some("outbox_payload_invalid".into());return Ok(None);}};
    let request=Request{resource:"sync-event".into(),operation_key:format!("sync:{}:{}",row.id,row.attempts),query:Default::default(),body:Some(json!({"eventId":row.id,"eventType":row.event_type,"payload":payload}))};
    request.validate()?;self.pending_sync=Some(row);return Ok(Some(request));
@@ -99,6 +102,34 @@ impl Worker {
   self.next_account_at=Some(std::time::Instant::now()+std::time::Duration::from_secs(60));
   Ok(Some(companion_plugin_protocol::backend::Request{resource:"account".into(),operation_key:format!("account:{}:{}",self.launch.generation,self.account_request_sequence),query:Default::default(),body:None}))
  }
+ /// Bounded refreshes use the same single host HTTP slot as sync. Cached
+ /// enrichment never delays GSI processing and never creates effect keys.
+ fn overlay_backend_request(&mut self)->Result<Option<companion_plugin_protocol::backend::Request>,String>{
+  use companion_plugin_protocol::backend::Request;
+  if !self.launch.capabilities.iter().any(|c|c=="overlay.publish"){return Ok(None);}
+  let queue=crate::overlay::saved(&self.launch.data_root,"queue-settings.json",128*1024)?;
+  let ids:Vec<String>=queue.as_ref().and_then(|v|v.get("favoriteHeroIds")).and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_u64).filter(|id|*id>0&&*id<=u32::MAX as u64).take(3).map(|id|id.to_string()).collect();
+  let quiz=queue.as_ref().and_then(|v|v.get("widgets")).and_then(|v|v.get("viewerQuizEnabled")).and_then(Value::as_bool)==Some(true)&&companion_dota_domain::broadcast_state::resolve(self.scene,self.stream_ended,self.show_summary)==companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches;
+  if !quiz{self.overlay_resources.remove("quiz-state");}
+  for (resource,seconds) in [("overlay-layout",60),("queue-settings",60),("favorite-heroes",90),("profile-radar",90),("quiz-state",2)]{
+   if resource=="favorite-heroes"&&ids.is_empty()||resource=="quiz-state"&&!quiz{continue;}
+   if self.overlay_refresh.get(resource).is_some_and(|at|*at>std::time::Instant::now()){continue;}
+   self.overlay_refresh.insert(resource.into(),std::time::Instant::now()+std::time::Duration::from_secs(seconds));
+   self.account_request_sequence=self.account_request_sequence.checked_add(1).ok_or("backend_sequence_exhausted")?;
+   let query=if resource=="favorite-heroes"{[("heroIds".into(),ids.join(","))].into()}else{Default::default()};
+   return Ok(Some(Request{resource:resource.into(),operation_key:format!("overlay:{}:{}",self.launch.generation,self.account_request_sequence),query,body:None}));
+  }Ok(None)
+ }
+ fn overlay_backend_response(&mut self,request:&companion_plugin_protocol::backend::Request,response:companion_plugin_protocol::backend::Response)->Result<(),String>{
+  let valid=response.error.is_none()&&response.status.is_some_and(|code|(200..300).contains(&code));
+  if let Some(body)=response.body.filter(|body|valid&&body.is_object()&&companion_plugin_protocol::backend::public_response(body)){
+   if matches!(request.resource.as_str(),"overlay-layout"|"queue-settings"){
+    if let Err(error)=crate::overlay::save_resource(&self.launch.data_root,&request.resource,&body){self.overlay_backend_error=Some(error);return Ok(());}
+   }else{self.overlay_resources.insert(request.resource.clone(),body);}
+   self.overlay_backend_error=None;self.last_overlay_at=None;
+  }else{self.overlay_backend_error=Some(response.error.unwrap_or_else(||"overlay_backend_unavailable".into()));}
+  Ok(())
+ }
  pub fn backend_response(&mut self,request:&companion_plugin_protocol::backend::Request,response:companion_plugin_protocol::backend::Response)->Result<(),String>{
   if self.pending_backend.as_ref().and_then(|r|serde_json::to_value(r).ok())!=serde_json::to_value(request).ok(){return Err("backend_response_scope_mismatch".into());}
   if response.operation_key!=request.operation_key{return Err("backend_response_scope_mismatch".into());}
@@ -106,6 +137,8 @@ impl Worker {
    if response.status.is_some()||response.body.is_some(){return Err("invalid_backend_pending_response".into());}return Ok(());
   }
   self.pending_backend=None;
+  if self.obsolete_overlay_request.as_ref()==Some(&request.operation_key){self.obsolete_overlay_request=None;return Ok(());}
+  if matches!(request.resource.as_str(),"overlay-layout"|"queue-settings"|"favorite-heroes"|"profile-radar"|"quiz-state"){return self.overlay_backend_response(request,response);}
   if request.resource=="account"{self.account_response(request,response)?;self.backend_updates=self.backend_updates.checked_add(1).ok_or("backend_sequence_exhausted")?;return Ok(());}
   if request.resource=="corrections"{
    let since=self.pending_corrections.take().ok_or("backend_request_not_pending")?;
@@ -146,7 +179,13 @@ impl Worker {
    (||{if !self.launch.capabilities.iter().any(|c|c=="backend.access")||!self.launch.capabilities.iter().any(|c|matches!(c.as_str(),"data.legacy"|"data.private")){return Err("capability_denied".into());}
     let input:Resource=serde_json::from_value(args).map_err(|_|"invalid_backend_resource")?;
     if !companion_plugin_protocol::backend::public_response(&input.body){return Err("invalid_backend_resource".into());}
-    crate::overlay::save_resource(&self.launch.data_root,&input.resource,&input.body)?;self.last_overlay_at=None;self.publish_overlay()?;Ok(json!({"applied":true}))
+    crate::overlay::save_resource(&self.launch.data_root,&input.resource,&input.body)?;
+    let read=input.resource.strip_suffix("-save").unwrap_or(&input.resource);
+    self.overlay_refresh.insert(read.into(),std::time::Instant::now()+std::time::Duration::from_secs(60));
+    // A GET admitted before the confirmed editor result cannot overwrite it.
+    // Still consume its real HTTP reply, preserving the one in-flight slot.
+    if let Some(pending)=self.pending_backend.as_ref().filter(|pending|pending.resource==read){self.obsolete_overlay_request=Some(pending.operation_key.clone());}
+    self.last_overlay_at=None;self.publish_overlay()?;Ok(json!({"applied":true}))
    })()
   }else if name=="host.directory"{
    self.select_directory(args)
@@ -282,6 +321,7 @@ impl Worker {
   }
   let now=chrono::Utc::now();
   let now_ms=u64::try_from(now.timestamp_millis()).map_err(|_|"clock_unavailable")?;
+  self.chat=if self.launch.capabilities.iter().any(|cap|cap=="chat.read"){context.chat.filter(|chat|chat.fresh(now_ms))}else{None};
   let streaming=if self.launch.capabilities.iter().any(|c|c=="obs.scene"){context.stream_observation.and_then(|o|o.fresh_streaming(now_ms))}else{None};
   let changed=self.streaming!=streaming;self.streaming=streaming;
   if self.history.as_ref().is_some_and(History::active)&&(changed||self.last_lifecycle_at.is_none_or(|at|at.elapsed()>=std::time::Duration::from_secs(2))){
@@ -346,7 +386,11 @@ impl Worker {
   let layout=crate::overlay::saved(root,"overlay-layout.json",1024*1024)?;let queue=crate::overlay::saved(root,"queue-settings.json",128*1024)?;
   let account=if self.account.is_some(){self.account.clone()}else{crate::overlay::saved(root,"account-overlay-data.json",128*1024)?};
   let scene=companion_dota_domain::broadcast_state::resolve(self.scene,self.stream_ended,self.show_summary);
-  let snapshot=crate::overlay::OverlayStateSnapshot{scene,updated_at:chrono::Utc::now().to_rfc3339(),session:self.history.as_ref().ok_or("not_prepared")?.summary()?,layout_version:0,account,twitch_chat:None,overlay_visible:self.overlay_visible,opendota_favorite_heroes:None,opendota_radar:None,quiz:None};
+  if self.launch.capabilities.iter().any(|cap|cap=="backend.access"){
+   let quiz=queue.as_ref().and_then(|q|q.get("widgets")).and_then(|w|w.get("viewerQuizEnabled")).and_then(Value::as_bool)==Some(true)&&scene==companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches;
+   self.history.as_mut().ok_or("not_prepared")?.quiz_transition(quiz)?;
+  }
+  let snapshot=crate::overlay::OverlayStateSnapshot{scene,updated_at:chrono::Utc::now().to_rfc3339(),session:self.history.as_ref().ok_or("not_prepared")?.summary()?,layout_version:0,account,twitch_chat:self.chat.as_ref().filter(|chat|u64::try_from(chrono::Utc::now().timestamp_millis()).is_ok_and(|now|chat.fresh(now))).and_then(|chat|serde_json::to_value(&chat.data).ok()),overlay_visible:self.overlay_visible,opendota_favorite_heroes:self.overlay_resources.get("favorite-heroes").cloned(),opendota_radar:self.overlay_resources.get("profile-radar").cloned(),quiz:if queue.as_ref().and_then(|q|q.get("widgets")).and_then(|w|w.get("viewerQuizEnabled")).and_then(Value::as_bool)==Some(true){self.overlay_resources.get("quiz-state").and_then(|q|q.get("quiz")).cloned().filter(|v|!v.is_null())}else{None}};
   server.publish(&snapshot,layout,queue)?;self.last_overlay_at=Some(std::time::Instant::now());Ok(())
  }
 }
@@ -389,6 +433,44 @@ mod tests {
   worker.command("host.resource",json!({"resource":"queue-settings","body":queue})).unwrap();
   assert_eq!(serde_json::from_slice::<Value>(&std::fs::read(root.path().join("queue-settings.json")).unwrap()).unwrap(),queue);
   assert!(worker.command("host.resource",json!({"resource":"queue-settings","body":{"version":99,"visibility":{},"widgets":{}}})).is_err());
+ }
+ #[test]fn chat_projection_requires_an_explicit_grant_and_cannot_relabel_expired_data_as_fresh(){
+  let root=tempfile::tempdir().unwrap();let mut worker=worker(root.path());
+  let now=u64::try_from(chrono::Utc::now().timestamp_millis()).unwrap();
+  let chat=companion_plugin_protocol::chat::Snapshot::project(&json!({"accountConnected":true,"configured":true,"connected":true,"state":"connected","messages":[]}),now).unwrap();
+  worker.command("host.poll",json!({"chat":chat})).unwrap();assert!(worker.chat.is_none());
+  worker.launch.capabilities.push("chat.read".into());worker.command("host.poll",json!({"chat":chat})).unwrap();assert!(worker.chat.is_some());
+  let mut expired=chat;expired.observed_at_ms=now-6000;worker.command("host.poll",json!({"chat":expired})).unwrap();assert!(worker.chat.is_none());
+  assert!(worker.history.is_none());assert!(worker.listener.is_none());
+ }
+ #[test]fn overlay_refresh_preserves_settings_and_a_late_read_cannot_overwrite_a_confirmed_edit(){
+  use companion_plugin_protocol::backend::Response;
+  let root=tempfile::tempdir().unwrap();let mut worker=worker(root.path());worker.launch.capabilities.extend(["backend.access".into(),"overlay.publish".into()]);
+  let first=worker.overlay_backend_request().unwrap().unwrap();assert_eq!(first.resource,"overlay-layout");
+  worker.pending_backend=Some(first.clone());
+  let layout=json!({"version":5,"scenes":{"gameplay":{"widgets":{"session":{"xVw":42}}}},"future":{"untouched":true}});
+  worker.command("host.resource",json!({"resource":"overlay-layout-save","body":layout})).unwrap();
+  worker.backend_response(&first,Response{operation_key:first.operation_key.clone(),status:Some(200),body:Some(json!({"version":5,"scenes":{}})),error:None}).unwrap();
+  assert_eq!(crate::overlay::saved(root.path(),"overlay-layout.json",24576).unwrap(),Some(layout));
+  assert!(worker.pending_backend.is_none());assert!(worker.obsolete_overlay_request.is_none());
+  let queue=worker.overlay_backend_request().unwrap().unwrap();assert_eq!(queue.resource,"queue-settings");worker.pending_backend=Some(queue.clone());
+  let document=json!({"version":2,"visibility":{},"widgets":{"viewerQuizEnabled":true},"favoriteHeroIds":[105,14]});
+  worker.backend_response(&queue,Response{operation_key:queue.operation_key.clone(),status:Some(200),body:Some(document.clone()),error:None}).unwrap();
+  assert_eq!(crate::overlay::saved(root.path(),"queue-settings.json",24576).unwrap(),Some(document));
+  let favorites=worker.overlay_backend_request().unwrap().unwrap();assert_eq!(favorites.resource,"favorite-heroes");assert_eq!(favorites.query.get("heroIds").unwrap(),"105,14");
+  worker.pending_backend=Some(favorites.clone());worker.backend_response(&favorites,Response::failed(&favorites,"backend_result_unknown")).unwrap();
+  assert_eq!(worker.overlay_backend_error.as_deref(),Some("backend_result_unknown"));assert!(worker.history.is_none());assert!(worker.listener.is_none());
+ }
+ #[test]fn disabled_quiz_is_not_polled_and_failed_enrichment_keeps_the_last_actual_response(){
+  use companion_plugin_protocol::backend::Response;
+  let root=tempfile::tempdir().unwrap();let mut worker=worker(root.path());worker.launch.capabilities.push("overlay.publish".into());
+  for resource in ["overlay-layout","queue-settings","profile-radar"]{let request=worker.overlay_backend_request().unwrap().unwrap();assert_eq!(request.resource,resource);}
+  assert!(worker.overlay_backend_request().unwrap().is_none());
+  worker.overlay_resources.insert("profile-radar".into(),json!({"status":"ok","axes":[1,2]}));
+  let request=companion_plugin_protocol::backend::Request{resource:"profile-radar".into(),operation_key:"read:radar".into(),query:Default::default(),body:None};
+  worker.overlay_backend_response(&request,Response::failed(&request,"backend_response_invalid")).unwrap();
+  assert_eq!(worker.overlay_resources["profile-radar"]["axes"],json!([1,2]));
+  worker.overlay_resources.insert("quiz-state".into(),json!({"quiz":{"stale":true}}));worker.overlay_backend_request().unwrap();assert!(!worker.overlay_resources.contains_key("quiz-state"));
  }
  #[test]fn a_pending_host_request_keeps_the_same_identity_and_does_not_block_gsi_poll(){
   use companion_plugin_protocol::backend::{Request,Response};
