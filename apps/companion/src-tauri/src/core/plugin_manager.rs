@@ -114,7 +114,7 @@ impl PluginManager {
         match guard.as_ref() {
             Err(e) => view.error = Some(e.clone()),
             Ok(service) => {
-                view.catalog = service.catalog.releases.iter().filter(|r| r.manifest.platform == std::env::consts::OS && r.manifest.arch == std::env::consts::ARCH).cloned().collect();
+                view.catalog = service.catalog.installable(&service.store.installed());
                 view.catalog_error = service.catalog_error.clone();view.error=service.native_error.clone();
                 view.installed = service.store.installed().into_iter().map(|(id, installed)| {
                     let runtime = service.hosts.get(&id).and_then(|h| h.0.lock().ok().map(|mut r| r.snapshot()));
@@ -180,7 +180,7 @@ impl PluginManager {
             if local.is_some() && !cfg!(debug_assertions) { return Err("local_install_disabled".into()); }
             let release = {
                 let guard = self.service.lock().map_err(|_| locked())?; let service = guard.as_ref().map_err(|e| e.clone())?;
-                service.catalog.releases.iter().find(|r| r.manifest.id == id && r.manifest.version == version && r.manifest.compatible().is_ok()).cloned().ok_or("release_not_available")?
+                service.catalog.installable(&service.store.installed()).into_iter().find(|r| r.manifest.id == id && r.manifest.version == version).ok_or("release_not_available")?
             };
             let bytes = if let Some(path) = local {
                 let file = std::fs::File::open(path).map_err(|e| e.to_string())?;

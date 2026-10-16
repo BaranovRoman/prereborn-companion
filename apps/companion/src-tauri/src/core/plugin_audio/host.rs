@@ -121,6 +121,44 @@ impl HostAudio{
   let status=execute(admission.fresh).unwrap_or(Status::Unknown);
   self.locked()?.scene_result(process,epoch,key,status)
  }
+ pub(crate) fn backend_setting(&self,pin:&impl ProcessGrant,process:&ProcessBinding,epoch:u64,key:&str,action:store::Action,execute:impl FnOnce()->companion_plugin_protocol::backend::Response)->Result<store::Receipt,String>{
+  if !matches!(action,store::Action::BackendSetting{..})||!pin.permits("backend.access")||pin.binding()!=&process.package{return Err("capability_denied".into());}
+  let admission={let mut ledger=self.locked()?;ledger.authorize(process,epoch)?;
+   if let Some(receipt)=ledger.lookup(&process.package.id,key)?{
+    if receipt.process.package!=process.package||receipt.action!=action{return Err("idempotency_conflict".into());}return Ok(receipt);
+   }
+   if ledger.uncertain_for(&process.package.id)?{return Err("unknown_effects_require_explicit_reconciliation".into());}
+   ledger.admit(process,key,action,None)?
+  };
+  if !admission.fresh{return Ok(admission.receipt);}
+  let response=execute();self.locked()?.backend_result(process,epoch,key,response)
+ }
+ pub(crate) fn reconcile_backend_setting(&self,pin:&impl ProcessGrant,process:&ProcessBinding,epoch:u64,key:&str,action:&store::Action,observe:impl FnOnce()->Result<companion_plugin_protocol::backend::Response,String>)->Result<store::Receipt,String>{
+  if !matches!(action,store::Action::BackendSetting{..})||!pin.permits("backend.access")||pin.binding()!=&process.package{return Err("capability_denied".into());}
+  let receipt={let ledger=self.locked()?;ledger.authorize(process,epoch)?;
+   let receipt=ledger.lookup(&process.package.id,key)?.ok_or("backend_setting_not_found")?;
+   if receipt.process.package!=process.package||&receipt.action!=action{return Err("idempotency_conflict".into());}
+   if receipt.status!=Status::Unknown{return Ok(receipt);}receipt
+  };
+  let response=observe()?;
+  let store::Action::BackendSetting{request,..}=&receipt.action else{return Err("backend_setting_scope_mismatch".into());};
+  if response.body!=request.body{return Err("backend_reconciliation_inconclusive".into());}
+  self.locked()?.backend_reconciled(process,epoch,key,&receipt,response)
+ }
+ pub(crate) fn pending_backend_setting(&self,pin:&impl ProcessGrant,process:&ProcessBinding,epoch:u64)->Result<Option<store::Receipt>,String>{
+  if !pin.permits("backend.access")||pin.binding()!=&process.package{return Err("capability_denied".into());}
+  let ledger=self.locked()?;ledger.authorize(process,epoch)?;let receipt=ledger.pending_backend_setting(&process.package.id)?;
+  if receipt.as_ref().is_some_and(|r|r.process.package!=process.package){return Err("pending_backend_package_changed".into());}Ok(receipt)
+ }
+ /// Same native-only exit boundary as OBS reconciliation. No PUT callback.
+ pub(crate) fn reconcile_setting_after_native_exit(&self,process:&ProcessBinding,epoch:u64,observe:impl FnOnce(&store::Action)->Result<companion_plugin_protocol::backend::Response,String>)->Result<(),String>{
+  let receipt=self.locked()?.backend_setting_after_native_exit(process,epoch)?;
+  let Some(receipt)=receipt else{return Ok(());};
+  let response=observe(&receipt.action)?;
+  let store::Action::BackendSetting{request,..}=&receipt.action else{return Err("backend_setting_scope_mismatch".into());};
+  if response.body!=request.body{return Err("backend_reconciliation_inconclusive".into());}
+  self.locked()?.backend_reconciled_after_native_exit(process,epoch,&receipt.operation_key,&receipt,response)?;Ok(())
+ }
  /// Trusted native stop/recovery only. The callback is an authoritative read,
  /// never a scene setter, and runs without any history or ledger mutex.
  pub(crate) fn reconcile_scenes_after_native_exit(&self,process:&ProcessBinding,epoch:u64,mut observe:impl FnMut(&str,&str)->Result<bool,String>)->Result<(),String>{
@@ -169,12 +207,65 @@ mod tests{
  impl ProcessGrant for Pin{
   fn binding(&self)->&companion_plugin_protocol::PackageBinding{&self.binding}
   fn executable(&self)->&Path{Path::new("verified-by-manager")}
-  fn permits(&self,cap:&str)->bool{self.allowed&&matches!(cap,"audio.play"|"obs.scene")}
+  fn permits(&self,cap:&str)->bool{self.allowed&&matches!(cap,"audio.play"|"obs.scene"|"backend.access")}
  }
  fn scene(name:&str)->store::Action{store::Action::Scene{name:name.into(),config_revision:Some("a".repeat(64)),transport_identity:Some("b".repeat(64)),context:None}}
  fn pin()->(Pin,ProcessBinding){
   let binding=companion_plugin_protocol::PackageBinding{id:"example".into(),version:"1.0.0".into(),executable_hash:"a".repeat(64),manifest_hash:"b".repeat(64)};
   (Pin{binding:binding.clone(),allowed:true},ProcessBinding{generation:uuid::Uuid::new_v4().to_string(),package:binding})
+ }
+ fn setting(key:&str,value:serde_json::Value)->store::Action{store::Action::BackendSetting{request:companion_plugin_protocol::backend::Request{resource:"preferences-write".into(),operation_key:key.into(),query:Default::default(),body:Some(value)},resource_hash:"c".repeat(64),authority:"d".repeat(64)}}
+ fn setting_response(key:&str,body:serde_json::Value)->companion_plugin_protocol::backend::Response{companion_plugin_protocol::backend::Response{operation_key:key.into(),status:Some(200),body:Some(body),error:None}}
+ #[test]
+ fn a_committed_setting_response_survives_lost_reply_and_restart_without_another_write(){
+  let root=tempfile::tempdir().unwrap();let path=root.path().join("transport.sqlite3");let audio=HostAudio::open(&path).unwrap();let(pin,process)=pin();let epoch=audio.reserve_process(&process).unwrap().epoch;audio.process_ready(&process,epoch).unwrap();
+  let key="setting:confirmed";let body=serde_json::json!({"scene":{"visible":true,"x":25}});let action=setting(key,body.clone());
+  let committed=audio.backend_setting(&pin,&process,epoch,key,action.clone(),||setting_response(key,body.clone())).unwrap();assert_eq!(committed.status,Status::Completed);
+  assert_eq!(audio.backend_setting(&pin,&process,epoch,key,action.clone(),||panic!("repeated PUT after lost reply")).unwrap(),committed);
+  assert_eq!(audio.backend_setting(&pin,&process,epoch,key,setting(key,serde_json::json!({"scene":false})),||panic!("conflicting PUT")).unwrap_err(),"idempotency_conflict");
+  // Simulated native exit boundary, as in the existing process ledger tests.
+  audio.process_draining(&process,epoch).unwrap();audio.process_after_native_exit(&process,epoch).unwrap();drop(audio);
+  let audio=HostAudio::open(&path).unwrap();let mut next=process.clone();next.generation=uuid::Uuid::new_v4().to_string();let newer=audio.reserve_process(&next).unwrap().epoch;audio.process_ready(&next,newer).unwrap();
+  assert_eq!(audio.backend_setting(&pin,&next,newer,key,action,||panic!("PUT after reopened receipt")).unwrap(),committed);
+ }
+ #[test]
+ fn an_uncertain_setting_requires_matching_authoritative_state_and_never_retries_http(){
+  let root=tempfile::tempdir().unwrap();let audio=HostAudio::open(&root.path().join("transport.sqlite3")).unwrap();let(pin,process)=pin();let epoch=audio.reserve_process(&process).unwrap().epoch;audio.process_ready(&process,epoch).unwrap();
+  let key="setting:uncertain";let body=serde_json::json!({"visible":true});let action=setting(key,body.clone());
+  let receipt=audio.backend_setting(&pin,&process,epoch,key,action.clone(),||companion_plugin_protocol::backend::Response{operation_key:key.into(),status:None,body:None,error:Some("backend_result_unknown".into())}).unwrap();assert_eq!(receipt.status,Status::Unknown);
+  assert_eq!(audio.pending_backend_setting(&pin,&process,epoch).unwrap(),Some(receipt.clone()));
+  assert_eq!(audio.backend_setting(&pin,&process,epoch,key,action.clone(),||panic!("blind PUT retry")).unwrap(),receipt);
+  assert!(audio.backend_setting(&pin,&process,epoch,"setting:other",setting("setting:other",body.clone()),||panic!("Unknown must block new write")).is_err());
+  assert_eq!(audio.reconcile_backend_setting(&pin,&process,epoch,key,&action,||Ok(setting_response(key,serde_json::json!({"visible":false})))).unwrap_err(),"backend_reconciliation_inconclusive");
+  assert_eq!(audio.receipt("example",key).unwrap().unwrap().status,Status::Unknown);
+  assert!(audio.reconcile_backend_setting(&pin,&process,epoch+1,key,&action,||panic!("stale owner queried backend")).is_err());
+  let reconciled=audio.reconcile_backend_setting(&pin,&process,epoch,key,&action,||Ok(setting_response(key,body))).unwrap();assert_eq!(reconciled.status,Status::Completed);assert!(reconciled.uncertain&&reconciled.reconciled);
+  assert!(audio.pending_backend_setting(&pin,&process,epoch).unwrap().is_none());
+ }
+ #[test]
+ fn admission_without_http_result_is_unknown_and_setting_receipts_are_bounded(){
+  let root=tempfile::tempdir().unwrap();let audio=HostAudio::open(&root.path().join("transport.sqlite3")).unwrap();let(pin,process)=pin();let epoch=audio.reserve_process(&process).unwrap().epoch;audio.process_ready(&process,epoch).unwrap();
+  let key="setting:admitted";let action=setting(key,serde_json::json!({"visible":true}));audio.locked().unwrap().admit(&process,key,action.clone(),None).unwrap();
+  assert_eq!(audio.backend_setting(&pin,&process,epoch,key,action,||panic!("unknown admission must not restart HTTP")).unwrap().status,Status::Unknown);
+  let root2=tempfile::tempdir().unwrap();let bounded=HostAudio::open(&root2.path().join("transport.sqlite3")).unwrap();let epoch=bounded.reserve_process(&process).unwrap().epoch;bounded.process_ready(&process,epoch).unwrap();
+  let request=serde_json::json!({"desired":"a".repeat(7000)});let result=serde_json::json!({"confirmed":"b".repeat(24000)});
+  let receipt=bounded.backend_setting(&pin,&process,epoch,"setting:bounded",setting("setting:bounded",request),||setting_response("setting:bounded",result)).unwrap();assert!(serde_json::to_vec(&receipt).unwrap().len()<49152);
+  assert!(bounded.backend_setting(&pin,&process,epoch,"setting:secret",setting("setting:secret",serde_json::json!({"token":"forbidden"})),||panic!("secret payload reached HTTP")).is_err());
+ }
+ #[test]
+ fn stopped_setting_recovery_never_uses_a_put_and_keeps_draining_when_state_is_unproven(){
+  let root=tempfile::tempdir().unwrap();let audio=HostAudio::open(&root.path().join("transport.sqlite3")).unwrap();let(pin,process)=pin();let epoch=audio.reserve_process(&process).unwrap().epoch;audio.process_ready(&process,epoch).unwrap();
+  let key="setting:crash";let desired=serde_json::json!({"visible":true});
+  audio.backend_setting(&pin,&process,epoch,key,setting(key,desired.clone()),||companion_plugin_protocol::backend::Response{operation_key:key.into(),status:None,body:None,error:Some("backend_result_unknown".into())}).unwrap();
+  assert!(audio.reconcile_setting_after_native_exit(&process,epoch,|_|panic!("running scope cannot recover")).is_err());
+  audio.process_draining(&process,epoch).unwrap();
+  assert!(audio.reconcile_setting_after_native_exit(&process,epoch+1,|_|panic!("stale recovery queried backend")).is_err());
+  assert!(audio.reconcile_setting_after_native_exit(&process,epoch,|_|Ok(setting_response(key,serde_json::json!({"visible":false})))).is_err());
+  assert_eq!(audio.process("example").unwrap().unwrap().phase,store::ProcessPhase::Draining);assert_eq!(audio.receipt("example",key).unwrap().unwrap().status,Status::Unknown);
+  // Native-exit boundary simulated by this host unit test. Production recovery
+  // reaches it only after the Runtime/job handle exit checks in the manager.
+  audio.reconcile_setting_after_native_exit(&process,epoch,|_|Ok(setting_response(key,desired))).unwrap();
+  audio.process_after_native_exit(&process,epoch).unwrap();assert_eq!(audio.receipt("example",key).unwrap().unwrap().status,Status::Completed);
  }
  #[test]
  fn stopped_process_scene_recovery_uses_the_persisted_target_and_never_reissues_a_command(){

@@ -4,6 +4,19 @@ use companion_dota_domain::broadcast_state::BroadcastState;
 use companion_dota_storage::local_runtime::summary::LocalSessionSummary;
 pub mod server;
 pub mod hotkey;
+/// A confirmed host response only; iframe commands cannot call host.resource.
+/// Preserve the complete document, including fields the local editor ignores.
+pub fn save_resource(root:&std::path::Path,resource:&str,body:&serde_json::Value)->Result<(),String>{
+ use std::io::Write;
+ let name=match resource{"overlay-layout"|"overlay-layout-save"=>"overlay-layout.json","queue-settings"|"queue-settings-save"=>"queue-settings.json",_=>return Err("backend_resource_unhandled".into())};
+ if body.get("version").and_then(serde_json::Value::as_u64)!=Some(1)
+  ||if name=="overlay-layout.json"{!body.get("scenes").is_some_and(serde_json::Value::is_object)}else{!body.get("visibility").is_some_and(serde_json::Value::is_object)||!body.get("widgets").is_some_and(serde_json::Value::is_object)}{return Err("overlay_settings_invalid".into());}
+ let bytes=serde_json::to_vec(body).map_err(|_|"overlay_settings_invalid")?;if bytes.len()>24576{return Err("overlay_settings_limit".into());}
+ let path=root.join(name);if path.symlink_metadata().is_ok_and(|m|m.file_type().is_symlink()){return Err("overlay_config_invalid".into());}
+ let tmp=root.join(format!(".overlay-settings-{}.tmp",uuid::Uuid::new_v4()));
+ let result=(||->std::io::Result<()>{let mut file=std::fs::OpenOptions::new().create_new(true).write(true).open(&tmp)?;file.write_all(&bytes)?;file.sync_all()?;drop(file);std::fs::rename(&tmp,path)})();
+ if result.is_err(){let _=std::fs::remove_file(&tmp);}result.map_err(|_|"overlay_settings_write_failed".into())
+}
 /// Only pre-existing public overlay cache/config files are read here. Never
 /// companion-config.json, OBS credentials, a raw GSI payload or a supplied path.
 pub fn saved(root:&std::path::Path,name:&str,limit:u64)->Result<Option<serde_json::Value>,String>{

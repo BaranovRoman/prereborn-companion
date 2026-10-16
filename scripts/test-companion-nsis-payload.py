@@ -14,4 +14,9 @@ class PayloadTests(unittest.TestCase):
     def test_ambiguous_or_missing_marker_rejected(self):
         for value in [b'code',p.UNKNOWN+p.UNKNOWN]:
             with self.assertRaises(ValueError):p.verify(value,value)
+    def test_exact_packaging_patch_does_not_hide_embedded_game_code(self):
+        for marker in p.GAME_MARKERS:
+            data=b'code'+p.UNKNOWN+marker
+            with self.assertRaisesRegex(ValueError,'Game implementation marker'):
+                p.verify(data,data.replace(p.UNKNOWN,p.NSIS))
 if __name__=='__main__':unittest.main()

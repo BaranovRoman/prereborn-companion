@@ -6,6 +6,7 @@ import sys
 
 UNKNOWN = b'__TAURI_BUNDLE_TYPE_VAR_UNK'
 NSIS = b'__TAURI_BUNDLE_TYPE_VAR_NSS'
+GAME_MARKERS = (b'DOTA_GAMERULES_STATE_', b'techies_suicide', b'game-sound-play')
 
 def verify(built: bytes, installed: bytes) -> str:
     if built.count(UNKNOWN) != 1:
@@ -13,6 +14,8 @@ def verify(built: bytes, installed: bytes) -> str:
     expected = built.replace(UNKNOWN, NSIS, 1)
     if installed != expected:
         raise ValueError('Installer payload differs beyond the exact Tauri UNK -> NSS patch')
+    if any(marker in installed for marker in GAME_MARKERS):
+        raise ValueError('Game implementation marker found in core executable')
     return hashlib.sha256(installed).hexdigest()
 
 if __name__ == '__main__':

@@ -12,6 +12,16 @@ pub(crate) fn plugin_request(app:&AppHandle,resource:&companion_plugin_protocol:
     let signal=match response.status.and_then(|code|reqwest::StatusCode::from_u16(code).ok()){Some(status)=>classify_status(status),None=>ConnectivitySignal::Transient(response.error.clone().unwrap_or_else(||"backend_response_unavailable".into()))};
     record_connectivity(app,"plugin-resource",signal);response
 }
+/// Manual settings are pinned to the account observed at admission. A refresh
+/// or login race is uncertain, never silently redirected to a different user.
+pub(crate) fn plugin_request_pinned(app:&AppHandle,resource:&companion_plugin_protocol::backend::Resource,request:&companion_plugin_protocol::backend::Request,expected:&str)->companion_plugin_protocol::backend::Response{
+ use companion_plugin_protocol::backend::Response;
+ let same=||{let state=app.state::<AppState>();state.0.lock().is_ok_and(|s|s.companion_token.as_deref()==Some(expected))};
+ if !same(){return Response::failed(request,"backend_account_changed");}
+ let response=crate::core::backend_transport::request_plugin_resource(DEFAULT_BACKEND_URL,expected,resource,request);
+ if !same(){return Response::failed(request,"backend_account_changed");}
+ response
+}
 pub enum ConnectivitySignal {
     Success,
     Transient(String),

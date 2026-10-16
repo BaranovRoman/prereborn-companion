@@ -48,7 +48,10 @@ fn verify_frontend_in_host(_app:&tauri::AppHandle)->Result<(),String>{Err("nativ
 impl Service{
  fn worker_pin(&self,id:&str)->Result<(Pin,Manifest),String>{
   let installed=self.store.installed().get(id).cloned().ok_or("not_installed")?;
-  let (executable,manifest)=self.store.executable(id,&installed.active)?;
+  self.worker_version_pin(id,&installed.active)
+ }
+ fn worker_version_pin(&self,id:&str,version:&str)->Result<(Pin,Manifest),String>{
+  let (executable,manifest)=self.store.executable(id,version)?;
   if manifest.min_api<2||manifest.execution!=packages::ExecutionMode::Live{return Err("plugin_update_required".into());}
   let package=PackageBinding{id:manifest.id.clone(),version:manifest.version.clone(),executable_hash:manifest.files.get(&manifest.executable).cloned().ok_or("executable_unbound")?,manifest_hash:packages::hash(&serde_json::to_vec(&manifest).map_err(|_|"invalid_manifest")?)};
   Ok((Pin{package,executable,permissions:manifest.permissions.clone(),backend_resources:manifest.backend_resources.clone(),obs_bindings:manifest.obs_bindings.clone()},manifest))
@@ -128,12 +131,13 @@ impl Service{
   let _=runtime.stop();runtime.stopped_confirmed()?;
   #[cfg(windows)] companion_plugin_protocol::windows::fence_generation(&worker.binding.generation)?;
   worker.backend_io.lock().map_err(|_|"backend_state_poisoned")?.drain(Duration::from_secs(2))?;
+  reconcile_stopped_setting(app,audio,&worker.binding,worker.epoch,||Ok(worker.pin.clone()))?;
   reconcile_stopped_scenes(app,audio,&worker.binding,worker.epoch)?;
   audio.fence(id,|request|app.emit_to("main","plugin-audio-fence",request).map_err(|_|"frontend_audio_unavailable".into()))?;
   audio.process_after_native_exit(&worker.binding,worker.epoch)?;drop(runtime);
   self.store.enable(id,false)?;self.workers.remove(id);self.store.activate(id)?;
   let installed=self.store.installed().get(id).cloned().ok_or("not_installed")?;self.manifests.insert(id.into(),self.store.manifest(id,&installed.active)?);
-  drain.map(|_|())
+  if drain.is_err(){crate::storage::append_rolling_log(app,"Plugin IPC drain failed; native process exit and effect fences confirmed.");}Ok(())
  }
  pub(super) fn recover_worker(&mut self,id:&str)->Result<(),String>{
   if self.workers.contains_key(id){return self.stop_worker(id);}
@@ -146,6 +150,7 @@ impl Service{
   // The kernel job identity (not a saved PID or timeout) proves that this
   // exact generation can no longer run. Unknown receipts are never erased.
   #[cfg(windows)] companion_plugin_protocol::windows::fence_generation(&process.generation)?;
+  reconcile_stopped_setting(app,audio,&process,record.epoch,||self.worker_version_pin(id,&process.package.version).map(|(pin,_)|pin))?;
   reconcile_stopped_scenes(app,audio,&process,record.epoch)?;
   audio.fence(id,|request|app.emit_to("main","plugin-audio-fence",request).map_err(|_|"frontend_audio_unavailable".into()))?;
   audio.process_after_native_exit(&process,record.epoch)?;
@@ -167,6 +172,29 @@ fn read_obs_config(app:&tauri::AppHandle)->Result<super::super::obs_transport::O
  use tauri::Manager;
  let state=app.state::<crate::state::AppState>();let inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;
  Ok(inner.obs_config.clone())
+}
+fn backend_identity(app:&tauri::AppHandle)->Result<(String,String),String>{
+ use tauri::Manager;use sha2::{Digest,Sha256};
+ let token={let state=app.state::<crate::state::AppState>();let inner=state.0.lock().map_err(|_|"account_state_unavailable")?;inner.companion_token.clone().ok_or("account_not_connected")?};
+ let account=crate::storage::load_session(app).map(|s|format!("session:{}",s.email.trim().to_lowercase())).unwrap_or_else(||format!("legacy:{:x}",Sha256::digest(token.as_bytes())));
+ let authority=format!("{:x}",Sha256::digest(format!("{}\0{account}",crate::state::DEFAULT_BACKEND_URL).as_bytes()));Ok((token,authority))
+}
+fn read_unknown_setting(app:&tauri::AppHandle,pin:&Pin,action:&super::super::plugin_audio::store::Action,read_id:Option<&str>)->Result<companion_plugin_protocol::backend::Response,String>{
+ use companion_plugin_protocol::backend::Method;
+ let super::super::plugin_audio::store::Action::BackendSetting{request,resource_hash,authority:owner}=action else{return Err("backend_setting_scope_mismatch".into());};
+ let(token,authority)=backend_identity(app)?;
+ let write=pin.backend_resources.get(&request.resource).ok_or("backend_resource_denied")?;
+ let (id,read)=pin.backend_resources.iter().find(|(id,r)|r.method==Method::Get&&r.path==write.path&&read_id.is_none_or(|wanted|wanted==id.as_str())).ok_or("backend_resource_denied")?;
+ let current_hash=packages::hash(&serde_json::to_vec(write).map_err(|_|"backend_resource_denied")?);
+ if *owner!=authority||*resource_hash!=current_hash||write.method!=Method::Put{return Err("backend_reconciliation_scope_mismatch".into());}
+ let mut query=request.clone();query.resource=id.clone();query.body=None;read.authorize(&query)?;
+ Ok(crate::backend::plugin_request_pinned(app,read,&query,&token))
+}
+fn reconcile_stopped_setting(app:&tauri::AppHandle,audio:&HostAudio,process:&ProcessBinding,epoch:u64,verified:impl FnOnce()->Result<Pin,String>)->Result<(),String>{
+ audio.reconcile_setting_after_native_exit(process,epoch,|action|{
+  let pin=verified()?;if pin.binding()!=&process.package||!pin.permits("backend.access"){return Err("process_binding_denied".into());}
+  read_unknown_setting(app,&pin,action,None)
+ })
 }
 fn reconcile_stopped_scenes(app:&tauri::AppHandle,audio:&HostAudio,process:&ProcessBinding,epoch:u64)->Result<(),String>{
  audio.reconcile_scenes_after_native_exit(process,epoch,|desired,target|{
@@ -304,10 +332,10 @@ impl PluginManager{
    if expected_version!=Some(active.version.as_str()){return Err("stale_ui_package".into());}
    let (_,manifest)=service.worker_pin(id)?;
    if expected_version!=Some(manifest.version.as_str()){return Err("stale_ui_package".into());}
-   let obs=matches!(name,"obs.settings"|"obs.save");
-   let permitted=if obs{manifest.permissions.iter().any(|p|p=="obs.scene")}else{name=="directory.pick"||manifest.permissions.iter().any(|p|p=="audio.play")};
+   let obs=matches!(name,"obs.settings"|"obs.save");let backend=name.starts_with("backend.");
+   let permitted=if obs{manifest.permissions.iter().any(|p|p=="obs.scene")}else if backend{manifest.permissions.iter().any(|p|p=="backend.access")}else{name=="directory.pick"||manifest.permissions.iter().any(|p|p=="audio.play")};
    if !manifest.permissions.iter().any(|p|p=="ui")||!permitted
-    ||(!obs&&!manifest.permissions.iter().any(|p|matches!(p.as_str(),"data.legacy"|"data.private")))||!manifest.ui_commands.iter().any(|c|c==name){return Err("capability_denied".into());}
+    ||(!obs&&!backend&&!manifest.permissions.iter().any(|p|matches!(p.as_str(),"data.legacy"|"data.private")))||!manifest.ui_commands.iter().any(|c|c==name){return Err("capability_denied".into());}
    service.open_worker(id)?;
    let worker=service.workers.get(id).cloned().ok_or("not_running")?;
    let (app,audio)=service.native.as_ref().ok_or("plugin_transport_unavailable")?;
@@ -315,6 +343,46 @@ impl PluginManager{
   };
   audio.locked_authorize(&worker.binding,worker.epoch)?;
   match name{
+   "backend.pending"=>{
+    if args!=serde_json::json!({}){return Err("invalid_backend_request".into());}
+    serde_json::to_value(audio.pending_backend_setting(&worker.pin,&worker.binding,worker.epoch)?).map_err(|_|"backend_response_invalid".into())
+   },
+   "backend.request"|"backend.reconcile"=>{
+    use companion_plugin_protocol::backend::{Method,Request};
+    let mut runtime=host.0.lock().map_err(|_|locked())?;
+    audio.locked_authorize(&worker.binding,worker.epoch)?;
+    let public=|receipt:super::super::plugin_audio::store::Receipt|serde_json::json!({"operationKey":receipt.operation_key,"status":receipt.status,"response":receipt.backend_response,"reconciled":receipt.reconciled});
+    let mut apply=|resource:&str,body:Option<&Value>|->Result<(),String>{
+     if let Some(body)=body{let confirmed=runtime.command_verified(&worker.pin,&worker.binding,"host.resource".into(),serde_json::json!({"resource":resource,"body":body}))?;
+      if confirmed.get("applied")!=Some(&Value::Bool(true)){return Err("worker_resource_apply_unconfirmed".into());}
+     }Ok(())
+    };
+    if name=="backend.reconcile"{
+     #[derive(Deserialize)]#[serde(rename_all="camelCase",deny_unknown_fields)]struct Reconcile{read_resource:String}
+     let args:Reconcile=serde_json::from_value(args).map_err(|_|"invalid_backend_request")?;
+     let receipt=audio.pending_backend_setting(&worker.pin,&worker.binding,worker.epoch)?.ok_or("backend_setting_not_found")?;
+     let super::super::plugin_audio::store::Action::BackendSetting{request,..}=&receipt.action else{return Err("backend_setting_scope_mismatch".into());};
+     let confirmed=audio.reconcile_backend_setting(&worker.pin,&worker.binding,worker.epoch,&receipt.operation_key,&receipt.action,||read_unknown_setting(&app,&worker.pin,&receipt.action,Some(&args.read_resource)))?;
+     apply(&request.resource,confirmed.backend_response.as_ref().and_then(|r|r.body.as_ref()))?;
+     Ok(public(confirmed))
+    }else{
+     let(token,authority)=backend_identity(&app)?;
+     #[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Arguments{request:Request}
+     let args:Arguments=serde_json::from_value(args).map_err(|_|"invalid_backend_request")?;let request=args.request;
+     let resource=worker.pin.backend_resources.get(&request.resource).ok_or("backend_resource_denied")?;resource.authorize(&request)?;
+     match resource.method{
+      Method::Get=>{let response=crate::backend::plugin_request_pinned(&app,resource,&request,&token);if response.error.is_some()||!response.status.is_some_and(|s|(200..300).contains(&s)){return Err(response.error.unwrap_or("backend_read_failed".into()));}apply(&request.resource,response.body.as_ref())?;Ok(serde_json::json!({"operationKey":request.operation_key,"status":"completed","response":response}))},
+      Method::Put=>{
+       let id=request.operation_key.strip_prefix("setting:").ok_or("invalid_backend_setting_key")?;
+       if uuid::Uuid::parse_str(id).map_err(|_|"invalid_backend_setting_key")?.to_string()!=id{return Err("invalid_backend_setting_key".into());}
+       let action=super::super::plugin_audio::store::Action::BackendSetting{request:request.clone(),resource_hash:packages::hash(&serde_json::to_vec(resource).map_err(|_|"backend_resource_denied")?),authority};
+       let receipt=audio.backend_setting(&worker.pin,&worker.binding,worker.epoch,&request.operation_key,action,||crate::backend::plugin_request_pinned(&app,resource,&request,&token))?;
+       if receipt.status==companion_plugin_protocol::audio::Status::Completed{apply(&request.resource,receipt.backend_response.as_ref().and_then(|r|r.body.as_ref()))?;}Ok(public(receipt))
+      },
+      Method::Post=>Err("backend_ui_method_denied".into()),
+     }
+    }
+   },
    "obs.settings"|"obs.save"=>{
     use tauri::Manager;use std::time::{Duration,Instant};
     let _runtime=host.0.lock().map_err(|_|locked())?;
@@ -387,7 +455,7 @@ impl PluginManager{
  }
  pub(super) fn ui_command(&self,id:&str,name:String,args:Value,expected_version:Option<&str>)->Result<Value,String>{
   if name.starts_with("host.")||name.len()>64||serde_json::to_vec(&args).map_err(|_|"invalid_ui_request")?.len()>8192{return Err("command_not_allowed".into());}
-  if matches!(name.as_str(),"asset.import"|"asset.preview"|"directory.pick"|"audio.receipt"|"obs.settings"|"obs.save"){return self.asset_command(id,&name,args,expected_version);}
+  if matches!(name.as_str(),"asset.import"|"asset.preview"|"directory.pick"|"audio.receipt"|"obs.settings"|"obs.save"|"backend.request"|"backend.pending"|"backend.reconcile"){return self.asset_command(id,&name,args,expected_version);}
   let (host,process)={
    let mut guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_mut().map_err(|e|e.clone())?;
    let manifest=service.manifests.get(id).cloned().ok_or("not_installed")?;

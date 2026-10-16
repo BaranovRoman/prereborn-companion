@@ -21,7 +21,7 @@ impl Resource{
  }
 }
 fn name(s:&str)->bool{!s.is_empty()&&s.len()<=64&&s.bytes().all(|b|b.is_ascii_lowercase()||b.is_ascii_digit()||b"-_".contains(&b))}
-#[derive(Clone,Debug,Serialize,Deserialize)]
+#[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 pub struct Request{pub resource:String,pub operation_key:String,#[serde(default)]pub query:BTreeMap<String,String>,pub body:Option<Value>}
 impl Request{
@@ -29,7 +29,7 @@ impl Request{
   if !name(&self.resource)||self.operation_key.is_empty()||self.operation_key.len()>128||!self.operation_key.bytes().all(|b|b.is_ascii_alphanumeric()||b"-_:".contains(&b))||self.query.len()>8||self.query.iter().any(|(k,v)|!name(k)||v.len()>128||v.chars().any(char::is_control))||serde_json::to_vec(self).map_err(|_|"invalid_backend_request")?.len()>8192{return Err("invalid_backend_request".into());}Ok(())
  }
 }
-#[derive(Clone,Debug,Serialize,Deserialize)]
+#[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 pub struct Response{pub operation_key:String,pub status:Option<u16>,pub body:Option<Value>,pub error:Option<String>}
 impl Response{pub fn failed(request:&Request,code:&str)->Self{Self{operation_key:request.operation_key.clone(),status:None,body:None,error:Some(code.into())}}}

@@ -51,6 +51,24 @@ pub struct Installed {
     #[serde(default)]
     pub last_error: Option<String>,
 }
+impl Catalog {
+    /// Keep the signed catalog intact; offer one compatible version per id.
+    /// API1 live entries are retained for installed-data verification only.
+    pub fn installable(&self,installed:&BTreeMap<String,Installed>)->Vec<Release>{
+        let mut latest:BTreeMap<&str,(semver::Version,&Release)>=BTreeMap::new();
+        for release in &self.releases {
+            let manifest=&release.manifest;
+            if manifest.compatible().is_err()||(manifest.execution==ExecutionMode::Live&&manifest.min_api<2){continue;}
+            let Ok(version)=semver::Version::parse(&manifest.version)else{continue;};
+            if let Some(current)=installed.get(&manifest.id){
+                let Ok(current)=semver::Version::parse(&current.active)else{continue;};
+                if version<current{continue;}
+            }
+            if latest.get(manifest.id.as_str()).is_none_or(|(previous,_)|version>*previous){latest.insert(&manifest.id,(version,release));}
+        }
+        latest.into_values().map(|(_,release)|release.clone()).collect()
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Registry { schema: u32, plugins: BTreeMap<String, Installed> }

@@ -709,3 +709,52 @@ runner fsync latency as a query regression. All real commits, row/cascade checks
 and the existing reopen <2s, history query <500ms and correction <2s assertions
 remain. The exact selected test passes locally (1250 matches, real commits,
 0.54s total). No durability or workload count was reduced.
+
+## Actual settings transport and installer verification (2026-10-16)
+
+Catalog selection now offers one latest compatible version per plugin using
+semver, excludes API1 live activation and future APIs, and does not offer a
+version below the installed one. It never rewrites signed catalog entries.
+Two targeted manager regressions cover numeric ordering, downgrade refusal,
+unchanged catalog contents and legacy/future live rejection.
+
+The installed UI's bounded backend.request/pending/reconcile commands use the
+existing verified process, signed fixed resources and host ledger. UI requests
+can read or PUT desired settings; POST is denied here. Admission persists the
+whole bounded desired request, signed-resource identity and hashed account/
+origin authority before HTTP. The actual bounded normalized response is saved
+with the receipt. A duplicate returns that response without another HTTP write;
+payload/package/account conflicts fail closed. There is no history/SQL access.
+
+Unknown is never retried as a write. Reconciliation performs only an authorized
+GET of the same signed path/query/account and requires exact desired JSON state.
+Its receipt explicitly retains uncertain/reconciled provenance: this proves
+state satisfaction, not exactly-once HTTP execution. The same read-only check
+is connected after native process exit and before audio/process completion;
+failure retains Draining. No history mutex is held during network IO. Confirmed
+documents reach the worker through host.resource on the existing verified IPC;
+iframe commands cannot call that host entry point. The worker preserves all
+unedited layout/queue fields and writes only their fixed existing cache names,
+without opening history or creating a session. The editor port itself remains
+unfinished; no package/catalog publication is claimed.
+
+Per-receipt validation permits at most 48 KiB for these settings (8 KiB typed
+desired request + 24 KiB response + bounded identities/envelope). The 10,000-key
+and 32 MiB total quotas are unchanged. Old omitted-field serialization remains
+compatible; sound/scene payload limits and ordered compaction rules are unchanged.
+Settings use actual manual operation keys, never per-GSI keys, and Unknown keys
+are retained. Local checks: 25 audio/ledger tests passed before the added stopped
+settings case; four selected settings/recovery tests then passed, two protocol
+backend permission/secret tests, one real worker cache/preservation test, core
+and package cargo check passed. These are temporary stores and simulated native
+exit boundaries, not user DB or real game/audio acceptance.
+
+Windows 38908782725 passed native supervisor, native overlay hotkey, Dota/storage
+checks and NSIS compilation. Installer verification stopped because Windows
+PowerShell split the inline Python -c source and Python tried reading a file
+named implementation. The prior exact payload comparison passed; this was not
+evidence of game code in the executable. Marker verification now runs inside
+the existing Python payload verifier, keeping every-byte SDK-patch comparison
+and game marker rejection. Four targeted verifier regressions pass locally.
+Packaged native WebView smoke and the mandatory eight-hour transport step were
+not reached in that Windows run and must pass on the next candidate.

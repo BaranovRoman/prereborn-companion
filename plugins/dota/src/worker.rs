@@ -141,7 +141,14 @@ impl Worker {
  /// Commands are serialized by the existing stdio loop: one coordinator, one
  /// listener, and no duplicate preparation even when the UI repeats a request.
  pub fn command(&mut self,name:&str,args:Value)->Result<Value,String>{
-  let result=if name=="host.directory"{
+  let result=if name=="host.resource"{
+   #[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Resource{resource:String,body:Value}
+   (||{if !self.launch.capabilities.iter().any(|c|c=="backend.access"){return Err("capability_denied".into());}
+    let input:Resource=serde_json::from_value(args).map_err(|_|"invalid_backend_resource")?;
+    if !companion_plugin_protocol::backend::public_response(&input.body){return Err("invalid_backend_resource".into());}
+    crate::overlay::save_resource(&self.launch.data_root,&input.resource,&input.body)?;self.last_overlay_at=None;self.publish_overlay()?;Ok(json!({"applied":true}))
+   })()
+  }else if name=="host.directory"{
    self.select_directory(args)
   }else if name=="host.poll"{
    serde_json::from_value(if args.is_null(){json!({})}else{args}).map_err(|_|"invalid_poll_context".to_string()).and_then(|context|self.poll(context))
@@ -353,6 +360,18 @@ mod tests {
   assert!(worker.command("overlay.visibility",json!({"visible":true,"path":"arbitrary"})).is_err());
   assert_eq!(worker.status()["session"],Value::Null);assert_eq!(worker.status()["active"],false);
   assert!(worker.listener.is_none());assert!(worker.overlay.is_none());assert_eq!(std::fs::read_dir(root.path()).unwrap().count(),0);
+ }
+ #[test]fn confirmed_host_settings_preserve_unedited_fields_without_opening_history(){
+  let root=tempfile::tempdir().unwrap();let mut worker=worker(root.path());
+  let body=json!({"version":1,"scenes":{"draft":{"cameraZone":{"unchanged":true}},"gameplay":{"widgets":{"session":{"xVw":42}},"futureWidget":{"keep":"original"}}},"draftProtection":{"mode":"cover"},"aspectRatio":{"preset":"custom"}});
+  let request=json!({"resource":"overlay-layout","body":body});
+  assert_eq!(worker.command("host.resource",request.clone()).unwrap_err(),"capability_denied");
+  worker.launch.capabilities.push("backend.access".into());worker.command("host.resource",request).unwrap();
+  let path=root.path().join("overlay-layout.json");let saved=std::fs::read(&path).unwrap();assert_eq!(serde_json::from_slice::<Value>(&saved).unwrap(),body);
+  assert!(worker.command("host.resource",json!({"resource":"overlay-layout-save","body":{"version":2,"scenes":{}}})).is_err());
+  assert!(worker.command("host.resource",json!({"resource":"overlay-layout","body":{"version":1,"scenes":{},"password":"forbidden"}})).is_err());
+  assert!(worker.command("host.resource",json!({"resource":"../../elsewhere","body":body})).is_err());
+  assert_eq!(std::fs::read(path).unwrap(),saved);assert!(worker.history.is_none());assert_eq!(worker.status()["session"],Value::Null);
  }
  #[test]fn a_pending_host_request_keeps_the_same_identity_and_does_not_block_gsi_poll(){
   use companion_plugin_protocol::backend::{Request,Response};

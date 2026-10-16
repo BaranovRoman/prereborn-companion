@@ -9,6 +9,25 @@ fn store(dir: &tempfile::TempDir) -> Store { Store::open(dir.path().join("plugin
 fn install(store: &mut Store, version: &str, running: bool) { store.install(&package(version), &release(version), running, &AtomicBool::new(false)).unwrap(); }
 
 #[test]
+fn installable_catalog_selects_numeric_latest_without_mutating_signed_history_or_offering_downgrades(){
+    let candidate=|version:&str|{let mut r=release("0.1.0");r.manifest.platform=std::env::consts::OS.into();r.manifest.arch=std::env::consts::ARCH.into();r.manifest.version=version.into();r};
+    let catalog=Catalog{schema:1,releases:vec![candidate("0.2.0"),candidate("0.10.0"),candidate("0.9.0")]};
+    let original=serde_json::to_value(&catalog).unwrap();
+    assert_eq!(catalog.installable(&Default::default())[0].manifest.version,"0.10.0");
+    let mut installed=std::collections::BTreeMap::from([("hello".into(),Installed{active:"0.11.0".into(),..Default::default()})]);
+    assert!(catalog.installable(&installed).is_empty());
+    installed.get_mut("hello").unwrap().active="0.10.0".into();assert_eq!(catalog.installable(&installed).len(),1);
+    assert_eq!(serde_json::to_value(catalog).unwrap(),original);
+}
+#[test]
+fn legacy_live_and_future_api_metadata_can_never_be_offered_for_new_activation(){
+    let mut old=release("0.1.0");old.manifest.platform=std::env::consts::OS.into();old.manifest.arch=std::env::consts::ARCH.into();
+    old.manifest.execution=ExecutionMode::Live;old.manifest.permissions=vec!["ui".into(),"dota.match.execute".into()];old.manifest.min_api=1;old.manifest.max_api=1;
+    let mut future=old.clone();future.manifest.min_api=999;future.manifest.max_api=999;
+    assert!(Catalog{schema:1,releases:vec![old,future]}.installable(&Default::default()).is_empty());
+}
+
+#[test]
 fn signed_install_update_deferred_activation_rollback_and_restart() {
     // Fixtures target the development host; other targets exercise the rejection test below.
     if std::env::consts::OS != "macos" || std::env::consts::ARCH != "aarch64" { return; }

@@ -213,7 +213,9 @@ impl Runtime {
     pub fn command_verified(&mut self,pin:&impl crate::ProcessGrant,binding:&ProcessBinding,name:String,args:Value)->Result<Value,String>{
         self.poll();
         if self.process.as_ref()!=Some(binding)||&binding.package!=pin.binding()||!pin.permits("ui"){return Err("process_binding_denied".into());}
-        let limit=if name=="host.poll"{32768}else{8192};
+        let limit=if name=="host.poll"{32768}else if name=="host.resource"{
+            if !pin.permits("backend.access"){return Err("capability_denied".into());}32768
+        }else{8192};
         self.command_with_handlers(name,args,&mut |_|Err("capability_denied".into()),None,Some(limit),false)
     }
     /// One bounded reverse resource request, only during the host's poll and
