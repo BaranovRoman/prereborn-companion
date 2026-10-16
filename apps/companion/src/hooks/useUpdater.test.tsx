@@ -2,10 +2,10 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useUpdater } from "./useUpdater";
-vi.mock("@tauri-apps/plugin-updater", () => ({ check: vi.fn() }));
+vi.mock("../core/api", () => ({ checkCompanionUpdate: vi.fn() }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: vi.fn() }));
-import { check } from "@tauri-apps/plugin-updater";
-const checked = vi.mocked(check);
+import { checkCompanionUpdate } from "../core/api";
+const checked = vi.mocked(checkCompanionUpdate);
 afterEach(cleanup);
 beforeEach(() => vi.clearAllMocks());
 function download() {
@@ -16,7 +16,7 @@ function download() {
     callback({ event: "Finished" });
     return promise;
   });
-  checked.mockResolvedValue({ version: "0.5.91", body: null, downloadAndInstall } as unknown as NonNullable<Awaited<ReturnType<typeof check>>>);
+  checked.mockResolvedValue({ version: "0.5.91", body: null, downloadAndInstall } as unknown as NonNullable<Awaited<ReturnType<typeof checkCompanionUpdate>>>);
   return { resolve, reject, downloadAndInstall };
 }
 it("does not expose ready before signature verification and install resolve", async () => {

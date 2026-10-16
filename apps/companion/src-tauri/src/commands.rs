@@ -19,10 +19,44 @@ use crate::obs::{self, BroadcastScene, ObsConfig, ObsSceneMapping};
 use crate::silero::{self, SileroStatus, SileroVoice};
 use crate::state::{AppState, StatusSnapshot, DEFAULT_WEB_ORIGIN};
 use crate::storage;
+#[cfg(windows)]
+static UPDATER_EXIT_IN_PROGRESS:std::sync::atomic::AtomicBool=std::sync::atomic::AtomicBool::new(false);
+#[cfg(windows)]
+pub(crate) fn updater_exit_in_progress()->bool{UPDATER_EXIT_IN_PROGRESS.load(std::sync::atomic::Ordering::SeqCst)}
 
 #[tauri::command]
 pub fn get_status(state: State<AppState>) -> StatusSnapshot {
     state.snapshot()
+}
+
+/// The stock updater object/commands still perform download, signature
+/// verification and NSIS installation. Only its supported native before-exit
+/// callback is extended, so the retired host cannot kill the installer.
+#[tauri::command]
+pub async fn check_companion_update(window:tauri::WebviewWindow)->Result<Option<serde_json::Value>,String>{
+    use tauri_plugin_updater::UpdaterExt;
+    if window.label()!="main"{return Err("updater_window_denied".into());}
+    let app=window.app_handle().clone();let exit_app=app.clone();
+    let webview:&tauri::Webview=window.as_ref();
+    let updater=webview.updater_builder().on_before_exit(move||{
+        #[cfg(windows)]
+        if let Some(audio)=exit_app.try_state::<std::sync::Arc<crate::core::plugin_audio::HostAudio>>(){
+            UPDATER_EXIT_IN_PROGRESS.store(true,std::sync::atomic::Ordering::SeqCst);
+            let result=audio.retire_host_for_stock_updater(||{
+                if let Some(manager)=exit_app.try_state::<crate::core::plugin_manager::PluginManager>(){manager.shutdown();}
+                crate::silero::stop(&exit_app);crate::hotkeys::stop(&exit_app);
+                for window in exit_app.webview_windows().into_values(){window.destroy().map_err(|_|"updater_webview_stop_unproven".to_string())?;}
+                Ok(())
+            });
+            if let Err(code)=result{crate::storage::append_rolling_log(&exit_app,&format!("Updater stopped before installer launch: {code}"));std::process::exit(1);}
+        }
+        // Same cleanup performed by UpdaterExt's default callback.
+        exit_app.cleanup_before_exit();
+    }).build().map_err(|_|"updater_configuration_unavailable")?;
+    let Some(update)=updater.check().await.map_err(|e|e.to_string())?else{return Ok(None);};
+    let date=update.date.and_then(|date|chrono::DateTime::<chrono::Utc>::from_timestamp(date.unix_timestamp(),date.nanosecond())).map(|date|date.to_rfc3339());
+    let mut metadata=serde_json::json!({"currentVersion":update.current_version,"version":update.version,"body":update.body,"date":date,"rawJson":update.raw_json});
+    metadata["rid"]=serde_json::json!(webview.resources_table().add(update));Ok(Some(metadata))
 }
 
 // WK-126 - Diagnostics v2. One canonical, read-only projection of Local

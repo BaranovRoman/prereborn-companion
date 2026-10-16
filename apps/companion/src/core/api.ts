@@ -1,6 +1,15 @@
 import { invoke } from "@tauri-apps/api/core";
+import { Update } from "@tauri-apps/plugin-updater";
 import type { AccountStatus, TwitchChatStatus, TwitchIntegrationStatus, SileroTtsStatus, SileroVoice, TtsTraceEventInput, SkipHotkeyStatus } from "./contracts";
 export type * from "./contracts";
+
+// Stock Update owns signature/download/install behavior and resource lifecycle.
+// Native check adds only the host-generation before-exit fence, with the same
+// configured endpoint, key and default version comparator.
+export async function checkCompanionUpdate():Promise<Update|null>{
+  const metadata=await invoke<ConstructorParameters<typeof Update>[0]|null>("check_companion_update");
+  return metadata?new Update(metadata):null;
+}
 
 // Companion account commands never expose the persisted credentials.
 export const getAccountStatus = () => invoke<AccountStatus>("get_account_status");

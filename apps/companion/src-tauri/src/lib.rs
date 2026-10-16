@@ -254,6 +254,7 @@ pub fn run() {
             plugin_lab::plugin_lab_status,
             plugin_lab::plugin_lab_ui_result,
             commands::get_status,
+            commands::check_companion_update,
             commands::get_local_lifecycle_status,
             commands::local_lifecycle_stale_continue,
             commands::local_lifecycle_stale_end,
@@ -341,6 +342,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
+            // Closing WebViews for the native updater fence must not end the
+            // event loop before the stock installer has actually been spawned.
+            #[cfg(windows)]
+            if let tauri::RunEvent::ExitRequested{api,..}=&event{
+                if commands::updater_exit_in_progress(){api.prevent_exit();}
+            }
             if matches!(event, tauri::RunEvent::Exit) {
                 if let Some(manager) = app.try_state::<core::plugin_manager::PluginManager>() { manager.shutdown(); }
             }

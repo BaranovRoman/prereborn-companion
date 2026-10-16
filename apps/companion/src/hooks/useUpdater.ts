@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from "react";
-import { check, type Update } from "@tauri-apps/plugin-updater";
+import type { Update } from "@tauri-apps/plugin-updater";
+import { checkCompanionUpdate } from "../core/api";
 import { relaunch } from "@tauri-apps/plugin-process";
 
 export type UpdaterState =
@@ -25,7 +26,7 @@ export function useUpdater() {
     pendingUpdate.current = null;
     setState({ phase: "checking" });
     try {
-      const update = await check();
+      const update = await checkCompanionUpdate();
       if (!update) {
         setState({ phase: "up-to-date" });
         return;

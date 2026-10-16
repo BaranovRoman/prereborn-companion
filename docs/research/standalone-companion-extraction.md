@@ -470,3 +470,28 @@ initialization nor its updater hook is attached to normal startup yet; wire both
 before enabling the generic worker scheduler during final BuiltIn removal. Actual
 WebView containment and native updater behavior still require packaged Windows
 validation after that wiring. Do not publish this intermediate branch.
+
+## Native updater before-exit wiring (2026-10-16)
+
+Inspection of the actual installed tauri-plugin-updater 2.10.1 source showed its
+JS plugin builder does not expose an exit callback override. Native
+check_companion_update therefore uses the existing UpdaterExt builder/config/key/
+endpoint/default comparator, adds its supported before-exit callback and puts the
+actual Update resource into the same main-WebView resource table. Frontend creates
+the stock Update object from that RID and still calls its unchanged
+ downloadAndInstall/signature verifier/NSIS implementation. No alternate installer,
+channel, endpoint, public key or version comparison was introduced.
+
+When a supervised host is attached, only AFTER successful signature verification
+the callback closes host admission, shuts down the manager/Silero/hotkeys, destroys
+WebViews, proves old child exit, persists retirement and permits the installer's new
+process to detach. Failure logs a static error and exits before ShellExecute. An
+exit-in-progress guard prevents destroying the last WebView from ending Tauri's
+event loop before installer spawn. With no supervised host (current transitional
+startup), the callback retains stock cleanup behavior. Root host setup remains
+unattached until the BuiltIn cut; it must be wired before first WebView creation.
+
+Targeted checks: actual stock JS Update resource construction from native metadata,
+null/error handling, 3 existing updater signature/install/progress state tests,
+core shell tests, TypeScript and core cargo check. This does not claim an actual
+Windows upgrade or WebView descendant fence; those require final packaged validation.
