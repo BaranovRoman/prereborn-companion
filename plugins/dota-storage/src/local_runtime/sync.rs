@@ -38,6 +38,19 @@ pub struct SyncOutboxStatus {
 
 pub const SHADOW_DEAD_LETTER_ERROR: &str = "pre-cutover shadow data, never synced";
 
+#[derive(Clone,Debug,serde::Serialize,serde::Deserialize)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+pub struct Correction{
+ pub local_match_id:String,pub rating_delta:i64,pub rating_after:Option<i64>,
+ pub session_rating:Option<i64>,pub session_rating_adjustment:Option<i64>,pub corrected_at:String,
+}
+impl Correction{
+ pub fn validate(&self)->Result<DateTime<Utc>,String>{
+  if Uuid::parse_str(&self.local_match_id).is_err()||!(-30000..=30000).contains(&self.rating_delta)||[self.rating_after,self.session_rating].into_iter().flatten().any(|v|!(0..=30000).contains(&v))||self.session_rating_adjustment.is_some_and(|v|!(-30000..=30000).contains(&v))||self.corrected_at.len()>64{return Err("correction_invalid".into());}
+  companion_dota_domain::session_lifecycle::parse_rfc3339(&self.corrected_at).ok_or("correction_timestamp_invalid".into())
+ }
+}
+
 pub fn outbox_status(conn: &Connection) -> rusqlite::Result<SyncOutboxStatus> {
     let unknown_delivery_count:i64=conn.query_row("SELECT count(*) FROM sync_outbox WHERE delivered_at IS NULL AND failed_at IS NULL AND (last_error LIKE 'delivery Unknown%' OR last_error LIKE 'backend result Unknown%' OR last_error LIKE 'network error:%')",[],|row|row.get(0))?;
     let pending_count: i64 = conn.query_row(

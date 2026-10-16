@@ -377,3 +377,26 @@ and 8 real-process macOS IPC tests; 9 independent UI tests/TypeScript; core chec
 Windows supervised fixture was extended with correlated scene receipt handling
 and Unknown identity retention; its next CI run is pending. This is not native
 OBS/game/audio smoke. Startup attachment still waits for the physical BuiltIn cut.
+
+## Backend correction parity checkpoint (2026-10-16)
+
+Unsigned Windows run 38845337974 passed for cfb2ef7, including real supervised
+worker reverse requests/outbox recovery, native transport tests, NSIS and packaged
+smoke. OBS commit 71757f1 and the following corrections change require the next run.
+
+Worker corrections polling uses the existing signed resource bridge and original
+sync/corrections contract. The same facade server_correction SQL applies the
+bounded batch. Cursor advancement preserves the existing latest+1ms semantics;
+corrections, cursor, actual revisions and a checksummed idempotent batch receipt
+commit in one transaction. No optimistic response, swallowed SQL error or failed
+batch may advance the cursor. The next frame reads actual storage context and the
+independent UI refresh counter prompts a fresh history query even without GSI.
+No-op/empty polls allocate no ledger key. Invalid or over-limit replies are not
+partially applied. Existing server-originated detected-vs-corrected rating behavior
+is preserved, including device-rating semantics.
+
+Targeted tests: 8 lifecycle/account/outbox/correction tests, including exact full
+legacy write-set parity without UUID normalization, duplicate replay without revision
+changes, quota rollback and invalid timestamps; 8 real-process macOS IPC tests and
+core cargo check. Windows callback fixture now also handles the actual separate
+corrections request. No user database or backend data was used.

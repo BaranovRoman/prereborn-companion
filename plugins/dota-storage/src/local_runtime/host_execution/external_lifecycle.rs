@@ -6,6 +6,31 @@ pub struct Outcome {pub session:Option<String>,pub stream_ended:Option<bool>}
 #[derive(Serialize)]
 struct LifecycleReceipt {family:&'static str,before:u64,after:u64,decision:Option<Decision>,resolved_session:String,interrupted:Vec<String>,sessions:Vec<SessionReceipt>}
 impl Adapter {
+ pub fn corrections_since(&mut self,c:&mut Connection,pin:&impl ExecutionGrant)->Result<String>{
+  self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;self.sync_scope(&tx,pin)?;
+  let since=sql(super::super::sync::meta_get(&tx,"corrections_since"))?.unwrap_or_else(||"1970-01-01T00:00:00Z".into());
+  if lifecycle::parse_rfc3339(&since).is_none(){return Err("corrections_cursor_invalid".into());}Ok(since)
+ }
+ /// Original correction SQL, cursor (+1ms) and its durable receipt commit
+ /// together. A failed/oversized batch cannot silently advance the cursor.
+ pub fn apply_corrections(&mut self,c:&mut Connection,pin:&impl ExecutionGrant,since:&str,batch:&[super::super::sync::Correction])->Result<()> {
+  let lower=lifecycle::parse_rfc3339(since).ok_or("corrections_cursor_invalid")?;
+  if batch.len()>128||encode(&batch)?.len()>24576{return Err("corrections_limit".into());}
+  let mut latest=None;for correction in batch{let time=correction.validate()?;if time<lower{return Err("correction_before_cursor".into());}latest=Some(latest.map_or(time,|previous:DateTime<Utc>|previous.max(time)));}
+  self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;self.sync_scope(&tx,pin)?;
+  let key=format!("corrections:{}",hash(&encode(&(since,batch))?));
+  let saved:Option<(String,String,Option<String>,Option<String>)>=sql(tx.query_row("SELECT identity,status,CASE WHEN length(CAST(receipt AS BLOB))<=2048 THEN receipt ELSE NULL END,checksum FROM pc_tx_ledger LEFT JOIN pc_tx_receipts USING(operation_key) WHERE operation_key=?1",[&key],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional())?;
+  if let Some((identity,status,doc,checksum))=saved{let doc=doc.ok_or("receipt_corrupt")?;if status!="completed"||hash(&doc)!=identity||checksum.as_deref()!=Some(hash(&doc).as_str()){return Err("receipt_corrupt".into());}return Ok(());}
+  let current=sql(super::super::sync::meta_get(&tx,"corrections_since"))?.unwrap_or_else(||"1970-01-01T00:00:00Z".into());if current!=since{return Err("corrections_cursor_changed".into());}
+  let Some(latest)=latest else{return Ok(());};
+  let before:u64=sql(tx.query_row("SELECT value FROM pc_tx_epoch WHERE id=1",[],|r|r.get(0)))?;
+  let f=Facade::new(&tx);for correction in batch{sql(f.server_correction(&correction.local_match_id,correction.rating_delta,correction.rating_after,correction.session_rating,correction.session_rating_adjustment))?;}
+  let next=latest.checked_add_signed(chrono::Duration::milliseconds(1)).ok_or("correction_timestamp_invalid")?.to_rfc3339();
+  sql(super::super::sync::meta_set(&tx,"corrections_since",&next))?;
+  let after:u64=sql(tx.query_row("SELECT value FROM pc_tx_epoch WHERE id=1",[],|r|r.get(0)))?;
+  let doc=encode(&serde_json::json!({"family":"corrections-v1","before":before,"after":after,"since":since,"next":next,"count":batch.len()}))?;
+  Self::sync_receipt(&tx,&key,&hash(&doc),&doc)?;sql(tx.commit())
+ }
  fn sync_scope(&self,tx:&Transaction<'_>,pin:&impl ExecutionGrant)->Result<()> {
   if !pin.permits(MATCH_EXECUTION_CAPABILITY)||!pin.permits("backend.access"){return Err("capability_denied".into());}
   Self::verify(tx,&self.expected_schema)?;
@@ -269,6 +294,21 @@ mod sync_bookkeeping_tests {
   let mut pin=Pin{package,lease,session:None};adapter.initialize_sync(&mut c,&pin).unwrap();assert!(store::find_open_session(&c).unwrap().is_none());
   let now=Utc::now()+chrono::Duration::seconds(1);pin.session=adapter.external_lifecycle(&mut c,&pin,Some(true),None,now,false).unwrap().session;
   (root,c,adapter,pin,now+chrono::Duration::seconds(1))
+ }
+ #[test]
+ fn server_correction_batch_matches_real_legacy_write_set_and_cursor_and_receipt_are_atomic(){
+  let(root,mut c,mut adapter,pin,now)=ready();let session=pin.session.as_deref().unwrap();
+  store::set_current_rating(&mut c,2400).unwrap();store::create_match(&c,session,Some("321"),105,"radiant",RankedMode::Ranked,now).unwrap();
+  let m=store::find_active_match(&c,session).unwrap().unwrap();store::finalize_match(&mut c,&m.local_id,session,RankedMode::Ranked,crate::local_runtime::model::MatchResult::Win,"confirmed",now).unwrap();
+  let reference=root.path().join("legacy.sqlite3");c.execute("VACUUM INTO ?1",[reference.to_str().unwrap()]).unwrap();let old=Connection::open(reference).unwrap();
+  let since=adapter.corrections_since(&mut c,&pin).unwrap();let correction=sync::Correction{local_match_id:m.local_id.clone(),rating_delta:35,rating_after:Some(2435),session_rating:Some(2435),session_rating_adjustment:Some(10),corrected_at:now.to_rfc3339()};let batch=vec![correction.clone()];
+  sync::apply_one_correction(&old,&m.local_id,35,Some(2435),Some(2435),Some(10)).unwrap();sync::meta_set(&old,"corrections_since",&(now+chrono::Duration::milliseconds(1)).to_rfc3339()).unwrap();
+  adapter.apply_corrections(&mut c,&pin,&since,&batch).unwrap();assert_eq!(crate::local_runtime::transaction_tests::dump(&c),crate::local_runtime::transaction_tests::dump(&old));
+  let revision:u64=c.query_row("SELECT value FROM pc_tx_epoch WHERE id=1",[],|r|r.get(0)).unwrap();let before=crate::local_runtime::transaction_tests::dump(&c);
+  adapter.apply_corrections(&mut c,&pin,&since,&batch).unwrap();assert_eq!(crate::local_runtime::transaction_tests::dump(&c),before);assert_eq!(c.query_row("SELECT value FROM pc_tx_epoch WHERE id=1",[],|r|r.get::<_,u64>(0)).unwrap(),revision);
+  let since=adapter.corrections_since(&mut c,&pin).unwrap();let count:u64=c.query_row("SELECT count(*) FROM pc_tx_ledger",[],|r|r.get(0)).unwrap();c.execute("UPDATE pc_tx_limits SET max_operations=?1",[count]).unwrap();let mut next=correction;next.rating_delta=40;next.corrected_at=(now+chrono::Duration::seconds(2)).to_rfc3339();
+  assert_eq!(adapter.apply_corrections(&mut c,&pin,&since,&[next.clone()]).unwrap_err(),"safety_quota_exhausted");assert_eq!(crate::local_runtime::transaction_tests::dump(&c),before);assert_eq!(adapter.corrections_since(&mut c,&pin).unwrap(),since);
+  next.corrected_at="malformed".into();assert_eq!(adapter.apply_corrections(&mut c,&pin,&since,&[next]).unwrap_err(),"correction_timestamp_invalid");assert_eq!(crate::local_runtime::transaction_tests::dump(&c),before);
  }
  #[test]
  fn unknown_delivery_retains_the_original_fifo_event_uuid_and_payload_and_ack_is_idempotent(){

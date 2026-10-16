@@ -83,6 +83,12 @@ impl History {
  pub fn pending_sync(&mut self)->Result<Option<db::sync::OutboxRow>,String>{
   let grant=self.grant.as_ref().ok_or("worker_inactive")?;self.adapter.pending_sync(&mut self.connection,grant,chrono::Utc::now())
  }
+ pub fn corrections_since(&mut self)->Result<String,String>{
+  let grant=self.grant.as_ref().ok_or("worker_inactive")?;self.adapter.corrections_since(&mut self.connection,grant)
+ }
+ pub fn apply_corrections(&mut self,since:&str,batch:&[db::sync::Correction])->Result<(),String>{
+  let grant=self.grant.as_ref().ok_or("worker_inactive")?;self.adapter.apply_corrections(&mut self.connection,grant,since,batch)
+ }
  pub fn settle_sync(&mut self,row:&db::sync::OutboxRow,delivery:&str)->Result<(),String>{
   let grant=self.grant.as_ref().ok_or("worker_inactive")?;self.adapter.settle_sync(&mut self.connection,grant,row,delivery,chrono::Utc::now())
  }

@@ -54,12 +54,12 @@ pub struct Worker {
  last_lifecycle_at:Option<std::time::Instant>,last_watchdog_at:Option<std::time::Instant>,stream_ended:bool,streaming:Option<bool>,
  next_account_at:Option<std::time::Instant>,account_request_sequence:u64,account_failures:u32,backend_error:Option<String>,account:Option<Value>,
  next_sync_at:Option<std::time::Instant>,pending_sync:Option<companion_dota_storage::local_runtime::sync::OutboxRow>,
- backend_updates:u64,
+ backend_updates:u64,next_corrections_at:Option<std::time::Instant>,pending_corrections:Option<String>,
  detected_sounds:u64,planned_sounds:u64,last_sound_signal:Option<Value>,last_sound_operation:Option<String>,
  last_error:Option<String>, processed:u64, last_sequence:Option<u64>, last_analysis:Option<Value>,last_gsi:Option<Value>,last_receipt:Option<companion_dota_domain::match_execution::Receipt>,
 }
 impl Worker {
- pub fn new(launch:Launch)->Self{Self{launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,obs:Default::default(),dropped_sound_intents:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,next_sync_at:None,pending_sync:None,backend_updates:0,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
+ pub fn new(launch:Launch)->Self{Self{launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,obs:Default::default(),dropped_sound_intents:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,next_sync_at:None,pending_sync:None,backend_updates:0,next_corrections_at:None,pending_corrections:None,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
  pub fn status(&self)->Value{
   let history=self.history.as_ref();let active=history.is_some_and(History::active);
   json!({"prepared":history.is_some(),"active":active,"awaitingSession":active&&history.and_then(History::session).is_none(),
@@ -72,7 +72,16 @@ impl Worker {
   use companion_plugin_protocol::backend::Request;
   if !self.launch.capabilities.iter().any(|c|c=="backend.access")||!self.history.as_ref().is_some_and(History::active){return Ok(None);}
   if self.next_account_at.is_some_and(|at|at>std::time::Instant::now()){
-   if self.next_sync_at.is_some_and(|at|at>std::time::Instant::now())||self.backend_error.as_deref()==Some("account_not_connected"){return Ok(None);}
+   if self.backend_error.as_deref()==Some("account_not_connected"){return Ok(None);}
+   if self.next_corrections_at.is_none_or(|at|at<=std::time::Instant::now()){
+    if self.pending_corrections.is_some(){return Err("backend_request_in_flight".into());}
+    let since=self.history.as_mut().unwrap().corrections_since()?;
+    self.next_corrections_at=Some(std::time::Instant::now()+std::time::Duration::from_secs(60));
+    self.account_request_sequence=self.account_request_sequence.checked_add(1).ok_or("backend_sequence_exhausted")?;
+    self.pending_corrections=Some(since.clone());
+    return Ok(Some(Request{resource:"corrections".into(),operation_key:format!("corrections:{}:{}",self.launch.generation,self.account_request_sequence),query:[("since".into(),since)].into(),body:None}));
+   }
+   if self.next_sync_at.is_some_and(|at|at>std::time::Instant::now()){return Ok(None);}
    self.next_sync_at=Some(std::time::Instant::now()+std::time::Duration::from_secs(2));
    if self.pending_sync.is_some(){return Err("backend_request_in_flight".into());}
    let Some(row)=self.history.as_mut().unwrap().pending_sync()?else{return Ok(None);};
@@ -87,6 +96,15 @@ impl Worker {
  pub fn backend_response(&mut self,request:&companion_plugin_protocol::backend::Request,response:companion_plugin_protocol::backend::Response)->Result<(),String>{
   if response.operation_key!=request.operation_key{return Err("backend_response_scope_mismatch".into());}
   if request.resource=="account"{self.account_response(request,response)?;self.backend_updates=self.backend_updates.checked_add(1).ok_or("backend_sequence_exhausted")?;return Ok(());}
+  if request.resource=="corrections"{
+   let since=self.pending_corrections.take().ok_or("backend_request_not_pending")?;
+   if request.query.get("since")!=Some(&since){return Err("backend_response_scope_mismatch".into());}
+   if response.error.is_none()&&response.status.is_some_and(|s|(200..300).contains(&s)){
+    let batch=response.body.as_ref().and_then(|v|v.get("corrections")).cloned().and_then(|v|serde_json::from_value::<Vec<companion_dota_storage::local_runtime::sync::Correction>>(v).ok());
+    if let Some(batch)=batch{self.history.as_mut().ok_or("not_prepared")?.apply_corrections(&since,&batch)?;self.backend_error=None;}else{self.backend_error=Some("backend_corrections_invalid".into());}
+   }else{self.backend_error=Some(response.error.unwrap_or_else(||"backend_corrections_unavailable".into()));}
+   self.backend_updates=self.backend_updates.checked_add(1).ok_or("backend_sequence_exhausted")?;return Ok(());
+  }
   if request.resource!="sync-event"{return Err("backend_response_scope_mismatch".into());}
   let row=self.pending_sync.take().ok_or("backend_request_not_pending")?;
   if request.operation_key!=format!("sync:{}:{}",row.id,row.attempts){return Err("backend_response_scope_mismatch".into());}
