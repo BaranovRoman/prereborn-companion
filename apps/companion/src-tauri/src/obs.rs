@@ -30,6 +30,8 @@ pub struct ObsConfig {
     // Companion just needs a real OBS scene name to switch to once the
     // stream session becomes `ended` - see BroadcastScene::PostStream.
     pub post_stream_scene: String,
+    #[serde(flatten)]
+    pub extensions:std::collections::BTreeMap<String,Value>,
 }
 
 // WK-125 - hand-written, not derived: `config.clone()` travels through many
@@ -65,23 +67,12 @@ impl Default for ObsConfig {
             draft_scene: "Dota — Драфт".into(),
             gameplay_scene: "Dota — Игра".into(),
             post_stream_scene: "Dota — Post Stream".into(),
+            extensions:Default::default(),
         }
     }
 }
 
 impl ObsConfig {
-    /// Temporary legacy-config projection during extraction. No credentials or
-    /// game enum are included in the host's public resource contract.
-    pub(crate) fn plugin_bindings(&self)->std::collections::BTreeMap<String,String>{
-        [("betweenMatches".into(),self.between_matches_scene.clone()),("draft".into(),self.draft_scene.clone()),("gameplay".into(),self.gameplay_scene.clone()),("postStream".into(),self.post_stream_scene.clone())].into()
-    }
-    pub(crate) fn plugin_revision(&self)->String{
-        use sha2::{Digest,Sha256};
-        format!("{:x}",Sha256::digest(serde_json::to_vec(&(self.enabled,&self.host,self.port,self.plugin_bindings())).expect("serializable OBS mappings")))
-    }
-    pub(crate) fn same_transport(&self,other:&Self)->bool{
-        self.host==other.host&&self.port==other.port&&self.password==other.password&&self.enabled==other.enabled&&self.plugin_bindings()==other.plugin_bindings()
-    }
     pub fn mapped_scene_names(&self) -> [&str; 4] {
         [
             self.between_matches_scene.as_str(),

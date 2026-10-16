@@ -20,6 +20,22 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 describe("installed Dota package UI",()=>{
+  it("keeps saved OBS mappings available offline and waits for the native save result",async()=>{
+    const previous=mocks.invoke.getMockImplementation()!;const bindings={betweenMatches:"Saved idle",draft:"Saved draft",gameplay:"Saved game",postStream:"Saved summary"};
+    const initial={configRevision:"a".repeat(64),bindings,enabled:false,connected:false,scenes:[]};let resolve!:(value:unknown)=>void;
+    mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>name==="obs.settings"?initial:name==="obs.save"?new Promise(r=>{resolve=r;}):previous(name,...args));
+    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});fireEvent.click(screen.getByRole("button",{name:"OBS и сцены"}));
+    await screen.findByText(/OBS недоступен/);expect((screen.getByLabelText("Игра") as HTMLInputElement).value).toBe("Saved game");
+    fireEvent.change(screen.getByLabelText("Игра"),{target:{value:"New game"}});fireEvent.click(screen.getByRole("button",{name:"Сохранить сцены"}));
+    await waitFor(()=>expect(mocks.invoke).toHaveBeenCalledWith("obs.save",{expectedRevision:initial.configRevision,bindings:{...bindings,gameplay:"New game"}}));expect(screen.queryByText(/Сопоставление сохранено/)).toBeNull();
+    resolve({...initial,configRevision:"b".repeat(64),bindings:{...bindings,gameplay:"New game"}});await screen.findByText(/Сопоставление сохранено/);
+  });
+  it("does not report success or retry after a stale OBS mapping precondition",async()=>{
+    const previous=mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>{if(name==="obs.settings")return {configRevision:"a".repeat(64),bindings:{betweenMatches:"Idle",draft:"Draft",gameplay:"Game",postStream:"Summary"},enabled:true,connected:true,scenes:["Idle","Draft","Game","Summary"]};if(name==="obs.save")throw Error("obs_configuration_changed");return previous(name,...args);});
+    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});fireEvent.click(screen.getByRole("button",{name:"OBS и сцены"}));await screen.findByRole("button",{name:"Сохранить сцены"});fireEvent.click(screen.getByRole("button",{name:"Сохранить сцены"}));
+    await screen.findByText(/obs_configuration_changed/);expect(screen.queryByText(/Сопоставление сохранено/)).toBeNull();expect(mocks.invoke.mock.calls.filter(([name])=>name==="obs.save")).toHaveLength(1);
+  });
   it("does not hide an uncertain OBS effect behind the active worker state",async()=>{
     const previous=mocks.invoke.getMockImplementation()!;
     mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>name==="status"?{prepared:true,active:true,awaitingSession:true,obsError:"obs_result_unknown_requires_authoritative_reconciliation",lastError:null}:previous(name,...args));

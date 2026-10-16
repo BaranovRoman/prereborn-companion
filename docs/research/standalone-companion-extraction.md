@@ -513,3 +513,31 @@ legacy JSON retention, public redaction, stale edit and malformed-state rejectio
 place of the legacy OBS struct; do that with physical core removal, avoiding a
 second scene automator. Remaining plugin settings/overlay controls must use this
 same generic capability, not the legacy Dota Tauri commands.
+
+## Independent OBS settings UI checkpoint (2026-10-16)
+
+The verified worker pin now carries signed obsBindings. Public observations and
+scene admissions use the generic config projection/revision, not a core-coded
+list of game semantics. A temporary private source-shape adapter keeps the current
+legacy OBS holder compatible; private credential serialization never crosses IPC.
+The legacy struct retains opaque extension fields on save so plugin mappings are
+not lost while that holder is removed. Unused hardcoded plugin projection methods
+were removed. This does not attach a second scene automator.
+
+The package's own OBS panel uses signed obs.settings/obs.save commands. Core checks
+UI/OBS capabilities, executable generation, declared semantics and a real config
+revision immediately before persistence; it never accepts a host/password/path
+from the iframe. It revalidates endpoint/credential identity after a probe and does
+not report an old connection as current. Saved mappings remain available with OBS
+closed; saving does not assert a scene was switched. A stale/native error is shown
+in place, without optimistic success or automatic retry. No game listener/session
+or history preparation is required merely to edit settings.
+
+Local checks: 11 independent package UI tests (offline mappings, deferred native
+ACK, stale revision included), TypeScript, real generic config/secret-redaction/
+legacy JSON/CAS test and core cargo check. The active stable/plugin package is
+unchanged. Actual native UI invocation awaits final startup attachment and signed
+API2 packaging; old Dota 0.1.0 lacks these commands and must not be reused as the
+new package. Before startup cut, also persist/reconcile OBS target identity for
+Unknown after process exit; the current name-only transport action is insufficient
+for safe recovery if the OBS endpoint changes.

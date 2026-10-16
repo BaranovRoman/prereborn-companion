@@ -7,7 +7,7 @@ use serde::Deserialize;
 use tauri::Emitter;
 
 #[derive(Clone)]
-struct Pin{package:PackageBinding,executable:PathBuf,permissions:Vec<String>,backend_resources:std::collections::BTreeMap<String,companion_plugin_protocol::backend::Resource>}
+struct Pin{package:PackageBinding,executable:PathBuf,permissions:Vec<String>,backend_resources:std::collections::BTreeMap<String,companion_plugin_protocol::backend::Resource>,obs_bindings:std::collections::BTreeMap<String,companion_plugin_protocol::obs::Binding>}
 impl ProcessGrant for Pin{
  fn binding(&self)->&PackageBinding{&self.package}
  fn executable(&self)->&std::path::Path{&self.executable}
@@ -31,7 +31,7 @@ impl Service{
   let (executable,manifest)=self.store.executable(id,&installed.active)?;
   if manifest.min_api<2||manifest.execution!=packages::ExecutionMode::Live{return Err("plugin_update_required".into());}
   let package=PackageBinding{id:manifest.id.clone(),version:manifest.version.clone(),executable_hash:manifest.files.get(&manifest.executable).cloned().ok_or("executable_unbound")?,manifest_hash:packages::hash(&serde_json::to_vec(&manifest).map_err(|_|"invalid_manifest")?)};
-  Ok((Pin{package,executable,permissions:manifest.permissions.clone(),backend_resources:manifest.backend_resources.clone()},manifest))
+  Ok((Pin{package,executable,permissions:manifest.permissions.clone(),backend_resources:manifest.backend_resources.clone(),obs_bindings:manifest.obs_bindings.clone()},manifest))
  }
  pub(super) fn open_worker(&mut self,id:&str)->Result<(),String>{
   if let Some(worker)=self.workers.get(id){
@@ -134,40 +134,46 @@ impl Service{
   }).collect()
  }
 }
+// Temporary source-shape adapter only; removed with the legacy OBS struct.
+// Private credential serialization never crosses IPC or enters logs.
+fn read_obs_config(app:&tauri::AppHandle)->Result<super::super::obs_transport::ObsConfig,String>{
+ use tauri::Manager;
+ let state=app.state::<crate::state::AppState>();let inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;
+ serde_json::from_value(serde_json::to_value(&inner.obs_config).map_err(|_|"obs_configuration_invalid")?).map_err(|_|"obs_configuration_invalid".into())
+}
 impl Task{
  fn scene_observation(&self)->Result<Option<companion_plugin_protocol::obs::SceneObservation>,String>{
-  use companion_plugin_protocol::obs::{SceneObservation,StreamObservation};use tauri::Manager;use std::time::{Instant,Duration,SystemTime,UNIX_EPOCH};
+  use companion_plugin_protocol::obs::{SceneObservation,StreamObservation};use std::time::{Instant,Duration,SystemTime,UNIX_EPOCH};
   if !self.worker.pin.permits("obs.scene"){return Ok(None);}
-  let config={let state=self.app.state::<crate::state::AppState>();let inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;inner.obs_config.clone()};
+  let config=read_obs_config(&self.app)?;
   let now=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_|"clock_unavailable")?.as_millis() as u64;
   let mut cached=self.worker.scene_observation.lock().map_err(|_|"obs_observation_poisoned")?;
-  let revision=config.plugin_revision();
+  let revision=config.plugin_revision(&self.worker.pin.package.id,&self.worker.pin.obs_bindings)?;
   if let Some(obs)=cached.as_ref().filter(|s|s.config_revision==revision&&now>=s.observed_at_ms&&now-s.observed_at_ms<1000){return Ok(Some(obs.clone()));}
   let connection=super::super::obs_transport::ConnectionSettings{host:&config.host,port:config.port,password:&config.password};
   let snapshot=super::super::obs_transport::snapshot_before(&connection,Instant::now()+Duration::from_millis(500)).ok();
-  let unchanged={let state=self.app.state::<crate::state::AppState>();let inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;inner.obs_config.same_transport(&config)};
+  let unchanged=read_obs_config(&self.app)?.same_transport(&config);
   let snapshot=snapshot.filter(|_|unchanged);
   let observed_at_ms=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_|"clock_unavailable")?.as_millis() as u64;
-  let observation=SceneObservation{observed_at_ms,config_revision:revision,enabled:config.enabled,bindings:config.plugin_bindings(),current_scene:snapshot.as_ref().map(|s|s.current_scene.clone()),scenes:snapshot.as_ref().map(|s|s.scenes.clone()).unwrap_or_default(),streaming:snapshot.map(|s|s.streaming)};
+  let observation=SceneObservation{observed_at_ms,config_revision:revision,enabled:config.enabled,bindings:config.plugin_bindings(&self.worker.pin.package.id,&self.worker.pin.obs_bindings)?,current_scene:snapshot.as_ref().map(|s|s.current_scene.clone()),scenes:snapshot.as_ref().map(|s|s.scenes.clone()).unwrap_or_default(),streaming:snapshot.map(|s|s.streaming)};
   observation.validate()?;
   *self.worker.stream_observation.lock().map_err(|_|"obs_observation_poisoned")?=Some(StreamObservation{observed_at_ms,streaming:observation.streaming});
   *cached=Some(observation.clone());Ok(Some(observation))
  }
  fn scene_intent(&self,intent:&companion_plugin_protocol::obs::SceneIntent,context:Option<&str>)->Result<companion_plugin_protocol::obs::SceneReceipt,String>{
-  use tauri::Manager;use std::time::{Instant,Duration};use companion_plugin_protocol::{obs::SceneReceipt,audio::Status};
+  use std::time::{Instant,Duration};use companion_plugin_protocol::{obs::SceneReceipt,audio::Status};
   if !self.worker.pin.permits("obs.scene")||intent.operation_key.is_empty()||intent.operation_key.len()>128||intent.context.as_deref()!=context{return Err("invalid_scene_intent".into());}
   self.audio.locked_authorize(&self.worker.binding,self.worker.epoch)?;
-  let config={let state=self.app.state::<crate::state::AppState>();let inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;inner.obs_config.clone()};
-  if !config.enabled||config.plugin_revision()!=intent.config_revision{return Err("obs_configuration_changed".into());}
-  let mappings=config.plugin_bindings();let name=mappings.get(&intent.semantic).filter(|s|!s.is_empty()).ok_or("obs_semantic_denied")?;
+  let config=read_obs_config(&self.app)?;
+  if !config.enabled||config.plugin_revision(&self.worker.pin.package.id,&self.worker.pin.obs_bindings)?!=intent.config_revision{return Err("obs_configuration_changed".into());}
+  let mappings=config.plugin_bindings(&self.worker.pin.package.id,&self.worker.pin.obs_bindings)?;let name=mappings.get(&intent.semantic).filter(|s|!s.is_empty()).ok_or("obs_semantic_denied")?;
   let key=format!("{}:{}",self.worker.binding.generation,packages::hash(&serde_json::to_vec(intent).map_err(|_|"invalid_scene_intent")?));
   let receipt=self.audio.scene(&self.worker.pin,&self.worker.binding,self.worker.epoch,&key,name,|may_write|{
    let deadline=Instant::now()+Duration::from_millis(1500);
    let connection=super::super::obs_transport::ConnectionSettings{host:&config.host,port:config.port,password:&config.password};
    let status=if may_write{super::super::obs_transport::reconcile_scene_status(name,||super::super::obs_transport::program_scene_before(&connection,deadline),||super::super::obs_transport::set_program_scene_before(&connection,name,deadline))}
     else{if super::super::obs_transport::program_scene_before(&connection,deadline).is_ok_and(|current|current==*name){Status::Completed}else{Status::Unknown}};
-   let state=self.app.state::<crate::state::AppState>();let inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;
-   Ok(if inner.obs_config.same_transport(&config){status}else{Status::Unknown})
+   Ok(if read_obs_config(&self.app)?.same_transport(&config){status}else{Status::Unknown})
   })?;
   // Queued/playing do not describe a synchronous scene operation.
   if !matches!(receipt.status,Status::Completed|Status::Unknown|Status::Cancelled){return Err("obs_receipt_invalid".into());}
@@ -183,7 +189,7 @@ impl Task{
    // Reuse the current credential owner during extraction. The public worker
    // input contains only fresh OBS truth, never config/password or cached GSI.
    use tauri::Manager;
-   let config={let state=self.app.state::<crate::state::AppState>();let inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;inner.obs_config.clone()};
+   let config=read_obs_config(&self.app)?;
    // Automatic scene switching is independent of observing a real stream.
    // Preserve the existing watcher rule even when config.enabled is false.
    let connection=super::super::obs_transport::ConnectionSettings{host:&config.host,port:config.port,password:&config.password};
@@ -254,18 +260,43 @@ impl Task{
 
 impl PluginManager{
  fn asset_command(&self,id:&str,name:&str,args:Value)->Result<Value,String>{
-  let (worker,app,audio)={
+  let (worker,app,audio,host)={
    let mut guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_mut().map_err(|e|e.clone())?;
    let (_,manifest)=service.worker_pin(id)?;
-   if !manifest.permissions.iter().any(|p|p=="ui")||(name!="directory.pick"&&!manifest.permissions.iter().any(|p|p=="audio.play"))
-    ||!manifest.permissions.iter().any(|p|matches!(p.as_str(),"data.legacy"|"data.private"))||!manifest.ui_commands.iter().any(|c|c==name){return Err("capability_denied".into());}
+   let obs=matches!(name,"obs.settings"|"obs.save");
+   let permitted=if obs{manifest.permissions.iter().any(|p|p=="obs.scene")}else{name=="directory.pick"||manifest.permissions.iter().any(|p|p=="audio.play")};
+   if !manifest.permissions.iter().any(|p|p=="ui")||!permitted
+    ||(!obs&&!manifest.permissions.iter().any(|p|matches!(p.as_str(),"data.legacy"|"data.private")))||!manifest.ui_commands.iter().any(|c|c==name){return Err("capability_denied".into());}
    service.open_worker(id)?;
    let worker=service.workers.get(id).cloned().ok_or("not_running")?;
    let (app,audio)=service.native.as_ref().ok_or("plugin_transport_unavailable")?;
-   (worker,app.clone(),audio.clone())
+   (worker,app.clone(),audio.clone(),service.hosts.get(id).cloned().ok_or("not_running")?)
   };
   audio.locked_authorize(&worker.binding,worker.epoch)?;
   match name{
+   "obs.settings"|"obs.save"=>{
+    use tauri::Manager;use std::time::{Duration,Instant};
+    let _runtime=host.0.lock().map_err(|_|locked())?;
+    audio.locked_authorize(&worker.binding,worker.epoch)?;
+    let mut config=read_obs_config(&app)?;config.validate()?;let probed=config.clone();
+    let mut snapshot=super::super::obs_transport::snapshot_before(&config.connection(),Instant::now()+Duration::from_millis(500)).ok();
+    if name=="obs.save"{
+     #[derive(Deserialize)]#[serde(rename_all="camelCase",deny_unknown_fields)]struct Mapping{expected_revision:String,bindings:std::collections::BTreeMap<String,String>}
+     let change:Mapping=serde_json::from_value(args).map_err(|_|"invalid_ui_arguments")?;
+     if snapshot.as_ref().is_some_and(|state|change.bindings.values().any(|name|!state.scenes.contains(name))){return Err("obs_mapped_scene_missing".into());}
+     let state=app.state::<crate::state::AppState>();let mut inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;
+     // Compare immediately before the actual config write, never overwrite a
+     // concurrent core setting change with the older network-probe snapshot.
+     config=serde_json::from_value(serde_json::to_value(&inner.obs_config).map_err(|_|"obs_configuration_invalid")?).map_err(|_|"obs_configuration_invalid")?;
+     config.update_plugin_bindings(id,&worker.pin.obs_bindings,&change.expected_revision,change.bindings)?;
+     let legacy=serde_json::from_value(serde_json::to_value(&config).map_err(|_|"obs_configuration_invalid")?).map_err(|_|"obs_configuration_invalid")?;
+     audio.locked_authorize(&worker.binding,worker.epoch)?;crate::storage::save_obs_config(&app,&legacy).map_err(|_|"obs_configuration_write_failed")?;inner.obs_config=legacy;
+    }else{if args!=serde_json::json!({}){return Err("invalid_ui_arguments".into());}config=read_obs_config(&app)?;}
+    if config.host!=probed.host||config.port!=probed.port||config.password!=probed.password{snapshot=None;}
+    audio.locked_authorize(&worker.binding,worker.epoch)?;
+    let result=serde_json::json!({"configRevision":config.plugin_revision(id,&worker.pin.obs_bindings)?,"bindings":config.plugin_bindings(id,&worker.pin.obs_bindings)?,"enabled":config.enabled,"scenes":snapshot.as_ref().map(|s|s.scenes.clone()).unwrap_or_default(),"connected":snapshot.is_some()});
+    let _=app.emit("obs-status",app.state::<crate::state::AppState>().snapshot());Ok(result)
+   },
    "audio.receipt"=>{
     #[derive(Deserialize)]#[serde(rename_all="camelCase",deny_unknown_fields)]struct Query{operation_key:String}
     let query:Query=serde_json::from_value(args).map_err(|_|"invalid_ui_arguments")?;
@@ -315,7 +346,7 @@ impl PluginManager{
  }
  pub(super) fn ui_command(&self,id:&str,name:String,args:Value)->Result<Value,String>{
   if name.starts_with("host.")||name.len()>64||serde_json::to_vec(&args).map_err(|_|"invalid_ui_request")?.len()>8192{return Err("command_not_allowed".into());}
-  if matches!(name.as_str(),"asset.import"|"asset.preview"|"directory.pick"|"audio.receipt"){return self.asset_command(id,&name,args);}
+  if matches!(name.as_str(),"asset.import"|"asset.preview"|"directory.pick"|"audio.receipt"|"obs.settings"|"obs.save"){return self.asset_command(id,&name,args);}
   let (host,process)={
    let mut guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_mut().map_err(|e|e.clone())?;
    let manifest=service.manifests.get(id).cloned().ok_or("not_installed")?;

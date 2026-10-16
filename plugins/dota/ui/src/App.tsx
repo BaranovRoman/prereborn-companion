@@ -4,6 +4,7 @@ import type { GameSoundCatalog, GameSoundEventKind, GameSoundSettings, ManagedSo
 import { ItemsCatalog } from "./components/sounds/ItemsCatalog";
 import { SoundBindingRow } from "./components/sounds/SoundBindingRow";
 import { HistoryPanel } from "./components/HistoryPanel";
+import { ObsPanel } from "./components/ObsPanel";
 
 export function Dota() {
   const [tab,setTab] = useState("heroes"); const [query,setQuery] = useState(""); const [hero,setHero] = useState<TrackedHero|null>(null);
@@ -49,7 +50,7 @@ export function Dota() {
   return <main>
     <header><div><h1>Dota 2</h1><p role="status">{!status?"Подключение к плагину…":!status.active?"Плагин выключен — настройки доступны":status.awaitingSession?"Ожидание игровой сессии · звуки доступны и в опробовании героя":"Плагин работает"}</p></div>
       {status?.gsi&&<span>{status.processed} кадров обработано</span>}</header>
-    <nav aria-label="Разделы Dota">{[["heroes","Герои"],["items","Предметы"],["history","История"],["settings","Настройки"]].map(([key,title])=><button aria-current={tab===key?"page":undefined} key={key} onClick={()=>{setTab(key);setError(null);}}>{title}</button>)}</nav>
+    <nav aria-label="Разделы Dota">{[["heroes","Герои"],["items","Предметы"],["history","История"],["obs","OBS и сцены"],["settings","Настройки"]].map(([key,title])=><button aria-current={tab===key?"page":undefined} key={key} onClick={()=>{setTab(key);setError(null);}}>{title}</button>)}</nav>
     {(error||status?.lastError)&&<p role="alert">{error??status?.lastError}</p>}
     {status?.obsError&&<p role="alert">OBS: {status.obsError}. Выполнение игровых сцен не подтверждено.</p>}
     {!catalog||!settings?<p role="status">Чтение каталога и сохранённых настроек…</p>:<>
@@ -62,6 +63,7 @@ export function Dota() {
       </section>:<section><label>Поиск героя <input value={query} onChange={e=>setQuery(e.target.value)} /></label><div className="hero-grid">{catalog.heroes.filter(h=>`${h.displayName} ${h.id}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map(h=><button key={h.id} onClick={()=>setHero(h)}><img src={h.iconUrl} alt="" loading="lazy" width={72} height={40}/><span>{h.displayName}</span>{h.abilities.some(a=>settings.bindings.some(b=>b.eventId===a.id))&&<small>♪ Настроен звук</small>}</button>)}</div></section>)}
       {tab==="items"&&<ItemsCatalog items={catalog.items} settings={settings} onChooseFile={choose} onPreview={preview} onRemove={remove}/>}
       {tab==="history"&&<HistoryPanel history={history} sync={sync} active={status?.active===true} reload={async()=>{setHistory(await api.invoke<api.History>("history.summary"));setSync(await api.invoke<api.SyncStatus>("history.sync"));}}/>}
+      {tab==="obs"&&<ObsPanel/>}
       {tab==="settings"&&<section><h2>Звуковые реакции</h2><label><input type="checkbox" checked={settings.enabled} disabled={busy} onChange={e=>{void run(()=>api.invoke("sound.master",{enabled:e.target.checked,volume:settings.masterVolume})).catch(()=>{});}}/> Включены</label>
         <label>Громкость <input type="range" min="0" max="100" defaultValue={settings.masterVolume} disabled={busy} onPointerUp={e=>{void run(()=>api.invoke("sound.master",{enabled:settings.enabled,volume:Number(e.currentTarget.value)})).catch(()=>{});}} onKeyUp={e=>{if(e.key.startsWith("Arrow"))void run(()=>api.invoke("sound.master",{enabled:settings.enabled,volume:Number(e.currentTarget.value)})).catch(()=>{});}}/></label>
         <p>Звуки используют выбранное в Companion устройство вывода. OBS и трансляция для них не требуются. Удаление привязки сохраняет загруженный файл.</p>

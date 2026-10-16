@@ -21,6 +21,7 @@ impl Default for ObsConfig{fn default()->Self{Self{enabled:false,host:"127.0.0.1
 impl std::fmt::Debug for ObsConfig{fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result{f.debug_struct("ObsConfig").field("enabled",&self.enabled).field("host",&self.host).field("port",&self.port).field("password",&"[REDACTED]").finish_non_exhaustive()}}
 impl ObsConfig{
  pub fn connection(&self)->ConnectionSettings<'_>{ConnectionSettings{host:&self.host,port:self.port,password:&self.password}}
+ pub fn same_transport(&self,other:&Self)->bool{self==other}
  pub fn public(&self)->Self{Self{enabled:self.enabled,host:self.host.clone(),port:self.port,password:String::new(),extensions:Default::default()}}
  pub fn validate(&self)->Result<(),String>{
   if self.host.is_empty()||self.host.len()>253||self.host.chars().any(char::is_control)||self.port==0||self.password.len()>4096||serde_json::to_vec(&self.extensions).map_err(|_|"obs_configuration_invalid")?.len()>65536{return Err("obs_configuration_invalid".into());}Ok(())
