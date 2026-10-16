@@ -427,3 +427,46 @@ checks one reminder intent on a real worker GSI transition with synthetic OBS in
 and no duplicate on a repeated draft frame; its next CI run is pending. No audible
 native reminder, Dota match or real OBS smoke is claimed. The scheduler remains
 unattached while the physical BuiltIn extraction is still incomplete.
+
+## Host/WebView crash fencing and stock-updater containment checkpoint (2026-10-16)
+
+Unsigned Windows run 38846450573 passed for 8673447: OBS policy/receipts, backend
+corrections, supervised worker, NSIS and the transitional packaged smoke. Reminder
+commit 63acbb9 and this host-generation change require the next Windows run.
+
+The existing native Windows supervisor now supports containing Companion itself
+before WebView creation, without a new supervisor process or saved-PID proof.
+Its non-inherited job handle is retained through kernel process teardown. Existing
+crash fixture additionally verifies a normal descendant (without its own worker
+job) terminates on owner crash. Host generation is journalled before assignment;
+startup must fence the exact previous non-retired job before granting a new host.
+
+The unpublished generic transport namespace now journals the host generation and
+binds new audio receipts to it. A proven old-host exit retains audio Unknown, its
+payload/key/token and uncertainty, with an explicit audioFenced cessation fact;
+it does not claim completed playback. Unknown with no host journal remains blocked.
+OBS Unknown is deliberately NOT reconciled by process death. Old audio ACKs are
+rejected, and pre-ready/draining/retired hosts cannot admit operations. Raw Unknown
+counts remain observable separately from blocking Unknown. There is no key deletion.
+This changes only the new, unattached transport schema; legacy user history and
+its migration/backup contract are unchanged. Unexpected older transport schemas
+fail closed rather than being silently reset.
+
+Important startup wiring precondition: self-containment MUST NOT be attached
+without the matching updater retirement hook. Stock tauri-plugin-updater 2.10.1
+calls ShellExecuteW then exits; naive kill-on-close would also kill an inherited
+NSIS installer. The native retirement path first closes admission and requires
+the caller to stop producers/destroy WebViews, then waits on owned handles for
+all old descendants, persists retirement and allows only subsequent child creation
+to break away. The stock updater, endpoint, key and installer arguments remain
+unchanged. If retirement proof fails, installer launch must be stopped, not allowed
+under an unproved old job. The existing Windows fixture tests detached installer-
+like child survival only after old descendants exit. It is not an actual upgrade.
+
+Local checks: 9 real SQLite transport tests including atomic rollback of cessation
+facts, reopen, unjournalled Unknown, OBS isolation and stale ACK; 8 native host audio
+checks and core cargo check. Windows-only OS changes await CI. Neither the new host
+initialization nor its updater hook is attached to normal startup yet; wire both
+before enabling the generic worker scheduler during final BuiltIn removal. Actual
+WebView containment and native updater behavior still require packaged Windows
+validation after that wiring. Do not publish this intermediate branch.

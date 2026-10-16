@@ -3,6 +3,9 @@
 use std::{ffi::OsStr, fs::File, io, mem::size_of, os::windows::{ffi::OsStrExt, io::{FromRawHandle, OwnedHandle, AsRawHandle}, process::ExitStatusExt}, process::{Command, ExitStatus}, ptr, time::{Duration, Instant}};
 use windows_sys::Win32::{Foundation::*, Security::SECURITY_ATTRIBUTES, System::{JobObjects::*, Pipes::CreatePipe, Threading::*, SystemServices::{JOB_OBJECT_QUERY,JOB_OBJECT_TERMINATE}}};
 use windows_sys::Win32::System::SystemInformation::GetSystemWindowsDirectoryW;
+static HOST_SERIAL:std::sync::Mutex<()>=std::sync::Mutex::new(());
+static HOST_JOB:std::sync::OnceLock<(String,OwnedHandle)>=std::sync::OnceLock::new();
+pub fn current_host_generation()->Option<&'static str>{HOST_JOB.get().map(|(generation,_)|generation.as_str())}
 
 // Winsock providers may expand %SystemRoot% when loading their native DLL.
 // An entirely empty environment yielded WSAEPROVIDERFAILEDINIT (10106) in the
@@ -118,7 +121,8 @@ impl Fence {
         Ok(info.ActiveProcesses==0)
     }}
 }
-fn capture(job:HANDLE)->io::Result<Fence>{unsafe {
+fn capture(job:HANDLE)->io::Result<Fence>{capture_with_access(job,false)}
+fn capture_with_access(job:HANDLE,terminate:bool)->io::Result<Fence>{unsafe {
     const MAX_PROCESSES:usize=256;
     let total=accounting(job)?.TotalProcesses;
     let bytes=size_of::<JOBOBJECT_BASIC_PROCESS_ID_LIST>()+MAX_PROCESSES*size_of::<usize>();
@@ -131,7 +135,7 @@ fn capture(job:HANDLE)->io::Result<Fence>{unsafe {
     let mut handles=Vec::with_capacity(count);
     for &pid in ids {
         let pid=u32::try_from(pid).map_err(|_|io::Error::other("invalid job process id"))?;
-        let handle=own(OpenProcess(PROCESS_SYNCHRONIZE|PROCESS_QUERY_LIMITED_INFORMATION,0,pid))?;
+        let handle=own(OpenProcess(PROCESS_SYNCHRONIZE|PROCESS_QUERY_LIMITED_INFORMATION|if terminate{PROCESS_TERMINATE}else{0},0,pid))?;
         let mut member=0;
         if IsProcessInJob(handle.as_raw_handle(),job,&mut member)==0||member==0{return Err(io::Error::other("job process identity unproven"));}
         handles.push(handle);
@@ -169,6 +173,58 @@ pub fn verify_current_generation(generation:&str)->Result<(),String>{unsafe {
     let mut member=0;
     if IsProcessInJob(GetCurrentProcess(),job.as_raw_handle(),&mut member)==0||member==0{return Err("process_supervision_unproven".into());}
     Ok(())
+}}
+/// Put Companion itself into the same native containment contract BEFORE it
+/// creates any WebView. Descendants cannot break away; closing the process's
+/// sole non-inheritable job handle terminates its WebViews as well as workers.
+/// The handle intentionally lives until kernel process teardown (not a Tauri
+/// state destructor that could kill the still-flushing root process).
+pub fn supervise_current_host(generation:&str)->Result<(),String>{
+    let _guard=HOST_SERIAL.lock().map_err(|_|"host_supervision_poisoned")?;
+    if let Some((existing,_))=HOST_JOB.get(){return if existing==generation{verify_current_generation(generation)}else{Err("host_generation_already_bound".into())};}
+    unsafe{
+        let n=name(generation).map_err(|_|"invalid_process_generation")?;
+        let raw=CreateJobObjectW(ptr::null(),n.as_ptr());let error=GetLastError();
+        let job=own(raw).map_err(|_|"host_supervision_unproven")?;
+        if error==ERROR_ALREADY_EXISTS{return Err("host_generation_reused".into());}
+        let mut limits=JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();limits.BasicLimitInformation.LimitFlags=JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if SetInformationJobObject(job.as_raw_handle(),JobObjectExtendedLimitInformation,(&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),size_of_val(&limits) as u32)==0{return Err("host_supervision_unproven".into());}
+        if AssignProcessToJobObject(job.as_raw_handle(),GetCurrentProcess())==0{return Err("host_supervision_unproven".into());}
+        // SERIAL makes a competing setter impossible. Never drop a successfully
+        // assigned self-job while returning an initialization error.
+        if let Err((_,handle))=HOST_JOB.set((generation.into(),job)){std::mem::forget(handle);return Err("host_supervision_poisoned".into());}
+    }
+    verify_current_generation(generation)
+}
+/// Updating must not kill the ordinary NSIS installer with the old host job.
+/// The caller first closes admission, stops child producers and destroys its
+/// WebViews. Prove every existing descendant handle exited before permitting
+/// the stock updater's new ShellExecute process to escape. No PID-based kill.
+pub fn fence_current_host_children(generation:&str)->Result<(),String>{
+    verify_current_generation(generation)?;
+    let (current,job)=HOST_JOB.get().ok_or("host_supervision_unproven")?;if current!=generation{return Err("host_generation_fenced".into());}
+    let deadline=Instant::now()+Duration::from_secs(2);let mut handles=Vec::new();let mut seen=std::collections::BTreeSet::new();
+    loop{unsafe{
+        let witness=capture_with_access(job.as_raw_handle(),true).map_err(|_|"host_children_exit_unproven")?;let total=witness.total;
+        for handle in witness.handles{
+            let pid=GetProcessId(handle.as_raw_handle());if pid==0{return Err("host_children_exit_unproven".into());}if pid==GetCurrentProcessId()||!seen.insert(pid){continue;}
+            if WaitForSingleObject(handle.as_raw_handle(),0)!=WAIT_OBJECT_0&&TerminateProcess(handle.as_raw_handle(),1)==0&&WaitForSingleObject(handle.as_raw_handle(),0)!=WAIT_OBJECT_0{return Err("host_children_exit_unproven".into());}
+            handles.push(handle);if handles.len()>256{return Err("host_children_exit_unproven".into());}
+        }
+        let signalled=handles.iter().all(|h|WaitForSingleObject(h.as_raw_handle(),0)==WAIT_OBJECT_0);
+        let info=accounting(job.as_raw_handle()).map_err(|_|"host_children_exit_unproven")?;
+        if signalled&&info.ActiveProcesses==1&&info.TotalProcesses==total{return Ok(());}
+    }
+        if Instant::now()>=deadline{return Err("host_children_exit_unproven".into());}std::thread::sleep(Duration::from_millis(5));
+    }
+}
+/// Call only after persisting retirement with closed admission and the above
+/// native children-exit proof. Existing descendants cannot be released alive.
+pub fn allow_retired_host_updater_spawn(generation:&str)->Result<(),String>{unsafe{
+    verify_current_generation(generation)?;let(current,job)=HOST_JOB.get().ok_or("host_supervision_unproven")?;
+    if current!=generation||accounting(job.as_raw_handle()).map_err(|_|"host_children_exit_unproven")?.ActiveProcesses!=1{return Err("host_children_exit_unproven".into());}
+    let mut limits=JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();limits.BasicLimitInformation.LimitFlags=JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE|JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK;
+    if SetInformationJobObject(job.as_raw_handle(),JobObjectExtendedLimitInformation,(&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),size_of_val(&limits) as u32)==0{return Err("host_updater_detach_unproven".into());}Ok(())
 }}
 // Explicit recovery only. Never called from normal bootstrap. No saved-PID lookup or kill by PID.
 pub fn fence_generation(generation:&str)->Result<(),String>{unsafe {
@@ -246,18 +302,53 @@ mod tests {
             .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
         let mut reader=std::io::BufReader::new(parent.stdout.take().unwrap());let mut line=String::new();
         loop {line.clear();assert!(reader.read_line(&mut line).unwrap()>0);if let Some(at)=line.find("WORKER "){line=line[at..].to_string();break;}}
-        let fields:Vec<_>=line.split_whitespace().collect();let generation=fields[1].to_string();let pid=fields[2].parse::<u32>().unwrap();
+        let fields:Vec<_>=line.split_whitespace().collect();let generation=fields[1].to_string();let pid=fields[2].parse::<u32>().unwrap();let host_generation=fields[3].to_string();let orphan_pid=fields[4].parse::<u32>().unwrap();
         // Capture the kernel handle BEFORE crashing parent; reused PID is never used for takeover.
         let process=unsafe{own(OpenProcess(PROCESS_SYNCHRONIZE,0,pid)).unwrap()};
+        let orphan=unsafe{own(OpenProcess(PROCESS_SYNCHRONIZE|PROCESS_QUERY_LIMITED_INFORMATION,0,orphan_pid)).unwrap()};
+        // The normal descendant has no worker-specific job. Its stop therefore
+        // proves host containment, not just the pre-existing worker supervisor.
+        unsafe{let n=name(&host_generation).unwrap();let job=own(OpenJobObjectW(JOB_OBJECT_QUERY,0,n.as_ptr())).unwrap();let mut member=0;
+            assert_ne!(IsProcessInJob(orphan.as_raw_handle(),job.as_raw_handle(),&mut member),0);assert_ne!(member,0);
+        } // Do not keep an external job handle alive across owner crash.
         parent.stdin.as_mut().unwrap().write_all(b"crash\n").unwrap();assert!(!parent.wait().unwrap().success());
         assert_eq!(unsafe{WaitForSingleObject(process.as_raw_handle(),2000)},WAIT_OBJECT_0);
+        assert_eq!(unsafe{WaitForSingleObject(orphan.as_raw_handle(),2000)},WAIT_OBJECT_0);
         fence_generation(&generation).unwrap();
+        fence_generation(&host_generation).unwrap();
     }
     #[test] #[ignore] fn crash_fixture(){
         use std::io::Write;
+        let host_generation=uuid::Uuid::new_v4().to_string();supervise_current_host(&host_generation).unwrap();supervise_current_host(&host_generation).unwrap();assert!(supervise_current_host(&uuid::Uuid::new_v4().to_string()).is_err());
         let generation=uuid::Uuid::new_v4().to_string();let mut c=Command::new("C:\\Windows\\System32\\cmd.exe");c.args(["/d","/c","ping -n 30 127.0.0.1 >nul"]);
-        let child=spawn(&c,&generation).unwrap();println!("WORKER {} {}",generation,child.id());std::io::stdout().flush().unwrap();
-        let mut line=String::new();std::io::stdin().read_line(&mut line).unwrap();std::process::exit(7);
+        let child=spawn(&c,&generation).unwrap();
+        let orphan=Command::new("C:\\Windows\\System32\\cmd.exe").args(["/d","/c","ping -n 30 127.0.0.1 >nul"]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
+        println!("WORKER {} {} {} {}",generation,child.id(),host_generation,orphan.id());std::io::stdout().flush().unwrap();
+        let mut line=String::new();std::io::stdin().read_line(&mut line).unwrap();
+        if line.trim()=="retire"{
+            fence_current_host_children(&host_generation).unwrap();allow_retired_host_updater_spawn(&host_generation).unwrap();
+            let fixture=format!("{}::worker_fixture",module_path!().split_once("::").unwrap().1);
+            let detached=Command::new(std::env::current_exe().unwrap()).args(["--ignored","--exact",&fixture,"--nocapture"]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
+            println!("DETACHED {}",detached.id());std::io::stdout().flush().unwrap();line.clear();std::io::stdin().read_line(&mut line).unwrap();
+        }
+        std::process::exit(7);
+    }
+    #[test] fn retired_host_allows_an_installer_child_to_outlive_it_only_after_old_children_are_stopped(){
+        use std::io::{BufRead,Write};
+        let fixture=format!("{}::crash_fixture",module_path!().split_once("::").unwrap().1);
+        let mut parent=Command::new(std::env::current_exe().unwrap()).args(["--ignored","--exact",&fixture,"--nocapture"]).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
+        let mut reader=std::io::BufReader::new(parent.stdout.take().unwrap());let mut line=String::new();
+        loop{line.clear();assert!(reader.read_line(&mut line).unwrap()>0);if let Some(at)=line.find("WORKER "){line=line[at..].to_string();break;}}
+        let fields:Vec<_>=line.split_whitespace().collect();let host_generation=fields[3].to_string();
+        let old=unsafe{own(OpenProcess(PROCESS_SYNCHRONIZE,0,fields[4].parse().unwrap())).unwrap()};parent.stdin.as_mut().unwrap().write_all(b"retire\n").unwrap();
+        loop{line.clear();assert!(reader.read_line(&mut line).unwrap()>0);if let Some(at)=line.find("DETACHED "){line=line[at..].to_string();break;}}
+        let installer=unsafe{own(OpenProcess(PROCESS_SYNCHRONIZE|PROCESS_QUERY_LIMITED_INFORMATION|PROCESS_TERMINATE,0,line.split_whitespace().nth(1).unwrap().parse().unwrap())).unwrap()};
+        assert_eq!(unsafe{WaitForSingleObject(old.as_raw_handle(),0)},WAIT_OBJECT_0);
+        unsafe{let n=name(&host_generation).unwrap();let job=own(OpenJobObjectW(JOB_OBJECT_QUERY,0,n.as_ptr())).unwrap();let mut member=1;
+            assert_ne!(IsProcessInJob(installer.as_raw_handle(),job.as_raw_handle(),&mut member),0);assert_eq!(member,0);
+        }
+        parent.stdin.as_mut().unwrap().write_all(b"exit\n").unwrap();assert!(!parent.wait().unwrap().success());assert_eq!(unsafe{WaitForSingleObject(installer.as_raw_handle(),0)},WAIT_TIMEOUT);
+        unsafe{assert_ne!(TerminateProcess(installer.as_raw_handle(),0),0);assert_eq!(WaitForSingleObject(installer.as_raw_handle(),2000),WAIT_OBJECT_0);}fence_generation(&host_generation).unwrap();
     }
     #[test] fn native_job_stop_and_missing_generation(){
         let generation=uuid::Uuid::new_v4().to_string();let mut child=worker(&generation,false);

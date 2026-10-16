@@ -10,6 +10,27 @@ pub(crate) struct HostAudio{registries:Mutex<BTreeMap<String,Arc<PlaybackRegistr
 pub(crate) struct Payload{playback:Token,event_id:String,base64:String,mime:&'static str,volume:u8,correlation_id:String,emitted_at_ms:u64,#[serde(skip_serializing_if="Option::is_none")]speech:Option<String>}
 impl HostAudio{
  pub(crate) fn open(path:&Path)->Result<Self,String>{Ok(Self{registries:Default::default(),ledger:Mutex::new(store::Store::open(path)?)})}
+ /// Startup wiring must invoke this before creating the first WebView. The
+ /// ordinary registry restore remains disabled and never activates a worker.
+ #[cfg(windows)]
+ pub(crate) fn initialize_host_before_webview(&self)->Result<(),String>{
+  let previous=self.locked()?.host()?;
+  if let Some(current)=companion_plugin_protocol::windows::current_host_generation(){
+   if previous.as_ref().is_some_and(|host|host.generation==current&&host.ready&&!host.retired){return companion_plugin_protocol::windows::verify_current_generation(current);}
+   return Err("host_journal_mismatch".into());
+  }
+  if let Some(host)=previous.as_ref().filter(|h|!h.retired){companion_plugin_protocol::windows::fence_generation(&host.generation)?;}
+  let generation=uuid::Uuid::new_v4().to_string();self.locked()?.begin_host_after_native_fence(previous.as_ref(),&generation)?;
+  companion_plugin_protocol::windows::supervise_current_host(&generation)?;
+  self.locked()?.host_ready_after_native_membership(&generation)
+ }
+ #[cfg(windows)]
+ pub(crate) fn retire_host_for_stock_updater(&self,quiesce:impl FnOnce()->Result<(),String>)->Result<(),String>{
+  let host=self.locked()?.host_draining_for_update()?;quiesce()?;
+  companion_plugin_protocol::windows::fence_current_host_children(&host.generation)?;
+  self.locked()?.host_retired_after_native_children_exit(&host.generation)?;
+  companion_plugin_protocol::windows::allow_retired_host_updater_spawn(&host.generation)
+ }
  fn locked(&self)->Result<std::sync::MutexGuard<'_,store::Store>,String>{self.ledger.lock().map_err(|_|"transport_store_poisoned".into())}
  pub(crate) fn reserve_process(&self,process:&ProcessBinding)->Result<store::ProcessRecord,String>{self.locked()?.reserve_process(process)}
  pub(crate) fn process_ready(&self,process:&ProcessBinding,epoch:u64)->Result<(),String>{self.locked()?.process_ready(process,epoch)}
@@ -37,7 +58,7 @@ impl HostAudio{
    if receipt.process!=process.into()||receipt.action!=action||receipt.playback.as_ref().is_none_or(|t|!t.matches_context(epoch,context)){return Err("idempotency_conflict".into());}return Ok(receipt);
   }
   if ledger.uncertain_for(&process.package.id)?{return Err("unknown_effects_require_explicit_reconciliation".into());}
-  let quota=ledger.quota()?;if quota.unknown+quota.pending>=64{return Err("transport_pending_full".into());}
+  let quota=ledger.quota()?;if quota.blocking_unknown+quota.pending>=64{return Err("transport_pending_full".into());}
   let now=now_ms();if deadline>now.saturating_add(30000){return Err("invalid_sound_deadline".into());}
   let expired=deadline<=now;
   let asset=if expired{None}else{Some(read_asset(root,file)?)};
@@ -71,7 +92,7 @@ impl HostAudio{
   let mut ledger=self.locked()?;ledger.authorize(process,epoch)?;
   if let Some(receipt)=ledger.lookup(&process.package.id,key)?{if receipt.process!=process.into()||receipt.action!=action||receipt.playback.as_ref().is_none_or(|t|!t.matches_context(epoch,context)){return Err("idempotency_conflict".into());}return Ok(receipt);}
   if ledger.uncertain_for(&process.package.id)?{return Err("unknown_effects_require_explicit_reconciliation".into());}
-  let quota=ledger.quota()?;if quota.unknown+quota.pending>=64{return Err("transport_pending_full".into());}
+  let quota=ledger.quota()?;if quota.blocking_unknown+quota.pending>=64{return Err("transport_pending_full".into());}
   let now=now_ms();if deadline>now.saturating_add(30000){return Err("invalid_sound_deadline".into());}
   let registry=self.registry(&process.package.id)?;let token=registry.admit(Some(epoch),context)?;
   let admission=match ledger.admit(process,key,action,Some(token.clone())){Ok(a)=>a,Err(error)=>{let _=registry.ack(token,Status::Cancelled);return Err(error);}};
@@ -108,7 +129,7 @@ impl HostAudio{
  pub(crate) fn fence(&self,plugin:&str,emit:impl FnOnce(Fence)->Result<(),String>)->Result<(),String>{
   let registry=self.registries.lock().map_err(|_|"audio_state_poisoned")?.get(plugin).cloned();
   if let Some(registry)=registry{let request=registry.begin()?;emit(request)?;registry.wait(Duration::from_secs(2))?;}
-  let quota=self.locked()?.quota_for(plugin)?;if quota.unknown!=0||quota.pending!=0{return Err("unknown_effects_require_explicit_reconciliation".into());}Ok(())
+  let quota=self.locked()?.quota_for(plugin)?;if quota.blocking_unknown!=0||quota.pending!=0{return Err("unknown_effects_require_explicit_reconciliation".into());}Ok(())
  }
  pub(crate) fn confirm(&self,request:&Fence,stopped:bool)->Result<(),String>{
   let registries:Vec<_>=self.registries.lock().map_err(|_|"audio_state_poisoned")?.values().cloned().collect();
