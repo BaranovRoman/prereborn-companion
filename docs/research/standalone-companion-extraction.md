@@ -681,3 +681,31 @@ Targeted checks: one real pending-task host regression (non-blocking return,
 duplicate/conflict, completion and stop fence), seven actual worker tests,
 including identical pending request identity while polling, and core cargo check
 pass. This is not native audio/OBS acceptance; Windows CI remains required.
+
+## Package overlay control checkpoint (2026-10-16)
+
+The package now owns overlay show/hide, manual summary/automatic scene, native
+shortcut settings and the existing 3666 renderer preview. Commands require the
+signed overlay.publish grant and never manufacture a session. The original
+overlay-hotkey-config.json/default Ctrl+Alt+F11 is preserved; core Skip TTS is
+untouched. Windows registration uses the same global-hotkey parser/backend on a
+worker-owned message pump, unregisters on stop, coalesces key presses in an atomic
+flag, and reports conflicts instead of stealing another shortcut. No registration
+or settings write occurs just by opening the package UI. Invalid/future config
+files are preserved and rejected. The UI waits for native results and no longer
+keeps an active/awaiting-session header after status polling fails.
+
+Local targeted checks: two hotkey persistence tests, eight worker tests, 13 package
+UI tests and TypeScript/core cargo check pass. Windows registration/conflict/stop
+has a native-only test selected by the existing package lib CI step; not locally
+claimed. Full layout/queue editing and backend-fed overlay enrichment still need
+porting before release.
+
+Unsigned Windows 38881382990 passed native process supervision and frontend/UI
+checks; the relocated storage suite had 154 passes and one fixture setup timing
+failure: seeding 1250 matches with real durable commits took 34.5s versus an
+arbitrary 30s setup assertion. Setup time is now reported without treating shared
+runner fsync latency as a query regression. All real commits, row/cascade checks
+and the existing reopen <2s, history query <500ms and correction <2s assertions
+remain. The exact selected test passes locally (1250 matches, real commits,
+0.54s total). No durability or workload count was reduced.

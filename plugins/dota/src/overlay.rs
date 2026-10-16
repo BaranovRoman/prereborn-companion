@@ -3,6 +3,7 @@ use serde::Serialize;
 use companion_dota_domain::broadcast_state::BroadcastState;
 use companion_dota_storage::local_runtime::summary::LocalSessionSummary;
 pub mod server;
+pub mod hotkey;
 /// Only pre-existing public overlay cache/config files are read here. Never
 /// companion-config.json, OBS credentials, a raw GSI payload or a supplied path.
 pub fn saved(root:&std::path::Path,name:&str,limit:u64)->Result<Option<serde_json::Value>,String>{

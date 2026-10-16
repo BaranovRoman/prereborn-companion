@@ -47,6 +47,7 @@ fn retain_context(sounds:&mut Vec<SoundIntent>,context:Option<&str>)->u64{
 struct PollContext{stream_observation:Option<companion_plugin_protocol::obs::StreamObservation>,scene_observation:Option<companion_plugin_protocol::obs::SceneObservation>,scene_receipt:Option<companion_plugin_protocol::obs::SceneReceipt>}
 
 pub struct Worker {
+ overlay_hotkey:crate::overlay::hotkey::Controller,overlay_visible:bool,show_summary:bool,
  pending_backend:Option<companion_plugin_protocol::backend::Request>,
  launch:Launch, history:Option<History>, listener:Option<Listener>, pipeline:Pipeline,
  overlay:Option<crate::overlay::server::Server>,last_overlay_at:Option<std::time::Instant>,scene:companion_dota_domain::broadcast_state::BroadcastState,
@@ -60,10 +61,10 @@ pub struct Worker {
  last_error:Option<String>, processed:u64, last_sequence:Option<u64>, last_analysis:Option<Value>,last_gsi:Option<Value>,last_receipt:Option<companion_dota_domain::match_execution::Receipt>,
 }
 impl Worker {
- pub fn new(launch:Launch)->Self{Self{pending_backend:None,launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,obs:Default::default(),reminder:Default::default(),dropped_sound_intents:0,audio_sequence:0,speech_sequence:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,next_sync_at:None,pending_sync:None,backend_updates:0,next_corrections_at:None,pending_corrections:None,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
+ pub fn new(launch:Launch)->Self{let mut hotkey=crate::overlay::hotkey::Controller::default();hotkey.load(&launch.data_root);Self{overlay_hotkey:hotkey,overlay_visible:true,show_summary:false,pending_backend:None,launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,obs:Default::default(),reminder:Default::default(),dropped_sound_intents:0,audio_sequence:0,speech_sequence:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,next_sync_at:None,pending_sync:None,backend_updates:0,next_corrections_at:None,pending_corrections:None,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
  pub fn status(&self)->Value{
   let history=self.history.as_ref();let active=history.is_some_and(History::active);
-  json!({"prepared":history.is_some(),"active":active,"awaitingSession":active&&history.and_then(History::session).is_none(),
+  json!({"overlayVisible":self.overlay_visible,"showSummary":self.show_summary,"overlayHotkey":self.overlay_hotkey.status(),"prepared":history.is_some(),"active":active,"awaitingSession":active&&history.and_then(History::session).is_none(),
    "session":history.and_then(History::session),"epoch":history.and_then(History::epoch),"lastError":self.last_error,"streaming":self.streaming,"streamEnded":self.stream_ended,"obsError":self.obs.error,"obsReceipt":self.obs.last_receipt,"backendError":self.backend_error,"backendUpdates":self.backend_updates,
    "gsi":self.listener.as_ref().map(|l|json!(l.status())).or(self.last_gsi.clone()),"processed":self.processed,"lastSequence":self.last_sequence,"analysis":self.last_analysis,
    "receipt":self.last_receipt,"context":self.effect_context(),"droppedSoundIntents":self.dropped_sound_intents,"detectedSounds":self.detected_sounds,"plannedSounds":self.planned_sounds,"lastSoundSignal":self.last_sound_signal,"lastSoundOperation":self.last_sound_operation,"overlay":self.overlay.as_ref().map(|s|json!({"running":!s.closed(),"clients":s.clients()}))})
@@ -149,6 +150,7 @@ impl Worker {
   }else if !self.launch.capabilities.iter().any(|c|c=="ui"){Err("capability_denied".into())}
   else if name=="status"{crate::ui::empty(args).map(|_|self.status())}
   else if !self.launch.capabilities.iter().any(|c|matches!(c.as_str(),"data.legacy"|"data.private")){Err("capability_denied".into())}
+  else if name.starts_with("overlay."){self.overlay_command(name,args)}
   else if name=="history.summary"{crate::ui::empty(args).and_then(|_|self.history.as_ref().ok_or_else(||"not_prepared".to_string())).and_then(History::summary).and_then(|summary|serde_json::to_value(summary).map_err(|_|"history_encoding_failed".into()))}
   else if name=="history.sync"{crate::ui::empty(args).and_then(|_|self.history.as_ref().ok_or_else(||"not_prepared".to_string())).and_then(History::sync_status).and_then(|status|serde_json::to_value(status).map_err(|_|"history_encoding_failed".into()))}
   else if name=="history.context"{crate::ui::empty(args).and_then(|_|self.history.as_ref().ok_or_else(||"not_prepared".to_string())).and_then(History::edit_context)}
@@ -160,6 +162,22 @@ impl Worker {
    else if matches!(name,"host.prepare"|"host.activate"|"host.directory"){self.last_error=None;}
   }
   result
+ }
+ fn overlay_command(&mut self,name:&str,args:Value)->Result<Value,String>{
+  if !self.launch.capabilities.iter().any(|c|c=="overlay.publish"){return Err("capability_denied".into());}
+  match name{
+   "overlay.hotkey"=>{crate::ui::empty(args)?;Ok(json!(self.overlay_hotkey.status()))},
+   "overlay.hotkey.save"=>{let config=serde_json::from_value(args).map_err(|_|"invalid_overlay_hotkey")?;Ok(json!(self.overlay_hotkey.update(&self.launch.data_root,config,self.history.as_ref().is_some_and(History::active))?))},
+   "overlay.visibility"=>{
+    #[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Visibility{visible:bool}
+    let request:Visibility=serde_json::from_value(args).map_err(|_|"invalid_overlay_visibility")?;self.overlay_visible=request.visible;self.publish_overlay()?;Ok(json!({"visible":self.overlay_visible}))
+   },
+   "overlay.summary"=>{
+    #[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Summary{show:bool}
+    let request:Summary=serde_json::from_value(args).map_err(|_|"invalid_overlay_summary")?;self.show_summary=request.show;self.publish_overlay()?;Ok(json!({"show":self.show_summary}))
+   },
+   _=>Err("unsupported_overlay_command".into()),
+  }
  }
  fn history_edit(&mut self,args:Value)->Result<Value,String>{
   let request=serde_json::from_value(args).map_err(|_|"invalid_history_edit")?;
@@ -218,6 +236,7 @@ impl Worker {
     self.history.as_mut().unwrap().activate(&proof,self.launch.package.clone(),permissions)?;
     if let Err(error)=listener.start_admission(){let _=self.history.as_mut().unwrap().drain();return Err(error);}
     self.pipeline.reset();self.listener=Some(listener);self.overlay=overlay;self.last_overlay_at=None;self.last_lifecycle_at=None;self.last_watchdog_at=None;self.stream_ended=false;self.streaming=None;self.scene=companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches;self.last_error=None;
+    if self.overlay.is_some(){let _=self.overlay_hotkey.start();}
     if let Err(error)=self.publish_overlay(){return Err(self.close_after_error(error));}
     Ok(self.status())
    },
@@ -227,6 +246,7 @@ impl Worker {
   }
  }
  pub fn stop(&mut self)->Result<(),String>{
+  self.overlay_hotkey.stop()?;
   self.overlay.take();self.last_overlay_at=None;
   if let Some(listener)=self.listener.take(){self.last_gsi=Some(json!(listener.status()));}
   self.pipeline.reset();
@@ -234,6 +254,7 @@ impl Worker {
   Ok(())
  }
  fn poll(&mut self,context:PollContext)->Result<Value,String>{
+  if self.overlay_hotkey.take_toggle()&&self.history.as_ref().is_some_and(History::active){self.overlay_visible=!self.overlay_visible;self.publish_overlay()?;}
   if let Some(receipt)=context.scene_receipt{let now=u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_|"clock_unavailable")?;self.obs.receipt(receipt,now)?;}
   if self.overlay.as_ref().is_some_and(|s|s.closed()){return Err(self.close_after_error("overlay_listener_failed".into()));}
   if let Some(listener)=self.listener.as_ref().filter(|l|l.failed()||l.status().rejected>0){
@@ -253,7 +274,7 @@ impl Worker {
   let before=self.processed;let mut result=self.frames();
   if let Ok(batch)=&mut result{
    let effect_context=self.effect_context();
-   let intent=if self.launch.capabilities.iter().any(|c|c=="obs.scene")&&self.history.as_ref().is_some_and(History::active){self.obs.plan(context.scene_observation.as_ref(),self.scene,self.stream_ended,false,effect_context.as_deref(),now_ms)?}else{None};
+   let intent=if self.launch.capabilities.iter().any(|c|c=="obs.scene")&&self.history.as_ref().is_some_and(History::active){self.obs.plan(context.scene_observation.as_ref(),self.scene,self.stream_ended,self.show_summary,effect_context.as_deref(),now_ms)?}else{None};
    batch["sceneIntent"]=serde_json::to_value(intent).map_err(|_|"obs_intent_encoding_failed")?;batch["status"]=self.status();
   }
   if result.is_ok()&&self.overlay.is_some()&&(before!=self.processed||self.last_overlay_at.is_none_or(|at|at.elapsed()>=std::time::Duration::from_secs(1))){
@@ -304,8 +325,8 @@ impl Worker {
   let Some(server)=&self.overlay else{return Ok(());};let root=&self.launch.data_root;
   let layout=crate::overlay::saved(root,"overlay-layout.json",1024*1024)?;let queue=crate::overlay::saved(root,"queue-settings.json",128*1024)?;
   let account=if self.account.is_some(){self.account.clone()}else{crate::overlay::saved(root,"account-overlay-data.json",128*1024)?};
-  let scene=companion_dota_domain::broadcast_state::resolve(self.scene,self.stream_ended,false);
-  let snapshot=crate::overlay::OverlayStateSnapshot{scene,updated_at:chrono::Utc::now().to_rfc3339(),session:self.history.as_ref().ok_or("not_prepared")?.summary()?,layout_version:0,account,twitch_chat:None,overlay_visible:true,opendota_favorite_heroes:None,opendota_radar:None,quiz:None};
+  let scene=companion_dota_domain::broadcast_state::resolve(self.scene,self.stream_ended,self.show_summary);
+  let snapshot=crate::overlay::OverlayStateSnapshot{scene,updated_at:chrono::Utc::now().to_rfc3339(),session:self.history.as_ref().ok_or("not_prepared")?.summary()?,layout_version:0,account,twitch_chat:None,overlay_visible:self.overlay_visible,opendota_favorite_heroes:None,opendota_radar:None,quiz:None};
   server.publish(&snapshot,layout,queue)?;self.last_overlay_at=Some(std::time::Instant::now());Ok(())
  }
 }
@@ -322,6 +343,16 @@ mod tests {
  }
  fn worker(root:&std::path::Path)->Worker {
   Worker::new(Launch{data_root:root.into(),generation:uuid::Uuid::new_v4().to_string(),package:PackageBinding{id:"dota2".into(),version:env!("CARGO_PKG_VERSION").into(),executable_hash:"a".repeat(64),manifest_hash:"b".repeat(64)},capabilities:vec!["data.legacy".into()]})
+ }
+ #[test]fn overlay_controls_require_the_package_grant_and_do_not_create_a_session_or_listener(){
+  let root=tempfile::tempdir().unwrap();let mut worker=worker(root.path());worker.launch.capabilities.push("ui".into());
+  assert_eq!(worker.command("overlay.visibility",json!({"visible":false})).unwrap_err(),"capability_denied");
+  worker.launch.capabilities.push("overlay.publish".into());
+  assert_eq!(worker.command("overlay.visibility",json!({"visible":false})).unwrap()["visible"],false);
+  assert_eq!(worker.command("overlay.summary",json!({"show":true})).unwrap()["show"],true);
+  assert!(worker.command("overlay.visibility",json!({"visible":true,"path":"arbitrary"})).is_err());
+  assert_eq!(worker.status()["session"],Value::Null);assert_eq!(worker.status()["active"],false);
+  assert!(worker.listener.is_none());assert!(worker.overlay.is_none());assert_eq!(std::fs::read_dir(root.path()).unwrap().count(),0);
  }
  #[test]fn a_pending_host_request_keeps_the_same_identity_and_does_not_block_gsi_poll(){
   use companion_plugin_protocol::backend::{Request,Response};

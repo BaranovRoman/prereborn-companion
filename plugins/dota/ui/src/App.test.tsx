@@ -19,6 +19,29 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 describe("installed Dota package UI",()=>{
+  it("waits for the worker receipt before reporting overlay visibility changed",async()=>{
+    const previous=mocks.invoke.getMockImplementation()!;let resolve!:(v:unknown)=>void;let visible=true;
+    mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>{
+      if(name==="status")return {prepared:true,active:true,awaitingSession:true,overlayVisible:visible,showSummary:false};
+      if(name==="overlay.hotkey")return {enabled:true,shortcut:"Ctrl+Alt+F11",registered:true,lastError:null};
+      if(name==="overlay.visibility")return new Promise(r=>{resolve=v=>{visible=false;r(v);};});
+      return previous(name,...args);
+    });
+    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});fireEvent.click(screen.getByRole("button",{name:"Overlay"}));
+    expect(screen.getByTitle("Локальный Dota overlay").getAttribute("src")).toContain("127.0.0.1:3666/overlay?previewScene=betweenMatches");
+    fireEvent.click(screen.getByRole("button",{name:"Скрыть overlay"}));
+    await waitFor(()=>expect(mocks.invoke).toHaveBeenCalledWith("overlay.visibility",{visible:false}));
+    expect(screen.queryByText("Overlay скрыт.")).toBeNull();
+    resolve({visible:false});await screen.findByText("Overlay скрыт.");expect(screen.getByRole("button",{name:"Показать overlay"})).toBeTruthy();
+  });
+  it("does not keep a healthy runtime header after status polling fails",async()=>{
+    const previous=mocks.invoke.getMockImplementation()!;let calls=0;
+    mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>{if(name==="status"&&++calls>1)throw Error("plugin_process_requires_recovery");return previous(name,...args);});
+    render(<Dota/>);await screen.findByText(/Ожидание игровой сессии/);
+    await screen.findByText("Состояние плагина не подтверждено",{}, {timeout:3000});
+    expect(screen.queryByText(/Ожидание игровой сессии/)).toBeNull();
+    expect((await screen.findByRole("alert")).textContent).toContain("plugin_process_requires_recovery");
+  });
   it("keeps saved OBS mappings available offline and waits for the native save result",async()=>{
     const previous=mocks.invoke.getMockImplementation()!;const bindings={betweenMatches:"Saved idle",draft:"Saved draft",gameplay:"Saved game",postStream:"Saved summary"};
     const initial={configRevision:"a".repeat(64),bindings,enabled:false,connected:false,scenes:[]};let resolve!:(value:unknown)=>void;

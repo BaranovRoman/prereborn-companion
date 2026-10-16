@@ -21,3 +21,5 @@ tempfile = "3"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+global-hotkey = "0.8"
+windows-sys = { version = "0.60.2", features = ["Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }
