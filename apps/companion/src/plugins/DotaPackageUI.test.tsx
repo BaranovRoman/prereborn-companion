@@ -13,12 +13,21 @@ beforeEach(()=>{
   mocks.invoke.mockImplementation(async(name:string)=>{
     if(name==="status")return {prepared:true,active:true,awaitingSession:true,processed:2,gsi:{accepted:2},lastError:null};
     if(name==="asset.import")return asset;
+    if(name==="history.sync")return {pendingCount:0,retryingCount:0,failedCount:0,unknownDeliveryCount:0};
     if(name==="history.summary")return {hasSession:false,ratingCurrent:2400,wins:0,losses:0,currentMatch:null,recentMatches:[{localId:"preserved-uuid",matchId:"existing-game-id",heroId:105,state:"finished",result:"win",kills:3,deaths:2,assists:4,startedAt:"2026-10-15T00:00:00Z"}]};
     return {};
   });
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 describe("installed Dota package UI",()=>{
+  it("shows persisted uncertain delivery without claiming that history was sent",async()=>{
+    const previous=mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>name==="history.sync"?{pendingCount:2,retryingCount:1,failedCount:0,unknownDeliveryCount:1}:previous(name,...args));
+    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});fireEvent.click(screen.getByRole("button",{name:"История"}));
+    await screen.findByText(/Результат доставки не подтверждён: 1/);
+    expect(screen.getByText(/Ожидают отправки: 2/)).toBeTruthy();
+    expect(screen.queryByText("Изменение сохранено в истории.")).toBeNull();
+  });
   it("writes MMR only with a fresh native context and displays success only after its exact receipt",async()=>{
     const previous=mocks.invoke.getMockImplementation()!;
     mocks.invoke.mockImplementation(async(name:string,args?:unknown)=>{

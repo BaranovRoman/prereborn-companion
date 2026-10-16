@@ -308,3 +308,46 @@ The Windows fixture additionally covers real worker IPC stream graduation and
 manual receipt replay (synthetic OBS input; not native OBS/audio/game acceptance).
 Production OBS scene automation, authenticated backend/outbox transport, remaining
 plugin UI/overlay controls and final core extraction/signing are still outstanding.
+
+## Protected backend and durable outbox checkpoint (2026-10-16)
+
+Unsigned Windows run 38815911326 passed for b3bad92. The following backend work
+is a separate candidate; it still does not attach the new scheduler at startup.
+
+Signed API2 manifests can grant bounded, exact relative companion resource routes,
+methods, query keys and response sizes. The existing CoreRead framing admits one
+correlated request only during host.poll of the verified process generation; UI,
+Hello and a stale process cannot acquire this callback. Core retains the bearer
+credential, fixes the backend origin, disables redirects and rejects oversized or
+credential-shaped JSON responses. No SQL, user-supplied URL or token enters IPC.
+
+The original outbox selection, eligibility, cutover and delivery SQL now lives in
+the existing canonical Dota storage crate; legacy callers use that same code.
+Activation initializes the real existing cutover before fresh GSI admission.
+Account refresh uses the original mode/rating bootstrap rules and does not overwrite
+local/session/device corrections or allocate receipts for unchanged polls.
+Outbox admission persists uncertainty before HTTP; settlement, original row changes
+and checksummed receipts share the one history transaction. Recovery retains the
+original event UUID and payload. Completed bookkeeping means the SQL transaction
+committed; a delivery=unknown receipt and pending row do NOT assert HTTP success.
+Only the existing sync/events endpoint permits retry of that exact event: its
+withIdempotency implementation commits the event result and business writes in one
+server transaction. This is not an exactly-once transport guarantee and does not
+permit automatic replay of OBS/audio or arbitrary HTTP effects.
+
+The independent history UI reads persisted pending/rejected/Unknown delivery counts
+and never hides an uncertain delivery as sent. Expired sound intents are durably
+Cancelled before any emit instead of crashing the whole worker; Unknown still blocks
+admission and is never promoted to completed.
+
+Targeted macOS checks: 7 lifecycle/account/outbox rollback, duplicate, corruption and
+reopen tests; 20 original sync tests; 10 protocol tests; manifest policy test; 8 real
+process IPC tests; 6 native audio host tests; 2 actual local HTTP transport tests;
+8 independent Dota UI tests, TypeScript and 4 package-tool tests; core cargo check.
+The added Windows supervised worker fixture exercises real reverse IPC, original
+outbox identity across reopen and Unknown->confirmed response using synthetic backend
+and stream responses. It has not yet run in Windows CI at this checkpoint. It is not
+native Dota/OBS/audio smoke. Server Postgres tests were inspected, not executed here.
+Remaining work includes OBS policy/effects, backend corrections/overlay controls,
+draft reminder/hotkeys, host/WebView crash fencing, safe retention and physical core
+extraction before signing/publishing a complete standalone release.

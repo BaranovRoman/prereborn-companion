@@ -145,6 +145,44 @@ fn supervised_worker_accepts_fresh_demo_and_bot_gsi_without_obs_and_reopens_the_
     assert_eq!(c.query_row("SELECT is_streamed FROM local_sessions",[],|r|r.get::<_,i64>(0)).unwrap(),1);
     assert_eq!(c.query_row("SELECT rating_current FROM local_sessions",[],|r|r.get::<_,i64>(0)).unwrap(),2450);
 }
+#[cfg(windows)]
+#[test]
+fn supervised_worker_bootstraps_account_and_recovers_unknown_outbox_delivery_through_existing_reverse_ipc(){
+    let root=tempfile::tempdir().unwrap();let caps=["ui","data.legacy","backend.access","obs.scene"];let(mut runtime,pin,binding)=launch_bound_worker(root.path(),&caps);
+    runtime.command("host.prepare".into(),json!({})).unwrap();runtime.command("host.activate".into(),json!({})).unwrap();
+    let denied=Pin{binding:pin.binding.clone(),exe:pin.exe.clone(),capabilities:vec!["ui".into()]};
+    assert_eq!(runtime.command_verified_reader(&denied,&binding,json!({}),|_|panic!("ungranted backend callback")).unwrap_err(),"process_binding_denied");
+    let mut stale=binding.clone();stale.generation=uuid::Uuid::new_v4().to_string();
+    assert_eq!(runtime.command_verified_reader(&pin,&stale,json!({}),|_|panic!("stale backend callback")).unwrap_err(),"process_binding_denied");
+    let mut reads=0;
+    let state=runtime.command_verified_reader(&pin,&binding,json!({}),|value|{
+        let request:companion_plugin_protocol::backend::Request=serde_json::from_value(value).unwrap();assert_eq!(request.resource,"account");assert!(request.body.is_none());assert!(request.query.is_empty());reads+=1;
+        Ok(serde_json::to_value(companion_plugin_protocol::backend::Response{operation_key:request.operation_key,status:Some(200),body:Some(json!({"gameMode":"ranked","currentMmr":2450})),error:None}).unwrap())
+    }).unwrap();
+    assert_eq!(reads,1);assert_eq!(state["status"]["active"],true);assert_eq!(state["status"]["session"],serde_json::Value::Null);
+    let summary=runtime.command("history.summary".into(),json!({})).unwrap();assert_eq!(summary["ratingCurrent"],2450);assert_eq!(summary["hasSession"],false);
+    let at=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+    let streamed=runtime.command_verified_reader(&pin,&binding,json!({"streamObservation":{"observedAtMs":at,"streaming":true}}),|_|panic!("no request is due before the first real stream session")).unwrap();
+    let session=streamed["status"]["session"].as_str().unwrap().to_string();let mut original=None;
+    std::thread::sleep(Duration::from_millis(2100));
+    let unknown=runtime.command_verified_reader(&pin,&binding,json!({}),|value|{
+        let request:companion_plugin_protocol::backend::Request=serde_json::from_value(value).unwrap();assert_eq!(request.resource,"sync-event");original=request.body.clone();
+        Ok(serde_json::to_value(companion_plugin_protocol::backend::Response::failed(&request,"backend_result_unknown")).unwrap())
+    }).unwrap();assert_eq!(unknown["status"]["backendError"],"backend_sync_unknown");
+    let original=original.expect("outbox reverse request");assert_eq!(original["eventType"],"session_started");
+    runtime.command("host.stop".into(),json!({})).unwrap();runtime.stop().unwrap();runtime.stopped_confirmed().unwrap();
+    let(mut runtime,pin,binding)=launch_bound_worker(root.path(),&caps);runtime.command("host.prepare".into(),json!({})).unwrap();let resumed=runtime.command("host.activate".into(),json!({})).unwrap();assert_eq!(resumed["session"],session);
+    runtime.command_verified_reader(&pin,&binding,json!({}),|value|{let request:companion_plugin_protocol::backend::Request=serde_json::from_value(value).unwrap();assert_eq!(request.resource,"account");Ok(serde_json::to_value(companion_plugin_protocol::backend::Response{operation_key:request.operation_key,status:Some(200),body:Some(json!({"gameMode":"ranked","currentMmr":2450})),error:None}).unwrap())}).unwrap();
+    // Wait outside IPC for the persisted legacy backoff, not as an exit proof.
+    std::thread::sleep(Duration::from_millis(2100));let mut delivered=false;
+    runtime.command_verified_reader(&pin,&binding,json!({}),|value|{let request:companion_plugin_protocol::backend::Request=serde_json::from_value(value).unwrap();assert_eq!(request.resource,"sync-event");assert_eq!(request.body,Some(original.clone()));delivered=true;Ok(serde_json::to_value(companion_plugin_protocol::backend::Response{operation_key:request.operation_key,status:Some(200),body:Some(json!({"backendSessionId":"unit-backend-receipt"})),error:None}).unwrap())}).unwrap();assert!(delivered);
+    runtime.command("host.stop".into(),json!({})).unwrap();runtime.stop().unwrap();runtime.stopped_confirmed().unwrap();
+    let c=rusqlite::Connection::open(root.path().join("local-runtime.sqlite3")).unwrap();
+    assert_eq!(c.query_row("SELECT value FROM sync_meta WHERE key='cached_game_mode'",[],|r|r.get::<_,String>(0)).unwrap(),"ranked");
+    assert_eq!(c.query_row("SELECT count(*) FROM pc_tx_ledger WHERE operation_key LIKE 'account:%'",[],|r|r.get::<_,u64>(0)).unwrap(),1);
+    assert_eq!(c.query_row("SELECT count(*) FROM local_sessions",[],|r|r.get::<_,u64>(0)).unwrap(),1);
+    assert_eq!(c.query_row("SELECT id FROM sync_outbox WHERE delivered_at IS NOT NULL",[],|r|r.get::<_,String>(0)).unwrap(),original["eventId"].as_str().unwrap());
+}
 #[test] fn actual_process_analyzes_replay_and_refuses_live_commands() {
     let mut p=Process::new(&[]); p.send(Message::Hello {core_api:CORE_API});
     assert!(matches!(p.receive(),Message::Ready{id,..} if id=="dota2"));

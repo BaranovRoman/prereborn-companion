@@ -38,8 +38,9 @@ impl HostAudio{
   }
   if ledger.uncertain_for(&process.package.id)?{return Err("unknown_effects_require_explicit_reconciliation".into());}
   let quota=ledger.quota()?;if quota.unknown+quota.pending>=64{return Err("transport_pending_full".into());}
-  let now=now_ms();if deadline<=now||deadline-now>30000{return Err("sound_deadline_expired".into());}
-  let (bytes,mime)=read_asset(root,file)?;
+  let now=now_ms();if deadline>now.saturating_add(30000){return Err("invalid_sound_deadline".into());}
+  let expired=deadline<=now;
+  let asset=if expired{None}else{Some(read_asset(root,file)?)};
   let registry=self.registry(&process.package.id)?;let token=registry.admit(Some(epoch),context)?;
   let admission=match ledger.admit(process,key,action,Some(token.clone())){
    Ok(a)=>a,Err(e)=>{let _=registry.ack(token,Status::Cancelled);return Err(e);},
@@ -49,6 +50,13 @@ impl HostAudio{
   // Receipt/token is committed before native emit; ACK cannot free the registry
   // until its durable state is committed. Never wait for WebView under this lock.
   registry.bind(&token,&qualified)?;
+  if expired{
+   // This action is definitively cancelled BEFORE any native emit. Keep its
+   // durable key so a delayed retry cannot turn a stale cue into playback.
+   let receipt=ledger.audio_ack(&process.package.id,key,&token,Status::Cancelled)?;
+   registry.ack(token,Status::Cancelled)?;return Ok(receipt);
+  }
+  let (bytes,mime)=asset.ok_or("audio_asset_unavailable")?;
   let payload=Payload{playback:token.clone(),event_id:key.into(),base64:BASE64.encode(bytes),mime,volume,correlation_id:key.into(),emitted_at_ms:now};
   if let Err(error)=emit(&payload){ledger.audio_ack(&process.package.id,key,&token,Status::Unknown)?;registry.ack(token,Status::Unknown)?;return Err(error);}
   Ok(admission.receipt)
@@ -159,5 +167,12 @@ mod tests{
   assert_ne!(old.scope.generation,new.scope.generation);assert!(new.matches_context(epoch,Some("real-session")));
   assert!(audio.ack(old.clone(),Status::Playing).is_err());assert_eq!(audio.receipt("example","sound:demo").unwrap().unwrap().status,Status::Cancelled);
   audio.ack(new,Status::Completed).unwrap();
+ }
+ #[test]
+ fn an_expired_cue_is_durably_cancelled_without_emit_and_cannot_play_on_a_later_retry(){
+  let root=tempfile::tempdir().unwrap();let audio=HostAudio::open(&root.path().join("transport.sqlite3")).unwrap();let(pin,process)=pin();let epoch=audio.reserve_process(&process).unwrap().epoch;audio.process_ready(&process,epoch).unwrap();
+  let receipt=audio.play(&pin,&process,epoch,None,root.path(),"sound:late","jump.wav",63,0,|_|panic!("expired cue emitted")).unwrap();assert_eq!(receipt.status,Status::Cancelled);
+  let retry=audio.play(&pin,&process,epoch,None,root.path(),"sound:late","jump.wav",63,now_ms()+2000,|_|panic!("expired cue replayed")).unwrap();assert_eq!(retry.status,Status::Cancelled);
+  assert_eq!(audio.receipt("example","sound:late").unwrap().unwrap().status,Status::Cancelled);
  }
 }

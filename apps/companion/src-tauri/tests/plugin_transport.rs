@@ -9,3 +9,6 @@ mod host;
 mod assets;
 #[path = "../src/core/obs_transport.rs"]
 mod obs_transport;
+
+#[path = "../src/core/backend_transport.rs"]
+mod backend_transport;

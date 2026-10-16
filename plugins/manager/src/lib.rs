@@ -27,6 +27,8 @@ pub struct Manifest {
     pub icon:Option<String>,
     #[serde(default,skip_serializing_if="Vec::is_empty")]
     pub ui_commands:Vec<String>,
+    #[serde(default,skip_serializing_if="BTreeMap::is_empty")]
+    pub backend_resources:BTreeMap<String,companion_plugin_protocol::backend::Resource>,
 }
 #[derive(Clone,Copy,Debug,Default,Serialize,Deserialize,PartialEq)]
 #[serde(rename_all="snake_case")]
@@ -104,6 +106,8 @@ impl Manifest {
         if self.author.as_ref().is_some_and(|a|a.is_empty()||a.len()>120||a.chars().any(char::is_control)){return Err("invalid_author".into());}
         if self.ui_commands.len()>96||self.ui_commands.iter().collect::<BTreeSet<_>>().len()!=self.ui_commands.len()
             ||self.ui_commands.iter().any(|c|c.is_empty()||c.len()>64||c.starts_with("host.")||!c.bytes().all(|b|b.is_ascii_lowercase()||b.is_ascii_digit()||b"._".contains(&b))){return Err("invalid_ui_commands".into());}
+        if self.backend_resources.len()>16||(!self.backend_resources.is_empty()&&(!live||!self.permissions.iter().any(|p|p=="backend.access"))){return Err("backend_resource_denied".into());}
+        for (id,resource) in &self.backend_resources{if id.is_empty()||id.len()>64||!id.bytes().all(|b|b.is_ascii_lowercase()||b.is_ascii_digit()||b"-_".contains(&b)){return Err("backend_resource_denied".into());}resource.validate()?;}
         safe_path(&self.executable)?; safe_path(&self.ui)?;
         if !self.executable.starts_with("bin/") || !self.ui.starts_with("ui/") || !self.ui.ends_with(".html") ||
             !self.files.contains_key(&self.executable) || !self.files.contains_key(&self.ui) || self.files.len() > 512 {

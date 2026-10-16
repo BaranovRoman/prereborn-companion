@@ -203,7 +203,7 @@ impl Runtime {
         if self.identity.as_deref()!=Some("dota2")||self.process.as_ref()!=Some(binding)||&binding.package!=pin.binding()
             ||!pin.permits("dota.match.execute")
             ||!matches!(name.as_str(),"dota.live_frame"|"dota.live_recover"|"dota.live_effects"){return Err("process_binding_denied".into());}
-        self.command_with_handlers(name,args,&mut |_|Err("capability_denied".into()),Some(&mut executor),None)
+        self.command_with_handlers(name,args,&mut |_|Err("capability_denied".into()),Some(&mut executor),None,false)
     }
     pub fn command(&mut self, name: String, args: Value) -> Result<Value, String> {
         self.command_with_reader(name, args, |_| Err("capability_denied".into()))
@@ -213,19 +213,27 @@ impl Runtime {
     pub fn command_verified(&mut self,pin:&impl crate::ProcessGrant,binding:&ProcessBinding,name:String,args:Value)->Result<Value,String>{
         self.poll();
         if self.process.as_ref()!=Some(binding)||&binding.package!=pin.binding()||!pin.permits("ui"){return Err("process_binding_denied".into());}
-        self.command_with_handlers(name,args,&mut |_|Err("capability_denied".into()),None,Some(8192))
+        self.command_with_handlers(name,args,&mut |_|Err("capability_denied".into()),None,Some(8192),false)
+    }
+    /// One bounded reverse resource request, only during the host's poll and
+    /// only for this exact verified generation. UI commands cannot install a
+    /// callback or gain backend rights through a Hello/command argument.
+    pub fn command_verified_reader(&mut self,pin:&impl crate::ProcessGrant,binding:&ProcessBinding,args:Value,mut reader:impl FnMut(Value)->Result<Value,String>)->Result<Value,String>{
+        self.poll();
+        if self.process.as_ref()!=Some(binding)||&binding.package!=pin.binding()||!pin.permits("ui")||!pin.permits("backend.access"){return Err("process_binding_denied".into());}
+        self.command_with_handlers("host.poll".into(),args,&mut reader,None,Some(8192),true)
     }
     pub fn command_with_reader(&mut self, name: String, args: Value, mut reader: impl FnMut(Value)->Result<Value,String>) -> Result<Value, String> {
-        self.command_with_handlers(name,args,&mut reader,None,None)
+        self.command_with_handlers(name,args,&mut reader,None,None,true)
     }
     // Fixture-only capability: never exposed through PluginManager or Tauri commands.
     #[doc(hidden)]
     pub fn command_diagnostic(&mut self,name:String,args:Value,capabilities:&[&str],mut executor:impl FnMut(Value)->Result<Value,String>)->Result<Value,String> {
         if self.identity.as_deref()!=Some("dota2") || !capabilities.contains(&"dota.diagnostic.execute")
             || !matches!(name.as_str(),"dota.diagnostic_frame"|"dota.diagnostic_recover") {return Err("capability_denied".into());}
-        self.command_with_handlers(name,args,&mut |_|Err("capability_denied".into()),Some(&mut executor),None)
+        self.command_with_handlers(name,args,&mut |_|Err("capability_denied".into()),Some(&mut executor),None,false)
     }
-    fn command_with_handlers(&mut self,name:String,args:Value,reader:&mut dyn FnMut(Value)->Result<Value,String>,mut executor:Option<&mut dyn FnMut(Value)->Result<Value,String>>,max_args:Option<usize>)->Result<Value,String> {
+    fn command_with_handlers(&mut self,name:String,args:Value,reader:&mut dyn FnMut(Value)->Result<Value,String>,mut executor:Option<&mut dyn FnMut(Value)->Result<Value,String>>,max_args:Option<usize>,allow_reads:bool)->Result<Value,String> {
         self.poll();
         if self.snapshot.phase != Phase::Running { return Err("not_running".into()); }
         let limit = max_args.unwrap_or_else(||if executor.is_some() {32768} else if self.identity.as_deref() == Some("dota2") && matches!(name.as_str(), "dota.replay" | "dota.watchdog_shadow") { crate::MAX_FRAME - 256 } else { 512 });
@@ -270,12 +278,13 @@ impl Runtime {
                     self.send(Message::DiagnosticReceipt{id:request_id,response})?;
                 },
                 Message::CoreRead { id: read_id, request } => {
-                    if self.identity.as_deref()!=Some("dota2") || name!="dota.core_read" || read_id!=id || read_seen {
+                    let scope=if max_args.is_some(){self.process.is_some()&&name=="host.poll"}else{self.identity.as_deref()==Some("dota2")&&name=="dota.core_read"};
+                    if !allow_reads || !scope || read_id!=id || read_seen || serde_json::to_vec(&request).map_err(|_|"invalid_core_request")?.len()>8192 {
                         return Err(self.fail("core_read_not_allowed"));
                     }
                     read_seen=true;
                     let response=reader(request).unwrap_or_else(|_| serde_json::json!({"kind":"error","code":"capability_denied"}));
-                    if serde_json::to_vec(&response).map_err(|e|e.to_string())?.len()>8192 {return Err(self.fail("core_read_response_too_large"));}
+                    if serde_json::to_vec(&response).map_err(|e|e.to_string())?.len()>if max_args.is_some(){32768}else{8192} {return Err(self.fail("core_read_response_too_large"));}
                     self.send(Message::CoreReadReply {id:read_id,response})?;
                 },
                 Message::Reply { id: response_id, result } if response_id == id => return Ok(result),

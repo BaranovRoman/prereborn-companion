@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod obs;
+pub mod backend;
 #[cfg(windows)]
 pub mod windows;
 

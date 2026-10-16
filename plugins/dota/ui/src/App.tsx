@@ -10,6 +10,7 @@ export function Dota() {
   const [catalog,setCatalog] = useState<GameSoundCatalog|null>(null); const [settings,setSettings] = useState<GameSoundSettings|null>(null);
   const [status,setStatus] = useState<api.Status|null>(null); const [history,setHistory] = useState<api.History|null>(null);
   const [gsi,setGsi]=useState<api.GsiInstallation|null>(null);
+  const [sync,setSync]=useState<api.SyncStatus|null>(null);
   const [audioReceipt,setAudioReceipt]=useState<api.AudioReceipt|null>(null);
   const [error,setError] = useState<string|null>(null); const [busy,setBusy] = useState(false);
   const loadSettings = useCallback(async () => setSettings(await api.settings()),[]);
@@ -28,8 +29,9 @@ export function Dota() {
   useEffect(() => {
     if(tab!=="history")return;let disposed=false;
     void api.invoke<api.History>("history.summary").then(h=>{if(!disposed)setHistory(h);}).catch(e=>{if(!disposed)setError(String(e));});
+    void api.invoke<api.SyncStatus>("history.sync").then(s=>{if(!disposed)setSync(s);}).catch(e=>{if(!disposed){setSync(null);setError(String(e));}});
     return()=>{disposed=true;};
-  },[tab,status?.lastSequence,status?.session,status?.streamEnded]);
+  },[tab,status?.lastSequence,status?.session,status?.streamEnded,status?.backendUpdates]);
   useEffect(()=>{
     if(tab!=="settings")return;let disposed=false;
     void api.invoke<api.GsiInstallation>("gsi.find").then(value=>{if(!disposed)setGsi(value);}).catch(e=>{if(!disposed)setError(String(e));});
@@ -58,7 +60,7 @@ export function Dota() {
           </>}</article>)}</div>
       </section>:<section><label>Поиск героя <input value={query} onChange={e=>setQuery(e.target.value)} /></label><div className="hero-grid">{catalog.heroes.filter(h=>`${h.displayName} ${h.id}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map(h=><button key={h.id} onClick={()=>setHero(h)}><img src={h.iconUrl} alt="" loading="lazy" width={72} height={40}/><span>{h.displayName}</span>{h.abilities.some(a=>settings.bindings.some(b=>b.eventId===a.id))&&<small>♪ Настроен звук</small>}</button>)}</div></section>)}
       {tab==="items"&&<ItemsCatalog items={catalog.items} settings={settings} onChooseFile={choose} onPreview={preview} onRemove={remove}/>}
-      {tab==="history"&&<HistoryPanel history={history} active={status?.active===true} reload={async()=>setHistory(await api.invoke<api.History>("history.summary"))}/>}
+      {tab==="history"&&<HistoryPanel history={history} sync={sync} active={status?.active===true} reload={async()=>{setHistory(await api.invoke<api.History>("history.summary"));setSync(await api.invoke<api.SyncStatus>("history.sync"));}}/>}
       {tab==="settings"&&<section><h2>Звуковые реакции</h2><label><input type="checkbox" checked={settings.enabled} disabled={busy} onChange={e=>{void run(()=>api.invoke("sound.master",{enabled:e.target.checked,volume:settings.masterVolume})).catch(()=>{});}}/> Включены</label>
         <label>Громкость <input type="range" min="0" max="100" defaultValue={settings.masterVolume} disabled={busy} onPointerUp={e=>{void run(()=>api.invoke("sound.master",{enabled:settings.enabled,volume:Number(e.currentTarget.value)})).catch(()=>{});}} onKeyUp={e=>{if(e.key.startsWith("Arrow"))void run(()=>api.invoke("sound.master",{enabled:settings.enabled,volume:Number(e.currentTarget.value)})).catch(()=>{});}}/></label>
         <p>Звуки используют выбранное в Companion устройство вывода. OBS и трансляция для них не требуются. Удаление привязки сохраняет загруженный файл.</p>
@@ -70,6 +72,7 @@ export function Dota() {
           <button disabled={busy||!gsi?.found} onClick={()=>{void run(async()=>setGsi(await api.invoke<api.GsiInstallation>("gsi.install"))).catch(()=>{});}}>Настроить GSI</button>
         </div><p>После изменения GSI перезапустите Dota. Адрес приёма остаётся 127.0.0.1:3665; OBS overlay — 127.0.0.1:3666/overlay.</p>
         <details><summary>Диагностика Dota</summary>
+          <p>Состояние OBS stream: {status?.streaming==null?"неизвестно":status.streaming?"идёт трансляция":"трансляция остановлена"}. {status?.backendError?`Backend: ${status.backendError}`:""}</p>
           <p>Обработано GSI: {status?.processed??0} · обнаружено звуковых событий: {status?.detectedSounds??0} · подготовлено запросов: {status?.plannedSounds??0} · отброшено при смене контекста: {status?.droppedSoundIntents??0}.</p>
           <p>Последний результат аудио ядра: {audioReceipt?.receipt?.status??"нет подтверждённого admission"}. queued/playing и отправка события не подтверждают завершение воспроизведения.</p>
           <pre>{JSON.stringify({worker:status,audio:audioReceipt},null,2)}</pre>

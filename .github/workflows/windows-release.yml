@@ -227,9 +227,7 @@ jobs:
         run: cargo test --locked --release --target x86_64-pc-windows-msvc --manifest-path plugins/Cargo.toml -p companion-dota-plugin --test ipc -- --test-threads=1
       - name: Build independent UI and overlay assets
         shell: bash
-        run: |
-          pnpm --filter @prereborn/companion exec tsc --noEmit -p ../../plugins/dota/ui/tsconfig.json
-          pnpm --filter @prereborn/companion exec vite build --config ../../plugins/dota/ui/vite.config.ts
+        run: pnpm --filter @prereborn/dota-ui build
       - name: Inspect native dependencies and stage exact independent artifacts
         shell: bash
         run: |

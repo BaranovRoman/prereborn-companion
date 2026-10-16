@@ -38,7 +38,12 @@ impl History {
   if !capabilities.iter().any(|c|c==companion_dota_domain::match_execution::MATCH_EXECUTION_CAPABILITY){return Err("capability_denied".into());}
   let executable=std::env::current_exe().map_err(|_|"executable_unavailable")?;
   let (lease,session)=ownership::activate_worker(&mut self.connection,process,&package)?;
-  self.grant=Some(Grant{package,executable,lease,session,capabilities});Ok(())
+  self.grant=Some(Grant{package,executable,lease,session,capabilities});
+  if self.grant.as_ref().unwrap().permits("backend.access"){
+   if let Err(error)=self.adapter.initialize_sync(&mut self.connection,self.grant.as_ref().unwrap()){
+    return Err(match self.drain(){Ok(())=>error,Err(drain)=>format!("{error}; drain: {drain}")});
+   }
+  }Ok(())
  }
  #[cfg(not(windows))]
  pub fn activate(&mut self,_process:&SupervisedProcess,_package:PackageBinding,_capabilities:Vec<String>)->Result<(),String>{Err("native_supervision_unsupported".into())}
@@ -72,6 +77,15 @@ impl History {
   let revision:u64=self.connection.query_row("SELECT value FROM pc_tx_epoch WHERE id=1",[],|r|r.get(0)).map_err(|_|"history_read_failed")?;
   Ok(serde_json::json!({"revision":revision,"session":self.session(),"active":self.active()}))
  }
+ pub fn refresh_account(&mut self,mode:Option<&str>,rating:Option<i64>)->Result<(),String>{
+  let grant=self.grant.as_ref().ok_or("worker_inactive")?;self.adapter.refresh_account(&mut self.connection,grant,mode,rating)
+ }
+ pub fn pending_sync(&mut self)->Result<Option<db::sync::OutboxRow>,String>{
+  let grant=self.grant.as_ref().ok_or("worker_inactive")?;self.adapter.pending_sync(&mut self.connection,grant,chrono::Utc::now())
+ }
+ pub fn settle_sync(&mut self,row:&db::sync::OutboxRow,delivery:&str)->Result<(),String>{
+  let grant=self.grant.as_ref().ok_or("worker_inactive")?;self.adapter.settle_sync(&mut self.connection,grant,row,delivery,chrono::Utc::now())
+ }
  pub fn edit(&mut self,request:db::host_execution::manual::EditRequest)->Result<db::host_execution::manual::EditReceipt,String>{
   let grant=self.grant.as_mut().ok_or("worker_inactive")?;
   let receipt=self.adapter.manual_edit(&mut self.connection,grant,&request,chrono::Utc::now())?;
@@ -85,6 +99,7 @@ impl History {
   Ok(store::find_session(&self.connection,id).map_err(|_|"history_read_failed")?.ok_or("session_missing")?.ended_at.is_some())
  }
  pub fn summary(&self)->Result<db::summary::LocalSessionSummary,String> {db::summary::try_get(&self.connection).map_err(|_|"history_read_failed".into())}
+ pub fn sync_status(&self)->Result<db::sync::SyncOutboxStatus,String>{db::sync::outbox_status(&self.connection).map_err(|_|"history_read_failed".into())}
  pub fn confirm_prepared(&self)->Result<(),String>{transaction_schema::activation_preflight(&self.connection,&self.backup)}
  pub fn quota(&self)->Result<db::host_execution::live_effects::Quota,String>{db::host_execution::live_effects::quota(&self.connection)}
  pub fn session(&self)->Option<&str>{self.grant.as_ref().and_then(|g|g.session.as_deref())}

@@ -6,6 +6,95 @@ pub struct Outcome {pub session:Option<String>,pub stream_ended:Option<bool>}
 #[derive(Serialize)]
 struct LifecycleReceipt {family:&'static str,before:u64,after:u64,decision:Option<Decision>,resolved_session:String,interrupted:Vec<String>,sessions:Vec<SessionReceipt>}
 impl Adapter {
+ fn sync_scope(&self,tx:&Transaction<'_>,pin:&impl ExecutionGrant)->Result<()> {
+  if !pin.permits(MATCH_EXECUTION_CAPABILITY)||!pin.permits("backend.access"){return Err("capability_denied".into());}
+  Self::verify(tx,&self.expected_schema)?;
+  if let Some(session)=pin.session(){super::super::transaction_authorization::authorize_scope(tx,pin.lease(),session,Some(pin.binding()))}else{super::super::transaction_authorization::authorize_unbound(tx,pin.lease(),Some(pin.binding()))}
+ }
+ fn sync_receipt(tx:&Transaction<'_>,key:&str,identity:&str,doc:&str)->Result<()> {
+  sql(tx.execute("INSERT INTO pc_tx_ledger VALUES(?1,?2,'completed')",params![key,identity]))?;
+  sql(tx.execute("INSERT INTO pc_tx_receipts VALUES(?1,?2,?3)",params![key,doc,hash(doc)]))?;Ok(())
+ }
+ /// Fix the existing cutover timestamp before opening fresh GSI admission,
+ /// otherwise the first real session could be mistaken for shadow-era data.
+ pub fn initialize_sync(&mut self,c:&mut Connection,pin:&impl ExecutionGrant)->Result<()> {
+  self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;self.sync_scope(&tx,pin)?;
+  if let Some(value)=sql(super::super::sync::meta_get(&tx,"cutover_at"))?{if companion_dota_domain::session_lifecycle::parse_rfc3339(&value).is_none(){return Err("sync_cutover_invalid".into());}return Ok(());}
+  let cutover=sql(super::super::sync::cutover_at(&tx))?;let revision:u64=sql(tx.query_row("SELECT value FROM pc_tx_epoch WHERE id=1",[],|r|r.get(0)))?;
+  let doc=encode(&serde_json::json!({"family":"sync-cutover-v1","cutoverAt":cutover,"revision":revision}))?;
+  Self::sync_receipt(&tx,&format!("sync-cutover:{}:{revision}",pin.lease().epoch),&hash(&doc),&doc)?;sql(tx.commit())
+ }
+ pub fn pending_sync(&mut self,c:&mut Connection,pin:&impl ExecutionGrant,now:DateTime<Utc>)->Result<Option<super::super::sync::OutboxRow>> {
+  self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;self.sync_scope(&tx,pin)?;
+  let cutover=sql(super::super::sync::meta_get(&tx,"cutover_at"))?.and_then(|s|companion_dota_domain::session_lifecycle::parse_rfc3339(&s)).ok_or("sync_cutover_invalid")?;
+  let oversized:bool=sql(tx.query_row("SELECT EXISTS(SELECT 1 FROM sync_outbox WHERE delivered_at IS NULL AND failed_at IS NULL AND length(CAST(payload AS BLOB))>6144)",[],|r|r.get(0)))?;
+  if oversized{return Err("outbox_payload_limit".into());}
+  // Bounded legacy-shadow skipping. Continue on the next tick, never starve GSI.
+  for _ in 0..8 {
+   let Some(row)=sql(super::super::sync::next_pending(&tx,now))?else{sql(tx.commit())?;return Ok(None);};
+   if sql(super::super::sync::is_eligible(&tx,&row,cutover))?{
+    if row.attempts<0||uuid::Uuid::parse_str(&row.id).is_err(){return Err("outbox_corrupt".into());}
+    let key=format!("outbox-admit:{}:{}",row.id,row.attempts);let identity=hash(&encode(&("outbox-admission-v1",&row))?);
+    let saved:Option<(String,String,String,String)>=sql(tx.query_row("SELECT identity,status,CASE WHEN length(CAST(receipt AS BLOB))<=2048 THEN receipt ELSE NULL END,checksum FROM pc_tx_ledger JOIN pc_tx_receipts USING(operation_key) WHERE operation_key=?1",[&key],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional())?;
+    if let Some((prior,status,doc,checksum))=saved{if prior!=identity||status!="completed"||hash(&doc)!=checksum{return Err("receipt_corrupt".into());}}
+    else{
+     sql(super::super::sync::mark_sending(&tx,&row.id,row.attempts,now))?;
+     let doc=encode(&serde_json::json!({"family":"outbox-admission-v1","id":row.id,"delivery":"unknown","attempt":row.attempts}))?;
+     Self::sync_receipt(&tx,&key,&identity,&doc)?;
+    }
+    sql(tx.commit())?;return Ok(Some(row));
+   }
+   sql(super::super::sync::mark_failed(&tx,&row.id,super::super::sync::SHADOW_DEAD_LETTER_ERROR,now))?;
+   let doc=encode(&serde_json::json!({"family":"outbox-state-v1","id":row.id,"delivery":"pre-cutover-rejected"}))?;
+   Self::sync_receipt(&tx,&format!("outbox-shadow:{}",row.id),&hash(&doc),&doc)?;
+  }
+  sql(tx.commit())?;Ok(None)
+ }
+ /// Records delivery truth, including Unknown/retry, using the same original
+ /// event UUID. Only sync/events has a proven server-side idempotency contract;
+ /// this does NOT authorize generic HTTP, OBS or audio retries.
+ pub fn settle_sync(&mut self,c:&mut Connection,pin:&impl ExecutionGrant,row:&super::super::sync::OutboxRow,delivery:&str,now:DateTime<Utc>)->Result<()> {
+  if !matches!(delivery,"delivered"|"rejected"|"unknown"|"retryable"){return Err("invalid_sync_result".into());}
+  self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;self.sync_scope(&tx,pin)?;
+  let key=format!("outbox:{}:{}",row.id,row.attempts);let identity=hash(&encode(&("outbox-state-v1",row,delivery))?);
+  let saved:Option<(String,String,Option<String>,Option<String>)>=sql(tx.query_row("SELECT identity,status,CASE WHEN length(CAST(receipt AS BLOB))<=2048 THEN receipt ELSE NULL END,checksum FROM pc_tx_ledger LEFT JOIN pc_tx_receipts USING(operation_key) WHERE operation_key=?1",[&key],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional())?;
+  if let Some((saved,status,doc,checksum))=saved{
+   if saved!=identity{return Err("payload_conflict".into());}
+   let doc=doc.ok_or("receipt_corrupt")?;if status!="completed"||checksum.as_deref()!=Some(hash(&doc).as_str()){return Err("receipt_corrupt".into());}return Ok(());
+  }
+  let current:(String,String,i64,Option<String>,Option<String>)=sql(tx.query_row("SELECT event_type,CASE WHEN length(CAST(payload AS BLOB))<=6144 THEN payload ELSE NULL END,attempts,delivered_at,failed_at FROM sync_outbox WHERE id=?1",[&row.id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?))))?;
+  if current.0!=row.event_type||current.1!=row.payload||current.2!=row.attempts||current.3.is_some()||current.4.is_some(){return Err("outbox_precondition_changed".into());}
+  match delivery{
+   "delivered"=>sql(super::super::sync::mark_delivered(&tx,&row.id,now))?,
+   "rejected"=>sql(super::super::sync::mark_failed(&tx,&row.id,"backend rejected event",now))?,
+   _=>sql(super::super::sync::mark_retry(&tx,&row.id,if delivery=="unknown"{"backend result Unknown; same event UUID retained"}else{"backend temporarily unavailable"},row.attempts,now))?,
+  }
+  let revision:u64=sql(tx.query_row("SELECT value FROM pc_tx_epoch WHERE id=1",[],|r|r.get(0)))?;
+  let doc=encode(&serde_json::json!({"family":"outbox-state-v1","id":row.id,"delivery":delivery,"revision":revision}))?;
+  Self::sync_receipt(&tx,&key,&identity,&doc)?;sql(tx.commit())
+ }
+ /// Same account bootstrap rules as the legacy sync worker. A cached profile
+ /// can initialize an unknown device rating, never overwrite a local/session
+ /// correction. Cache writes and their receipt share the history transaction.
+ pub fn refresh_account(&mut self,c:&mut Connection,pin:&impl ExecutionGrant,mode:Option<&str>,rating:Option<i64>)->Result<()> {
+  if !pin.permits(MATCH_EXECUTION_CAPABILITY)||!pin.permits("backend.access"){return Err("capability_denied".into());}
+  self.account_guarded(c,pin.lease(),pin.session(),Some(pin.binding()),mode,rating)
+ }
+ fn account_guarded(&mut self,c:&mut Connection,lease:companion_dota_domain::ownership::Lease,session:Option<&str>,package:Option<&PackageBinding>,mode:Option<&str>,rating:Option<i64>)->Result<()> {
+  if mode.is_some_and(|m|!matches!(m,"ranked"|"unranked"))||rating.is_some_and(|r|!(0..=30000).contains(&r)){return Err("account_settings_invalid".into());}
+  self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::verify(&tx,&self.expected_schema)?;
+  if let Some(session)=session{super::super::transaction_authorization::authorize_scope(&tx,lease,session,package)?;}else{super::super::transaction_authorization::authorize_unbound(&tx,lease,package)?;}
+  let before:u64=sql(tx.query_row("SELECT value FROM pc_tx_epoch WHERE id=1",[],|r|r.get(0)))?;
+  if let Some(mode)=mode{if sql(super::super::sync::meta_get(&tx,"cached_game_mode"))?.as_deref()!=Some(mode){sql(super::super::sync::meta_set(&tx,"cached_game_mode",mode))?;}}
+  if sql(store::find_open_session(&tx))?.is_none()&&sql(store::get_current_rating(&tx))?.is_none(){if let Some(rating)=rating{sql(Facade::new(&tx).rating(rating))?;}}
+  let after:u64=sql(tx.query_row("SELECT value FROM pc_tx_epoch WHERE id=1",[],|r|r.get(0)))?;
+  if before!=after{
+   let doc=encode(&serde_json::json!({"family":"account-bootstrap-v1","before":before,"after":after,"mode":sql(super::super::sync::meta_get(&tx,"cached_game_mode"))?,"rating":sql(store::get_current_rating(&tx))?}))?;
+   let key=format!("account:{}:{after}",lease.epoch);
+   sql(tx.execute("INSERT INTO pc_tx_ledger VALUES(?1,?2,'completed')",params![key,hash(&doc)]))?;sql(tx.execute("INSERT INTO pc_tx_receipts VALUES(?1,?2,?3)",params![key,doc,hash(&doc)]))?;
+  }
+  sql(tx.commit())
+ }
  pub fn external_lifecycle(&mut self,c:&mut Connection,pin:&impl ExecutionGrant,streaming:Option<bool>,snapshot:Option<&ReplayGsi>,now:DateTime<Utc>,sweep:bool)->Result<Outcome> {
   let grant=pin;if !grant.permits(MATCH_EXECUTION_CAPABILITY){return Err("capability_denied".into());}
   if grant.session().is_none(){return self.cold_lifecycle(c,grant.lease(),Some(grant.binding()),streaming,snapshot,now);}
@@ -110,6 +199,17 @@ mod stream_semantics_tests {
   assert_eq!(h.conn.query_row("SELECT count(*) FROM pc_tx_ledger",[],|r|r.get::<_,u64>(0)).unwrap(),count);
  }
  #[test]
+ fn account_refresh_cannot_overwrite_local_rating_or_allocate_receipts_for_unchanged_polls_and_rolls_back_on_quota(){
+  let(fixture,session,_)=Fixture::seeded().unwrap();let mut h=Adapter::install(fixture).unwrap();let lease=auth::confirm_fenced(&mut h.conn,Lease{owner:Owner::BuiltIn,epoch:1}).unwrap();auth::bind_builtin_session(&mut h.conn,lease,&session).unwrap();
+  h.adapter.account_guarded(&mut h.conn,lease,Some(&session),None,Some("ranked"),Some(2300)).unwrap();assert_eq!(store::get_current_rating(&h.conn).unwrap(),Some(1000));
+  let count:u64=h.conn.query_row("SELECT count(*) FROM pc_tx_ledger",[],|r|r.get(0)).unwrap();assert_eq!(count,1);let epoch:u64=h.conn.query_row("SELECT value FROM pc_tx_epoch WHERE id=1",[],|r|r.get(0)).unwrap();
+  h.adapter.account_guarded(&mut h.conn,lease,Some(&session),None,Some("ranked"),Some(2800)).unwrap();assert_eq!(h.conn.query_row("SELECT value FROM pc_tx_epoch WHERE id=1",[],|r|r.get::<_,u64>(0)).unwrap(),epoch);
+  assert_eq!(h.conn.query_row("SELECT count(*) FROM pc_tx_ledger",[],|r|r.get::<_,u64>(0)).unwrap(),count);
+  h.conn.execute("UPDATE pc_tx_limits SET max_operations=1",[]).unwrap();let before=crate::local_runtime::transaction_tests::dump(&h.conn);
+  assert_eq!(h.adapter.account_guarded(&mut h.conn,lease,Some(&session),None,Some("unranked"),Some(9000)).unwrap_err(),"safety_quota_exhausted");assert_eq!(crate::local_runtime::transaction_tests::dump(&h.conn),before);
+  assert_eq!(super::super::super::sync::meta_get(&h.conn,"cached_game_mode").unwrap().as_deref(),Some("ranked"));
+ }
+ #[test]
  fn cold_stream_start_binds_one_real_session_and_retry_returns_its_persisted_identity(){
   let root=tempfile::tempdir().unwrap();let mut c=Connection::open(root.path().join("isolated.sqlite3")).unwrap();schema::migrate(&c).unwrap();
   crate::local_runtime::transaction_schema::migrate(&mut c,&root.path().join("backup.sqlite3")).unwrap();
@@ -150,5 +250,45 @@ mod stream_semantics_tests {
   h.adapter.lifecycle_guarded(&mut h.conn,lease,&session,None,None,None,now,true).unwrap();assert_eq!(state(&h.conn),"interrupted");
   let count:u64=h.conn.query_row("SELECT count(*) FROM pc_tx_ledger",[],|r|r.get(0)).unwrap();
   h.adapter.lifecycle_guarded(&mut h.conn,lease,&session,None,None,None,now,true).unwrap();assert_eq!(h.conn.query_row("SELECT count(*) FROM pc_tx_ledger",[],|r|r.get::<_,u64>(0)).unwrap(),count);
+ }
+}
+
+#[cfg(test)]
+mod sync_bookkeeping_tests {
+ use super::*;use crate::local_runtime::{transaction_authorization as auth,transaction_schema,sync};
+ use companion_dota_domain::ownership::{Lease,Owner};
+ struct Pin{package:PackageBinding,lease:Lease,session:Option<String>}
+ impl companion_plugin_protocol::ProcessGrant for Pin{fn binding(&self)->&PackageBinding{&self.package}fn executable(&self)->&std::path::Path{std::path::Path::new("transaction-fixture")}fn permits(&self,cap:&str)->bool{matches!(cap,MATCH_EXECUTION_CAPABILITY|"backend.access")}}
+ impl ExecutionGrant for Pin{fn lease(&self)->Lease{self.lease}fn session(&self)->Option<&str>{self.session.as_deref()}}
+ fn ready()->(tempfile::TempDir,Connection,Adapter,Pin,DateTime<Utc>){
+  let root=tempfile::tempdir().unwrap();let mut c=Connection::open(root.path().join("isolated.sqlite3")).unwrap();schema::migrate(&c).unwrap();transaction_schema::migrate(&mut c,&root.path().join("backup.sqlite3")).unwrap();let mut adapter=Adapter::attach(&mut c).unwrap();
+  let old=auth::confirm_fenced(&mut c,Lease{owner:Owner::BuiltIn,epoch:1}).unwrap();let package=PackageBinding{id:"dota2".into(),version:"0.2.0".into(),executable_hash:"a".repeat(64),manifest_hash:"b".repeat(64)};
+  // SQL/ownership fixture only. Native OS proof is covered by the Windows
+  // real-process test, never forged by the production activation path.
+  auth::begin_cold(&mut c,old,Owner::External,Some(package.clone())).unwrap();let lease=Lease{owner:Owner::External,epoch:old.epoch+1};auth::process_starting(&mut c,lease,&package,&uuid::Uuid::new_v4().to_string()).unwrap();auth::confirm_fenced(&mut c,old).unwrap();
+  let mut pin=Pin{package,lease,session:None};adapter.initialize_sync(&mut c,&pin).unwrap();assert!(store::find_open_session(&c).unwrap().is_none());
+  let now=Utc::now()+chrono::Duration::seconds(1);pin.session=adapter.external_lifecycle(&mut c,&pin,Some(true),None,now,false).unwrap().session;
+  (root,c,adapter,pin,now+chrono::Duration::seconds(1))
+ }
+ #[test]
+ fn unknown_delivery_retains_the_original_fifo_event_uuid_and_payload_and_ack_is_idempotent(){
+  let(_root,mut c,mut adapter,pin,now)=ready();let row=adapter.pending_sync(&mut c,&pin,now).unwrap().unwrap();
+  let status=sync::outbox_status(&c).unwrap();assert_eq!(status.pending_count,1);assert_eq!(status.last_delivered_at,None);assert_eq!(status.unknown_delivery_count,1);
+  let error:String=c.query_row("SELECT last_error FROM sync_outbox WHERE id=?1",[&row.id],|r|r.get(0)).unwrap();assert!(error.contains("Unknown"));
+  assert!(adapter.pending_sync(&mut c,&pin,now).unwrap().is_none());adapter.settle_sync(&mut c,&pin,&row,"unknown",now).unwrap();
+  let retry=adapter.pending_sync(&mut c,&pin,now+chrono::Duration::seconds(10)).unwrap().unwrap();assert_eq!(retry.id,row.id);assert_eq!(retry.payload,row.payload);assert_eq!(retry.attempts,1);
+  adapter.settle_sync(&mut c,&pin,&retry,"delivered",now).unwrap();let revision:u64=c.query_row("SELECT value FROM pc_tx_epoch WHERE id=1",[],|r|r.get(0)).unwrap();
+  adapter.settle_sync(&mut c,&pin,&retry,"delivered",now).unwrap();assert_eq!(c.query_row("SELECT value FROM pc_tx_epoch WHERE id=1",[],|r|r.get::<_,u64>(0)).unwrap(),revision);
+  let mut conflict=retry;conflict.payload="{}".into();assert_eq!(adapter.settle_sync(&mut c,&pin,&conflict,"delivered",now).unwrap_err(),"payload_conflict");
+  assert_eq!(c.query_row("SELECT count(*) FROM sync_outbox",[],|r|r.get::<_,u64>(0)).unwrap(),1);assert_eq!(sync::outbox_status(&c).unwrap().pending_count,0);assert_eq!(sync::outbox_status(&c).unwrap().unknown_delivery_count,0);
+ }
+ #[test]
+ fn quota_or_corrupt_receipt_refuses_admission_before_network_and_keeps_the_complete_write_set(){
+  let(_root,mut c,mut adapter,pin,now)=ready();let count:u64=c.query_row("SELECT count(*) FROM pc_tx_ledger",[],|r|r.get(0)).unwrap();c.execute("UPDATE pc_tx_limits SET max_operations=?1",[count]).unwrap();
+  let before=crate::local_runtime::transaction_tests::dump(&c);assert_eq!(adapter.pending_sync(&mut c,&pin,now).unwrap_err(),"safety_quota_exhausted");assert_eq!(crate::local_runtime::transaction_tests::dump(&c),before);
+  c.execute("UPDATE pc_tx_limits SET max_operations=10000",[]).unwrap();let row=adapter.pending_sync(&mut c,&pin,now).unwrap().unwrap();
+  c.execute("UPDATE pc_tx_receipts SET checksum=?2 WHERE operation_key=?1",params![format!("outbox-admit:{}:{}",row.id,row.attempts),"0".repeat(64)]).unwrap();
+  assert_eq!(adapter.pending_sync(&mut c,&pin,now+chrono::Duration::seconds(10)).unwrap_err(),"receipt_corrupt");
+  assert_eq!(sync::outbox_status(&c).unwrap().pending_count,1);
  }
 }

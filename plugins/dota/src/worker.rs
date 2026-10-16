@@ -52,19 +52,63 @@ pub struct Worker {
  selected_directory:Option<PathBuf>,
  dropped_sound_intents:u64,
  last_lifecycle_at:Option<std::time::Instant>,last_watchdog_at:Option<std::time::Instant>,stream_ended:bool,streaming:Option<bool>,
+ next_account_at:Option<std::time::Instant>,account_request_sequence:u64,account_failures:u32,backend_error:Option<String>,account:Option<Value>,
+ next_sync_at:Option<std::time::Instant>,pending_sync:Option<companion_dota_storage::local_runtime::sync::OutboxRow>,
+ backend_updates:u64,
  detected_sounds:u64,planned_sounds:u64,last_sound_signal:Option<Value>,last_sound_operation:Option<String>,
  last_error:Option<String>, processed:u64, last_sequence:Option<u64>, last_analysis:Option<Value>,last_gsi:Option<Value>,last_receipt:Option<companion_dota_domain::match_execution::Receipt>,
 }
 impl Worker {
- pub fn new(launch:Launch)->Self{Self{launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,dropped_sound_intents:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
+ pub fn new(launch:Launch)->Self{Self{launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,dropped_sound_intents:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,next_sync_at:None,pending_sync:None,backend_updates:0,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
  pub fn status(&self)->Value{
   let history=self.history.as_ref();let active=history.is_some_and(History::active);
   json!({"prepared":history.is_some(),"active":active,"awaitingSession":active&&history.and_then(History::session).is_none(),
-   "session":history.and_then(History::session),"epoch":history.and_then(History::epoch),"lastError":self.last_error,"streaming":self.streaming,"streamEnded":self.stream_ended,
+   "session":history.and_then(History::session),"epoch":history.and_then(History::epoch),"lastError":self.last_error,"streaming":self.streaming,"streamEnded":self.stream_ended,"backendError":self.backend_error,"backendUpdates":self.backend_updates,
    "gsi":self.listener.as_ref().map(|l|json!(l.status())).or(self.last_gsi.clone()),"processed":self.processed,"lastSequence":self.last_sequence,"analysis":self.last_analysis,
    "receipt":self.last_receipt,"context":self.effect_context(),"droppedSoundIntents":self.dropped_sound_intents,"detectedSounds":self.detected_sounds,"plannedSounds":self.planned_sounds,"lastSoundSignal":self.last_sound_signal,"lastSoundOperation":self.last_sound_operation,"overlay":self.overlay.as_ref().map(|s|json!({"running":!s.closed(),"clients":s.clients()}))})
  }
  fn effect_context(&self)->Option<String>{self.history.as_ref().and_then(History::session).map(|id|if self.stream_ended{format!("{id}:ended")}else{id.to_string()})}
+ pub fn backend_request(&mut self)->Result<Option<companion_plugin_protocol::backend::Request>,String>{
+  use companion_plugin_protocol::backend::Request;
+  if !self.launch.capabilities.iter().any(|c|c=="backend.access")||!self.history.as_ref().is_some_and(History::active){return Ok(None);}
+  if self.next_account_at.is_some_and(|at|at>std::time::Instant::now()){
+   if self.next_sync_at.is_some_and(|at|at>std::time::Instant::now())||self.backend_error.as_deref()==Some("account_not_connected"){return Ok(None);}
+   self.next_sync_at=Some(std::time::Instant::now()+std::time::Duration::from_secs(2));
+   if self.pending_sync.is_some(){return Err("backend_request_in_flight".into());}
+   let Some(row)=self.history.as_mut().unwrap().pending_sync()?else{return Ok(None);};
+   let payload:Value=match serde_json::from_str(&row.payload){Ok(value)=>value,Err(_)=>{self.history.as_mut().unwrap().settle_sync(&row,"rejected")?;self.backend_error=Some("outbox_payload_invalid".into());return Ok(None);}};
+   let request=Request{resource:"sync-event".into(),operation_key:format!("sync:{}:{}",row.id,row.attempts),query:Default::default(),body:Some(json!({"eventId":row.id,"eventType":row.event_type,"payload":payload}))};
+   request.validate()?;self.pending_sync=Some(row);return Ok(Some(request));
+  }
+  self.account_request_sequence=self.account_request_sequence.checked_add(1).ok_or("backend_sequence_exhausted")?;
+  self.next_account_at=Some(std::time::Instant::now()+std::time::Duration::from_secs(60));
+  Ok(Some(companion_plugin_protocol::backend::Request{resource:"account".into(),operation_key:format!("account:{}:{}",self.launch.generation,self.account_request_sequence),query:Default::default(),body:None}))
+ }
+ pub fn backend_response(&mut self,request:&companion_plugin_protocol::backend::Request,response:companion_plugin_protocol::backend::Response)->Result<(),String>{
+  if response.operation_key!=request.operation_key{return Err("backend_response_scope_mismatch".into());}
+  if request.resource=="account"{self.account_response(request,response)?;self.backend_updates=self.backend_updates.checked_add(1).ok_or("backend_sequence_exhausted")?;return Ok(());}
+  if request.resource!="sync-event"{return Err("backend_response_scope_mismatch".into());}
+  let row=self.pending_sync.take().ok_or("backend_request_not_pending")?;
+  if request.operation_key!=format!("sync:{}:{}",row.id,row.attempts){return Err("backend_response_scope_mismatch".into());}
+  let delivery=if response.error.is_none()&&response.status.is_some_and(|s|(200..300).contains(&s)){"delivered"}
+   else if response.status.is_some_and(|s|(400..500).contains(&s)){"rejected"}
+   else if response.error.as_deref().is_some_and(|e|matches!(e,"account_not_connected"|"backend_client_unavailable"|"backend_resource_denied"|"account_state_unavailable")){"retryable"}else{"unknown"};
+  self.history.as_mut().ok_or("not_prepared")?.settle_sync(&row,delivery)?;
+  self.backend_updates=self.backend_updates.checked_add(1).ok_or("backend_sequence_exhausted")?;
+  self.backend_error=if delivery=="delivered"{None}else{Some(format!("backend_sync_{delivery}"))};Ok(())
+ }
+ pub fn account_response(&mut self,request:&companion_plugin_protocol::backend::Request,response:companion_plugin_protocol::backend::Response)->Result<(),String>{
+  if response.operation_key!=request.operation_key||request.resource!="account"||!self.launch.capabilities.iter().any(|c|c=="backend.access"){return Err("backend_response_scope_mismatch".into());}
+  let error=if response.error.is_some(){response.error}else if !response.status.is_some_and(|s|(200..300).contains(&s)){Some("backend_http_rejected".into())}else{None};
+  if let Some(error)=error{self.backend_unavailable(error);return Ok(());}
+  let Some(account)=response.body.filter(|v|v.is_object()&&companion_plugin_protocol::backend::public_response(v))else{self.backend_unavailable("account_settings_invalid".into());return Ok(());};
+  let mode=account.get("gameMode").and_then(Value::as_str);let rating=account.get("currentMmr").and_then(Value::as_i64);
+  if mode.is_some_and(|m|!matches!(m,"ranked"|"unranked"))||rating.is_some_and(|r|!(0..=30000).contains(&r)){self.backend_unavailable("account_settings_invalid".into());return Ok(());}
+  self.history.as_mut().ok_or("not_prepared")?.refresh_account(mode,rating)?;
+  self.account=Some(account);self.backend_error=None;self.account_failures=0;Ok(())
+ }
+ fn backend_unavailable(&mut self,error:String){self.backend_error=Some(error);self.account_failures=self.account_failures.saturating_add(1);self.next_account_at=Some(std::time::Instant::now()+std::time::Duration::from_secs(2u64.saturating_pow(self.account_failures.min(5)).min(60)));}
+ pub fn backend_failure(&mut self,error:String)->String{let error=self.close_after_error(error);self.last_error=Some(error.clone());error}
  /// Commands are serialized by the existing stdio loop: one coordinator, one
  /// listener, and no duplicate preparation even when the UI repeats a request.
  pub fn command(&mut self,name:&str,args:Value)->Result<Value,String>{
@@ -78,6 +122,7 @@ impl Worker {
   else if name=="status"{crate::ui::empty(args).map(|_|self.status())}
   else if !self.launch.capabilities.iter().any(|c|matches!(c.as_str(),"data.legacy"|"data.private")){Err("capability_denied".into())}
   else if name=="history.summary"{crate::ui::empty(args).and_then(|_|self.history.as_ref().ok_or_else(||"not_prepared".to_string())).and_then(History::summary).and_then(|summary|serde_json::to_value(summary).map_err(|_|"history_encoding_failed".into()))}
+  else if name=="history.sync"{crate::ui::empty(args).and_then(|_|self.history.as_ref().ok_or_else(||"not_prepared".to_string())).and_then(History::sync_status).and_then(|status|serde_json::to_value(status).map_err(|_|"history_encoding_failed".into()))}
   else if name=="history.context"{crate::ui::empty(args).and_then(|_|self.history.as_ref().ok_or_else(||"not_prepared".to_string())).and_then(History::edit_context)}
   else if name=="history.edit"{self.history_edit(args)}
   else if matches!(name,"gsi.find"|"gsi.install"){self.gsi_setup(name,args)}
@@ -141,6 +186,7 @@ impl Worker {
     let overlay=if self.launch.capabilities.iter().any(|c|c=="overlay.publish"){Some(crate::overlay::server::Server::bind(&self.launch.data_root,&self.launch.package)?)}else{None};
     let mut permissions=vec![companion_dota_domain::match_execution::MATCH_EXECUTION_CAPABILITY.to_string()];
     for (host,internal) in [("audio.play","dota.sound.play"),("obs.scene","dota.obs.scene"),("overlay.publish","dota.overlay.update")]{if self.launch.capabilities.iter().any(|c|c==host){permissions.push(internal.into());}}
+    if self.launch.capabilities.iter().any(|c|c=="backend.access"){permissions.push("backend.access".into());}
     self.history.as_mut().unwrap().activate(&proof,self.launch.package.clone(),permissions)?;
     if let Err(error)=listener.start_admission(){let _=self.history.as_mut().unwrap().drain();return Err(error);}
     self.pipeline.reset();self.listener=Some(listener);self.overlay=overlay;self.last_overlay_at=None;self.last_lifecycle_at=None;self.last_watchdog_at=None;self.stream_ended=false;self.streaming=None;self.scene=companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches;self.last_error=None;
@@ -218,7 +264,7 @@ impl Worker {
  fn publish_overlay(&mut self)->Result<(),String>{
   let Some(server)=&self.overlay else{return Ok(());};let root=&self.launch.data_root;
   let layout=crate::overlay::saved(root,"overlay-layout.json",1024*1024)?;let queue=crate::overlay::saved(root,"queue-settings.json",128*1024)?;
-  let account=crate::overlay::saved(root,"account-overlay-data.json",128*1024)?;
+  let account=if self.account.is_some(){self.account.clone()}else{crate::overlay::saved(root,"account-overlay-data.json",128*1024)?};
   let scene=companion_dota_domain::broadcast_state::resolve(self.scene,self.stream_ended,false);
   let snapshot=crate::overlay::OverlayStateSnapshot{scene,updated_at:chrono::Utc::now().to_rfc3339(),session:self.history.as_ref().ok_or("not_prepared")?.summary()?,layout_version:0,account,twitch_chat:None,overlay_visible:true,opendota_favorite_heroes:None,opendota_radar:None,quiz:None};
   server.publish(&snapshot,layout,queue)?;self.last_overlay_at=Some(std::time::Instant::now());Ok(())

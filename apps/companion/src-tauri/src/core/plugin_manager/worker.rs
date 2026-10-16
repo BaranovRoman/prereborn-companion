@@ -7,7 +7,7 @@ use serde::Deserialize;
 use tauri::Emitter;
 
 #[derive(Clone)]
-struct Pin{package:PackageBinding,executable:PathBuf,permissions:Vec<String>}
+struct Pin{package:PackageBinding,executable:PathBuf,permissions:Vec<String>,backend_resources:std::collections::BTreeMap<String,companion_plugin_protocol::backend::Resource>}
 impl ProcessGrant for Pin{
  fn binding(&self)->&PackageBinding{&self.package}
  fn executable(&self)->&std::path::Path{&self.executable}
@@ -31,7 +31,7 @@ impl Service{
   let (executable,manifest)=self.store.executable(id,&installed.active)?;
   if manifest.min_api<2||manifest.execution!=packages::ExecutionMode::Live{return Err("plugin_update_required".into());}
   let package=PackageBinding{id:manifest.id.clone(),version:manifest.version.clone(),executable_hash:manifest.files.get(&manifest.executable).cloned().ok_or("executable_unbound")?,manifest_hash:packages::hash(&serde_json::to_vec(&manifest).map_err(|_|"invalid_manifest")?)};
-  Ok((Pin{package,executable,permissions:manifest.permissions.clone()},manifest))
+  Ok((Pin{package,executable,permissions:manifest.permissions.clone(),backend_resources:manifest.backend_resources.clone()},manifest))
  }
  pub(super) fn open_worker(&mut self,id:&str)->Result<(),String>{
   if let Some(worker)=self.workers.get(id){
@@ -163,7 +163,16 @@ impl Task{
   // transport supplies None; it can never fabricate an authoritative stop.
   let observation=self.stream_observation()?;
   let mut runtime=self.host.0.lock().map_err(|_|locked())?;
-  let value=runtime.command_verified(&worker.pin,&worker.binding,"host.poll".into(),serde_json::json!({"streamObservation":observation}))?;
+  let args=serde_json::json!({"streamObservation":observation});
+  let value=if worker.pin.permits("backend.access"){
+   runtime.command_verified_reader(&worker.pin,&worker.binding,args,|value|{
+    use companion_plugin_protocol::backend::{Request,Response};
+    let request:Request=serde_json::from_value(value).map_err(|_|"invalid_backend_request")?;
+    self.audio.locked_authorize(&worker.binding,worker.epoch)?;
+    let response=match worker.pin.backend_resources.get(&request.resource){Some(resource)=>crate::backend::plugin_request(&self.app,resource,&request),None=>Response::failed(&request,"backend_resource_denied")};
+    serde_json::to_value(response).map_err(|_|"backend_response_invalid".into())
+   })?
+  }else{runtime.command_verified(&worker.pin,&worker.binding,"host.poll".into(),args)?};
   // Keep child command serialization through admission/emit. A UI command
   // cannot change the worker's committed context between its reply and our
   // use of these intents. play() never waits for a frontend ACK and there is

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import * as api from "../api";
 
-export function HistoryPanel({history,active,reload}:{history:api.History|null;active:boolean;reload:()=>Promise<void>}) {
+export function HistoryPanel({history,sync,active,reload}:{history:api.History|null;sync:api.SyncStatus|null;active:boolean;reload:()=>Promise<void>}) {
   const [rating,setRating]=useState("");const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null);const [result,setResult]=useState<string|null>(null);
   const [confirmed,setConfirmed]=useState(false);
@@ -23,6 +23,10 @@ export function HistoryPanel({history,active,reload}:{history:api.History|null;a
   const disabled=busy||!active;
   return <section><h2>История матчей</h2>
     <p>Текущий MMR: {history.ratingCurrent??"не задан"} · Победы: {history.wins} · Поражения: {history.losses}</p>
+    {sync&&[sync.pendingCount,sync.retryingCount,sync.failedCount,sync.unknownDeliveryCount].every(n=>Number.isSafeInteger(n)&&n>=0)?<div>
+      <p>Ожидают отправки: {sync.pendingCount} · Отклонено сервером: {sync.failedCount}</p>
+      {sync.unknownDeliveryCount>0&&<p>Результат доставки не подтверждён: {sync.unknownDeliveryCount}. События сохраняют исходные идентификаторы; история не помечена как отправленная.</p>}
+    </div>:<p>Состояние синхронизации недоступно.</p>}
     {!active&&<p>Для изменения истории включите плагин.</p>}
     <form onSubmit={e=>{e.preventDefault();if(rating.trim()!==""&&Number.isInteger(Number(rating)))void edit({kind:"rating",rating:Number(rating)});}}>
       <label>Текущий MMR <input type="number" min="0" max="30000" step="1" value={rating} disabled={disabled} onChange={e=>setRating(e.target.value)}/></label>

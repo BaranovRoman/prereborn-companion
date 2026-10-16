@@ -8,6 +8,15 @@ use crate::obs::{self, BroadcastScene};
 
 const SEND_LOOP_INTERVAL: Duration = Duration::from_millis(500);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// A verified worker names an exact signed resource. The credential owner
+/// supplies the fixed API origin, rejects redirects and never exports tokens,
+/// arbitrary URLs/headers, raw HTTP errors or unbounded response bodies.
+pub(crate) fn plugin_request(app:&AppHandle,resource:&companion_plugin_protocol::backend::Resource,request:&companion_plugin_protocol::backend::Request)->companion_plugin_protocol::backend::Response{
+    let token={let state=app.state::<AppState>();let Ok(inner)=state.0.lock()else{return companion_plugin_protocol::backend::Response::failed(request,"account_state_unavailable");};inner.core.companion_token.clone()};
+    let Some(token)=token else{return companion_plugin_protocol::backend::Response::failed(request,"account_not_connected");};
+    crate::core::backend_transport::request_plugin_resource(DEFAULT_BACKEND_URL,&token,resource,request)
+}
 // WK-113 - this remote "test scene" command (web dashboard -> Companion) is
 // a rare debug/QA convenience, not part of the local-first hot path (see
 // docs/research/wk-110-local-first-audit.md §3, class A: "cadence itself

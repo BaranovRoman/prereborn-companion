@@ -70,11 +70,15 @@ fn signed_catalog_and_portable_path_validation() {
 #[test]
 fn api2_live_permissions_and_ui_commands_are_explicit_and_old_metadata_roundtrips_unchanged(){
     let old=release("0.1.0").manifest;
-    let before=serde_json::to_value(&old).unwrap();assert!(before.get("author").is_none());assert!(before.get("uiCommands").is_none());
+    let before=serde_json::to_value(&old).unwrap();assert!(before.get("author").is_none());assert!(before.get("uiCommands").is_none());assert!(before.get("backendResources").is_none());
     assert_eq!(serde_json::to_value(serde_json::from_value::<Manifest>(before.clone()).unwrap()).unwrap(),before);
     let mut current=old.clone();current.id="independent-game".into();current.min_api=2;current.max_api=2;current.execution=ExecutionMode::Live;
     current.permissions=vec!["ui".into(),"data.legacy".into(),"audio.play".into(),"obs.scene".into()];current.author=Some("Example publisher".into());current.ui_commands=vec!["status".into(),"sound.settings".into()];
     current.validate().unwrap();
+    let resource=companion_plugin_protocol::backend::Resource{path:"/stream/companion/account-settings".into(),method:companion_plugin_protocol::backend::Method::Get,query_keys:vec![],max_request:0,max_response:24576};
+    let mut backend=current.clone();backend.backend_resources.insert("account".into(),resource);assert_eq!(backend.validate().unwrap_err(),"backend_resource_denied");
+    backend.permissions.push("backend.access".into());backend.validate().unwrap();
+    backend.backend_resources.get_mut("account").unwrap().path="https://invalid.test/steal".into();assert_eq!(backend.validate().unwrap_err(),"backend_resource_denied");
     let mut bad=current.clone();bad.ui_commands.push("host.activate".into());assert_eq!(bad.validate().unwrap_err(),"invalid_ui_commands");
     let mut bad=current.clone();bad.permissions.push("data.private".into());assert_eq!(bad.validate().unwrap_err(),"unsupported_permissions");
     let mut bad=current.clone();bad.permissions.push("sql".into());assert_eq!(bad.validate().unwrap_err(),"unsupported_permissions");
