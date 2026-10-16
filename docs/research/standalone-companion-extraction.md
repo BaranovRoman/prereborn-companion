@@ -495,3 +495,21 @@ Targeted checks: actual stock JS Update resource construction from native metada
 null/error handling, 3 existing updater signature/install/progress state tests,
 core shell tests, TypeScript and core cargo check. This does not claim an actual
 Windows upgrade or WebView descendant fence; those require final packaged validation.
+
+## Generic OBS settings extraction checkpoint (2026-10-16)
+
+Scene aliases/defaults are now optional signed obsBindings metadata, constrained to
+explicit obs.scene grants and public non-credential legacy fields. Omission keeps
+old canonical manifest serialization/signatures unchanged; packaging preserves the
+new field. A generic OBS transport config can preserve opaque saved extensions,
+project only the verified package's declared scenes, enforce revision-based mapping
+edits and redact credentials/unrelated extensions from core UI responses. Invalid
+mapping state is an error, not a fallback to healthy defaults. Actual Dota labels
+will come from its installed manifest rather than core defaults.
+
+Targeted checks: manifest capability/secret-alias denial and old roundtrip; exact
+legacy JSON retention, public redaction, stale edit and malformed-state rejection;
+4 packaging serialization/integrity tests. This generic config is not yet wired in
+place of the legacy OBS struct; do that with physical core removal, avoiding a
+second scene automator. Remaining plugin settings/overlay controls must use this
+same generic capability, not the legacy Dota Tauri commands.

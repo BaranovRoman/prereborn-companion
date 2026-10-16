@@ -29,6 +29,8 @@ pub struct Manifest {
     pub ui_commands:Vec<String>,
     #[serde(default,skip_serializing_if="BTreeMap::is_empty")]
     pub backend_resources:BTreeMap<String,companion_plugin_protocol::backend::Resource>,
+    #[serde(default,skip_serializing_if="BTreeMap::is_empty")]
+    pub obs_bindings:BTreeMap<String,companion_plugin_protocol::obs::Binding>,
 }
 #[derive(Clone,Copy,Debug,Default,Serialize,Deserialize,PartialEq)]
 #[serde(rename_all="snake_case")]
@@ -108,6 +110,8 @@ impl Manifest {
             ||self.ui_commands.iter().any(|c|c.is_empty()||c.len()>64||c.starts_with("host.")||!c.bytes().all(|b|b.is_ascii_lowercase()||b.is_ascii_digit()||b"._".contains(&b))){return Err("invalid_ui_commands".into());}
         if self.backend_resources.len()>16||(!self.backend_resources.is_empty()&&(!live||!self.permissions.iter().any(|p|p=="backend.access"))){return Err("backend_resource_denied".into());}
         for (id,resource) in &self.backend_resources{if id.is_empty()||id.len()>64||!id.bytes().all(|b|b.is_ascii_lowercase()||b.is_ascii_digit()||b"-_".contains(&b)){return Err("backend_resource_denied".into());}resource.validate()?;}
+        if self.obs_bindings.len()>16||(!self.obs_bindings.is_empty()&&(!live||!self.permissions.iter().any(|p|p=="obs.scene"))){return Err("obs_binding_denied".into());}
+        for(id,binding)in &self.obs_bindings{if id.is_empty()||id.len()>64||!id.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-'){return Err("obs_binding_denied".into());}binding.validate()?;}
         safe_path(&self.executable)?; safe_path(&self.ui)?;
         if !self.executable.starts_with("bin/") || !self.ui.starts_with("ui/") || !self.ui.ends_with(".html") ||
             !self.files.contains_key(&self.executable) || !self.files.contains_key(&self.ui) || self.files.len() > 512 {

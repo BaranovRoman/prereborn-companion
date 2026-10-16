@@ -8,12 +8,12 @@ class PackageTests(unittest.TestCase):
             root=pathlib.Path(root);ui=root/'ui';ui.mkdir();(ui/'index.html').write_text('installed UI')
             binary=root/'worker.exe';binary.write_bytes(b'unit executable')
             manifest=json.loads((p.ROOT/'plugins/dota/manifest.windows-live.json').read_text())
-            manifest.update(version='0.2.0',minApi=2,maxApi=2,author='Prereborn',uiCommands=['status','sound.summary','asset.import'],permissions=['ui','data.legacy','audio.play','backend.access'],backendResources={'account':{'path':'/stream/companion/account-settings','method':'GET','queryKeys':[],'maxRequest':0,'maxResponse':24576}})
+            manifest.update(version='0.2.0',minApi=2,maxApi=2,author='Prereborn',uiCommands=['status','sound.summary','asset.import'],permissions=['ui','data.legacy','audio.play','backend.access','obs.scene'],obsBindings={'phase':{'legacyField':'phase_scene','defaultScene':'Package scene'}},backendResources={'account':{'path':'/stream/companion/account-settings','method':'GET','queryKeys':[],'maxRequest':0,'maxResponse':24576}})
             template=root/'manifest.json';template.write_text(json.dumps(manifest))
             # Serialization only; no signing secret or distributable is produced.
             with patch.object(p,'sign',return_value='unit-test-placeholder'):
                 release=p.package(binary,ui,'0.2.0','windows','x86_64',root/'out',root/'key','https://github.com/example',template)
-            for field in ['author','uiCommands','permissions','minApi','maxApi','backendResources']:
+            for field in ['author','uiCommands','permissions','minApi','maxApi','backendResources','obsBindings']:
                 self.assertEqual(release['manifest'][field],manifest[field])
             with zipfile.ZipFile(root/'out/dota2-0.2.0-windows-x86_64.zip') as archive:
                 self.assertEqual(json.loads(archive.read('manifest.json')),release['manifest'])

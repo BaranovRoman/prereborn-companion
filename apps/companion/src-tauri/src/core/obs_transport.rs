@@ -9,6 +9,45 @@ use tungstenite::{connect, stream::MaybeTlsStream, Message, WebSocket};
 
 pub(crate) type ObsSocket = WebSocket<MaybeTlsStream<TcpStream>>;
 
+/// Transport configuration plus opaque public extensions. Scene semantics,
+/// defaults and legacy aliases are supplied by the verified installed package.
+#[derive(Clone,serde::Serialize,serde::Deserialize,PartialEq)]
+#[serde(default)]
+pub(crate) struct ObsConfig{
+ pub enabled:bool,pub host:String,pub port:u16,pub password:String,
+ #[serde(flatten)]pub extensions:std::collections::BTreeMap<String,Value>,
+}
+impl Default for ObsConfig{fn default()->Self{Self{enabled:false,host:"127.0.0.1".into(),port:4455,password:String::new(),extensions:Default::default()}}}
+impl std::fmt::Debug for ObsConfig{fn fmt(&self,f:&mut std::fmt::Formatter<'_>)->std::fmt::Result{f.debug_struct("ObsConfig").field("enabled",&self.enabled).field("host",&self.host).field("port",&self.port).field("password",&"[REDACTED]").finish_non_exhaustive()}}
+impl ObsConfig{
+ pub fn connection(&self)->ConnectionSettings<'_>{ConnectionSettings{host:&self.host,port:self.port,password:&self.password}}
+ pub fn public(&self)->Self{Self{enabled:self.enabled,host:self.host.clone(),port:self.port,password:String::new(),extensions:Default::default()}}
+ pub fn validate(&self)->Result<(),String>{
+  if self.host.is_empty()||self.host.len()>253||self.host.chars().any(char::is_control)||self.port==0||self.password.len()>4096||serde_json::to_vec(&self.extensions).map_err(|_|"obs_configuration_invalid")?.len()>65536{return Err("obs_configuration_invalid".into());}Ok(())
+ }
+ pub fn plugin_bindings(&self,id:&str,declared:&std::collections::BTreeMap<String,companion_plugin_protocol::obs::Binding>)->Result<std::collections::BTreeMap<String,String>,String>{
+  let mappings=self.extensions.get("pluginSceneMappings");if mappings.is_some_and(|value|!value.is_object()){return Err("obs_mapping_invalid".into());}
+  let saved=mappings.and_then(|value|value.get(id));
+  if saved.is_some_and(|value|!value.is_object()){return Err("obs_mapping_invalid".into());}
+  declared.iter().map(|(semantic,binding)|{
+   binding.validate()?;
+   let value=saved.and_then(|value|value.get(semantic)).or_else(||self.extensions.get(&binding.legacy_field));
+   let name=match value{Some(value)=>value.as_str().ok_or("obs_mapping_invalid")?,None=>&binding.default_scene};
+   if name.len()>256||name.chars().any(char::is_control){return Err("obs_mapping_invalid".into());}Ok((semantic.clone(),name.to_string()))
+  }).collect()
+ }
+ pub fn plugin_revision(&self,id:&str,declared:&std::collections::BTreeMap<String,companion_plugin_protocol::obs::Binding>)->Result<String,String>{
+  Ok(format!("{:x}",Sha256::digest(serde_json::to_vec(&(id,self.enabled,&self.host,self.port,self.plugin_bindings(id,declared)?)).map_err(|_|"obs_configuration_invalid")?)))
+ }
+ pub fn update_plugin_bindings(&mut self,id:&str,declared:&std::collections::BTreeMap<String,companion_plugin_protocol::obs::Binding>,expected:&str,bindings:std::collections::BTreeMap<String,String>)->Result<(),String>{
+  if expected!=self.plugin_revision(id,declared)?{return Err("obs_configuration_changed".into());}
+  if bindings.len()!=declared.len()||bindings.iter().any(|(key,value)|!declared.contains_key(key)||value.is_empty()||value.len()>256||value.chars().any(char::is_control)){return Err("obs_mapping_invalid".into());}
+  let mut mappings=self.extensions.get("pluginSceneMappings").cloned().unwrap_or_else(||json!({}));
+  if !mappings.is_object(){return Err("obs_mapping_invalid".into());}mappings[id]=serde_json::to_value(bindings).map_err(|_|"obs_mapping_invalid")?;
+  let mut updated=self.clone();updated.extensions.insert("pluginSceneMappings".into(),mappings);updated.validate()?;*self=updated;Ok(())
+ }
+}
+
 // Borrowed credentials, deliberately without Debug or serialization.
 pub(crate) struct ConnectionSettings<'a> {
     pub host: &'a str,
@@ -282,6 +321,20 @@ pub(crate) fn request_before(socket:&mut ObsSocket,request_type:&str,request_dat
 mod tests {
     use super::*;
     use std::net::TcpListener;
+    #[test]
+    fn signed_plugin_mappings_keep_legacy_fields_without_exporting_credentials_or_other_extensions(){
+        use companion_plugin_protocol::obs::Binding;
+        let raw=json!({"enabled":true,"host":"127.0.0.1","port":4455,"password":"private-credential","phase_scene":"Saved scene","unrelated":{"preserve":true}});
+        let mut config:ObsConfig=serde_json::from_value(raw.clone()).unwrap();config.validate().unwrap();
+        let bindings=[("phase".into(),Binding{legacy_field:"phase_scene".into(),default_scene:"Package default".into()})].into();
+        assert_eq!(config.plugin_bindings("example",&bindings).unwrap()["phase"],"Saved scene");assert_eq!(serde_json::to_value(&config).unwrap(),raw);
+        let public=serde_json::to_string(&config.public()).unwrap();assert!(!public.contains("private-credential"));assert!(!public.contains("unrelated"));assert!(!format!("{config:?}").contains("private-credential"));
+        let revision=config.plugin_revision("example",&bindings).unwrap();config.update_plugin_bindings("example",&bindings,&revision,[("phase".into(),"New scene".into())].into()).unwrap();
+        assert_eq!(config.plugin_bindings("example",&bindings).unwrap()["phase"],"New scene");assert_eq!(config.extensions["phase_scene"],"Saved scene");assert_eq!(config.extensions["unrelated"],raw["unrelated"]);
+        assert!(config.update_plugin_bindings("example",&bindings,&revision,[("phase".into(),"Stale".into())].into()).is_err());
+        let denied=[("phase".into(),Binding{legacy_field:"password".into(),default_scene:"Cannot read this".into()})].into();assert!(config.plugin_bindings("example",&denied).is_err());
+        config.extensions.insert("pluginSceneMappings".into(),json!(false));assert!(config.plugin_bindings("example",&bindings).is_err());
+    }
 
     #[test]
     fn lifecycle_stream_observation_requires_correlated_typed_obs_truth() {

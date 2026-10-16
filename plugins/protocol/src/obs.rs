@@ -3,6 +3,18 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+/// Signed mapping metadata: semantics/default labels belong to the package.
+/// A legacy field can reference only a public, non-credential extension.
+#[derive(Clone,Debug,Serialize,Deserialize)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+pub struct Binding{pub legacy_field:String,pub default_scene:String}
+impl Binding{
+ pub fn validate(&self)->Result<(),String>{
+  let field=&self.legacy_field;
+  if field.is_empty()||field.len()>64||!field.bytes().all(|b|b.is_ascii_lowercase()||b==b'_')||matches!(field.as_str(),"host"|"port"|"enabled"|"password")||["token","password","secret","credential","auth","cookie","key"].iter().any(|s|field.contains(s))||self.default_scene.is_empty()||self.default_scene.len()>256||self.default_scene.chars().any(char::is_control){return Err("obs_binding_denied".into());}Ok(())
+ }
+}
+
 /// Semantic mappings and fresh public transport truth only. Credentials remain
 /// in Companion. Plugins choose their own semantics, not a websocket method.
 #[derive(Clone,Debug,Serialize,Deserialize)]
