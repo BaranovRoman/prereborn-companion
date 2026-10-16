@@ -23,7 +23,7 @@ impl Drop for PollGuard{fn drop(&mut self){self.0.store(false,Ordering::SeqCst);
 struct Batch{status:Value,sound_intents:Vec<SoundIntent>,#[serde(default)]scene_intent:Option<companion_plugin_protocol::obs::SceneIntent>}
 #[derive(Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
-struct SoundIntent{operation_key:String,asset_file:String,volume:u8,deadline_ms:u64,context:Option<String>}
+struct SoundIntent{operation_key:String,asset_file:String,volume:u8,deadline_ms:u64,context:Option<String>,#[serde(default)]speech:Option<String>}
 
 impl Service{
  fn worker_pin(&self,id:&str)->Result<(Pin,Manifest),String>{
@@ -241,8 +241,13 @@ impl Task{
    if sound.context.as_deref()!=context{return Err("effect_context_mismatch".into());}
    if runtime.snapshot().phase!=Phase::Running{return Err("plugin_process_requires_recovery".into());}
    let key=format!("{}:{}",worker.binding.generation,packages::hash(sound.operation_key.as_bytes()));
+   if let Some(text)=sound.speech{
+    if !sound.asset_file.is_empty(){return Err("invalid_sound_intent".into());}
+    self.audio.speak(&worker.pin,&worker.binding,worker.epoch,sound.context.as_deref(),&key,&text,sound.volume,sound.deadline_ms,|payload|self.app.emit_to("main","plugin-audio-play",payload).map_err(|_|"frontend_audio_emit_failed".into()))?;
+   }else{
    self.audio.play(&worker.pin,&worker.binding,worker.epoch,sound.context.as_deref(),&worker.root.join("sounds"),&key,&sound.asset_file,sound.volume,sound.deadline_ms,
     |payload|self.app.emit_to("main","plugin-audio-play",payload).map_err(|_|"frontend_audio_emit_failed".into()))?;
+   }
   }Ok(())
  }
 }
@@ -267,7 +272,7 @@ impl PluginManager{
     if query.operation_key.is_empty()||query.operation_key.len()>128{return Err("invalid_ui_arguments".into());}
     let key=format!("{}:{}",worker.binding.generation,packages::hash(query.operation_key.as_bytes()));
     let receipt=audio.receipt(id,&key)?;
-    if receipt.as_ref().is_some_and(|r|!matches!(r.action,super::super::plugin_audio::store::Action::Sound{..})||r.process.generation!=worker.binding.generation||r.process.package!=worker.binding.package){return Err("receipt_scope_denied".into());}
+    if receipt.as_ref().is_some_and(|r|!matches!(r.action,super::super::plugin_audio::store::Action::Sound{..}|super::super::plugin_audio::store::Action::Speech{..})||r.process.generation!=worker.binding.generation||r.process.package!=worker.binding.package){return Err("receipt_scope_denied".into());}
     Ok(serde_json::json!({"receipt":receipt}))
    },
    "directory.pick"=>{

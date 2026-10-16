@@ -7,7 +7,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64,Engine};
 pub(crate) struct HostAudio{registries:Mutex<BTreeMap<String,Arc<PlaybackRegistry>>>,ledger:Mutex<store::Store>}
 #[derive(serde::Serialize,Clone)]
 #[serde(rename_all="camelCase")]
-pub(crate) struct Payload{playback:Token,event_id:String,base64:String,mime:&'static str,volume:u8,correlation_id:String,emitted_at_ms:u64}
+pub(crate) struct Payload{playback:Token,event_id:String,base64:String,mime:&'static str,volume:u8,correlation_id:String,emitted_at_ms:u64,#[serde(skip_serializing_if="Option::is_none")]speech:Option<String>}
 impl HostAudio{
  pub(crate) fn open(path:&Path)->Result<Self,String>{Ok(Self{registries:Default::default(),ledger:Mutex::new(store::Store::open(path)?)})}
  fn locked(&self)->Result<std::sync::MutexGuard<'_,store::Store>,String>{self.ledger.lock().map_err(|_|"transport_store_poisoned".into())}
@@ -57,11 +57,30 @@ impl HostAudio{
    registry.ack(token,Status::Cancelled)?;return Ok(receipt);
   }
   let (bytes,mime)=asset.ok_or("audio_asset_unavailable")?;
-  let payload=Payload{playback:token.clone(),event_id:key.into(),base64:BASE64.encode(bytes),mime,volume,correlation_id:key.into(),emitted_at_ms:now};
+  let payload=Payload{playback:token.clone(),event_id:key.into(),base64:BASE64.encode(bytes),mime,volume,correlation_id:key.into(),emitted_at_ms:now,speech:None};
   if let Err(error)=emit(&payload){ledger.audio_ack(&process.package.id,key,&token,Status::Unknown)?;registry.ack(token,Status::Unknown)?;return Err(error);}
   Ok(admission.receipt)
  }
  pub(crate) fn owns(&self,token:&Token)->bool{self.binding(token).is_ok()}
+ /// Bounded plugin voice notification, independent of the Twitch TTS queue.
+ /// The WebView synthesizes only after this admission and owns its cancellation
+ /// token throughout synthesis and playback; emit is never playback completion.
+ pub(crate) fn speak(&self,pin:&impl ProcessGrant,process:&ProcessBinding,epoch:u64,context:Option<&str>,key:&str,text:&str,volume:u8,deadline:u64,emit:impl FnOnce(&Payload)->Result<(),String>)->Result<store::Receipt,String>{
+  let action=store::Action::Speech{text:text.into(),volume};
+  if !pin.permits(action.permission())||pin.binding()!=&process.package{return Err("capability_denied".into());}
+  let mut ledger=self.locked()?;ledger.authorize(process,epoch)?;
+  if let Some(receipt)=ledger.lookup(&process.package.id,key)?{if receipt.process!=process.into()||receipt.action!=action||receipt.playback.as_ref().is_none_or(|t|!t.matches_context(epoch,context)){return Err("idempotency_conflict".into());}return Ok(receipt);}
+  if ledger.uncertain_for(&process.package.id)?{return Err("unknown_effects_require_explicit_reconciliation".into());}
+  let quota=ledger.quota()?;if quota.unknown+quota.pending>=64{return Err("transport_pending_full".into());}
+  let now=now_ms();if deadline>now.saturating_add(30000){return Err("invalid_sound_deadline".into());}
+  let registry=self.registry(&process.package.id)?;let token=registry.admit(Some(epoch),context)?;
+  let admission=match ledger.admit(process,key,action,Some(token.clone())){Ok(a)=>a,Err(error)=>{let _=registry.ack(token,Status::Cancelled);return Err(error);}};
+  if !admission.fresh{let _=registry.ack(token,Status::Cancelled);return Ok(admission.receipt);}
+  registry.bind(&token,&format!("{}/{}",process.package.id,key))?;
+  if deadline<=now{let receipt=ledger.audio_ack(&process.package.id,key,&token,Status::Cancelled)?;registry.ack(token,Status::Cancelled)?;return Ok(receipt);}
+  let payload=Payload{playback:token.clone(),event_id:key.into(),base64:String::new(),mime:"audio/wav",volume,correlation_id:key.into(),emitted_at_ms:now,speech:Some(text.into())};
+  if let Err(error)=emit(&payload){ledger.audio_ack(&process.package.id,key,&token,Status::Unknown)?;registry.ack(token,Status::Unknown)?;return Err(error);}Ok(admission.receipt)
+ }
  /// IO runs without the ledger mutex. The process command lock serializes
  /// this call with stop/reconfigure. A saved Unknown is observation-only.
  pub(crate) fn scene(&self,pin:&impl ProcessGrant,process:&ProcessBinding,epoch:u64,key:&str,name:&str,execute:impl FnOnce(bool)->Result<Status,String>)->Result<store::Receipt,String>{
@@ -123,6 +142,15 @@ mod tests{
  fn pin()->(Pin,ProcessBinding){
   let binding=companion_plugin_protocol::PackageBinding{id:"example".into(),version:"1.0.0".into(),executable_hash:"a".repeat(64),manifest_hash:"b".repeat(64)};
   (Pin{binding:binding.clone(),allowed:true},ProcessBinding{generation:uuid::Uuid::new_v4().to_string(),package:binding})
+ }
+ #[test]
+ fn plugin_voice_notification_requires_durable_admission_and_real_cancellation_or_completion(){
+  let root=tempfile::tempdir().unwrap();let audio=HostAudio::open(&root.path().join("transport.sqlite3")).unwrap();let(pin,process)=pin();let epoch=audio.reserve_process(&process).unwrap().epoch;audio.process_ready(&process,epoch).unwrap();
+  let receipt=audio.speak(&pin,&process,epoch,None,"speech:1","bounded notification",80,now_ms()+2000,|payload|{assert_eq!(payload.speech.as_deref(),Some("bounded notification"));assert!(payload.base64.is_empty());Ok(())}).unwrap();
+  assert_eq!(receipt.status,Status::Unknown);let token=receipt.playback.unwrap();audio.ack(token.clone(),Status::Queued).unwrap();audio.ack(token,Status::Cancelled).unwrap();
+  assert_eq!(audio.speak(&pin,&process,epoch,None,"speech:1","bounded notification",80,now_ms()+2000,|_|panic!("repeated notification")).unwrap().status,Status::Cancelled);
+  assert!(audio.speak(&pin,&process,epoch,None,"speech:1","changed text",80,now_ms()+2000,|_|panic!("payload conflict")).is_err());
+  assert!(audio.speak(&pin,&process,epoch,None,"speech:oversized",&"x".repeat(257),80,now_ms()+2000,|_|panic!("invalid speech")).is_err());
  }
  #[test]
  fn uncertain_scene_is_observation_only_on_retry_and_actual_truth_is_required_before_new_effects(){

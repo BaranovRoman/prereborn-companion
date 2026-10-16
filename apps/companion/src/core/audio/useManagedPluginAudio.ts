@@ -12,8 +12,10 @@ interface Transport {
   fenceEvent: string;
   fenceAckCommand: string;
   onTiming?: (item: PluginAudioPlayback, stage: string) => void;
+  synthesize?: (text:string)=>Promise<string>;
+  voiceNotificationsEnabled?:boolean;
 }
-export function useManagedPluginAudio({ enabled, eventName, fenceEvent, fenceAckCommand, onTiming }: Transport, overallVolume: number) {
+export function useManagedPluginAudio({ enabled, eventName, fenceEvent, fenceAckCommand, onTiming,synthesize,voiceNotificationsEnabled=true }: Transport, overallVolume: number) {
   const queue = useRef(new BoundedPluginAudioQueue());
   const playing = useRef(false);
   const mounted = useRef(true);
@@ -23,6 +25,8 @@ export function useManagedPluginAudio({ enabled, eventName, fenceEvent, fenceAck
   const enabledRef = useRef(enabled); enabledRef.current = enabled;
   const overallRef = useRef(overallVolume); overallRef.current = overallVolume;
   const timingRef = useRef(onTiming); timingRef.current = onTiming;
+  const synthesisRef=useRef(synthesize);synthesisRef.current=synthesize;
+  const notificationsRef=useRef(voiceNotificationsEnabled);notificationsRef.current=voiceNotificationsEnabled;
   const playNext = useCallback(() => {
     if (!mounted.current || playing.current) return;
     const next = queue.current.takeNext();
@@ -33,7 +37,7 @@ export function useManagedPluginAudio({ enabled, eventName, fenceEvent, fenceAck
     playPayload(next, () => {
       playing.current = false;
       playNext();
-    }, currentAudio, overallRef.current, cancelCurrent, (item,stage)=>timingRef.current?.(item,stage));
+    }, currentAudio, overallRef.current, cancelCurrent, (item,stage)=>timingRef.current?.(item,stage),notificationsRef.current?synthesisRef.current:undefined);
   }, []);
 
   useEffect(() => {
@@ -44,7 +48,7 @@ export function useManagedPluginAudio({ enabled, eventName, fenceEvent, fenceAck
         pluginAudioFence.report(item.playback, "cancelled"); return;
       }
       if (!pluginAudioFence.track(item.playback, () => {
-        if (currentAudio.current && currentToken.current === item.playback?.id) return cancelCurrent.current?.() ?? false;
+        if (currentToken.current === item.playback?.id) return cancelCurrent.current?.() ?? false;
         return true; // queued command has been revoked before it can construct Audio
       })) { pluginAudioFence.report(item.playback, "unknown"); return; }
       timingRef.current?.(item, "frontend-received");
@@ -60,7 +64,7 @@ export function useManagedPluginAudio({ enabled, eventName, fenceEvent, fenceAck
       playPayload(item, () => {
         playing.current = false;
         playNext();
-      }, currentAudio, overallRef.current, cancelCurrent, (item,stage)=>timingRef.current?.(item,stage));
+      }, currentAudio, overallRef.current, cancelCurrent, (item,stage)=>timingRef.current?.(item,stage),notificationsRef.current?synthesisRef.current:undefined);
     });
     const fenceListener = listen<PluginAudioFence>(fenceEvent, ({ payload }) => {
       const stopped = pluginAudioFence.fence(payload);
@@ -86,7 +90,23 @@ function playPayload(
   overallVolume: number,
   cancelCurrent: MutableRefObject<(() => boolean) | null>,
   logTiming: (item: PluginAudioPlayback, stage: string) => void,
+  synthesize?: (text:string)=>Promise<string>,
 ) {
+  if(item.speech!==undefined){
+    let finished=false;
+    const cancel=()=>{if(!finished){finished=true;cancelCurrent.current=null;pluginAudioFence.report(item.playback,"cancelled");done();}return true;};
+    cancelCurrent.current=cancel;pluginAudioFence.setCancellation(item.playback,cancel);
+    if(!synthesize||!item.speech||new TextEncoder().encode(item.speech).length>256||/[\x00-\x1f\x7f]/.test(item.speech)){cancel();return;}
+    // The token remains fenced while synthesis is pending. Late synthesis must
+    // never construct a player after cancellation, unload or generation change.
+    void synthesize(item.speech).then(base64=>{
+      if(finished)return;
+      if(!pluginAudioFence.accepts(item.playback)){cancel();return;}
+      finished=true;
+      playPayload({...item,speech:undefined,base64,mime:"audio/wav"},done,currentAudio,overallVolume,cancelCurrent,logTiming);
+    }).catch(()=>{cancel();});
+    return;
+  }
   let url: string;
   let audio: HTMLAudioElement;
   try {

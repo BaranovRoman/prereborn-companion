@@ -14,6 +14,7 @@ export interface PluginAudioPlayback {
   volume: number;
   correlationId: string;
   emittedAtMs: number;
+  speech?: string;
 }
 
 export class BoundedPluginAudioQueue {

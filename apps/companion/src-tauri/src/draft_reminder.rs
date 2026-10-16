@@ -50,8 +50,7 @@ fn should_fire(
     obs_watcher_connected: bool,
     obs_streaming: Option<bool>,
 ) -> bool {
-    let entered_draft = current == BroadcastState::Draft && previous != Some(BroadcastState::Draft);
-    entered_draft && obs_watcher_connected && obs_streaming == Some(false)
+    companion_dota_domain::draft_reminder::should_fire(previous,current,obs_watcher_connected,obs_streaming)
 }
 
 // Generic over R: Runtime (mirrors local_runtime::handle_gsi) so this can be
@@ -72,23 +71,14 @@ fn observe<R:Runtime>(app:&AppHandle<R>,payload:&Value)->bool {
     let should_emit = {
         let state = app.state::<AppState>();
         let mut inner = state.0.lock().unwrap();
-        let previous = inner.draft_reminder_last_state;
-
-        let fire = !inner.draft_reminder_fired
-            && should_fire(previous, current, inner.obs_watcher_connected, inner.obs_streaming);
-
         // Deterministic re-arm rule (WK-136 acceptance): leaving Draft for
         // any other state clears the latch, so the next real Draft entry -
         // i.e. the next match - can fire again. Checked BEFORE latching a
         // fresh fire below so entering Draft and firing in the same tick
         // doesn't immediately un-fire itself.
-        if current != BroadcastState::Draft {
-            inner.draft_reminder_fired = false;
-        }
-        if fire {
-            inner.draft_reminder_fired = true;
-        }
-        inner.draft_reminder_last_state = Some(current);
+        let mut tracker=companion_dota_domain::draft_reminder::Tracker{previous:inner.draft_reminder_last_state,fired:inner.draft_reminder_fired};
+        let fire=tracker.observe(current,inner.obs_watcher_connected,inner.obs_streaming);
+        inner.draft_reminder_fired=tracker.fired;inner.draft_reminder_last_state=tracker.previous;
         fire
     };
 

@@ -26,16 +26,18 @@ fn identity(receipt:&Receipt)->Result<String>{Ok(hash(&encode(&(&receipt.process
 #[serde(tag="kind",rename_all="snake_case",deny_unknown_fields)]
 pub enum Action {
  Sound{asset_file:String,volume:u8},
+ Speech{text:String,volume:u8},
  Scene{name:String},
 }
 impl Action {
- pub fn permission(&self)->&'static str{match self{Self::Sound{..}=>"audio.play",Self::Scene{..}=>"obs.scene"}}
+ pub fn permission(&self)->&'static str{match self{Self::Sound{..}|Self::Speech{..}=>"audio.play",Self::Scene{..}=>"obs.scene"}}
  fn validate(&self)->Result<()>{
   match self {
    Self::Sound{asset_file,volume}=>{
     companion_plugin_manager::safe_path(asset_file)?;
     if asset_file.contains('/')||*volume>100||!matches!(Path::new(asset_file).extension().and_then(|s|s.to_str()),Some("wav"|"mp3"|"ogg")){return Err("invalid_sound_intent".into());}
    },
+   Self::Speech{text,volume}=>if text.is_empty()||text.len()>256||text.chars().any(char::is_control)||*volume>100{return Err("invalid_speech_intent".into());},
    Self::Scene{name}=>if name.is_empty()||name.len()>256||name.chars().any(char::is_control){return Err("invalid_scene_intent".into());},
   }Ok(())
  }
@@ -111,7 +113,7 @@ impl Store {
   if !key(&receipt.operation_key)||!key(&receipt.process.package.id)||uuid::Uuid::parse_str(&receipt.process.generation).is_err(){return Err("transport_receipt_corrupt".into());}
   receipt.action.validate()?;
   if !package(&receipt.process.package){return Err("transport_receipt_corrupt".into());}
-  if matches!(receipt.action,Action::Sound{..})!=receipt.playback.is_some(){return Err("transport_receipt_corrupt".into());}
+  if matches!(receipt.action,Action::Sound{..}|Action::Speech{..})!=receipt.playback.is_some(){return Err("transport_receipt_corrupt".into());}
   if receipt.playback.as_ref().is_some_and(|t|uuid::Uuid::parse_str(&t.id).is_err()||uuid::Uuid::parse_str(&t.scope.instance).is_err()||t.scope.generation==0||t.scope.epoch==0||t.scope.session.as_ref().is_some_and(|s|s.is_empty()||s.len()>128)){return Err("transport_receipt_corrupt".into());}
   Ok(receipt)
  }
@@ -191,7 +193,7 @@ impl Store {
  pub fn admit(&mut self,process:&ProcessBinding,operation_key:&str,action:Action,playback:Option<Token>)->Result<Admission>{
   if !key(operation_key)||!key(&process.package.id)||uuid::Uuid::parse_str(&process.generation).is_err(){return Err("invalid_transport_identity".into());}
   action.validate()?;
-  if matches!(action,Action::Sound{..})!=playback.is_some(){return Err("playback_identity_required".into());}
+  if matches!(action,Action::Sound{..}|Action::Speech{..})!=playback.is_some(){return Err("playback_identity_required".into());}
   let receipt=Receipt{process:process.into(),operation_key:operation_key.into(),action,playback,status:Status::Unknown,uncertain:false};
   Self::decode(&encode(&receipt)?,&hash(&encode(&receipt)?))?;
   let identity=identity(&receipt)?;

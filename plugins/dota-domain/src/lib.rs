@@ -15,3 +15,4 @@ pub mod match_execution;
 pub mod session_lifecycle;
 pub mod projection;
 pub mod obs_policy;
+pub mod draft_reminder;

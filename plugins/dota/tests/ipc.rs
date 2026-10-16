@@ -139,6 +139,14 @@ fn supervised_worker_accepts_fresh_demo_and_bot_gsi_without_obs_and_reopens_the_
     let request=json!({"operationKey":format!("manual:{}",uuid::Uuid::new_v4()),"expectedRevision":context["revision"],"session":session,"edit":{"kind":"rating","rating":2450}});
     let receipt=runtime.command("history.edit".into(),request.clone()).unwrap();assert_eq!(receipt["session"]["local_id"],session);assert_eq!(receipt["session"]["rating_current"],2450);
     assert_eq!(runtime.command("history.edit".into(),request).unwrap(),receipt);
+    // Real worker/GSI transition, with synthetic authoritative OBS truth only:
+    // reminder synthesis/audio itself is covered separately, not claimed here.
+    raw["map"]["game_state"]=json!("DOTA_GAMERULES_STATE_HERO_SELECTION");send(&raw);
+    let at=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+    let reminder=runtime.command("host.poll".into(),json!({"streamObservation":{"observedAtMs":at,"streaming":false}})).unwrap();
+    assert!(reminder["soundIntents"].as_array().unwrap().iter().any(|intent|intent["speech"]=="Стрим не запущен"));
+    send(&raw);let repeat=runtime.command("host.poll".into(),json!({"streamObservation":{"observedAtMs":at,"streaming":false}})).unwrap();
+    assert!(!repeat["soundIntents"].as_array().unwrap().iter().any(|intent|intent.get("speech").is_some()));
     runtime.command("host.stop".into(),json!({})).unwrap();runtime.stop().unwrap();runtime.stopped_confirmed().unwrap();
     let c=rusqlite::Connection::open(root.path().join("local-runtime.sqlite3")).unwrap();
     assert_eq!(c.query_row("SELECT count(*) FROM local_sessions",[],|r|r.get::<_,i64>(0)).unwrap(),1);

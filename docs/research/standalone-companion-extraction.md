@@ -400,3 +400,30 @@ legacy write-set parity without UUID normalization, duplicate replay without rev
 changes, quota rollback and invalid timestamps; 8 real-process macOS IPC tests and
 core cargo check. Windows callback fixture now also handles the actual separate
 corrections request. No user database or backend data was used.
+
+## Plugin-owned draft reminder checkpoint (2026-10-16)
+
+The existing draft-entry/latch rule is canonical in dota-domain and the temporary
+BuiltIn wrapper delegates to it. The worker emits the existing Russian reminder
+only on a fresh draft transition with authoritative non-streaming OBS truth;
+unknown/disconnected OBS does not become false, and scene automation being off
+does not disable observation. No fake session is created for a reminder.
+
+A bounded generic voice-notification variant uses the same host transport ledger,
+real playback token, queued/playing/terminal ACKs and plugin-only fence as file
+audio. Core contains no draft detection or Dota message text. Voice synthesis is
+separate from the Twitch queue, uses the selected Silero voice, and retains the
+existing companion-system-voice-reminders-v1 preference (including its default).
+The common output-device/overall-volume transport applies to these notifications.
+Cancellation owns the token during synthesis too: a late result cannot create an
+Audio element after a fence/unmount. Expired/disabled or failed-before-player
+requests are cancelled, never claimed completed. Emit/crash remain Unknown.
+
+Targeted macOS checks: original 13 draft reminder tests, canonical tracker test,
+6 worker tests, 8 real-process IPC tests, 8 host audio/scene/speech tests, 7 real
+transport-store tests, 19 frontend transport/legacy sound/core shell tests, TypeScript
+and cargo check. The existing Windows supervised demo/bot fixture additionally
+checks one reminder intent on a real worker GSI transition with synthetic OBS input
+and no duplicate on a repeated draft frame; its next CI run is pending. No audible
+native reminder, Dota match or real OBS smoke is claimed. The scheduler remains
+unattached while the physical BuiltIn extraction is still incomplete.

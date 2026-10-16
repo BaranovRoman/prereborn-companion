@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback,useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTwitchChatSession } from "../../chat/useTwitchChatSession";
 import { useOverallVolume } from "../../hooks/useOverallVolume";
@@ -19,6 +19,7 @@ import { Button } from "../../components/ui";
 import { OutputSettings } from "./OutputSettings";
 import { ObsConnectionPage } from "./ObsConnectionPage";
 import { useHostStatus } from "./hostStatus";
+import { synthesizeSileroTts } from "../api";
 import "./CoreShell.css";
 
 type Section="overview"|"chat"|"speech"|"obs"|"plugins"|"settings";
@@ -36,9 +37,11 @@ export function CoreShell() {
   const [diagnosticResult,setDiagnosticResult]=useState<string|null>(null);
   const [diagnosticError,setDiagnosticError]=useState<string|null>(null);
   const [diagnosticBusy,setDiagnosticBusy]=useState(false);
+  const [voiceNotifications,setVoiceNotifications]=useState(()=>{try{const raw=localStorage.getItem("companion-system-voice-reminders-v1");return raw==null||raw==="true";}catch{return true;}});
+  const synthesizeNotification=useCallback((text:string)=>synthesizeSileroTts(text,chat.settings.sileroVoice),[chat.settings.sileroVoice]);
   // The legacy event names are transport aliases until the worker migration completes.
   // Core never loads a game catalog, bindings, game hooks or a second Twitch queue.
-  useManagedPluginAudio({enabled:true,eventName:"game-sound-play",fenceEvent:"game-audio-fence",fenceAckCommand:"game_audio_fence_ack"},overallVolume);
+  useManagedPluginAudio({enabled:true,eventName:"game-sound-play",fenceEvent:"game-audio-fence",fenceAckCommand:"game_audio_fence_ack",synthesize:synthesizeNotification,voiceNotificationsEnabled:voiceNotifications},overallVolume);
   useEffect(()=>{void updater.checkForUpdate();},[]); // same standard updater and signature verification
   const diagnostic=async(command:string)=>{if(diagnosticBusy)return;setDiagnosticBusy(true);setDiagnosticError(null);try{const result=await invoke<unknown>(command);setDiagnosticResult(typeof result==="string"?result:"Операция подтверждена приложением.");}catch(e){setDiagnosticError(String(e));}finally{setDiagnosticBusy(false);}};
   const connection=(state:string|undefined)=>state==="connected"?"Подключён":state==="recovering"||state==="reconnecting"?"Переподключение":state==="unavailable"?"Недоступен":"Ожидание подключения";
@@ -65,7 +68,7 @@ export function CoreShell() {
         <section className="core-recent"><h2>Последние сообщения</h2>{chat.status?.messages.length?<ol>{chat.status.messages.slice(-5).map((m)=><li key={m.id}><strong>{m.author}</strong><p>{m.text}</p></li>)}</ol>:<p className="core-hint">Сообщений пока нет. Проверьте подключение Twitch или откройте чат.</p>}</section>
       </section>}
       {section==="chat"&&<TwitchChatPage session={chat} onOpenChatSettings={()=>setSection("speech")}/>}
-      {section==="speech"&&<div className="core-settings-stack"><OutputSettings session={chat} output={output} volume={overallVolume} onVolume={setOverallVolume}/><section className="core-settings-group"><h2>Чат и озвучка</h2><ChatTtsSettings session={chat}/></section></div>}
+      {section==="speech"&&<div className="core-settings-stack"><OutputSettings session={chat} output={output} volume={overallVolume} onVolume={setOverallVolume}/><section className="core-settings-group"><h2>Чат и озвучка</h2><ChatTtsSettings session={chat}/></section><section className="core-settings-group"><h2>Голосовые уведомления плагинов</h2><label><input type="checkbox" checked={voiceNotifications} onChange={event=>{const enabled=event.target.checked;setVoiceNotifications(enabled);try{localStorage.setItem("companion-system-voice-reminders-v1",String(enabled));}catch{/* The current preference remains applied if persistence is unavailable. */}}}/> Разрешить голосовые уведомления</label><p>Используется выбранный голос Silero. Уведомления не добавляются в очередь сообщений Twitch.</p></section></div>}
       {section==="obs"&&<ObsConnectionPage status={status} refresh={refresh}/>}
       {section==="plugins"&&<PluginsPage/>}
       {section==="settings"&&<div className="core-settings-stack">
