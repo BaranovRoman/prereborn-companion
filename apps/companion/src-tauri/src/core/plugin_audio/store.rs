@@ -29,7 +29,7 @@ fn identity(receipt:&Receipt)->Result<String>{Ok(hash(&encode(&(&receipt.process
 pub enum Action {
  Sound{asset_file:String,volume:u8},
  Speech{text:String,volume:u8},
- Scene{name:String},
+ Scene{name:String,#[serde(default,skip_serializing_if="Option::is_none")]config_revision:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")]transport_identity:Option<String>,#[serde(default,skip_serializing_if="Option::is_none")]context:Option<String>},
 }
 impl Action {
  pub fn permission(&self)->&'static str{match self{Self::Sound{..}|Self::Speech{..}=>"audio.play",Self::Scene{..}=>"obs.scene"}}
@@ -40,7 +40,7 @@ impl Action {
     if asset_file.contains('/')||*volume>100||!matches!(Path::new(asset_file).extension().and_then(|s|s.to_str()),Some("wav"|"mp3"|"ogg")){return Err("invalid_sound_intent".into());}
    },
    Self::Speech{text,volume}=>if text.is_empty()||text.len()>256||text.chars().any(char::is_control)||*volume>100{return Err("invalid_speech_intent".into());},
-   Self::Scene{name}=>if name.is_empty()||name.len()>256||name.chars().any(char::is_control){return Err("invalid_scene_intent".into());},
+   Self::Scene{name,config_revision,transport_identity,context}=>if name.is_empty()||name.len()>256||name.chars().any(char::is_control)||config_revision.is_some()!=transport_identity.is_some()||[config_revision,transport_identity].into_iter().flatten().any(|s|s.len()!=64||!s.bytes().all(|b|b.is_ascii_hexdigit()))||context.as_ref().is_some_and(|s|s.is_empty()||s.len()>128){return Err("invalid_scene_intent".into());},
   }Ok(())
  }
 }
@@ -51,6 +51,7 @@ pub struct Receipt {
  pub playback:Option<Token>,pub status:Status,pub uncertain:bool,
  #[serde(default,skip_serializing_if="Option::is_none")]pub host_generation:Option<String>,
  #[serde(default,skip_serializing_if="is_false")]pub audio_fenced:bool,
+ #[serde(default,skip_serializing_if="is_false")]pub reconciled:bool,
 }
 #[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
@@ -123,12 +124,14 @@ impl Store {
   if !package(&receipt.process.package){return Err("transport_receipt_corrupt".into());}
   if matches!(receipt.action,Action::Sound{..}|Action::Speech{..})!=receipt.playback.is_some(){return Err("transport_receipt_corrupt".into());}
   if receipt.host_generation.as_ref().is_some_and(|s|uuid::Uuid::parse_str(s).is_err())||receipt.audio_fenced&&(receipt.host_generation.is_none()||receipt.playback.is_none()||receipt.status!=Status::Unknown){return Err("transport_receipt_corrupt".into());}
+  if receipt.reconciled&&(!matches!(receipt.action,Action::Scene{..})||receipt.status!=Status::Completed||!receipt.uncertain){return Err("transport_receipt_corrupt".into());}
   if receipt.playback.as_ref().is_some_and(|t|uuid::Uuid::parse_str(&t.id).is_err()||uuid::Uuid::parse_str(&t.scope.instance).is_err()||t.scope.generation==0||t.scope.epoch==0||t.scope.session.as_ref().is_some_and(|s|s.is_empty()||s.len()>128)){return Err("transport_receipt_corrupt".into());}
   Ok(receipt)
  }
  fn write(c:&Connection,receipt:&Receipt)->Result<()>{
   let doc=encode(receipt)?;if doc.len()>4096{return Err("transport_receipt_too_large".into());}
-  let previous:u64=sql(c.query_row("SELECT length(CAST(receipt AS BLOB)) FROM transport_effects WHERE plugin=?1 AND operation_key=?2",params![receipt.process.package.id,receipt.operation_key],|r|r.get(0)))?;
+  let(previous,stored_identity):(u64,String)=sql(c.query_row("SELECT length(CAST(receipt AS BLOB)),identity FROM transport_effects WHERE plugin=?1 AND operation_key=?2",params![receipt.process.package.id,receipt.operation_key],|r|Ok((r.get(0)?,r.get(1)?))))?;
+  if stored_identity!=identity(receipt)?{return Err("transport_receipt_corrupt".into());}
   if (doc.len() as u64).saturating_sub(previous)>Self::quota_in(c)?.remaining_bytes{return Err("transport_quota_exhausted".into());}
   sql(c.execute("UPDATE transport_effects SET receipt=?3,checksum=?4 WHERE plugin=?1 AND operation_key=?2",params![receipt.process.package.id,receipt.operation_key,doc,hash(&doc)]))?;Ok(())
  }
@@ -240,7 +243,7 @@ impl Store {
   if !key(operation_key)||!key(&process.package.id)||uuid::Uuid::parse_str(&process.generation).is_err(){return Err("invalid_transport_identity".into());}
   action.validate()?;
   if matches!(action,Action::Sound{..}|Action::Speech{..})!=playback.is_some(){return Err("playback_identity_required".into());}
-  let receipt=Receipt{process:process.into(),operation_key:operation_key.into(),action,playback,status:Status::Unknown,uncertain:false,host_generation:Self::host_in(&self.conn)?.map(|h|h.generation),audio_fenced:false};
+  let receipt=Receipt{process:process.into(),operation_key:operation_key.into(),action,playback,status:Status::Unknown,uncertain:false,host_generation:Self::host_in(&self.conn)?.map(|h|h.generation),audio_fenced:false,reconciled:false};
   Self::decode(&encode(&receipt)?,&hash(&encode(&receipt)?))?;
   let identity=identity(&receipt)?;
   let tx=sql(self.conn.transaction_with_behavior(TransactionBehavior::Immediate))?;
@@ -263,8 +266,29 @@ impl Store {
   let (doc,checksum):(String,String)=sql(tx.query_row("SELECT CASE WHEN length(CAST(receipt AS BLOB))<=4096 THEN receipt ELSE NULL END,checksum FROM transport_effects WHERE plugin=?1 AND operation_key=?2",params![process.package.id,key],|r|Ok((r.get(0)?,r.get(1)?))))?;
   let mut receipt=Self::decode(&doc,&checksum)?;
   if receipt.process!=process.into()||receipt.operation_key!=key||!matches!(receipt.action,Action::Scene{..})||receipt.playback.is_some(){return Err("scene_scope_mismatch".into());}
-  if !matches!(receipt.status,Status::Completed|Status::Cancelled){if receipt.uncertain&&status==Status::Cancelled{return Err("uncertain_scene_not_cancelled".into());}receipt.status=status;receipt.uncertain=status==Status::Unknown;Self::write(&tx,&receipt)?;}
+  if !matches!(receipt.status,Status::Completed|Status::Cancelled){if receipt.uncertain&&status==Status::Cancelled{return Err("uncertain_scene_not_cancelled".into());}receipt.reconciled=receipt.uncertain&&status==Status::Completed;receipt.status=status;receipt.uncertain|=status==Status::Unknown;Self::write(&tx,&receipt)?;}
   sql(tx.commit())?;Ok(receipt)
+ }
+ fn exited_scope_in(c:&Connection,process:&ProcessBinding,epoch:u64)->Result<()>{
+  if Self::host_in(c)?.is_some_and(|host|!host.ready){return Err("host_supervision_unproven".into());}
+  let record=Self::process_in(c,&process.package.id)?.ok_or("process_journal_missing")?;
+  if record.phase!=ProcessPhase::Draining||record.process!=process.into()||record.epoch!=epoch{return Err("process_generation_fenced".into());}Ok(())
+ }
+ /// Only the native recovery caller, AFTER exact OS exit proof, may use this
+ /// read-only list. Draining by itself is never termination evidence.
+ pub fn scenes_after_native_exit(&self,process:&ProcessBinding,epoch:u64)->Result<Vec<Receipt>>{
+  Self::exited_scope_in(&self.conn,process,epoch)?;
+  let keys:Vec<String>={let mut s=sql(self.conn.prepare("SELECT operation_key FROM transport_effects WHERE plugin=?1 AND json_extract(receipt,'$.action.kind')='scene' AND json_extract(receipt,'$.status')='unknown' LIMIT 2"))?;let rows=sql(s.query_map([&process.package.id],|r|r.get(0)))?;sql(rows.collect())?};
+  if keys.len()>1{return Err("obs_reconciliation_batch_limit".into());}
+  keys.iter().map(|key|{let receipt=self.lookup(&process.package.id,key)?.ok_or("transport_receipt_corrupt")?;if receipt.process!=process.into(){return Err("scene_scope_mismatch".into());}Ok(receipt)}).collect()
+ }
+ pub fn scene_reconciled_after_native_exit(&mut self,process:&ProcessBinding,epoch:u64,observed:&Receipt)->Result<()>{
+  let tx=sql(self.conn.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::exited_scope_in(&tx,process,epoch)?;
+  let(doc,checksum):(String,String)=sql(tx.query_row("SELECT receipt,checksum FROM transport_effects WHERE plugin=?1 AND operation_key=?2",params![process.package.id,observed.operation_key],|r|Ok((r.get(0)?,r.get(1)?))))?;
+  let mut receipt=Self::decode(&doc,&checksum)?;
+  if &receipt!=observed||receipt.process!=process.into()||receipt.status!=Status::Unknown||!matches!(&receipt.action,Action::Scene{transport_identity:Some(_),..}){return Err("scene_scope_mismatch".into());}
+  // This confirms current desired state, never exactly-once command delivery.
+  receipt.status=Status::Completed;receipt.uncertain=true;receipt.reconciled=true;Self::write(&tx,&receipt)?;sql(tx.commit())
  }
  pub fn audio_ack(&mut self,plugin:&str,key:&str,token:&Token,status:Status)->Result<Receipt>{
   let tx=sql(self.conn.transaction_with_behavior(TransactionBehavior::Immediate))?;
@@ -293,7 +317,7 @@ mod tests{
   // SQL state-machine fixture only; production callers must obtain the actual
   // native job proof, covered by the Windows supervisor test target.
   store.begin_host_after_native_fence(None,&old).unwrap();store.host_ready_after_native_membership(&old).unwrap();let process=process();let epoch=activate(&mut store,&process);
-  let token=companion_plugin_protocol::playback::PlaybackRegistry::default().admit(Some(epoch),None).unwrap();store.admit(&process,"audio:1",action(),Some(token.clone())).unwrap();store.audio_ack("example","audio:1",&token,Status::Playing).unwrap();store.admit(&process,"scene:1",Action::Scene{name:"Existing".into()},None).unwrap();drop(store);
+  let token=companion_plugin_protocol::playback::PlaybackRegistry::default().admit(Some(epoch),None).unwrap();store.admit(&process,"audio:1",action(),Some(token.clone())).unwrap();store.audio_ack("example","audio:1",&token,Status::Playing).unwrap();store.admit(&process,"scene:1",Action::Scene{name:"Existing".into(),config_revision:None,transport_identity:None,context:None},None).unwrap();drop(store);
   let mut store=Store::open(&path).unwrap();let previous=store.host().unwrap().unwrap();let new=uuid::Uuid::new_v4().to_string();
   assert_eq!(store.quota().unwrap().blocking_unknown,2);
   store.conn.execute_batch("CREATE TRIGGER fixture_abort BEFORE UPDATE ON transport_host BEGIN SELECT RAISE(ABORT,'fixture'); END;").unwrap();
@@ -355,6 +379,7 @@ mod tests{
   let token=companion_plugin_protocol::playback::PlaybackRegistry::default().admit(Some(1),None).unwrap();store.admit(&process,"sound:1",action(),Some(token.clone())).unwrap();
   store.audio_ack("example","sound:1",&token,Status::Unknown).unwrap();assert!(store.audio_ack("example","sound:1",&token,Status::Playing).is_err());
   let receipt=store.lookup("example","sound:1").unwrap().unwrap();assert!(receipt.uncertain);assert_eq!(receipt.status,Status::Unknown);
+  store.conn.execute("UPDATE transport_effects SET identity=?1",["0".repeat(64)]).unwrap();assert_eq!(store.audio_ack("example","sound:1",&token,Status::Completed).unwrap_err(),"transport_receipt_corrupt");
   store.conn.execute("UPDATE transport_effects SET receipt='{}'",[]).unwrap();drop(store);
   assert!(Store::open(&path).is_err());
  }
@@ -391,8 +416,8 @@ mod tests{
   let root=tempfile::tempdir().unwrap();let path=root.path().join("transport.sqlite3");let mut store=Store::open(&path).unwrap();let process=process();activate(&mut store,&process);
   // Seed a complete historical ledger in one fixture transaction, not 10,000
   // fsyncs. The production quota and admission paths below are unchanged.
-  let action=Action::Scene{name:"Existing scene".into()};
-  let mut receipt=Receipt{process:(&process).into(),operation_key:String::new(),action:action.clone(),playback:None,status:Status::Completed,uncertain:false,host_generation:None,audio_fenced:false};
+  let action=Action::Scene{name:"Existing scene".into(),config_revision:None,transport_identity:None,context:None};
+  let mut receipt=Receipt{process:(&process).into(),operation_key:String::new(),action:action.clone(),playback:None,status:Status::Completed,uncertain:false,host_generation:None,audio_fenced:false,reconciled:false};
   let identity=identity(&receipt).unwrap();let tx=store.conn.transaction().unwrap();
   for n in 0..LIMIT{receipt.operation_key=format!("scene:{n}");let doc=encode(&receipt).unwrap();tx.execute("INSERT INTO transport_effects VALUES(?1,?2,?3,?4,?5)",params![process.package.id,receipt.operation_key,identity,doc,hash(&doc)]).unwrap();}tx.commit().unwrap();
   assert_eq!(store.quota().unwrap().remaining_operations,0);assert_eq!(store.quota().unwrap().unknown,0);

@@ -103,6 +103,7 @@ impl Service{
   let drain=runtime.command_verified(&worker.pin,&worker.binding,"host.stop".into(),serde_json::json!({}));
   let _=runtime.stop();runtime.stopped_confirmed()?;
   #[cfg(windows)] companion_plugin_protocol::windows::fence_generation(&worker.binding.generation)?;
+  reconcile_stopped_scenes(app,audio,&worker.binding,worker.epoch)?;
   audio.fence(id,|request|app.emit_to("main","plugin-audio-fence",request).map_err(|_|"frontend_audio_unavailable".into()))?;
   audio.process_after_native_exit(&worker.binding,worker.epoch)?;drop(runtime);
   self.store.enable(id,false)?;self.workers.remove(id);self.store.activate(id)?;
@@ -120,6 +121,7 @@ impl Service{
   // The kernel job identity (not a saved PID or timeout) proves that this
   // exact generation can no longer run. Unknown receipts are never erased.
   #[cfg(windows)] companion_plugin_protocol::windows::fence_generation(&process.generation)?;
+  reconcile_stopped_scenes(app,audio,&process,record.epoch)?;
   audio.fence(id,|request|app.emit_to("main","plugin-audio-fence",request).map_err(|_|"frontend_audio_unavailable".into()))?;
   audio.process_after_native_exit(&process,record.epoch)?;
   self.store.enable(id,false)?;self.store.activate(id)?;
@@ -140,6 +142,13 @@ fn read_obs_config(app:&tauri::AppHandle)->Result<super::super::obs_transport::O
  use tauri::Manager;
  let state=app.state::<crate::state::AppState>();let inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;
  serde_json::from_value(serde_json::to_value(&inner.obs_config).map_err(|_|"obs_configuration_invalid")?).map_err(|_|"obs_configuration_invalid".into())
+}
+fn reconcile_stopped_scenes(app:&tauri::AppHandle,audio:&HostAudio,process:&ProcessBinding,epoch:u64)->Result<(),String>{
+ audio.reconcile_scenes_after_native_exit(process,epoch,|desired,target|{
+  let config=read_obs_config(app)?;if config.transport_identity(&process.package.id)?!=target{return Err("obs_operation_target_changed".into());}
+  let current=super::super::obs_transport::program_scene_before(&config.connection(),std::time::Instant::now()+std::time::Duration::from_millis(500)).map_err(|_|"obs_fence_unconfirmed")?;
+  Ok(current==desired&&read_obs_config(app)?.transport_identity(&process.package.id)?==target)
+ })
 }
 impl Task{
  fn scene_observation(&self)->Result<Option<companion_plugin_protocol::obs::SceneObservation>,String>{
@@ -168,7 +177,8 @@ impl Task{
   if !config.enabled||config.plugin_revision(&self.worker.pin.package.id,&self.worker.pin.obs_bindings)?!=intent.config_revision{return Err("obs_configuration_changed".into());}
   let mappings=config.plugin_bindings(&self.worker.pin.package.id,&self.worker.pin.obs_bindings)?;let name=mappings.get(&intent.semantic).filter(|s|!s.is_empty()).ok_or("obs_semantic_denied")?;
   let key=format!("{}:{}",self.worker.binding.generation,packages::hash(&serde_json::to_vec(intent).map_err(|_|"invalid_scene_intent")?));
-  let receipt=self.audio.scene(&self.worker.pin,&self.worker.binding,self.worker.epoch,&key,name,|may_write|{
+  let action=super::super::plugin_audio::store::Action::Scene{name:name.clone(),config_revision:Some(intent.config_revision.clone()),transport_identity:Some(config.transport_identity(&self.worker.pin.package.id)?),context:intent.context.clone()};
+  let receipt=self.audio.scene(&self.worker.pin,&self.worker.binding,self.worker.epoch,&key,action,|may_write|{
    let deadline=Instant::now()+Duration::from_millis(1500);
    let connection=super::super::obs_transport::ConnectionSettings{host:&config.host,port:config.port,password:&config.password};
    let status=if may_write{super::super::obs_transport::reconcile_scene_status(name,||super::super::obs_transport::program_scene_before(&connection,deadline),||super::super::obs_transport::set_program_scene_before(&connection,name,deadline))}

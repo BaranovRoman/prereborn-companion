@@ -22,6 +22,7 @@ impl std::fmt::Debug for ObsConfig{fn fmt(&self,f:&mut std::fmt::Formatter<'_>)-
 impl ObsConfig{
  pub fn connection(&self)->ConnectionSettings<'_>{ConnectionSettings{host:&self.host,port:self.port,password:&self.password}}
  pub fn same_transport(&self,other:&Self)->bool{self==other}
+ pub fn transport_identity(&self,id:&str)->Result<String,String>{Ok(format!("{:x}",Sha256::digest(serde_json::to_vec(&(id,&self.host,self.port)).map_err(|_|"obs_configuration_invalid")?)))}
  pub fn public(&self)->Self{Self{enabled:self.enabled,host:self.host.clone(),port:self.port,password:String::new(),extensions:Default::default()}}
  pub fn validate(&self)->Result<(),String>{
   if self.host.is_empty()||self.host.len()>253||self.host.chars().any(char::is_control)||self.port==0||self.password.len()>4096||serde_json::to_vec(&self.extensions).map_err(|_|"obs_configuration_invalid")?.len()>65536{return Err("obs_configuration_invalid".into());}Ok(())
@@ -330,7 +331,8 @@ mod tests {
         let bindings=[("phase".into(),Binding{legacy_field:"phase_scene".into(),default_scene:"Package default".into()})].into();
         assert_eq!(config.plugin_bindings("example",&bindings).unwrap()["phase"],"Saved scene");assert_eq!(serde_json::to_value(&config).unwrap(),raw);
         let public=serde_json::to_string(&config.public()).unwrap();assert!(!public.contains("private-credential"));assert!(!public.contains("unrelated"));assert!(!format!("{config:?}").contains("private-credential"));
-        let revision=config.plugin_revision("example",&bindings).unwrap();config.update_plugin_bindings("example",&bindings,&revision,[("phase".into(),"New scene".into())].into()).unwrap();
+        let target=config.transport_identity("example").unwrap();let revision=config.plugin_revision("example",&bindings).unwrap();config.update_plugin_bindings("example",&bindings,&revision,[("phase".into(),"New scene".into())].into()).unwrap();
+        assert_eq!(config.transport_identity("example").unwrap(),target);let mut other=config.clone();other.port+=1;assert_ne!(other.transport_identity("example").unwrap(),target);
         assert_eq!(config.plugin_bindings("example",&bindings).unwrap()["phase"],"New scene");assert_eq!(config.extensions["phase_scene"],"Saved scene");assert_eq!(config.extensions["unrelated"],raw["unrelated"]);
         assert!(config.update_plugin_bindings("example",&bindings,&revision,[("phase".into(),"Stale".into())].into()).is_err());
         let denied=[("phase".into(),Binding{legacy_field:"password".into(),default_scene:"Cannot read this".into()})].into();assert!(config.plugin_bindings("example",&denied).is_err());

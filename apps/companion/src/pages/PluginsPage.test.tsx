@@ -92,8 +92,14 @@ describe("PluginsPage", () => {
     render(<PluginsPage initialPluginId="hello"/>);
     const frame=await screen.findByTitle("Hello World") as HTMLIFrameElement;const source=frame.contentWindow!;
     const post=vi.spyOn(source,"postMessage");
-    fireEvent(window,new MessageEvent("message",{source,data:{type:"plugin-ui-ready",version:2}}));
-    const hello=post.mock.calls.find(([data])=>data.type==="plugin-host-ready")?.[0];expect(hello).toBeTruthy();
+    // Rendering the iframe does not prove that React's passive message listener
+    // has been installed. Like the real UI's response to host probes, readiness
+    // announcements are repeatable; wait for the actual host acknowledgement.
+    await waitFor(()=>{
+      fireEvent(window,new MessageEvent("message",{source,data:{type:"plugin-ui-ready",version:2}}));
+      expect(post.mock.calls.some(([data])=>data.type==="plugin-host-ready")).toBe(true);
+    });
+    const hello=post.mock.calls.find(([data])=>data.type==="plugin-host-ready")![0];
     const request={type:"plugin-command",version:2,instance:hello.instance,requestId:1,name:"sound.settings",args:{}};
     fireEvent(window,new MessageEvent("message",{source,data:request}));
     await waitFor(()=>expect(api.request).toHaveBeenCalledExactlyOnceWith("hello","sound.settings",{}));

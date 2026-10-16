@@ -541,3 +541,26 @@ API2 packaging; old Dota 0.1.0 lacks these commands and must not be reused as th
 new package. Before startup cut, also persist/reconcile OBS target identity for
 Unknown after process exit; the current name-only transport action is insufficient
 for safe recovery if the OBS endpoint changes.
+
+## OBS exit recovery and Windows UI ordering checkpoint (2026-10-16)
+
+Scene admissions now persist the exact public transport identity, mapping revision
+and context with the desired scene. After verified native process exit, recovery
+may only query the same OBS endpoint and confirm its authoritative current program
+scene; it cannot issue a setter. A changed endpoint, missing target metadata or
+unavailable/unconfirmed observation keeps the operation Unknown and the process
+Draining. A reconciled receipt preserves its uncertainty provenance and explicitly
+records reconciliation: it confirms current state, not exactly-once delivery.
+Receipt mutations also verify immutable payload identity, including frontend ACKs.
+
+Targeted local checks: 9 ledger and 9 host tests, generic config test and cargo
+check. The native recovery call sites still await final plugin-only startup
+attachment; these checks do not claim a real OBS crash/recovery smoke.
+
+Unsigned Windows run 38850900168 failed before packaging in the iframe API2
+handshake test (the Windows supervisor step passed). The test dispatched readiness
+immediately after iframe render, before guaranteed passive listener installation.
+It now waits for the actual host acknowledgement using repeatable readiness
+announcements, as allowed by the existing probe handshake; no production bridge
+permission or timeout was relaxed. All 36 tests from that exact CI frontend step
+pass locally. A subsequent Windows run must confirm this ordering fix.

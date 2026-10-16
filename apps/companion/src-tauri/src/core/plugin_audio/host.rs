@@ -104,8 +104,8 @@ impl HostAudio{
  }
  /// IO runs without the ledger mutex. The process command lock serializes
  /// this call with stop/reconfigure. A saved Unknown is observation-only.
- pub(crate) fn scene(&self,pin:&impl ProcessGrant,process:&ProcessBinding,epoch:u64,key:&str,name:&str,execute:impl FnOnce(bool)->Result<Status,String>)->Result<store::Receipt,String>{
-  let action=store::Action::Scene{name:name.into()};
+ pub(crate) fn scene(&self,pin:&impl ProcessGrant,process:&ProcessBinding,epoch:u64,key:&str,action:store::Action,execute:impl FnOnce(bool)->Result<Status,String>)->Result<store::Receipt,String>{
+  if !matches!(&action,store::Action::Scene{config_revision:Some(_),transport_identity:Some(_),..}){return Err("scene_target_unbound".into());}
   if !pin.permits(action.permission())||pin.binding()!=&process.package{return Err("capability_denied".into());}
   let admission={let mut ledger=self.locked()?;ledger.authorize(process,epoch)?;
    if let Some(receipt)=ledger.lookup(&process.package.id,key)?{
@@ -119,6 +119,16 @@ impl HostAudio{
   };
   let status=execute(admission.fresh).unwrap_or(Status::Unknown);
   self.locked()?.scene_result(process,epoch,key,status)
+ }
+ /// Trusted native stop/recovery only. The callback is an authoritative read,
+ /// never a scene setter, and runs without any history or ledger mutex.
+ pub(crate) fn reconcile_scenes_after_native_exit(&self,process:&ProcessBinding,epoch:u64,mut observe:impl FnMut(&str,&str)->Result<bool,String>)->Result<(),String>{
+  let receipts=self.locked()?.scenes_after_native_exit(process,epoch)?;
+  for receipt in receipts{
+   let store::Action::Scene{name,transport_identity:Some(target),..}=&receipt.action else{return Err("obs_operation_target_unavailable".into());};
+   if !observe(name,target)?{return Err("obs_fence_unconfirmed".into());}
+   self.locked()?.scene_reconciled_after_native_exit(process,epoch,&receipt)?;
+  }Ok(())
  }
  pub(crate) fn ack(&self,token:Token,status:Status)->Result<(),String>{
   let mut ledger=self.locked()?;
@@ -160,9 +170,24 @@ mod tests{
   fn executable(&self)->&Path{Path::new("verified-by-manager")}
   fn permits(&self,cap:&str)->bool{self.allowed&&matches!(cap,"audio.play"|"obs.scene")}
  }
+ fn scene(name:&str)->store::Action{store::Action::Scene{name:name.into(),config_revision:Some("a".repeat(64)),transport_identity:Some("b".repeat(64)),context:None}}
  fn pin()->(Pin,ProcessBinding){
   let binding=companion_plugin_protocol::PackageBinding{id:"example".into(),version:"1.0.0".into(),executable_hash:"a".repeat(64),manifest_hash:"b".repeat(64)};
   (Pin{binding:binding.clone(),allowed:true},ProcessBinding{generation:uuid::Uuid::new_v4().to_string(),package:binding})
+ }
+ #[test]
+ fn stopped_process_scene_recovery_uses_the_persisted_target_and_never_reissues_a_command(){
+  let root=tempfile::tempdir().unwrap();let audio=HostAudio::open(&root.path().join("transport.sqlite3")).unwrap();let(pin,process)=pin();let epoch=audio.reserve_process(&process).unwrap().epoch;audio.process_ready(&process,epoch).unwrap();
+  audio.scene(&pin,&process,epoch,"scene:pending",scene("Gameplay"),|_|Ok(Status::Unknown)).unwrap();
+  assert!(audio.reconcile_scenes_after_native_exit(&process,epoch,|_,_|panic!("running process cannot recover")).is_err());audio.process_draining(&process,epoch).unwrap();
+  assert!(audio.reconcile_scenes_after_native_exit(&process,epoch+1,|_,_|panic!("stale epoch cannot query")).is_err());
+  assert!(audio.reconcile_scenes_after_native_exit(&process,epoch,|_,_|Ok(false)).is_err());assert_eq!(audio.receipt("example","scene:pending").unwrap().unwrap().status,Status::Unknown);
+  // SQL/host fixture supplies the native-exit boundary. Production callers
+  // invoke the same path only after Runtime/job handle termination proof.
+  audio.reconcile_scenes_after_native_exit(&process,epoch,|name,target|{
+   assert_eq!(name,"Gameplay");assert_eq!(target,"b".repeat(64));assert_eq!(audio.receipt("example","scene:pending")?.unwrap().status,Status::Unknown);Ok(true)
+  }).unwrap();let receipt=audio.receipt("example","scene:pending").unwrap().unwrap();assert_eq!(receipt.status,Status::Completed);assert!(receipt.reconciled&&receipt.uncertain);
+  audio.fence("example",|_|panic!("no player exists for a scene")).unwrap();audio.process_after_native_exit(&process,epoch).unwrap();let mut next=process.clone();next.generation=uuid::Uuid::new_v4().to_string();assert!(audio.reserve_process(&next).unwrap().epoch>epoch);
  }
  #[test]
  fn plugin_voice_notification_requires_durable_admission_and_real_cancellation_or_completion(){
@@ -177,17 +202,17 @@ mod tests{
  fn uncertain_scene_is_observation_only_on_retry_and_actual_truth_is_required_before_new_effects(){
   let root=tempfile::tempdir().unwrap();let audio=HostAudio::open(&root.path().join("transport.sqlite3")).unwrap();let (pin,process)=pin();
   let epoch=audio.reserve_process(&process).unwrap().epoch;audio.process_ready(&process,epoch).unwrap();
-  let cancelled=audio.scene(&pin,&process,epoch,"scene:offline","Gameplay",|may_write|{assert!(may_write);Ok(Status::Cancelled)}).unwrap();assert_eq!(cancelled.status,Status::Cancelled);
-  let first=audio.scene(&pin,&process,epoch,"scene:1","Gameplay",|may_write|{assert!(may_write);assert_eq!(audio.receipt("example","scene:1")?.unwrap().status,Status::Unknown);Ok(Status::Unknown)}).unwrap();
+  let cancelled=audio.scene(&pin,&process,epoch,"scene:offline",scene("Gameplay"),|may_write|{assert!(may_write);Ok(Status::Cancelled)}).unwrap();assert_eq!(cancelled.status,Status::Cancelled);
+  let first=audio.scene(&pin,&process,epoch,"scene:1",scene("Gameplay"),|may_write|{assert!(may_write);assert_eq!(audio.receipt("example","scene:1")?.unwrap().status,Status::Unknown);Ok(Status::Unknown)}).unwrap();
   assert_eq!(first.status,Status::Unknown);assert!(first.uncertain);
-  assert!(audio.scene(&pin,&process,epoch,"scene:2","Draft",|_|panic!("new write after Unknown")).is_err());
-  let second=audio.scene(&pin,&process,epoch,"scene:1","Gameplay",|may_write|{assert!(!may_write);Err("authoritative probe unavailable".into())}).unwrap();assert_eq!(second.status,Status::Unknown);
-  assert!(audio.scene(&pin,&process,epoch,"scene:1","Gameplay",|may_write|{assert!(!may_write);Ok(Status::Cancelled)}).is_err());
-  assert!(audio.scene(&pin,&process,epoch+1,"scene:1","Gameplay",|_|panic!("stale epoch")).is_err());
-  assert!(audio.scene(&pin,&process,epoch,"scene:1","Other",|_|panic!("payload conflict")).is_err());
-  let reconciled=audio.scene(&pin,&process,epoch,"scene:1","Gameplay",|may_write|{assert!(!may_write);Ok(Status::Completed)}).unwrap();assert_eq!(reconciled.status,Status::Completed);
-  assert_eq!(audio.scene(&pin,&process,epoch,"scene:1","Gameplay",|_|panic!("completed re-executed")).unwrap().status,Status::Completed);
-  assert_eq!(audio.scene(&pin,&process,epoch,"scene:2","Draft",|may_write|{assert!(may_write);Ok(Status::Completed)}).unwrap().status,Status::Completed);
+  assert!(audio.scene(&pin,&process,epoch,"scene:2",scene("Draft"),|_|panic!("new write after Unknown")).is_err());
+  let second=audio.scene(&pin,&process,epoch,"scene:1",scene("Gameplay"),|may_write|{assert!(!may_write);Err("authoritative probe unavailable".into())}).unwrap();assert_eq!(second.status,Status::Unknown);
+  assert!(audio.scene(&pin,&process,epoch,"scene:1",scene("Gameplay"),|may_write|{assert!(!may_write);Ok(Status::Cancelled)}).is_err());
+  assert!(audio.scene(&pin,&process,epoch+1,"scene:1",scene("Gameplay"),|_|panic!("stale epoch")).is_err());
+  assert!(audio.scene(&pin,&process,epoch,"scene:1",scene("Other"),|_|panic!("payload conflict")).is_err());
+  let reconciled=audio.scene(&pin,&process,epoch,"scene:1",scene("Gameplay"),|may_write|{assert!(!may_write);Ok(Status::Completed)}).unwrap();assert_eq!(reconciled.status,Status::Completed);
+  assert_eq!(audio.scene(&pin,&process,epoch,"scene:1",scene("Gameplay"),|_|panic!("completed re-executed")).unwrap().status,Status::Completed);
+  assert_eq!(audio.scene(&pin,&process,epoch,"scene:2",scene("Draft"),|may_write|{assert!(may_write);Ok(Status::Completed)}).unwrap().status,Status::Completed);
  }
  #[test]
  fn actual_transport_commits_before_emit_preserves_receipt_after_asset_removal_and_requires_frontend_completion(){
