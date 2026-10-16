@@ -50,7 +50,7 @@ pub struct Worker {
  launch:Launch, history:Option<History>, listener:Option<Listener>, pipeline:Pipeline,
  overlay:Option<crate::overlay::server::Server>,last_overlay_at:Option<std::time::Instant>,scene:companion_dota_domain::broadcast_state::BroadcastState,
  selected_directory:Option<PathBuf>,obs:crate::obs::Controller,reminder:companion_dota_domain::draft_reminder::Tracker,
- dropped_sound_intents:u64,
+ dropped_sound_intents:u64,audio_sequence:u64,speech_sequence:u64,
  last_lifecycle_at:Option<std::time::Instant>,last_watchdog_at:Option<std::time::Instant>,stream_ended:bool,streaming:Option<bool>,
  next_account_at:Option<std::time::Instant>,account_request_sequence:u64,account_failures:u32,backend_error:Option<String>,account:Option<Value>,
  next_sync_at:Option<std::time::Instant>,pending_sync:Option<companion_dota_storage::local_runtime::sync::OutboxRow>,
@@ -59,7 +59,7 @@ pub struct Worker {
  last_error:Option<String>, processed:u64, last_sequence:Option<u64>, last_analysis:Option<Value>,last_gsi:Option<Value>,last_receipt:Option<companion_dota_domain::match_execution::Receipt>,
 }
 impl Worker {
- pub fn new(launch:Launch)->Self{Self{launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,obs:Default::default(),reminder:Default::default(),dropped_sound_intents:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,next_sync_at:None,pending_sync:None,backend_updates:0,next_corrections_at:None,pending_corrections:None,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
+ pub fn new(launch:Launch)->Self{Self{launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,obs:Default::default(),reminder:Default::default(),dropped_sound_intents:0,audio_sequence:0,speech_sequence:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,next_sync_at:None,pending_sync:None,backend_updates:0,next_corrections_at:None,pending_corrections:None,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
  pub fn status(&self)->Value{
   let history=self.history.as_ref();let active=history.is_some_and(History::active);
   json!({"prepared":history.is_some(),"active":active,"awaitingSession":active&&history.and_then(History::session).is_none(),
@@ -271,12 +271,12 @@ impl Worker {
    if let Some(receipt)=self.history.as_mut().ok_or("not_prepared")?.frame(frame.snapshot,now,frame.sequence)?{self.last_receipt=Some(receipt);}
    if self.reminder.observe(self.scene,self.streaming.is_some(),self.streaming){
     if !self.launch.capabilities.iter().any(|c|c=="audio.play"){return Err("capability_denied".into());}
-    let key=format!("reminder:{}:{}",self.launch.generation,frame.sequence);self.last_sound_operation=Some(key.clone());
+    self.speech_sequence=self.speech_sequence.checked_add(1).filter(|n|*n<=i64::MAX as u64).ok_or("sound_counter_exhausted")?;let key=format!("speech:{}",self.speech_sequence);self.last_sound_operation=Some(key.clone());
     sounds.push(SoundIntent{operation_key:key,asset_file:String::new(),volume:100,deadline_ms:frame.observed_at_ms.saturating_add(2000),context:self.effect_context(),speech:Some("Стрим не запущен".into())});
    }
    if sounds.len()+result.sounds.len()>32{return Err("sound_batch_exhausted".into());}
-   for (index,sound) in result.sounds.into_iter().enumerate(){
-    let key=format!("sound:{}:{}:{index}",self.launch.generation,frame.sequence);self.last_sound_operation=Some(key.clone());
+   for sound in result.sounds{
+    self.audio_sequence=self.audio_sequence.checked_add(1).filter(|n|*n<=i64::MAX as u64).ok_or("sound_counter_exhausted")?;let key=format!("audio:{}",self.audio_sequence);self.last_sound_operation=Some(key.clone());
     sounds.push(SoundIntent{operation_key:key,asset_file:sound.asset.file_name,volume:sound.volume,deadline_ms:frame.observed_at_ms.saturating_add(2000),context:self.effect_context(),speech:None});
    }
    self.last_analysis=Some(serde_json::to_value(result.analysis).map_err(|_|"analysis_serialization_failed")?);

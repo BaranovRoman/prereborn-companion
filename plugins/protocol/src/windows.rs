@@ -205,7 +205,15 @@ pub fn fence_current_host_children(generation:&str)->Result<(),String>{
     let (current,job)=HOST_JOB.get().ok_or("host_supervision_unproven")?;if current!=generation{return Err("host_generation_fenced".into());}
     let deadline=Instant::now()+Duration::from_secs(2);let mut handles=Vec::new();let mut seen=std::collections::BTreeSet::new();
     loop{unsafe{
-        let witness=capture_with_access(job.as_raw_handle(),true).map_err(|_|"host_children_exit_unproven")?;let total=witness.total;
+        // A child can exit (or finish creating its own child) between the job
+        // list query and OpenProcess. Discard that incomplete witness and
+        // recapture within the same deadline; it is never termination proof.
+        // Success still requires owned, signalled handles and stable native
+        // accounting below. Persistent access/membership errors fail closed.
+        let witness=match capture_with_access(job.as_raw_handle(),true){
+            Ok(witness)=>witness,
+            Err(_)=>{if Instant::now()>=deadline{return Err("host_children_exit_unproven".into());}std::thread::sleep(Duration::from_millis(5));continue;}
+        };let total=witness.total;
         for handle in witness.handles{
             let pid=GetProcessId(handle.as_raw_handle());if pid==0{return Err("host_children_exit_unproven".into());}if pid==GetCurrentProcessId()||!seen.insert(pid){continue;}
             if WaitForSingleObject(handle.as_raw_handle(),0)!=WAIT_OBJECT_0&&TerminateProcess(handle.as_raw_handle(),1)==0&&WaitForSingleObject(handle.as_raw_handle(),0)!=WAIT_OBJECT_0{return Err("host_children_exit_unproven".into());}
@@ -334,6 +342,11 @@ mod tests {
         std::process::exit(7);
     }
     #[test] fn retired_host_allows_an_installer_child_to_outlive_it_only_after_old_children_are_stopped(){
+        // Reuse the actual native fixture across several independently named
+        // jobs: cmd's descendant creation and teardown can race enumeration.
+        for _ in 0..4{retire_host_once();}
+    }
+    fn retire_host_once(){
         use std::io::{BufRead,Write};
         let fixture=format!("{}::crash_fixture",module_path!().split_once("::").unwrap().1);
         let mut parent=Command::new(std::env::current_exe().unwrap()).args(["--ignored","--exact",&fixture,"--nocapture"]).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();

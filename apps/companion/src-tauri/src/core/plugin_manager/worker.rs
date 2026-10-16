@@ -176,7 +176,7 @@ impl Task{
   let config=read_obs_config(&self.app)?;
   if !config.enabled||config.plugin_revision(&self.worker.pin.package.id,&self.worker.pin.obs_bindings)?!=intent.config_revision{return Err("obs_configuration_changed".into());}
   let mappings=config.plugin_bindings(&self.worker.pin.package.id,&self.worker.pin.obs_bindings)?;let name=mappings.get(&intent.semantic).filter(|s|!s.is_empty()).ok_or("obs_semantic_denied")?;
-  let key=format!("{}:{}",self.worker.binding.generation,packages::hash(&serde_json::to_vec(intent).map_err(|_|"invalid_scene_intent")?));
+  let key=super::super::plugin_audio::store::ordered_key(&self.worker.binding.generation,self.worker.epoch,&intent.operation_key)?;
   let action=super::super::plugin_audio::store::Action::Scene{name:name.clone(),config_revision:Some(intent.config_revision.clone()),transport_identity:Some(config.transport_identity(&self.worker.pin.package.id)?),context:intent.context.clone()};
   let receipt=self.audio.scene(&self.worker.pin,&self.worker.binding,self.worker.epoch,&key,action,|may_write|{
    let deadline=Instant::now()+Duration::from_millis(1500);
@@ -256,7 +256,7 @@ impl Task{
    if sound.operation_key.is_empty()||sound.operation_key.len()>128||sound.context.as_ref().is_some_and(|s|s.is_empty()||s.len()>128){return Err("invalid_sound_intent".into());}
    if sound.context.as_deref()!=context{return Err("effect_context_mismatch".into());}
    if runtime.snapshot().phase!=Phase::Running{return Err("plugin_process_requires_recovery".into());}
-   let key=format!("{}:{}",worker.binding.generation,packages::hash(sound.operation_key.as_bytes()));
+   let key=super::super::plugin_audio::store::ordered_key(&worker.binding.generation,worker.epoch,&sound.operation_key)?;
    if let Some(text)=sound.speech{
     if !sound.asset_file.is_empty(){return Err("invalid_sound_intent".into());}
     self.audio.speak(&worker.pin,&worker.binding,worker.epoch,sound.context.as_deref(),&key,&text,sound.volume,sound.deadline_ms,|payload|self.app.emit_to("main","plugin-audio-play",payload).map_err(|_|"frontend_audio_emit_failed".into()))?;
@@ -311,7 +311,7 @@ impl PluginManager{
     #[derive(Deserialize)]#[serde(rename_all="camelCase",deny_unknown_fields)]struct Query{operation_key:String}
     let query:Query=serde_json::from_value(args).map_err(|_|"invalid_ui_arguments")?;
     if query.operation_key.is_empty()||query.operation_key.len()>128{return Err("invalid_ui_arguments".into());}
-    let key=format!("{}:{}",worker.binding.generation,packages::hash(query.operation_key.as_bytes()));
+    let key=super::super::plugin_audio::store::ordered_key(&worker.binding.generation,worker.epoch,&query.operation_key)?;
     let receipt=audio.receipt(id,&key)?;
     if receipt.as_ref().is_some_and(|r|!matches!(r.action,super::super::plugin_audio::store::Action::Sound{..}|super::super::plugin_audio::store::Action::Speech{..})||r.process.generation!=worker.binding.generation||r.process.package!=worker.binding.package){return Err("receipt_scope_denied".into());}
     Ok(serde_json::json!({"receipt":receipt}))

@@ -564,3 +564,36 @@ It now waits for the actual host acknowledgement using repeatable readiness
 announcements, as allowed by the existing probe handshake; no production bridge
 permission or timeout was relaxed. All 36 tests from that exact CI frontend step
 pass locally. A subsequent Windows run must confirm this ordering fix.
+
+## Bounded transport retention and native enumeration checkpoint (2026-10-16)
+
+The 10,000-key transport quota is unchanged. Worker effects now use canonical
+generation:epoch:source:sequence keys (audio, speech, scene), incremented for actual
+intents rather than GSI frames. Durable per-source high-water marks are committed
+with each admission in the existing coordinator transaction. A bounded sweep can
+remove only validated Completed/Cancelled receipts older than the last 256 source
+operations, or from a strictly earlier fenced epoch. Missing keys at/below a
+watermark are rejected as retired/out-of-order, never readmitted or reported as
+successful; old epochs cannot pass admission even if a UUID were reused. Recent
+duplicates still return their exact saved receipt, with payload conflicts denied.
+Unknown/queued/playing and unordered legacy/preview keys are never deleted.
+Watermarks and compaction counts are checksummed process-journal data; corrupted
+payload identity or a failed admission rolls back the entire sweep and watermark.
+
+Actual SQLite synthetic eight-hour effect workload: 8 matches, 32 audio cues per
+minute, 8 draft notifications and 40 scene changes/reapplications. 15,408 admitted
+operations, 15,104 compacted terminal receipts, 304 retained receipts, peak receipt
+payload 208,527 bytes, zero Unknown/pending, one process identity. This complements
+the separate real match-facade telemetry workload; it is not native audio/OBS or
+a complete combined end-to-end stream smoke. Local checks: ledger tests (including
+reopen, rollback, old-epoch rejection, corrupted compaction candidates), 9 host
+tests, 6 worker tests and core cargo check passed.
+
+Unsigned run 38871395622 stopped in the real Windows host-retirement fixture:
+host_children_exit_unproven before installer-like child launch. Job capture was
+immediately failing on a child/list change during enumeration. Host retirement now
+discards incomplete witnesses and recaptures within its existing deadline. It
+still requires signalled owned handles plus stable native job accounting, never
+a PID, timeout or incomplete snapshot as proof. Persistent failure remains closed.
+The existing native retirement fixture now repeats four independently named jobs;
+the Windows result must be checked before claiming this race is resolved.

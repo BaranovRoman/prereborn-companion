@@ -5,9 +5,24 @@ use rusqlite::{Connection,OptionalExtension,TransactionBehavior,params};
 use serde::{Deserialize,Serialize};
 use sha2::{Digest,Sha256};
 use std::{fs::{File,OpenOptions},path::Path,time::Duration};
+use std::collections::BTreeMap;
 type Result<T>=std::result::Result<T,String>;
 const LIMIT:u64=10000;
 const BYTE_LIMIT:u64=32*1024*1024;
+const RECENT_PER_SOURCE:u64=256;
+/// Only this canonical form is compactable. Epoch is part of the key, so
+/// even a reused UUID cannot resurrect an operation from a retired owner.
+pub(crate) fn ordered_key(generation:&str,epoch:u64,raw:&str)->Result<String>{
+ let(source,sequence)=raw.split_once(':').ok_or("invalid_ordered_operation")?;
+ let n:u64=sequence.parse().map_err(|_|"invalid_ordered_operation")?;
+ if !matches!(source,"audio"|"speech"|"scene")||n==0||n>i64::MAX as u64||sequence!=n.to_string()||uuid::Uuid::parse_str(generation).is_err()||epoch==0||epoch>i64::MAX as u64{return Err("invalid_ordered_operation".into());}
+ Ok(format!("{generation}:{epoch}:{source}:{n}"))
+}
+fn ordered(key:&str)->Option<(&str,u64,&str,u64)>{
+ let mut parts=key.split(':');let generation=parts.next()?;let epoch=parts.next()?.parse().ok()?;let source=parts.next()?;let sequence=parts.next()?.parse().ok()?;
+ if parts.next().is_some()||ordered_key(generation,epoch,&format!("{source}:{sequence}")).ok()?.as_str()!=key{return None;}Some((generation,epoch,source,sequence))
+}
+fn source(action:&Action)->&'static str{match action{Action::Sound{..}=>"audio",Action::Speech{..}=>"speech",Action::Scene{..}=>"scene"}}
 const SCHEMA:&str="CREATE TABLE transport_meta(id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL); INSERT INTO transport_meta VALUES(1,1);
 CREATE TABLE transport_effects(plugin TEXT NOT NULL,operation_key TEXT NOT NULL,identity TEXT NOT NULL CHECK(length(identity)=64),receipt TEXT NOT NULL,checksum TEXT NOT NULL CHECK(length(checksum)=64),PRIMARY KEY(plugin,operation_key));
 CREATE UNIQUE INDEX transport_playback ON transport_effects(json_extract(receipt,'$.playback.id')) WHERE json_extract(receipt,'$.playback.id') IS NOT NULL;
@@ -66,12 +81,16 @@ impl From<&ProcessBinding> for ProcessIdentity{fn from(p:&ProcessBinding)->Self{
 pub enum ProcessPhase{Starting,Running,Draining,Stopped}
 #[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
-pub struct ProcessRecord{pub process:ProcessIdentity,pub epoch:u64,pub phase:ProcessPhase,supervision:String}
+pub struct ProcessRecord{pub process:ProcessIdentity,pub epoch:u64,pub phase:ProcessPhase,supervision:String,
+ #[serde(default,skip_serializing_if="BTreeMap::is_empty")]heads:BTreeMap<String,u64>,
+ #[serde(default,skip_serializing_if="is_zero")]pub compacted:u64,
+}
+fn is_zero(n:&u64)->bool{*n==0}
 #[derive(Debug)]
 pub struct Admission{pub fresh:bool,pub receipt:Receipt}
 #[derive(Debug,Serialize)]
 #[serde(rename_all="camelCase")]
-pub struct Quota{pub remaining_operations:u64,pub remaining_bytes:u64,pub unknown:u64,pub blocking_unknown:u64,pub pending:u64}
+pub struct Quota{pub remaining_operations:u64,pub remaining_bytes:u64,pub unknown:u64,pub blocking_unknown:u64,pub pending:u64,pub compacted:u64}
 pub struct Store{conn:Connection,_lock:File}
 impl Store {
  pub fn open(path:&Path)->Result<Self>{
@@ -139,7 +158,8 @@ impl Store {
   let (n,bytes,unknown,pending):(u64,u64,u64,u64)=sql(c.query_row("SELECT count(*),coalesce(sum(length(CAST(receipt AS BLOB))),0),coalesce(sum(json_extract(receipt,'$.status')='unknown'),0),coalesce(sum(json_extract(receipt,'$.status') IN ('queued','playing')),0) FROM transport_effects",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))))?;
   if n>LIMIT||bytes>BYTE_LIMIT{return Err("transport_quota_invalid".into());}
   let blocking_unknown:u64=sql(c.query_row("SELECT count(*) FROM transport_effects WHERE json_extract(receipt,'$.status')='unknown' AND coalesce(json_extract(receipt,'$.audioFenced'),0)=0",[],|r|r.get(0)))?;
-  Ok(Quota{remaining_operations:LIMIT-n,remaining_bytes:BYTE_LIMIT-bytes,unknown,blocking_unknown,pending})
+  let compacted:u64=sql(c.query_row("SELECT coalesce(sum(coalesce(json_extract(record,'$.compacted'),0)),0) FROM transport_processes",[],|r|r.get(0)))?;
+  Ok(Quota{remaining_operations:LIMIT-n,remaining_bytes:BYTE_LIMIT-bytes,unknown,blocking_unknown,pending,compacted})
  }
  pub fn quota(&self)->Result<Quota>{Self::quota_in(&self.conn)}
  pub fn uncertain(&self)->Result<bool>{sql(self.conn.query_row("SELECT EXISTS(SELECT 1 FROM transport_effects WHERE json_extract(receipt,'$.uncertain')=1 AND json_extract(receipt,'$.status') NOT IN ('completed','cancelled') AND coalesce(json_extract(receipt,'$.audioFenced'),0)=0)",[],|r|r.get(0)))}
@@ -186,7 +206,7 @@ impl Store {
  fn decode_process(doc:&str,checksum:&str)->Result<ProcessRecord>{
   if doc.len()>2048||hash(doc)!=checksum{return Err("transport_process_corrupt".into());}
   let record:ProcessRecord=serde_json::from_str(doc).map_err(|_|"transport_process_corrupt")?;
-  if record.epoch==0||record.epoch>i64::MAX as u64||record.supervision!="windows-job-list-v1"||!package(&record.process.package)||uuid::Uuid::parse_str(&record.process.generation).is_err(){return Err("transport_process_corrupt".into());}Ok(record)
+  if record.epoch==0||record.epoch>i64::MAX as u64||record.supervision!="windows-job-list-v1"||!package(&record.process.package)||uuid::Uuid::parse_str(&record.process.generation).is_err()||record.heads.len()>3||record.heads.iter().any(|(k,n)|!matches!(k.as_str(),"audio"|"speech"|"scene")||*n==0||*n>i64::MAX as u64)||record.compacted>i64::MAX as u64{return Err("transport_process_corrupt".into());}Ok(record)
  }
  fn process_in(c:&Connection,plugin:&str)->Result<Option<ProcessRecord>>{
   let row:Option<(Option<String>,String)>=sql(c.query_row("SELECT CASE WHEN length(CAST(record AS BLOB))<=2048 THEN record ELSE NULL END,checksum FROM transport_processes WHERE plugin=?1",[plugin],|r|Ok((r.get(0)?,r.get(1)?))).optional())?;
@@ -216,8 +236,9 @@ impl Store {
   let unresolved:bool=sql(tx.query_row("SELECT EXISTS(SELECT 1 FROM transport_effects WHERE plugin=?1 AND json_extract(receipt,'$.status') NOT IN ('completed','cancelled') AND coalesce(json_extract(receipt,'$.audioFenced'),0)=0)",[&process.package.id],|r|r.get(0)))?;
   if unresolved{return Err("unknown_effects_require_explicit_reconciliation".into());}
   let count:u64=sql(tx.query_row("SELECT count(*) FROM transport_processes",[],|r|r.get(0)))?;if previous.is_none()&&count>=128{return Err("transport_process_quota_exhausted".into());}
+  let compacted=previous.as_ref().map_or(0,|p|p.compacted);
   let epoch=previous.map_or(Ok(1),|p|p.epoch.checked_add(1).filter(|n|*n<=i64::MAX as u64).ok_or("transport_epoch_exhausted"))?;
-  let record=ProcessRecord{process:process.into(),epoch,phase:ProcessPhase::Starting,supervision:"windows-job-list-v1".into()};Self::write_process(&tx,&record)?;sql(tx.commit())?;Ok(record)
+  let record=ProcessRecord{process:process.into(),epoch,phase:ProcessPhase::Starting,supervision:"windows-job-list-v1".into(),heads:Default::default(),compacted};Self::write_process(&tx,&record)?;sql(tx.commit())?;Ok(record)
  }
  pub fn process_ready(&mut self,process:&ProcessBinding,epoch:u64)->Result<()>{self.process_transition(process,epoch,ProcessPhase::Running)}
  pub fn process_draining(&mut self,process:&ProcessBinding,epoch:u64)->Result<()>{self.process_transition(process,epoch,ProcessPhase::Draining)}
@@ -234,10 +255,33 @@ impl Store {
  }
  pub fn lookup(&self,plugin:&str,key:&str)->Result<Option<Receipt>>{
   let row:Option<(String,String,String)>=sql(self.conn.query_row("SELECT identity,CASE WHEN length(CAST(receipt AS BLOB))<=4096 THEN receipt ELSE NULL END,checksum FROM transport_effects WHERE plugin=?1 AND operation_key=?2",params![plugin,key],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional())?;
-  row.map(|(stored,doc,checksum)|{
+  let receipt=row.map(|(stored,doc,checksum)|->Result<Receipt>{
    let receipt=Self::decode(&doc,&checksum)?;
    if receipt.process.package.id!=plugin||receipt.operation_key!=key||identity(&receipt)?!=stored{return Err("transport_receipt_corrupt".into());}Ok(receipt)
-  }).transpose()
+  }).transpose()?;
+  if receipt.is_none(){if let Some((generation,epoch,source,n))=ordered(key){
+   let record=Self::process_in(&self.conn,plugin)?.ok_or("process_journal_missing")?;
+   if generation!=record.process.generation||epoch!=record.epoch{return Err("process_generation_fenced".into());}
+   if n<=*record.heads.get(source).unwrap_or(&0){return Err("operation_retired_or_out_of_order".into());}
+  }}Ok(receipt)
+ }
+ /// Compaction has no expiry heuristic. Durable source high-water marks reject
+ /// every missing old key, and older epochs can never pass admission. Unknown,
+ /// queued/playing and unordered legacy/preview keys are never removed.
+ fn compact(c:&Connection,record:&mut ProcessRecord)->Result<()>{
+  let rows={let mut s=sql(c.prepare("SELECT operation_key,identity,CASE WHEN length(CAST(receipt AS BLOB))<=4096 THEN receipt ELSE NULL END,checksum FROM transport_effects WHERE plugin=?1 AND json_extract(receipt,'$.status') IN ('completed','cancelled') ORDER BY rowid LIMIT 10000"))?;
+   let rows=sql(s.query_map([&record.process.package.id],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?))))?;sql(rows.collect::<rusqlite::Result<Vec<_>>>())?};
+  let mut removed=0u64;
+  for(key,stored,doc,checksum)in rows{
+   let Some((generation,epoch,kind,n))=ordered(&key)else{continue;};
+   let old=epoch<record.epoch||epoch==record.epoch&&generation==record.process.generation&&n<=record.heads.get(kind).copied().unwrap_or(0).saturating_sub(RECENT_PER_SOURCE);
+   if !old{continue;}
+   let receipt=Self::decode(&doc,&checksum)?;
+   if receipt.operation_key!=key||receipt.process.package.id!=record.process.package.id||receipt.process.generation!=generation||source(&receipt.action)!=kind||identity(&receipt)?!=stored||!matches!(receipt.status,Status::Completed|Status::Cancelled)||receipt.playback.as_ref().is_some_and(|p|p.scope.epoch!=epoch){return Err("transport_receipt_corrupt".into());}
+   sql(c.execute("DELETE FROM transport_effects WHERE plugin=?1 AND operation_key=?2",params![record.process.package.id,key]))?;
+   removed+=1;if removed==256{break;}
+  }
+  record.compacted=record.compacted.checked_add(removed).filter(|n|*n<=i64::MAX as u64).ok_or("transport_counter_exhausted")?;Ok(())
  }
  pub fn admit(&mut self,process:&ProcessBinding,operation_key:&str,action:Action,playback:Option<Token>)->Result<Admission>{
   if !key(operation_key)||!key(&process.package.id)||uuid::Uuid::parse_str(&process.generation).is_err(){return Err("invalid_transport_identity".into());}
@@ -254,6 +298,15 @@ impl Store {
    let receipt=Self::decode(&doc,&checksum)?;
    if receipt.process!=ProcessIdentity::from(process)||receipt.operation_key!=operation_key||self::identity(&receipt)?!=stored{return Err("transport_receipt_corrupt".into());}
    sql(tx.commit())?;return Ok(Admission{fresh:false,receipt});
+  }
+  if let Some((generation,epoch,kind,n))=ordered(operation_key){
+   let mut record=Self::process_in(&tx,&process.package.id)?.ok_or("process_journal_missing")?;
+   if generation!=process.generation||epoch!=record.epoch||kind!=source(&receipt.action){return Err("ordered_operation_scope_mismatch".into());}
+   if n<=record.heads.get(kind).copied().unwrap_or(0){return Err("operation_retired_or_out_of_order".into());}
+   record.heads.insert(kind.into(),n);
+   // Amortized bounded sweep, in the same commit as admission/watermark.
+   if n%64==0||Self::quota_in(&tx)?.remaining_operations<256{Self::compact(&tx,&mut record)?;}
+   Self::write_process(&tx,&record)?;
   }
   let doc=encode(&receipt)?;if doc.len()>4096{return Err("transport_receipt_too_large".into());}
   let quota=Self::quota_in(&tx)?;if quota.remaining_operations==0||doc.len() as u64>quota.remaining_bytes{return Err("transport_quota_exhausted".into());}
@@ -311,6 +364,58 @@ mod tests{
  fn process()->ProcessBinding{ProcessBinding{generation:uuid::Uuid::new_v4().to_string(),package:companion_plugin_protocol::PackageBinding{id:"example".into(),version:"1.0.0".into(),executable_hash:"a".repeat(64),manifest_hash:"b".repeat(64)}}}
  fn action()->Action{Action::Sound{asset_file:"sound.wav".into(),volume:70}}
  fn activate(store:&mut Store,process:&ProcessBinding)->u64{let epoch=store.reserve_process(process).unwrap().epoch;store.process_ready(process,epoch).unwrap();epoch}
+ #[test]
+ fn ordered_compaction_rejects_retired_keys_preserves_unknown_and_rolls_back_watermarks(){
+  let root=tempfile::tempdir().unwrap();let path=root.path().join("transport.sqlite3");let mut store=Store::open(&path).unwrap();let process=process();let epoch=activate(&mut store,&process);
+  let registry=companion_plugin_protocol::playback::PlaybackRegistry::default();
+  let key=|n|ordered_key(&process.generation,epoch,&format!("audio:{n}")).unwrap();
+  let uncertain=registry.admit(Some(epoch),None).unwrap();store.admit(&process,&key(1),action(),Some(uncertain.clone())).unwrap();store.audio_ack("example",&key(1),&uncertain,Status::Unknown).unwrap();
+  for n in 2..=384{let token=registry.admit(Some(epoch),None).unwrap();store.admit(&process,&key(n),action(),Some(token.clone())).unwrap();store.audio_ack("example",&key(n),&token,Status::Completed).unwrap();registry.ack(token,Status::Completed).unwrap();}
+  assert_eq!(store.lookup("example",&key(1)).unwrap().unwrap().status,Status::Unknown);assert!(store.quota().unwrap().compacted>0);
+  assert_eq!(store.lookup("example",&key(2)).unwrap_err(),"operation_retired_or_out_of_order");
+  let token=registry.admit(Some(epoch),None).unwrap();assert_eq!(store.admit(&process,&key(2),action(),Some(token.clone())).unwrap_err(),"operation_retired_or_out_of_order");
+  let saved=store.lookup("example",&key(384)).unwrap().unwrap();assert!(!store.admit(&process,&key(384),action(),saved.playback.clone()).unwrap().fresh);
+  store.conn.execute_batch("CREATE TRIGGER admission_abort BEFORE INSERT ON transport_effects BEGIN SELECT RAISE(ABORT,'fixture'); END;").unwrap();
+  assert!(store.admit(&process,&key(448),action(),Some(token.clone())).is_err());assert_eq!(store.process("example").unwrap().unwrap().heads["audio"],384);assert!(store.lookup("example",&key(129)).unwrap().is_some());
+  store.conn.execute_batch("DROP TRIGGER admission_abort;").unwrap();drop(store);
+  let mut store=Store::open(&path).unwrap();assert_eq!(store.lookup("example",&key(2)).unwrap_err(),"operation_retired_or_out_of_order");assert_eq!(store.quota().unwrap().unknown,1);
+  assert!(store.admit(&process,&key(385),action(),Some(token)).is_err());
+  for raw in ["audio:0","audio:01","audio:-1","audio:9223372036854775808","http:1","audio:1:2"]{assert!(ordered_key(&process.generation,epoch,raw).is_err());}
+ }
+ #[test]
+ fn eight_hour_transport_budget_uses_actual_admission_ack_and_sqlite_receipts(){
+  let root=tempfile::tempdir().unwrap();let path=root.path().join("transport.sqlite3");let mut store=Store::open(&path).unwrap();let process=process();let epoch=activate(&mut store,&process);
+  let registry=companion_plugin_protocol::playback::PlaybackRegistry::default();let(mut audio,mut speech,mut scenes,mut peak_bytes)=(0,0,0,0u64);
+  // Synthetic 8h/8-match workload: 32 configured audio cues/minute (15360),
+  // draft reminder per match, 4 scene changes and one OBS reapply per match.
+  // This measures actual durable transport, not audible playback/native smoke.
+  for minute in 0..480{
+   let session=format!("budget-session-{}",minute/60);
+   for cue in 0..32{audio+=1;let key=ordered_key(&process.generation,epoch,&format!("audio:{audio}")).unwrap();let token=registry.admit(Some(epoch),Some(&session)).unwrap();
+    store.admit(&process,&key,action(),Some(token.clone())).unwrap();store.audio_ack("example",&key,&token,Status::Playing).unwrap();let status=if cue==31{Status::Cancelled}else{Status::Completed};store.audio_ack("example",&key,&token,status).unwrap();registry.ack(token,status).unwrap();
+   }
+   if minute%60==0{speech+=1;let key=ordered_key(&process.generation,epoch,&format!("speech:{speech}")).unwrap();let token=registry.admit(Some(epoch),None).unwrap();store.admit(&process,&key,Action::Speech{text:"Draft notification".into(),volume:100},Some(token.clone())).unwrap();store.audio_ack("example",&key,&token,Status::Completed).unwrap();registry.ack(token,Status::Completed).unwrap();}
+   if minute%12==0{scenes+=1;let key=ordered_key(&process.generation,epoch,&format!("scene:{scenes}")).unwrap();store.admit(&process,&key,Action::Scene{name:"Configured scene".into(),config_revision:Some("a".repeat(64)),transport_identity:Some("b".repeat(64)),context:Some(session)},None).unwrap();store.scene_result(&process,epoch,&key,Status::Completed).unwrap();}
+   let q=store.quota().unwrap();peak_bytes=peak_bytes.max(BYTE_LIMIT-q.remaining_bytes);assert_eq!(q.unknown,0);assert!(q.remaining_operations>9000);
+  }
+  let q=store.quota().unwrap();eprintln!("8h transport: admitted={}, retained={}, compacted={}, peakReceiptBytes={}, unknown={}, pending={}, processIdentities=1; match receipts measured by separate actual facade workload",audio+speech+scenes,LIMIT-q.remaining_operations,q.compacted,peak_bytes,q.unknown,q.pending);
+  assert_eq!(q.compacted+(LIMIT-q.remaining_operations),audio+speech+scenes);assert!(q.compacted>14000);assert_eq!(q.pending,0);assert!(peak_bytes<1024*1024);
+  drop(store);let store=Store::open(&path).unwrap();assert_eq!(store.quota().unwrap().compacted,q.compacted);assert_eq!(store.process("example").unwrap().unwrap().phase,ProcessPhase::Draining);
+ }
+ #[test]
+ fn ordered_compaction_fences_old_epochs_and_refuses_corrupt_terminal_receipts(){
+  let root=tempfile::tempdir().unwrap();let mut store=Store::open(&root.path().join("transport.sqlite3")).unwrap();let process=process();let epoch=activate(&mut store,&process);
+  let key=ordered_key(&process.generation,epoch,"scene:1").unwrap();let action=Action::Scene{name:"Scene".into(),config_revision:None,transport_identity:None,context:None};
+  store.admit(&process,&key,action.clone(),None).unwrap();store.scene_result(&process,epoch,&key,Status::Completed).unwrap();
+  let mut record=store.process("example").unwrap().unwrap();record.heads.insert("scene".into(),300);
+  store.conn.execute("UPDATE transport_effects SET identity=?1",["0".repeat(64)]).unwrap();assert_eq!(Store::compact(&store.conn,&mut record).unwrap_err(),"transport_receipt_corrupt");assert_eq!(store.quota().unwrap().remaining_operations,LIMIT-1);
+  let receipt=store.conn.query_row("SELECT receipt FROM transport_effects",[],|r|r.get::<_,String>(0)).unwrap();let receipt:Receipt=serde_json::from_str(&receipt).unwrap();store.conn.execute("UPDATE transport_effects SET identity=?1",[identity(&receipt).unwrap()]).unwrap();
+  store.process_draining(&process,epoch).unwrap();store.process_after_native_exit(&process,epoch).unwrap();
+  let mut next=process.clone();next.generation=uuid::Uuid::new_v4().to_string();let next_epoch=activate(&mut store,&next);
+  assert_eq!(store.admit(&next,&key,action.clone(),None).unwrap_err(),"idempotency_conflict");
+  let next_key=ordered_key(&next.generation,next_epoch,"scene:64").unwrap();store.admit(&next,&next_key,action.clone(),None).unwrap();assert_eq!(store.lookup("example",&key).unwrap_err(),"process_generation_fenced");
+  assert_eq!(store.admit(&next,&key,action,None).unwrap_err(),"ordered_operation_scope_mismatch");assert_eq!(store.quota().unwrap().compacted,1);
+ }
  #[test]
  fn host_fence_keeps_audio_unknown_and_keys_but_does_not_reconcile_obs_or_accept_an_old_ack(){
   let root=tempfile::tempdir().unwrap();let path=root.path().join("transport.sqlite3");let mut store=Store::open(&path).unwrap();let old=uuid::Uuid::new_v4().to_string();
