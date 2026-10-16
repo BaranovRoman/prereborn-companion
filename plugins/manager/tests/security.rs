@@ -70,11 +70,13 @@ fn signed_catalog_and_portable_path_validation() {
 #[test]
 fn api2_live_permissions_and_ui_commands_are_explicit_and_old_metadata_roundtrips_unchanged(){
     let old=release("0.1.0").manifest;
-    let before=serde_json::to_value(&old).unwrap();assert!(before.get("author").is_none());assert!(before.get("uiCommands").is_none());assert!(before.get("backendResources").is_none());assert!(before.get("obsBindings").is_none());
+    let before=serde_json::to_value(&old).unwrap();assert!(before.get("author").is_none());assert!(before.get("uiCommands").is_none());assert!(before.get("backendResources").is_none());assert!(before.get("obsBindings").is_none());assert!(before.get("uiFrameOrigins").is_none());
     assert_eq!(serde_json::to_value(serde_json::from_value::<Manifest>(before.clone()).unwrap()).unwrap(),before);
     let mut current=old.clone();current.id="independent-game".into();current.min_api=2;current.max_api=2;current.execution=ExecutionMode::Live;
     current.permissions=vec!["ui".into(),"data.legacy".into(),"audio.play".into(),"obs.scene".into()];current.author=Some("Example publisher".into());current.ui_commands=vec!["status".into(),"sound.settings".into()];
     current.validate().unwrap();
+    let mut frames=current.clone();frames.ui_frame_origins=vec!["http://127.0.0.1:4567".into()];assert_eq!(frames.validate().unwrap_err(),"ui_frame_origin_denied");frames.permissions.push("overlay.publish".into());frames.validate().unwrap();
+    for origin in ["http://127.0.0.1:0","http://127.0.0.1:04567","http://localhost:4567","https://example.com","http://127.0.0.1:4567/","http://127.0.0.1:4567; script-src *","http://user:pass@127.0.0.1:4567"]{frames.ui_frame_origins=vec![origin.into()];assert_eq!(frames.validate().unwrap_err(),"ui_frame_origin_denied");}
     let mut mappings=current.clone();mappings.obs_bindings.insert("phase".into(),companion_plugin_protocol::obs::Binding{legacy_field:"phase_scene".into(),default_scene:"Package scene".into()});mappings.validate().unwrap();
     mappings.obs_bindings.get_mut("phase").unwrap().legacy_field="password".into();assert_eq!(mappings.validate().unwrap_err(),"obs_binding_denied");
     mappings.obs_bindings.get_mut("phase").unwrap().legacy_field="phase_scene".into();mappings.permissions.retain(|p|p!="obs.scene");assert_eq!(mappings.validate().unwrap_err(),"obs_binding_denied");

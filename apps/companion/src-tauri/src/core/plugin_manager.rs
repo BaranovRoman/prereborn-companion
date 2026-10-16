@@ -307,8 +307,17 @@ impl PluginManager {
         let guard = self.service.lock().map_err(|_| locked())?; let service = guard.as_ref().map_err(|e| e.clone())?;
         let installed = service.store.installed().get(id).cloned().ok_or("not_installed")?;
         if installed.active != version { return Err("inactive_plugin_ui".into()); }
+        let manifest=service.store.manifest(id,version)?;
+        let expected=manifest.files.get(&format!("ui/{asset}")).ok_or("unsigned_ui_asset")?;
         let file = service.store.ui_asset(id, version, asset)?;
-        crate::plugin_lab::asset(file.parent().ok_or("missing_parent")?, file.file_name().and_then(|s| s.to_str()).ok_or("invalid_asset")?)
+        let(bytes,mime)=super::plugin_ui::asset(file.parent().ok_or("missing_parent")?, file.file_name().and_then(|s| s.to_str()).ok_or("invalid_asset")?)?;
+        if packages::hash(&bytes)!=*expected{return Err("ui_payload_checksum_mismatch".into());}Ok((bytes,mime))
+    }
+    pub(crate) fn ui_frame_origins(&self,path:&str)->Result<Vec<String>,String>{
+        let mut parts=path.trim_start_matches('/').splitn(3,'/');let id=parts.next().ok_or("missing_id")?;let version=parts.next().ok_or("missing_version")?;
+        let guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_ref().map_err(Clone::clone)?;
+        if service.store.installed().get(id).is_none_or(|p|p.active!=version){return Err("inactive_plugin_ui".into());}
+        Ok(service.store.manifest(id,version)?.ui_frame_origins)
     }
     pub fn shutdown(&self) {
         self.shutting_down.store(true, Ordering::SeqCst);

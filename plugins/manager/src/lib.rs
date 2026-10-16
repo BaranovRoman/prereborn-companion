@@ -31,6 +31,8 @@ pub struct Manifest {
     pub backend_resources:BTreeMap<String,companion_plugin_protocol::backend::Resource>,
     #[serde(default,skip_serializing_if="BTreeMap::is_empty")]
     pub obs_bindings:BTreeMap<String,companion_plugin_protocol::obs::Binding>,
+    #[serde(default,skip_serializing_if="Vec::is_empty")]
+    pub ui_frame_origins:Vec<String>,
 }
 #[derive(Clone,Copy,Debug,Default,Serialize,Deserialize,PartialEq)]
 #[serde(rename_all="snake_case")]
@@ -112,6 +114,11 @@ impl Manifest {
         for (id,resource) in &self.backend_resources{if id.is_empty()||id.len()>64||!id.bytes().all(|b|b.is_ascii_lowercase()||b.is_ascii_digit()||b"-_".contains(&b)){return Err("backend_resource_denied".into());}resource.validate()?;}
         if self.obs_bindings.len()>16||(!self.obs_bindings.is_empty()&&(!live||!self.permissions.iter().any(|p|p=="obs.scene"))){return Err("obs_binding_denied".into());}
         for(id,binding)in &self.obs_bindings{if id.is_empty()||id.len()>64||!id.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-'){return Err("obs_binding_denied".into());}binding.validate()?;}
+        if self.ui_frame_origins.len()>2||self.ui_frame_origins.iter().collect::<BTreeSet<_>>().len()!=self.ui_frame_origins.len()||(!self.ui_frame_origins.is_empty()&&(!live||!self.permissions.iter().any(|p|p=="ui")||!self.permissions.iter().any(|p|p=="overlay.publish"))){return Err("ui_frame_origin_denied".into());}
+        for origin in &self.ui_frame_origins{
+            let port=origin.strip_prefix("http://127.0.0.1:").and_then(|s|s.parse::<u16>().ok()).filter(|n|*n>0).ok_or("ui_frame_origin_denied")?;
+            if origin!=&format!("http://127.0.0.1:{port}"){return Err("ui_frame_origin_denied".into());}
+        }
         safe_path(&self.executable)?; safe_path(&self.ui)?;
         if !self.executable.starts_with("bin/") || !self.ui.starts_with("ui/") || !self.ui.ends_with(".html") ||
             !self.files.contains_key(&self.executable) || !self.files.contains_key(&self.ui) || self.files.len() > 512 {

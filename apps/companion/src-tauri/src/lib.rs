@@ -127,7 +127,8 @@ pub fn run() {
             focus_existing_window(app);
         }))
         .register_uri_scheme_protocol("plugin-ui", |context, request| {
-            plugin_lab::response(context.app_handle(), request.uri().path())
+            if plugin_lab::enabled(){plugin_lab::response(context.app_handle(),request.uri().path())}
+            else{core::plugin_ui::response(context.app_handle(),request.uri().path())}
         })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

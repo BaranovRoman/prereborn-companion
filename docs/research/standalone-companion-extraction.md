@@ -597,3 +597,23 @@ still requires signalled owned handles plus stable native job accounting, never
 a PID, timeout or incomplete snapshot as proof. Persistent failure remains closed.
 The existing native retirement fixture now repeats four independently named jobs;
 the Windows result must be checked before claiming this race is resolved.
+
+## Installed overlay preview containment checkpoint (2026-10-16)
+
+The installed package UI could not embed the already relocated renderer: its
+existing CSP unconditionally used frame-src 'none'. Optional signed uiFrameOrigins
+now grants at most two canonical http://127.0.0.1:<port> origins, only to API2 live
+UI packages with overlay.publish. Remote hosts, paths, credentials, zero/noncanonical
+ports and CSP injection are denied. Missing metadata preserves old signed manifest
+serialization and the old deny-all frame policy. It does not grant connect-src,
+Tauri, inline/eval scripts, forms or arbitrary navigation.
+
+The production installed-asset handler is extracted from the replay lab into the
+existing core transport. It obtains frame policy from a freshly signature-verified
+active manifest and rechecks the SHA256 of the actual bounded bytes it serves,
+after reading them (not merely a path checked before a second read). Debug lab
+behavior remains temporary until physical core removal. Packaging retains signed
+origin metadata. Tests: manifest denial/backward signature shape, protocol CSP,
+actual asset containment, four package serialization/integrity tests and core
+cargo check passed locally. The editor/settings backend port itself remains work;
+this does not claim a native renderer preview or signed package publication.

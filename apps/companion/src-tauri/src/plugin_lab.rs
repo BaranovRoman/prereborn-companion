@@ -92,20 +92,7 @@ pub fn plugin_lab_ui_result(app: tauri::AppHandle, result: String) -> Result<(),
 }
 
 pub fn asset(root: &Path, uri_path: &str) -> Result<(Vec<u8>, &'static str), String> {
-    let relative = uri_path.trim_start_matches('/');
-    if relative.is_empty() || relative.contains('%') || relative.contains('\\') ||
-        Path::new(relative).components().any(|c| !matches!(c, std::path::Component::Normal(_))) {
-        return Err("invalid_asset_path".into());
-    }
-    let root = root.canonicalize().map_err(|e| e.to_string())?;
-    let path = root.join(relative).canonicalize().map_err(|e| e.to_string())?;
-    if !path.starts_with(&root) || !path.is_file() { return Err("asset_outside_plugin".into()); }
-    let mime = match path.extension().and_then(|e| e.to_str()) {
-        Some("html") => "text/html; charset=utf-8", Some("js") => "text/javascript; charset=utf-8",
-        Some("css") => "text/css; charset=utf-8", _ => return Err("unsupported_asset".into()),
-    };
-    if path.metadata().map_err(|e| e.to_string())?.len() > 1024 * 1024 { return Err("asset_too_large".into()); }
-    Ok((std::fs::read(path).map_err(|e| e.to_string())?, mime))
+    crate::core::plugin_ui::asset(root, uri_path)
 }
 pub fn response(app: &tauri::AppHandle, path: &str) -> tauri::http::Response<Vec<u8>> {
     let result = if enabled() {
