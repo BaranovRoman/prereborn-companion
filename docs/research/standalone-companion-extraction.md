@@ -659,3 +659,25 @@ Release remains blocked on completing package overlay/settings controls, removin
 backend/OBS IO delays from the sound poll path, validating prepared 0.5.94 data,
 and signed package install/update verification. No release, signed catalog, user
 database migration or native user-game smoke is claimed by this checkpoint.
+
+## Non-blocking worker input checkpoint (2026-10-16)
+
+The production host.poll reverse callback no longer waits for backend HTTP. Each
+existing worker has one bounded pending request. Pending replies keep the exact
+operation key/body in the worker; polling continues to process GSI and cannot
+start another HTTP request. The final response is returned on a later poll.
+Completed replies are cached for that request, conflicting in-flight requests
+are denied, and an uncertain network outcome remains Unknown. Stop must prove
+the pending host task finished before marking the scope stopped; a timeout
+leaves Draining. No new wire envelope or backend retry policy is introduced.
+
+OBS read-only probes likewise run outside the GSI/stdio path, at most one probe
+per worker. Public scene and stream observations share the same current config
+revision and original observation timestamp. Expired or changed-config results
+are omitted, never turned into a stream-stop signal. Actual scene writes still
+use the existing durable admission/reconciliation and block on Unknown.
+
+Targeted checks: one real pending-task host regression (non-blocking return,
+duplicate/conflict, completion and stop fence), seven actual worker tests,
+including identical pending request identity while polling, and core cargo check
+pass. This is not native audio/OBS acceptance; Windows CI remains required.

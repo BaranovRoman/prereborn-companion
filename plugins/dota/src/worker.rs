@@ -47,6 +47,7 @@ fn retain_context(sounds:&mut Vec<SoundIntent>,context:Option<&str>)->u64{
 struct PollContext{stream_observation:Option<companion_plugin_protocol::obs::StreamObservation>,scene_observation:Option<companion_plugin_protocol::obs::SceneObservation>,scene_receipt:Option<companion_plugin_protocol::obs::SceneReceipt>}
 
 pub struct Worker {
+ pending_backend:Option<companion_plugin_protocol::backend::Request>,
  launch:Launch, history:Option<History>, listener:Option<Listener>, pipeline:Pipeline,
  overlay:Option<crate::overlay::server::Server>,last_overlay_at:Option<std::time::Instant>,scene:companion_dota_domain::broadcast_state::BroadcastState,
  selected_directory:Option<PathBuf>,obs:crate::obs::Controller,reminder:companion_dota_domain::draft_reminder::Tracker,
@@ -59,7 +60,7 @@ pub struct Worker {
  last_error:Option<String>, processed:u64, last_sequence:Option<u64>, last_analysis:Option<Value>,last_gsi:Option<Value>,last_receipt:Option<companion_dota_domain::match_execution::Receipt>,
 }
 impl Worker {
- pub fn new(launch:Launch)->Self{Self{launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,obs:Default::default(),reminder:Default::default(),dropped_sound_intents:0,audio_sequence:0,speech_sequence:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,next_sync_at:None,pending_sync:None,backend_updates:0,next_corrections_at:None,pending_corrections:None,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
+ pub fn new(launch:Launch)->Self{Self{pending_backend:None,launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,obs:Default::default(),reminder:Default::default(),dropped_sound_intents:0,audio_sequence:0,speech_sequence:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,next_sync_at:None,pending_sync:None,backend_updates:0,next_corrections_at:None,pending_corrections:None,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
  pub fn status(&self)->Value{
   let history=self.history.as_ref();let active=history.is_some_and(History::active);
   json!({"prepared":history.is_some(),"active":active,"awaitingSession":active&&history.and_then(History::session).is_none(),
@@ -69,6 +70,10 @@ impl Worker {
  }
  fn effect_context(&self)->Option<String>{self.history.as_ref().and_then(History::session).map(|id|if self.stream_ended{format!("{id}:ended")}else{id.to_string()})}
  pub fn backend_request(&mut self)->Result<Option<companion_plugin_protocol::backend::Request>,String>{
+  if let Some(request)=&self.pending_backend{return Ok(Some(request.clone()));}
+  let next=self.next_backend_request()?;self.pending_backend=next.clone();Ok(next)
+ }
+ fn next_backend_request(&mut self)->Result<Option<companion_plugin_protocol::backend::Request>,String>{
   use companion_plugin_protocol::backend::Request;
   if !self.launch.capabilities.iter().any(|c|c=="backend.access")||!self.history.as_ref().is_some_and(History::active){return Ok(None);}
   if self.next_account_at.is_some_and(|at|at>std::time::Instant::now()){
@@ -94,7 +99,12 @@ impl Worker {
   Ok(Some(companion_plugin_protocol::backend::Request{resource:"account".into(),operation_key:format!("account:{}:{}",self.launch.generation,self.account_request_sequence),query:Default::default(),body:None}))
  }
  pub fn backend_response(&mut self,request:&companion_plugin_protocol::backend::Request,response:companion_plugin_protocol::backend::Response)->Result<(),String>{
+  if self.pending_backend.as_ref().and_then(|r|serde_json::to_value(r).ok())!=serde_json::to_value(request).ok(){return Err("backend_response_scope_mismatch".into());}
   if response.operation_key!=request.operation_key{return Err("backend_response_scope_mismatch".into());}
+  if response.error.as_deref()==Some("backend_request_pending"){
+   if response.status.is_some()||response.body.is_some(){return Err("invalid_backend_pending_response".into());}return Ok(());
+  }
+  self.pending_backend=None;
   if request.resource=="account"{self.account_response(request,response)?;self.backend_updates=self.backend_updates.checked_add(1).ok_or("backend_sequence_exhausted")?;return Ok(());}
   if request.resource=="corrections"{
    let since=self.pending_corrections.take().ok_or("backend_request_not_pending")?;
@@ -312,6 +322,21 @@ mod tests {
  }
  fn worker(root:&std::path::Path)->Worker {
   Worker::new(Launch{data_root:root.into(),generation:uuid::Uuid::new_v4().to_string(),package:PackageBinding{id:"dota2".into(),version:env!("CARGO_PKG_VERSION").into(),executable_hash:"a".repeat(64),manifest_hash:"b".repeat(64)},capabilities:vec!["data.legacy".into()]})
+ }
+ #[test]fn a_pending_host_request_keeps_the_same_identity_and_does_not_block_gsi_poll(){
+  use companion_plugin_protocol::backend::{Request,Response};
+  let root=tempfile::tempdir().unwrap();let mut worker=worker(root.path());
+  let request=Request{resource:"account".into(),operation_key:"account:pending:1".into(),query:Default::default(),body:None};
+  worker.pending_backend=Some(request.clone());
+  for _ in 0..3{
+   assert_eq!(worker.backend_request().unwrap().unwrap().operation_key,request.operation_key);
+   worker.backend_response(&request,Response::failed(&request,"backend_request_pending")).unwrap();
+   assert_eq!(worker.command("host.poll",Value::Null).unwrap()["soundIntents"],json!([]));
+   assert_eq!(worker.backend_updates,0);assert!(worker.pending_backend.is_some());
+  }
+  let mut wrong=request.clone();wrong.query.insert("changed".into(),"1".into());
+  assert_eq!(worker.backend_response(&wrong,Response::failed(&wrong,"backend_request_pending")).unwrap_err(),"backend_response_scope_mismatch");
+  assert!(worker.pending_backend.is_some());
  }
  #[test]
  fn opening_and_polling_do_not_prepare_or_activate_and_manual_prepare_is_idempotent(){

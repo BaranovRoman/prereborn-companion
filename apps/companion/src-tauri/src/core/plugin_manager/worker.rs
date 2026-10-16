@@ -14,7 +14,7 @@ impl ProcessGrant for Pin{
  fn permits(&self,cap:&str)->bool{self.permissions.iter().any(|p|p==cap)}
 }
 #[derive(Clone)]
-pub(super) struct WorkerProcess{pin:Pin,binding:ProcessBinding,epoch:u64,root:PathBuf,active:bool,polling:Arc<AtomicBool>,stream_observation:Arc<Mutex<Option<companion_plugin_protocol::obs::StreamObservation>>>,effect_context:Arc<Mutex<Option<Option<String>>>>,scene_receipt:Arc<Mutex<Option<companion_plugin_protocol::obs::SceneReceipt>>>,scene_observation:Arc<Mutex<Option<companion_plugin_protocol::obs::SceneObservation>>>}
+pub(super) struct WorkerProcess{obs_querying:Arc<AtomicBool>,backend_io:Arc<Mutex<super::super::backend_transport::PendingRequest>>,pin:Pin,binding:ProcessBinding,epoch:u64,root:PathBuf,active:bool,polling:Arc<AtomicBool>,effect_context:Arc<Mutex<Option<Option<String>>>>,scene_receipt:Arc<Mutex<Option<companion_plugin_protocol::obs::SceneReceipt>>>,scene_observation:Arc<Mutex<Option<companion_plugin_protocol::obs::SceneObservation>>>}
 struct Task{worker:WorkerProcess,host:PluginHost,app:tauri::AppHandle,audio:Arc<HostAudio>}
 struct PollGuard(Arc<AtomicBool>);
 impl Drop for PollGuard{fn drop(&mut self){self.0.store(false,Ordering::SeqCst);}}
@@ -87,7 +87,7 @@ impl Service{
    audio.process_after_native_exit(&process,epoch)?;return Err(error);
   }
   drop(runtime);
-  self.workers.insert(id.into(),WorkerProcess{pin,binding:process,epoch,root,active:false,polling:Default::default(),stream_observation:Default::default(),effect_context:Default::default(),scene_receipt:Default::default(),scene_observation:Default::default()});self.manifests.insert(id.into(),manifest);Ok(())
+  self.workers.insert(id.into(),WorkerProcess{obs_querying:Default::default(),backend_io:Default::default(),pin,binding:process,epoch,root,active:false,polling:Default::default(),effect_context:Default::default(),scene_receipt:Default::default(),scene_observation:Default::default()});self.manifests.insert(id.into(),manifest);Ok(())
  }
  pub(super) fn prepare_worker(&mut self,id:&str)->Result<(),String>{
   self.open_worker(id)?;
@@ -127,6 +127,7 @@ impl Service{
   let drain=runtime.command_verified(&worker.pin,&worker.binding,"host.stop".into(),serde_json::json!({}));
   let _=runtime.stop();runtime.stopped_confirmed()?;
   #[cfg(windows)] companion_plugin_protocol::windows::fence_generation(&worker.binding.generation)?;
+  worker.backend_io.lock().map_err(|_|"backend_state_poisoned")?.drain(Duration::from_secs(2))?;
   reconcile_stopped_scenes(app,audio,&worker.binding,worker.epoch)?;
   audio.fence(id,|request|app.emit_to("main","plugin-audio-fence",request).map_err(|_|"frontend_audio_unavailable".into()))?;
   audio.process_after_native_exit(&worker.binding,worker.epoch)?;drop(runtime);
@@ -176,22 +177,33 @@ fn reconcile_stopped_scenes(app:&tauri::AppHandle,audio:&HostAudio,process:&Proc
 }
 impl Task{
  fn scene_observation(&self)->Result<Option<companion_plugin_protocol::obs::SceneObservation>,String>{
-  use companion_plugin_protocol::obs::{SceneObservation,StreamObservation};use std::time::{Instant,Duration,SystemTime,UNIX_EPOCH};
+  use companion_plugin_protocol::obs::SceneObservation;use std::time::{Instant,Duration,SystemTime,UNIX_EPOCH};
   if !self.worker.pin.permits("obs.scene"){return Ok(None);}
   let config=read_obs_config(&self.app)?;
   let now=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_|"clock_unavailable")?.as_millis() as u64;
-  let mut cached=self.worker.scene_observation.lock().map_err(|_|"obs_observation_poisoned")?;
   let revision=config.plugin_revision(&self.worker.pin.package.id,&self.worker.pin.obs_bindings)?;
-  if let Some(obs)=cached.as_ref().filter(|s|s.config_revision==revision&&now>=s.observed_at_ms&&now-s.observed_at_ms<1000){return Ok(Some(obs.clone()));}
-  let connection=super::super::obs_transport::ConnectionSettings{host:&config.host,port:config.port,password:&config.password};
-  let snapshot=super::super::obs_transport::snapshot_before(&connection,Instant::now()+Duration::from_millis(500)).ok();
-  let unchanged=read_obs_config(&self.app)?.same_transport(&config);
-  let snapshot=snapshot.filter(|_|unchanged);
-  let observed_at_ms=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_|"clock_unavailable")?.as_millis() as u64;
-  let observation=SceneObservation{observed_at_ms,config_revision:revision,enabled:config.enabled,bindings:config.plugin_bindings(&self.worker.pin.package.id,&self.worker.pin.obs_bindings)?,current_scene:snapshot.as_ref().map(|s|s.current_scene.clone()),scenes:snapshot.as_ref().map(|s|s.scenes.clone()).unwrap_or_default(),streaming:snapshot.map(|s|s.streaming)};
-  observation.validate()?;
-  *self.worker.stream_observation.lock().map_err(|_|"obs_observation_poisoned")?=Some(StreamObservation{observed_at_ms,streaming:observation.streaming});
-  *cached=Some(observation.clone());Ok(Some(observation))
+  let cached=self.worker.scene_observation.lock().map_err(|_|"obs_observation_poisoned")?.clone()
+   .filter(|s|s.config_revision==revision&&s.fresh(now));
+  if cached.as_ref().is_some_and(|s|now-s.observed_at_ms<1000){return Ok(cached);}
+  if self.worker.obs_querying.compare_exchange(false,true,Ordering::SeqCst,Ordering::SeqCst).is_ok(){
+   let worker=self.worker.clone();let app=self.app.clone();let flag=worker.obs_querying.clone();
+   let spawn=std::thread::Builder::new().name("plugin-obs-observation".into()).spawn(move||{
+    struct Release(Arc<AtomicBool>);impl Drop for Release{fn drop(&mut self){self.0.store(false,Ordering::SeqCst);}}
+    let _release=Release(worker.obs_querying.clone());
+    let connection=super::super::obs_transport::ConnectionSettings{host:&config.host,port:config.port,password:&config.password};
+    let snapshot=super::super::obs_transport::snapshot_before(&connection,Instant::now()+Duration::from_millis(500)).ok();
+    // A result from an old endpoint/configuration is never fresh authority.
+    let Ok(current)=read_obs_config(&app)else{return;};
+    if !current.same_transport(&config)||current.plugin_revision(&worker.pin.package.id,&worker.pin.obs_bindings).ok().as_ref()!=Some(&revision){return;}
+    let Ok(bindings)=config.plugin_bindings(&worker.pin.package.id,&worker.pin.obs_bindings)else{return;};
+    let Ok(time)=SystemTime::now().duration_since(UNIX_EPOCH)else{return;};let observed_at_ms=time.as_millis() as u64;
+    let observation=SceneObservation{observed_at_ms,config_revision:revision,enabled:config.enabled,bindings,current_scene:snapshot.as_ref().map(|s|s.current_scene.clone()),scenes:snapshot.as_ref().map(|s|s.scenes.clone()).unwrap_or_default(),streaming:snapshot.map(|s|s.streaming)};
+    if observation.validate().is_err(){return;}
+    if let Ok(mut scene)=worker.scene_observation.lock(){*scene=Some(observation);}
+   });
+   if spawn.is_err(){flag.store(false,Ordering::SeqCst);return Err("obs_observer_unavailable".into());}
+  }
+  Ok(cached)
  }
  fn scene_intent(&self,intent:&companion_plugin_protocol::obs::SceneIntent,context:Option<&str>)->Result<companion_plugin_protocol::obs::SceneReceipt,String>{
   use std::time::{Instant,Duration};use companion_plugin_protocol::{obs::SceneReceipt,audio::Status};
@@ -213,26 +225,13 @@ impl Task{
   if !matches!(receipt.status,Status::Completed|Status::Unknown|Status::Cancelled){return Err("obs_receipt_invalid".into());}
   Ok(SceneReceipt{operation_key:intent.operation_key.clone(),status:receipt.status})
  }
- fn stream_observation(&self)->Result<companion_plugin_protocol::obs::StreamObservation,String>{
+ fn stream_observation(&self,scene:Option<&companion_plugin_protocol::obs::SceneObservation>)->Result<companion_plugin_protocol::obs::StreamObservation,String>{
   use companion_plugin_protocol::obs::StreamObservation;
-  use std::time::{Instant,Duration,SystemTime,UNIX_EPOCH};
-  let now=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_|"clock_unavailable")?.as_millis() as u64;
-  let mut cached=self.worker.stream_observation.lock().map_err(|_|"obs_observation_poisoned")?;
-  if let Some(value)=cached.as_ref().filter(|v|now>=v.observed_at_ms&&now-v.observed_at_ms<1000){return Ok(value.clone());}
-  let streaming=if self.worker.pin.permits("obs.scene"){
-   // Reuse the current credential owner during extraction. The public worker
-   // input contains only fresh OBS truth, never config/password or cached GSI.
-   use tauri::Manager;
-   let config=read_obs_config(&self.app)?;
-   // Automatic scene switching is independent of observing a real stream.
-   // Preserve the existing watcher rule even when config.enabled is false.
-   let connection=super::super::obs_transport::ConnectionSettings{host:&config.host,port:config.port,password:&config.password};
-   let result=super::super::obs_transport::stream_status_before(&connection,Instant::now()+Duration::from_millis(500));
-   let state=self.app.state::<crate::state::AppState>();let inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;
-   if inner.obs_config.host==config.host&&inner.obs_config.port==config.port&&inner.obs_config.password==config.password{result.ok()}else{None}
-  }else{None};
-  let observation=StreamObservation{observed_at_ms:SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_|"clock_unavailable")?.as_millis() as u64,streaming};
-  *cached=Some(observation.clone());Ok(observation)
+  let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|_|"clock_unavailable")?.as_millis() as u64;
+  // The same bounded read-only probe supplies both observations. Never wait on
+  // an OBS socket here, or reinterpret an expired/missing observation as stop.
+  Ok(scene.filter(|s|s.fresh(now)).map(|s|StreamObservation{observed_at_ms:s.observed_at_ms,streaming:s.streaming})
+   .unwrap_or(StreamObservation{observed_at_ms:now,streaming:None}))
  }
  fn poll(&self,stopping:&AtomicBool)->Result<(),String>{
   if stopping.load(Ordering::SeqCst){return Err("core_shutdown".into());}
@@ -240,7 +239,7 @@ impl Task{
   // OBS IO is outside both process command and history locks. An unavailable
   // transport supplies None; it can never fabricate an authoritative stop.
   let scene_observation=self.scene_observation()?;
-  let observation=self.stream_observation()?;
+  let observation=self.stream_observation(scene_observation.as_ref())?;
   let mut runtime=self.host.0.lock().map_err(|_|locked())?;
   let scene_receipt=worker.scene_receipt.lock().map_err(|_|"obs_receipt_poisoned")?.take();
   let args=serde_json::json!({"streamObservation":observation,"sceneObservation":scene_observation,"sceneReceipt":scene_receipt});
@@ -249,7 +248,11 @@ impl Task{
     use companion_plugin_protocol::backend::{Request,Response};
     let request:Request=serde_json::from_value(value).map_err(|_|"invalid_backend_request")?;
     self.audio.locked_authorize(&worker.binding,worker.epoch)?;
-    let response=match worker.pin.backend_resources.get(&request.resource){Some(resource)=>crate::backend::plugin_request(&self.app,resource,&request),None=>Response::failed(&request,"backend_resource_denied")};
+    let response=if let Some(resource)=worker.pin.backend_resources.get(&request.resource){
+     resource.authorize(&request)?;
+     let resource=resource.clone();let call=request.clone();let app=self.app.clone();
+     worker.backend_io.lock().map_err(|_|"backend_state_poisoned")?.poll(&request,move||crate::backend::plugin_request(&app,&resource,&call))?
+    }else{Response::failed(&request,"backend_resource_denied")};
     serde_json::to_value(response).map_err(|_|"backend_response_invalid".into())
    })?
   }else{runtime.command_verified(&worker.pin,&worker.binding,"host.poll".into(),args)?};
