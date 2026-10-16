@@ -758,3 +758,42 @@ the existing Python payload verifier, keeping every-byte SDK-patch comparison
 and game marker rejection. Four targeted verifier regressions pass locally.
 Packaged native WebView smoke and the mandatory eight-hour transport step were
 not reached in that Windows run and must pass on the next candidate.
+
+## Package editor, managed media and admission visibility (2026-10-16)
+
+The real overlay layout/queue editor and its original form tests now ship in the
+Dota UI bundle. The backend remains layout v5 and queue v2 (legacy v1 accepted),
+whole documents preserve unedited fields, and only a confirmed native receipt
+shows Saved. Unknown remains visible for explicit read-only reconciliation.
+The preview waits for the existing renderer's source-bound ready message;
+absence produces an error, never a fabricated ready state. Managed PNG/JPEG/
+WebP imports use the existing native picker and only two existing overlay image
+roles, with size, signature, canonical directory and generation checks. No
+iframe source paths or Tauri access are introduced. Reference-preview opacity
+currently defaults per window; migration of that old editor-only preference is
+still outstanding. Native WebView image/preview checks remain unperformed.
+
+Manual backend IO is bounded separately from the runtime command mutex, so a
+settings HTTP wait cannot hold up GSI polling. Stop releases the process lock
+before waiting for admitted UI IO; timeout keeps Draining. An already admitted
+request may persist its actual result during Draining, without admitting another
+operation. The targeted transactional regression passes.
+
+Windows run 38913021153 stopped at a GSI status publication race: a rejected
+counter could become visible before its static reason. Error publication now
+precedes Release counter increments and status uses Acquire. Admission is
+captured before HTTP ACK, preventing activation after ACK from admitting that
+pre-activation request. Both actual loopback listener tests pass locally with
+network permission; no raw snapshot logging was added.
+
+Audio payload serialization already omits absent speech, so a hypothesized
+null-speech defect was not confirmed. The actual shared playback queue could
+let pending reminder synthesis delay a media clip. Existing generic transport
+now has bounded media (2 pending) and speech (1 pending) lanes with one shared
+native fence. A regression proves media starts while synthesis waits, both
+lanes cancel under the same fence, late synthesis cannot construct a player,
+and unrelated Twitch playback is not paused. Selected managed audio + actual
+Twitch hook tests: 31 passed; core TypeScript passed. Package editor/preview
+checks: 26 passed; package TypeScript passed. Local generic audio/ledger checks:
+28 passed, one long workload deferred to the mandatory dedicated Windows step.
+These do not assert real Windows GSI, Techies audio or OBS smoke success.

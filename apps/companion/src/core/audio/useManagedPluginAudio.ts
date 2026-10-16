@@ -16,28 +16,29 @@ interface Transport {
   voiceNotificationsEnabled?:boolean;
 }
 export function useManagedPluginAudio({ enabled, eventName, fenceEvent, fenceAckCommand, onTiming,synthesize,voiceNotificationsEnabled=true }: Transport, overallVolume: number) {
-  const queue = useRef(new BoundedPluginAudioQueue());
-  const playing = useRef(false);
+  // Speech synthesis may wait behind the core TTS engine. It must not hold
+  // up media clips; both bounded lanes still share the same native fence.
+  const lanes = useRef([createLane(2), createLane(1)]);
   const mounted = useRef(true);
-  const currentAudio = useRef<HTMLAudioElement | null>(null);
-  const currentToken = useRef<string | undefined>(undefined);
-  const cancelCurrent = useRef<(() => boolean) | null>(null);
   const enabledRef = useRef(enabled); enabledRef.current = enabled;
   const overallRef = useRef(overallVolume); overallRef.current = overallVolume;
   const timingRef = useRef(onTiming); timingRef.current = onTiming;
   const synthesisRef=useRef(synthesize);synthesisRef.current=synthesize;
   const notificationsRef=useRef(voiceNotificationsEnabled);notificationsRef.current=voiceNotificationsEnabled;
-  const playNext = useCallback(() => {
-    if (!mounted.current || playing.current) return;
-    const next = queue.current.takeNext();
+  const playNext = useCallback((lane: PlaybackLane) => {
+    if (!mounted.current || lane.playing) return;
+    let next: PluginAudioPlayback | null;
+    do { next = lane.queue.takeNext(); }
+    while (next && !pluginAudioFence.accepts(next.playback));
     if (!next) return;
-    if (!pluginAudioFence.accepts(next.playback)) { playNext(); return; }
-    playing.current = true;
-    currentToken.current = next.playback?.id;
+    lane.playing = true;
+    lane.token = next.playback?.id;
     playPayload(next, () => {
-      playing.current = false;
-      playNext();
-    }, currentAudio, overallRef.current, cancelCurrent, (item,stage)=>timingRef.current?.(item,stage),notificationsRef.current?synthesisRef.current:undefined);
+      lane.playing = false;
+      lane.token = undefined;
+      playNext(lane);
+    }, lane.audio, overallRef.current, lane.cancel,
+    (item,stage)=>timingRef.current?.(item,stage),notificationsRef.current?synthesisRef.current:undefined);
   }, []);
 
   useEffect(() => {
@@ -47,24 +48,17 @@ export function useManagedPluginAudio({ enabled, eventName, fenceEvent, fenceAck
       if (!mounted.current || !enabledRef.current || !pluginAudioFence.accepts(item.playback)) {
         pluginAudioFence.report(item.playback, "cancelled"); return;
       }
+      const lane = lanes.current[item.speech !== undefined ? 1 : 0];
       if (!pluginAudioFence.track(item.playback, () => {
-        if (currentToken.current === item.playback?.id) return cancelCurrent.current?.() ?? false;
+        if (lane.token === item.playback?.id) return lane.cancel.current?.() ?? false;
         return true; // queued command has been revoked before it can construct Audio
       })) { pluginAudioFence.report(item.playback, "unknown"); return; }
       timingRef.current?.(item, "frontend-received");
-      if (playing.current) {
-        // Bounded burst policy - a drop here is silent by design (задача:
-        // "новое событие либо игнорируется, либо встаёт в bounded
-        // очередь"), not surfaced as an error.
-        if (!queue.current.enqueue(item)) pluginAudioFence.report(item.playback, "cancelled");
+      if (!lane.queue.enqueue(item)) {
+        pluginAudioFence.report(item.playback, "cancelled");
         return;
       }
-      playing.current = true;
-      currentToken.current = item.playback?.id;
-      playPayload(item, () => {
-        playing.current = false;
-        playNext();
-      }, currentAudio, overallRef.current, cancelCurrent, (item,stage)=>timingRef.current?.(item,stage),notificationsRef.current?synthesisRef.current:undefined);
+      playNext(lane);
     });
     const fenceListener = listen<PluginAudioFence>(fenceEvent, ({ payload }) => {
       const stopped = pluginAudioFence.fence(payload);
@@ -73,14 +67,28 @@ export function useManagedPluginAudio({ enabled, eventName, fenceEvent, fenceAck
     });
     return () => {
       mounted.current = false;
-      let queued: PluginAudioPlayback | null;
-      while ((queued = queue.current.takeNext())) pluginAudioFence.report(queued.playback, "cancelled");
+      for (const lane of lanes.current) {
+        let queued: PluginAudioPlayback | null;
+        while ((queued = lane.queue.takeNext())) pluginAudioFence.report(queued.playback, "cancelled");
+        lane.cancel.current?.();
+      }
       void unlistenPromise.then((unlisten) => unlisten());
       void fenceListener.then((unlisten) => unlisten());
-      cancelCurrent.current?.();
     };
   }, [playNext,eventName,fenceEvent,fenceAckCommand]);
 
+}
+
+interface PlaybackLane {
+  queue: BoundedPluginAudioQueue;
+  playing: boolean;
+  token?: string;
+  audio: MutableRefObject<HTMLAudioElement | null>;
+  cancel: MutableRefObject<(() => boolean) | null>;
+}
+function createLane(limit: number): PlaybackLane {
+  return { queue: new BoundedPluginAudioQueue(limit), playing: false,
+    audio: { current: null }, cancel: { current: null } };
 }
 
 function playPayload(

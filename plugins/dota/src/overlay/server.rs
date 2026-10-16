@@ -88,7 +88,7 @@ fn serve(request:tiny_http::Request,root:&Path,renderer:&[u8],cache:&Mutex<Cache
   "/overlay/renderer-ready"=>Some(br#"{"ok":true}"#.to_vec()),
   "/overlay/assets/webcam-fallback"|"/overlay/assets/gameplay-reference"=>{
    let name=if path.ends_with("webcam-fallback"){"queue-webcam-fallback.image"}else{"gameplay-reference.image"};
-   if let Ok(bytes)=read(root,name,8*1024*1024){let mime=if bytes.starts_with(b"\x89PNG\r\n\x1a\n"){"image/png"}else if bytes.starts_with(&[0xff,0xd8,0xff]){"image/jpeg"}else if bytes.starts_with(b"RIFF")&&bytes.get(8..12)==Some(b"WEBP"){"image/webp"}else{reply(request,415,"application/json",vec![]);return;};reply(request,200,mime,bytes);return;}None
+   if let Ok(bytes)=read(root,name,10*1024*1024){let Some(mime)=companion_plugin_protocol::media::image_mime(&bytes)else{reply(request,415,"application/json",vec![]);return;};reply(request,200,mime,bytes);return;}None
   },
   _=>{reply(request,404,"application/json",vec![]);return;},
  };

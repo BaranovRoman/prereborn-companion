@@ -36,16 +36,19 @@ impl Listener {
   });Ok(listener)
  }
  fn error(c:&Counters,code:&'static str){if let Ok(mut e)=c.error.lock(){*e=Some(code);}}
- fn reject(c:&Counters,code:&'static str){c.rejected.fetch_add(1,Ordering::Relaxed);Self::error(c,code);}
+ fn reject(c:&Counters,code:&'static str){Self::error(c,code);c.rejected.fetch_add(1,Ordering::Release);}
  fn request(mut request:tiny_http::Request,tx:&SyncSender<Frame>,c:&Counters,stop:&AtomicBool,admission:&AtomicBool,last_time:&mut u64){
   c.received.fetch_add(1,Ordering::Relaxed);
+  // Capture admission before ACK. An HTTP caller can receive the ACK and
+  // activate before projection runs; that must not admit a pre-activation frame.
+  let admitted=admission.load(Ordering::Acquire);
   if request.method()!=&tiny_http::Method::Post||request.url()!="/" {let _=request.respond(tiny_http::Response::empty(405));Self::reject(c,"gsi_method_or_path");return;}
   if request.body_length().is_some_and(|n|n>MAX_BODY){let _=request.respond(tiny_http::Response::empty(413));Self::reject(c,"gsi_body_too_large");return;}
   let mut body=Vec::new();let read=request.as_reader().take((MAX_BODY+1) as u64).read_to_end(&mut body);
   if read.is_err()||body.len()>MAX_BODY{let _=request.respond(tiny_http::Response::empty(413));Self::reject(c,"gsi_body_invalid");return;}
   // Response first: processing time must not extend Valve's throttle interval.
   let _=request.respond(tiny_http::Response::from_string("{\"status\":\"ok\"}"));
-  if stop.load(Ordering::Acquire)||!admission.load(Ordering::Acquire){return;}
+  if !admitted||stop.load(Ordering::Acquire)||!admission.load(Ordering::Acquire){return;}
   let raw:serde_json::Value=match serde_json::from_slice(&body){Ok(v)=>v,Err(_)=>{Self::reject(c,"gsi_json_invalid");return;}};
   let snapshot=match project(&raw){Ok(v)=>v,Err(code)=>{Self::reject(c,code);return;}};
   let sequence=match c.sequence.fetch_update(Ordering::Relaxed,Ordering::Relaxed,|n|n.checked_add(1)){Ok(n)=>n+1,Err(_)=>{Self::reject(c,"gsi_sequence_exhausted");stop.store(true,Ordering::Release);return;}};
@@ -53,12 +56,12 @@ impl Listener {
   *last_time=now.max(*last_time);
   match tx.try_send(Frame{sequence,observed_at_ms:*last_time,snapshot}) {
    Ok(())=>{c.accepted.fetch_add(1,Ordering::Relaxed);},
-   Err(_)=>{c.dropped.fetch_add(1,Ordering::Relaxed);Self::error(c,"gsi_queue_overflow");stop.store(true,Ordering::Release);},
+   Err(_)=>{Self::error(c,"gsi_queue_overflow");stop.store(true,Ordering::Release);c.dropped.fetch_add(1,Ordering::Release);},
   }
  }
  pub fn start_admission(&self)->Result<(),String>{if self.failed(){return Err("gsi_listener_failed".into());}self.admission.store(true,Ordering::Release);Ok(())}
  pub fn next(&self)->Option<Frame>{self.frames.try_recv().ok()}
- pub fn status(&self)->Status{let c=&self.counters;Status{received:c.received.load(Ordering::Relaxed),accepted:c.accepted.load(Ordering::Relaxed),rejected:c.rejected.load(Ordering::Relaxed),dropped:c.dropped.load(Ordering::Relaxed),last_sequence:c.sequence.load(Ordering::Relaxed),last_error:c.error.lock().ok().and_then(|v|*v)}}
+ pub fn status(&self)->Status{let c=&self.counters;Status{received:c.received.load(Ordering::Relaxed),accepted:c.accepted.load(Ordering::Relaxed),rejected:c.rejected.load(Ordering::Acquire),dropped:c.dropped.load(Ordering::Acquire),last_sequence:c.sequence.load(Ordering::Relaxed),last_error:c.error.lock().ok().and_then(|v|*v)}}
  pub fn failed(&self)->bool{self.stop.load(Ordering::Acquire)}
 }
 impl Drop for Listener {fn drop(&mut self){self.stop.store(true,Ordering::Release);self.server.unblock();}}

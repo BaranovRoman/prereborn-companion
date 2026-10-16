@@ -4,12 +4,16 @@ use companion_dota_domain::broadcast_state::BroadcastState;
 use companion_dota_storage::local_runtime::summary::LocalSessionSummary;
 pub mod server;
 pub mod hotkey;
+pub mod images;
 /// A confirmed host response only; iframe commands cannot call host.resource.
 /// Preserve the complete document, including fields the local editor ignores.
 pub fn save_resource(root:&std::path::Path,resource:&str,body:&serde_json::Value)->Result<(),String>{
  use std::io::Write;
  let name=match resource{"overlay-layout"|"overlay-layout-save"=>"overlay-layout.json","queue-settings"|"queue-settings-save"=>"queue-settings.json",_=>return Err("backend_resource_unhandled".into())};
- if body.get("version").and_then(serde_json::Value::as_u64)!=Some(1)
+ let version=body.get("version").and_then(serde_json::Value::as_u64);
+ // Existing backend contracts: overlay layout v5; queue settings v1/v2,
+ // normalized to v2 by the server. Do not invent a common schema version.
+ if if name=="overlay-layout.json"{version!=Some(5)}else{!matches!(version,Some(1|2))}
   ||if name=="overlay-layout.json"{!body.get("scenes").is_some_and(serde_json::Value::is_object)}else{!body.get("visibility").is_some_and(serde_json::Value::is_object)||!body.get("widgets").is_some_and(serde_json::Value::is_object)}{return Err("overlay_settings_invalid".into());}
  let bytes=serde_json::to_vec(body).map_err(|_|"overlay_settings_invalid")?;if bytes.len()>24576{return Err("overlay_settings_limit".into());}
  let path=root.join(name);if path.symlink_metadata().is_ok_and(|m|m.file_type().is_symlink()){return Err("overlay_config_invalid".into());}

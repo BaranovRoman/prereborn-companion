@@ -37,6 +37,7 @@ export async function settings(): Promise<GameSoundSettings> {
   return {schemaVersion:summary.schemaVersion,enabled:summary.enabled,masterVolume:summary.masterVolume,bindings,assets};
 }
 export interface Status {
+  overlay?:{running:boolean;clients:number};
   overlayVisible?:boolean;showSummary?:boolean;
   prepared: boolean; active: boolean; awaitingSession: boolean; session: string|null; epoch: number|null;
   lastError: string|null; processed: number; lastSequence: number|null;

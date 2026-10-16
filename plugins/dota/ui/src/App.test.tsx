@@ -4,6 +4,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { Dota } from "./App";
 const mocks=vi.hoisted(()=>({invoke:vi.fn(),catalog:vi.fn(),settings:vi.fn()}));
 vi.mock("./api",()=>mocks);
+// The editor has its own preserved control/parity tests.
+vi.mock("./components/DesignPage",()=>({DesignPage:()=>null}));
 const asset={id:"existing",fileName:"existing.wav",originalName:"my-jump.wav",sizeBytes:4};
 const settings={schemaVersion:1,enabled:true,masterVolume:63,bindings:[{eventId:"techies_suicide",kind:"abilityCast",assetId:asset.id}],assets:[asset]};
 beforeEach(()=>{
@@ -28,7 +30,7 @@ describe("installed Dota package UI",()=>{
       return previous(name,...args);
     });
     render(<Dota/>);await screen.findByRole("button",{name:/Techies/});fireEvent.click(screen.getByRole("button",{name:"Overlay"}));
-    expect(screen.getByTitle("Локальный Dota overlay").getAttribute("src")).toContain("127.0.0.1:3666/overlay?previewScene=betweenMatches");
+    expect((screen.getByLabelText("Адрес overlay") as HTMLInputElement).value).toBe("http://127.0.0.1:3666/overlay");
     fireEvent.click(screen.getByRole("button",{name:"Скрыть overlay"}));
     await waitFor(()=>expect(mocks.invoke).toHaveBeenCalledWith("overlay.visibility",{visible:false}));
     expect(screen.queryByText("Overlay скрыт.")).toBeNull();

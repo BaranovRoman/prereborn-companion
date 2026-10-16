@@ -18,7 +18,8 @@ pub(crate) fn asset(root:&Path,uri_path:&str)->Result<(Vec<u8>,&'static str),Str
 }
 pub(crate) fn csp(origins:&[String])->String{
     let frames=if origins.is_empty(){"'none'".into()}else{origins.join(" ")};
-    format!("default-src 'none'; script-src plugin-ui: http://plugin-ui.localhost; style-src plugin-ui: http://plugin-ui.localhost; img-src plugin-ui: http://plugin-ui.localhost https://cdn.cloudflare.steamstatic.com; connect-src 'none'; frame-src {frames}; base-uri 'none'; form-action 'none'")
+    let images=origins.join(" ");
+    format!("default-src 'none'; script-src plugin-ui: http://plugin-ui.localhost; style-src plugin-ui: http://plugin-ui.localhost; img-src plugin-ui: http://plugin-ui.localhost https://cdn.cloudflare.steamstatic.com {images}; connect-src 'none'; frame-src {frames}; base-uri 'none'; form-action 'none'")
 }
 pub(crate) fn response(app:&tauri::AppHandle,path:&str)->tauri::http::Response<Vec<u8>>{
     let result=app.try_state::<super::plugin_manager::PluginManager>().ok_or_else(||"plugin_manager_unavailable".to_string())
@@ -49,6 +50,7 @@ pub(crate) fn response(app:&tauri::AppHandle,path:&str)->tauri::http::Response<V
     #[test]fn nested_frames_do_not_grant_network_or_native_script_access(){
         let empty=csp(&[]);assert!(empty.contains("frame-src 'none'"));
         let granted=csp(&["http://127.0.0.1:4567".into()]);assert!(granted.contains("frame-src http://127.0.0.1:4567;"));
+        assert!(granted.contains("https://cdn.cloudflare.steamstatic.com http://127.0.0.1:4567;"));assert!(!empty.contains("127.0.0.1"));
         for policy in [empty,granted]{assert!(policy.contains("connect-src 'none'"));assert!(policy.contains("form-action 'none'"));assert!(!policy.contains("unsafe-eval"));assert!(!policy.contains("unsafe-inline"));}
     }
 }

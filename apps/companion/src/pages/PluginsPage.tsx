@@ -87,7 +87,7 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
         {view?.installed.map((p) => <article className="plugin-card" key={p.id}>
           <span className="plugin-icon" aria-hidden="true">{(p.manifest?.name ?? p.id).slice(0, 1)}</span>
           <h4>{p.manifest?.name ?? p.id}</h4><p>{p.manifest?.description ?? "Метаданные установленного пакета недоступны."}</p>
-          <p>Версия {p.installed.active} · {p.id === "dota2" ? "Статус выполнения — на странице плагина" : p.installed.enabled ? phaseText[p.runtime?.phase ?? "stopped"] : "Отключён"}</p>
+          <p>Версия {p.installed.active} · {p.installed.enabled ? phaseText[p.runtime?.phase ?? "stopped"] : "Отключён"}</p>
           <small>{p.manifest?.author ? `Автор: ${p.manifest.author}` : "Автор не указан в манифесте."}</small>
           {(p.error || p.runtime?.lastError) && <p role="alert">{api.errorText(p.error ?? p.runtime?.lastError)}</p>}
           <Button disabled={disabled} onClick={() => setOpened(p.id)}>Открыть</Button>

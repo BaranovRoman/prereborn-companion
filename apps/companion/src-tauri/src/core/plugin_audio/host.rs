@@ -267,6 +267,15 @@ mod tests{
   audio.reconcile_setting_after_native_exit(&process,epoch,|_|Ok(setting_response(key,desired))).unwrap();
   audio.process_after_native_exit(&process,epoch).unwrap();assert_eq!(audio.receipt("example",key).unwrap().unwrap().status,Status::Completed);
  }
+ #[test]fn stop_can_close_admission_while_existing_http_settles_its_actual_result(){
+  let root=tempfile::tempdir().unwrap();let audio=Arc::new(HostAudio::open(&root.path().join("transport.sqlite3")).unwrap());let(pin,process)=pin();let epoch=audio.reserve_process(&process).unwrap().epoch;audio.process_ready(&process,epoch).unwrap();
+  let scope=process.clone();let io=audio.clone();let(entered,waiting)=std::sync::mpsc::sync_channel(1);let(release,finish)=std::sync::mpsc::sync_channel(1);
+  let task=std::thread::spawn(move||io.backend_setting(&pin,&scope,epoch,"setting:inflight",setting("setting:inflight",serde_json::json!({"visible":true})),||{entered.send(()).unwrap();finish.recv().unwrap();setting_response("setting:inflight",serde_json::json!({"visible":true}))}));
+  waiting.recv_timeout(Duration::from_secs(2)).unwrap();audio.process_draining(&process,epoch).unwrap();
+  assert!(audio.locked_authorize(&process,epoch).is_err());release.send(()).unwrap();
+  assert_eq!(task.join().unwrap().unwrap().status,Status::Completed);
+  audio.process_after_native_exit(&process,epoch).unwrap();assert_eq!(audio.process("example").unwrap().unwrap().phase,store::ProcessPhase::Stopped);
+ }
  #[test]
  fn stopped_process_scene_recovery_uses_the_persisted_target_and_never_reissues_a_command(){
   let root=tempfile::tempdir().unwrap();let audio=HostAudio::open(&root.path().join("transport.sqlite3")).unwrap();let(pin,process)=pin();let epoch=audio.reserve_process(&process).unwrap().epoch;audio.process_ready(&process,epoch).unwrap();

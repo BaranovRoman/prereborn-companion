@@ -344,7 +344,12 @@ impl Store {
  /// Manual, signed PUT settings only. The actual bounded response is durable,
  /// so a lost UI reply cannot cause another write or invent a saved result.
  pub fn backend_result(&mut self,process:&ProcessBinding,epoch:u64,key:&str,response:companion_plugin_protocol::backend::Response)->Result<Receipt>{
-  let tx=sql(self.conn.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::authorize_in(&tx,process,Some(epoch))?;
+  let tx=sql(self.conn.transaction_with_behavior(TransactionBehavior::Immediate))?;
+  // Settle only an already admitted request while stop drains host IO. This
+  // does not admit or execute another effect and does not prove process exit.
+  if Self::host_in(&tx)?.is_some_and(|h|!h.ready){return Err("host_supervision_unproven".into());}
+  let owner=Self::process_in(&tx,&process.package.id)?.ok_or("process_journal_missing")?;
+  if !matches!(owner.phase,ProcessPhase::Running|ProcessPhase::Draining)||owner.process!=process.into()||owner.epoch!=epoch{return Err("process_generation_fenced".into());}
   let (doc,checksum):(String,String)=sql(tx.query_row("SELECT CASE WHEN length(CAST(receipt AS BLOB))<=49152 THEN receipt ELSE NULL END,checksum FROM transport_effects WHERE plugin=?1 AND operation_key=?2",params![process.package.id,key],|r|Ok((r.get(0)?,r.get(1)?))))?;
   let mut receipt=Self::decode(&doc,&checksum)?;
   if receipt.process!=process.into()||receipt.operation_key!=key||!matches!(receipt.action,Action::BackendSetting{..})||receipt.playback.is_some(){return Err("backend_setting_scope_mismatch".into());}

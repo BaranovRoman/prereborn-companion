@@ -34,3 +34,25 @@ it("cancels before synthesis when voice notifications are disabled",()=>{
  const synthesize=vi.fn();render(<Harness synthesize={synthesize} enabled={false}/>);act(()=>handler("plugin-play")({payload:notification("disabled")}));expect(synthesize).not.toHaveBeenCalled();expect(Player.instances).toHaveLength(0);
  expect(invoke).toHaveBeenCalledWith("plugin_audio_ack",expect.objectContaining({status:"cancelled"}));
 });
+
+it("plays media while speech synthesis is pending and fences both lanes without touching Twitch",async()=>{
+ let resolve!:(base64:string)=>void;
+ const synthesize=vi.fn(()=>new Promise<string>(r=>{resolve=r;}));
+ render(<Harness synthesize={synthesize}/>);
+ const unrelated=new Player("twitch-independent");
+ const voice=notification("lane-voice");
+ const media={...notification("lane-media"),speech:undefined,base64:"AAAA",
+   playback:{...notification("lane-media").playback!,scope:voice.playback!.scope}};
+ act(()=>handler("plugin-play")({payload:voice}));
+ act(()=>handler("plugin-play")({payload:media}));
+ await waitFor(()=>expect(Player.instances).toHaveLength(2));
+ expect(synthesize).toHaveBeenCalledTimes(1);
+ expect(Player.instances[1].paused).toBe(false);
+ act(()=>handler("plugin-fence")({payload:{instance:voice.playback!.scope.instance,generation:1,requestId:"lane-fence",playbackIds:[voice.playback!.id,media.playback!.id]}}));
+ expect(Player.instances[1].pause).toHaveBeenCalledTimes(1);
+ expect(unrelated.pause).not.toHaveBeenCalled();
+ await act(async()=>resolve("AAAA"));
+ expect(Player.instances).toHaveLength(2);
+ for(const item of [voice,media])expect(invoke).toHaveBeenCalledWith("plugin_audio_ack",{token:item.playback,status:"cancelled"});
+ expect(invoke).toHaveBeenCalledWith("plugin_fence_ack",expect.objectContaining({stopped:true}));
+});
