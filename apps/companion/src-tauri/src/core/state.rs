@@ -4,6 +4,11 @@ use std::time::Instant;
 #[derive(Debug, Default)]
 pub struct CoreState {
     pub log_dir: Option<String>,
+    pub obs_config: crate::core::obs_transport::ObsConfig,
+    pub obs_connected: bool,
+    pub obs_last_error: Option<String>,
+    pub obs_streaming: Option<bool>,
+    pub obs_streaming_confirmed_at: Option<String>,
 
     pub companion_token: Option<String>,
     // Whether at least one send attempt has completed (success or failure)

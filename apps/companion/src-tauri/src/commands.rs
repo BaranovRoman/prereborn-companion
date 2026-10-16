@@ -1,24 +1,7 @@
-use tauri::AppHandle;
-use tauri::Manager;
-use tauri::State;
+use tauri::{AppHandle,Manager,State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
-
-use crate::backend;
-use crate::diagnostics::{self, DiagnosticsStatusSnapshot};
-use crate::game_sounds::{
-    self,
-    config::GameSoundSettings,
-    events::GameSoundEventKind,
-    GameSoundCatalog, GameSoundPreviewPayload,
-};
-use crate::gsi::{config, finder};
-use crate::hotkeys::{self, OverlayToggleHotkeyStatus, SkipHotkeyStatus};
-use crate::local_runtime::lifecycle::{self, LifecycleStatus};
-use crate::obs::{self, BroadcastScene, ObsConfig, ObsSceneMapping};
-use crate::silero::{self, SileroStatus, SileroVoice};
-use crate::state::{AppState, StatusSnapshot, DEFAULT_WEB_ORIGIN};
-use crate::storage;
+use crate::{backend,storage,obs,diagnostics::{self,DiagnosticsStatusSnapshot},hotkeys::{self,SkipHotkeyStatus},silero::{self,SileroStatus,SileroVoice},state::{AppState,StatusSnapshot,DEFAULT_WEB_ORIGIN}};
 #[cfg(windows)]
 static UPDATER_EXIT_IN_PROGRESS:std::sync::atomic::AtomicBool=std::sync::atomic::AtomicBool::new(false);
 #[cfg(windows)]
@@ -29,9 +12,6 @@ pub fn get_status(state: State<AppState>) -> StatusSnapshot {
     state.snapshot()
 }
 
-/// The stock updater object/commands still perform download, signature
-/// verification and NSIS installation. Only its supported native before-exit
-/// callback is extended, so the retired host cannot kill the installer.
 #[tauri::command]
 pub async fn check_companion_update(window:tauri::WebviewWindow)->Result<Option<serde_json::Value>,String>{
     use tauri_plugin_updater::UpdaterExt;
@@ -40,7 +20,8 @@ pub async fn check_companion_update(window:tauri::WebviewWindow)->Result<Option<
     let webview:&tauri::Webview=window.as_ref();
     let updater=webview.updater_builder().on_before_exit(move||{
         #[cfg(windows)]
-        if let Some(audio)=exit_app.try_state::<std::sync::Arc<crate::core::plugin_audio::HostAudio>>(){
+        if companion_plugin_protocol::windows::current_host_generation().is_some(){
+            let Some(audio)=exit_app.try_state::<std::sync::Arc<crate::core::plugin_audio::HostAudio>>()else{std::process::exit(1);};
             UPDATER_EXIT_IN_PROGRESS.store(true,std::sync::atomic::Ordering::SeqCst);
             let result=audio.retire_host_for_stock_updater(||{
                 if let Some(manager)=exit_app.try_state::<crate::core::plugin_manager::PluginManager>(){manager.shutdown();}
@@ -59,192 +40,6 @@ pub async fn check_companion_update(window:tauri::WebviewWindow)->Result<Option<
     metadata["rid"]=serde_json::json!(webview.resources_table().add(update));Ok(Some(metadata))
 }
 
-// WK-126 - Diagnostics v2. One canonical, read-only projection of Local
-// Runtime/Integrations/Cloud health, normalizing state every one of the
-// commands above already exposes separately - see runtime_health.rs's own
-// doc comment. Diagnostics UI (and anything else that needs "is Companion
-// healthy right now") reads this instead of re-deriving its own
-// interpretation of gsi_state/obs_state/SyncOutboxStatus/etc.
-#[tauri::command]
-pub fn get_runtime_health(app: AppHandle) -> crate::runtime_health::RuntimeHealth {
-    crate::runtime_health::compute(&app)
-}
-
-// WK-112 - OBS-driven local stream lifecycle. Read-only status plus the two
-// stale-session manual-recovery actions (see local_runtime::lifecycle) -
-// deliberately no "start"/"end" commands here: normal lifecycle is fully
-// automatic, driven by OBS Start/Stop Streaming, not by anything the UI
-// calls directly.
-#[tauri::command]
-pub fn get_local_lifecycle_status(app: AppHandle) -> LifecycleStatus {
-    lifecycle::status(&app)
-}
-
-#[tauri::command]
-pub fn local_lifecycle_stale_continue(app: AppHandle) -> Result<(), String> {
-    lifecycle::stale_recovery_continue(&app)
-}
-
-#[tauri::command]
-pub fn local_lifecycle_stale_end(app: AppHandle) -> Result<(), String> {
-    lifecycle::stale_recovery_end(&app)
-}
-
-// WK-146 - match-level watchdog manual recovery. The one escape hatch for a
-// stale match with no automatic corroborating evidence yet (session still
-// open, no new match has arrived) - see local_runtime::watchdog's own doc
-// comment for the full decision model. Refuses (returns Err) unless the
-// currently active match is already stale, so this can never be used to
-// prematurely end a real, ongoing game.
-#[tauri::command]
-pub fn local_match_watchdog_recover(app: AppHandle) -> Result<(), String> {
-    crate::local_runtime::watchdog::manual_recover(&app)
-}
-
-// WK-114 - read-only projection of the local session/match/MMR data for the
-// Home page (current session rating, W/L, current + recent matches) - see
-// local_runtime::summary's doc comment for why this is the first command to
-// expose LocalSession/LocalMatch data beyond the lifecycle state machine.
-#[tauri::command]
-pub fn get_local_session_summary(app: AppHandle) -> crate::local_runtime::summary::LocalSessionSummary {
-    crate::local_runtime::summary::get(&app)
-}
-
-// WK-140 - Hero Detail's local statistics zone (matches/wins/losses/avg
-// K-D-A/recent results for one hero, device-wide) - see
-// local_runtime::summary::hero_stats's doc comment for why this is a
-// separate query from get_local_session_summary rather than derived from it
-// on the frontend.
-#[tauri::command]
-pub fn get_hero_local_stats(app: AppHandle, hero_id: i64) -> crate::local_runtime::summary::HeroLocalStats {
-    crate::local_runtime::summary::hero_stats(&app, hero_id)
-}
-
-#[tauri::command]
-pub fn set_current_mmr(
-    app: AppHandle,
-    rating: i64,
-) -> Result<crate::local_runtime::summary::LocalSessionSummary, String> {
-    crate::local_runtime::set_current_rating(&app, rating)
-}
-
-// WK-115 - Dashboard per-match correction. `effective_delta: None` clears
-// an existing correction (reverts to the detected delta) - see
-// local_runtime::correct_match_delta.
-#[tauri::command]
-pub fn correct_local_match_delta(
-    app: AppHandle,
-    local_id: String,
-    effective_delta: Option<i64>,
-) -> Result<crate::local_runtime::summary::LocalSessionSummary, String> {
-    crate::local_runtime::correct_match_delta(&app, &local_id, effective_delta)
-}
-
-// WK-115 - Dashboard Ranked <-> Unranked correction for one finalized
-// match. `ranked: None` clears the override, restoring the match's
-// detected classification - see local_runtime::correct_match_ranked_mode.
-#[tauri::command]
-pub fn correct_local_match_ranked_mode(
-    app: AppHandle,
-    local_id: String,
-    ranked: Option<bool>,
-) -> Result<crate::local_runtime::summary::LocalSessionSummary, String> {
-    crate::local_runtime::correct_match_ranked_mode(&app, &local_id, ranked)
-}
-
-// WK-119 - sync_outbox (WK-113) had zero UI surface until now: pending/
-// dead-lettered counts for ProblemBar's pending/dead-letter states and
-// Диагностика's detail view. Read-only, same "inert if local runtime failed
-// to open" contract as the two commands above.
-#[tauri::command]
-pub fn get_sync_outbox_status(app: AppHandle) -> crate::local_runtime::sync::SyncOutboxStatus {
-    crate::local_runtime::sync::status(&app)
-}
-
-// Диагностика "Повторить сейчас" - runs the exact same drain_outbox the
-// background sync worker already runs every DRAIN_INTERVAL tick (see
-// local_runtime::sync), just on demand instead of waiting for the next tick.
-// Not a second retry path, and never resurrects dead-lettered events - see
-// drain_outbox's own doc comment. `async` + spawn_blocking per the WK-78
-// pattern below (drain_outbox makes blocking HTTP calls).
-#[tauri::command]
-pub async fn trigger_sync_drain(app: AppHandle) -> crate::local_runtime::sync::SyncOutboxStatus {
-    tauri::async_runtime::spawn_blocking(move || {
-        crate::local_runtime::sync::drain_outbox(&app);
-        crate::local_runtime::sync::status(&app)
-    })
-    .await
-    .unwrap_or_default()
-}
-
-#[tauri::command]
-pub fn find_dota(app: AppHandle, state: State<AppState>) -> StatusSnapshot {
-    if let Some(path) = finder::find_dota_auto() {
-        let mut inner = state.0.lock().unwrap();
-        inner.dota_path = Some(path.clone());
-        inner.dota_source = Some("auto".to_string());
-        drop(inner);
-        storage::append_rolling_log(&app, &format!("Dota auto-detected at {path}"));
-    } else {
-        storage::append_rolling_log(
-            &app,
-            "Dota auto-detection found nothing; manual folder pick required.",
-        );
-    }
-    state.snapshot()
-}
-
-#[tauri::command]
-pub fn pick_dota_folder(app: AppHandle, state: State<AppState>) -> Result<StatusSnapshot, String> {
-    let picked = app.dialog().file().blocking_pick_folder();
-    let Some(picked) = picked else {
-        return Ok(state.snapshot());
-    };
-    let path = picked
-        .into_path()
-        .map_err(|e| format!("Invalid folder selection: {e}"))?
-        .to_string_lossy()
-        .to_string();
-
-    if !finder::validate_dota_path(&path) {
-        storage::append_rolling_log(
-            &app,
-            &format!("Selected folder does not look like a Dota install: {path}"),
-        );
-        return Err(format!(
-            "'{path}' does not contain a game/dota folder — is this really the Dota 2 install directory?"
-        ));
-    }
-
-    {
-        let mut inner = state.0.lock().unwrap();
-        inner.dota_path = Some(path.clone());
-        inner.dota_source = Some("manual".to_string());
-    }
-    storage::append_rolling_log(&app, &format!("Dota folder set manually: {path}"));
-    Ok(state.snapshot())
-}
-
-#[tauri::command]
-pub fn install_gsi(app: AppHandle, state: State<AppState>) -> Result<StatusSnapshot, String> {
-    let dota_path = {
-        let inner = state.0.lock().unwrap();
-        inner.dota_path.clone()
-    };
-    let Some(dota_path) = dota_path else {
-        return Err("No Dota folder selected yet.".to_string());
-    };
-
-    let target = config::install_gsi(&dota_path)?;
-    {
-        let mut inner = state.0.lock().unwrap();
-        inner.gsi_installed = true;
-        inner.gsi_config_path = Some(target.to_string_lossy().to_string());
-    }
-    storage::append_rolling_log(&app, &format!("GSI config written to {}", target.display()));
-    Ok(state.snapshot())
-}
-
 #[tauri::command]
 pub fn open_logs_folder(app: AppHandle) -> Result<(), String> {
     let dir = storage::logs_root(&app);
@@ -254,37 +49,12 @@ pub fn open_logs_folder(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn open_dota_folder(app: AppHandle, state: State<AppState>) -> Result<(), String> {
-    let dota_path = {
-        let inner = state.0.lock().unwrap();
-        inner.dota_path.clone()
-    };
-    let Some(dota_path) = dota_path else {
-        return Err("No Dota folder selected yet.".to_string());
-    };
-    app.opener()
-        .open_path(dota_path, None::<String>)
-        .map_err(|e| e.to_string())
-}
-
-// WK-133 rename - was `open_twitch_settings`: this just opens the web
-// dashboard's `/stream` settings page, which is where BOTH Twitch and Steam
-// account linking already live (see steam-integration-panel.tsx /
-// integrations-card.tsx in apps/web) - not Twitch-specific in what it does,
-// only in its original call site (TwitchChatPage.tsx's "reconnect" action).
-// Settings → Интеграции's Steam "Привязать" button reuses this same command
-// rather than a second near-identical one.
-#[tauri::command]
 pub fn open_stream_settings(app: AppHandle) -> Result<(), String> {
     app.opener()
         .open_url(format!("{DEFAULT_WEB_ORIGIN}/stream"), None::<String>)
         .map_err(|e| e.to_string())
 }
 
-// WK-133 - Settings → Интеграции: Steam status/unlink + Twitch status
-// (existing web-mediated OAuth, no new auth here), and Hero Detail's
-// OpenDota per-hero panel. See backend/mod.rs's doc comment on this group of
-// functions for why they don't touch `record_connectivity`/`backend_state`.
 #[tauri::command]
 pub async fn get_steam_integration_status(app: AppHandle) -> Result<serde_json::Value, String> {
     backend::get_steam_integration_status(&app).await
@@ -305,12 +75,6 @@ pub async fn get_donation_alerts_integration_status(app: AppHandle) -> Result<se
     backend::get_donation_alerts_integration_status(&app).await
 }
 
-// WK-149 - Twitch/DonationAlerts connect+disconnect entirely from Companion,
-// same shape as get_steam_integration_status/disconnect_steam above. connect
-// fetches the provider's redirectUrl from the backend then opens it via the
-// same opener `open_stream_settings` already uses - the OAuth dance itself
-// still happens in the system browser, only the "which URL, and does the
-// user have to go find it in the web cabinet first" part changes.
 #[tauri::command]
 pub async fn connect_twitch(app: AppHandle) -> Result<(), String> {
     let url = backend::connect_twitch(&app).await?;
@@ -333,45 +97,6 @@ pub async fn disconnect_donation_alerts(app: AppHandle) -> Result<(), String> {
     backend::disconnect_donation_alerts(&app).await
 }
 
-#[tauri::command]
-pub async fn get_hero_opendota_stats(app: AppHandle, hero_id: i64) -> Result<serde_json::Value, String> {
-    backend::get_hero_opendota_stats(&app, hero_id).await
-}
-
-#[tauri::command]
-pub async fn get_hero_opendota_insights(
-    app: AppHandle,
-    hero_id: i64,
-) -> Result<serde_json::Value, String> {
-    backend::get_hero_opendota_insights(&app, hero_id).await
-}
-
-#[tauri::command]
-pub async fn get_account_opendota_radar(app: AppHandle) -> Result<serde_json::Value, String> {
-    backend::get_account_opendota_radar(&app).await
-}
-
-// `async` so this never blocks the main IPC/UI thread (see the WK-78 note
-// on get_twitch_chat/resend_current_state below for why a plain `fn` command
-// is dangerous here) - the rename step is fast regardless of how many files
-// the legacy directory holds, but a plain `fn` would still stall the UI
-// thread for however long that filesystem call takes. The actual bulk
-// deletion always happens on a separate background thread
-// (storage::cleanup_legacy_payloads), so this command returns as soon as the
-// (cheap) staging step is done - it never waits for the deletion to finish.
-#[tauri::command]
-pub async fn clear_log(app: AppHandle, state: State<'_, AppState>) -> Result<StatusSnapshot, String> {
-    storage::clear_logs(&app).map_err(|e| e.to_string())?;
-    {
-        let mut inner = state.0.lock().unwrap();
-        inner.request_count = 0;
-        inner.last_event = None;
-    }
-    Ok(state.snapshot())
-}
-
-// Never logged - not even to the rolling log - unlike every other command
-// here, which logs a one-line breadcrumb of what happened.
 #[tauri::command]
 pub fn save_companion_token(
     app: AppHandle,
@@ -399,11 +124,6 @@ pub fn save_companion_token(
     Ok(state.snapshot())
 }
 
-// WK-122 §7 - Companion account (email/password), replacing the copy/paste
-// Companion Token as the normal user-facing flow - see backend::login's doc
-// comment. `get_account_status` is intentionally the only way the frontend
-// ever learns about the credential: no command here (or anywhere else)
-// returns the raw token/refresh-token/password.
 #[tauri::command]
 pub fn get_account_status(app: AppHandle) -> backend::AccountStatus {
     backend::account_status(&app)
@@ -419,407 +139,10 @@ pub async fn account_logout(app: AppHandle) -> Result<backend::AccountStatus, St
     backend::logout(&app).await
 }
 
-// WK-122 §17-19 - Оформление editor (DesignPage.tsx). `get_overlay_layout`
-// prefers the in-memory cache (already kept fresh by backend::init's
-// periodic poll) and only reaches the network if nothing has been fetched
-// yet this run, so opening the editor is instant in the common case.
-#[tauri::command]
-pub async fn get_overlay_layout(app: AppHandle, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let cached = state.0.lock().unwrap().overlay_layout.clone();
-    match cached {
-        Some(layout) => Ok(layout),
-        None => backend::refresh_overlay_layout(&app).await,
-    }
-}
-
-#[tauri::command]
-pub async fn save_overlay_layout(app: AppHandle, layout: serde_json::Value) -> Result<serde_json::Value, String> {
-    backend::save_overlay_layout(&app, layout).await
-}
-
-#[tauri::command]
-pub async fn get_queue_settings(app: AppHandle, state: State<'_, AppState>) -> Result<serde_json::Value, String> {
-    let cached = state.0.lock().unwrap().queue_settings.clone();
-    match cached { Some(value) => Ok(value), None => backend::refresh_queue_settings(&app).await }
-}
-
-#[tauri::command]
-pub async fn save_queue_settings(app: AppHandle, settings: serde_json::Value) -> Result<serde_json::Value, String> {
-    backend::save_queue_settings(&app, settings).await
-}
-
-#[tauri::command]
-pub fn choose_queue_webcam_fallback(app: AppHandle) -> Result<String, String> {
-    let picked = app.dialog().file().add_filter("Изображение", &["png", "jpg", "jpeg", "webp"]).blocking_pick_file();
-    let Some(picked) = picked else { return Err("Выбор изображения отменён.".to_string()); };
-    let source = picked.into_path().map_err(|error| format!("Некорректный путь к изображению: {error}"))?;
-    let bytes = std::fs::read(&source).map_err(|error| format!("Не удалось прочитать изображение: {error}"))?;
-    if bytes.len() > 10 * 1024 * 1024 { return Err("Изображение должно быть меньше 10 МБ.".to_string()); }
-    let valid = bytes.starts_with(b"\x89PNG\r\n\x1a\n") || bytes.starts_with(&[0xff, 0xd8, 0xff]) || (bytes.len() > 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP");
-    if !valid { return Err("Поддерживаются только PNG, JPEG и WebP.".to_string()); }
-    let target = storage::queue_webcam_fallback_path(&app);
-    if let Some(parent) = target.parent() { std::fs::create_dir_all(parent).map_err(|error| error.to_string())?; }
-    std::fs::write(target, bytes).map_err(|error| format!("Не удалось сохранить изображение: {error}"))?;
-    let url = format!("http://127.0.0.1:3666/overlay/assets/webcam-fallback?v={}", chrono::Utc::now().timestamp_millis());
-    let local_settings = {
-        let state = app.state::<AppState>();
-        let mut inner = state.0.lock().unwrap();
-        inner.overlay_layout_version = inner.overlay_layout_version.saturating_add(1);
-        inner.queue_settings.as_mut().map(|settings| {
-            settings["webcamImageUrl"] = serde_json::Value::String(url.clone());
-            settings.clone()
-        })
-    };
-    if let Some(settings) = local_settings { storage::save_queue_settings(&app, &settings).map_err(|error| error.to_string())?; }
-    Ok(url)
-}
-
-#[tauri::command]
-pub fn remove_queue_webcam_fallback(app: AppHandle) -> Result<(), String> {
-    let path = storage::queue_webcam_fallback_path(&app);
-    if path.exists() { std::fs::remove_file(path).map_err(|error| format!("Не удалось удалить изображение: {error}"))?; }
-    let local_settings = {
-        let state = app.state::<AppState>();
-        let mut inner = state.0.lock().unwrap();
-        inner.overlay_layout_version = inner.overlay_layout_version.saturating_add(1);
-        inner.queue_settings.as_mut().map(|settings| {
-            settings["webcamImageUrl"] = serde_json::Value::Null;
-            settings.clone()
-        })
-    };
-    if let Some(settings) = local_settings { storage::save_queue_settings(&app, &settings).map_err(|error| error.to_string())?; }
-    Ok(())
-}
-
-#[tauri::command]
-pub fn get_gameplay_reference(app: AppHandle) -> Option<String> {
-    storage::gameplay_reference_path(&app).exists().then(|| "http://127.0.0.1:3666/overlay/assets/gameplay-reference".to_string())
-}
-
-#[tauri::command]
-pub fn choose_gameplay_reference(app: AppHandle) -> Result<String, String> {
-    let picked = app.dialog().file().add_filter("Изображение", &["png", "jpg", "jpeg", "webp"]).blocking_pick_file();
-    let Some(picked) = picked else { return Err("Выбор изображения отменён.".to_string()); };
-    let source = picked.into_path().map_err(|error| format!("Некорректный путь к изображению: {error}"))?;
-    let bytes = std::fs::read(source).map_err(|error| format!("Не удалось прочитать изображение: {error}"))?;
-    if bytes.len() > 10 * 1024 * 1024 { return Err("Изображение должно быть меньше 10 МБ.".to_string()); }
-    let valid = bytes.starts_with(b"\x89PNG\r\n\x1a\n") || bytes.starts_with(&[0xff, 0xd8, 0xff]) || (bytes.len() > 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP");
-    if !valid { return Err("Поддерживаются только PNG, JPEG и WebP.".to_string()); }
-    let target = storage::gameplay_reference_path(&app);
-    if let Some(parent) = target.parent() { std::fs::create_dir_all(parent).map_err(|error| error.to_string())?; }
-    std::fs::write(target, bytes).map_err(|error| format!("Не удалось сохранить изображение: {error}"))?;
-    Ok(format!("http://127.0.0.1:3666/overlay/assets/gameplay-reference?v={}", chrono::Utc::now().timestamp_millis()))
-}
-
-#[tauri::command]
-pub fn remove_gameplay_reference(app: AppHandle) -> Result<(), String> {
-    let path = storage::gameplay_reference_path(&app);
-    if path.exists() { std::fs::remove_file(path).map_err(|error| format!("Не удалось удалить изображение: {error}"))?; }
-    Ok(())
-}
-
-
-// WK-78 - both `async` so the blocking, network-bound backend call inside
-// runs via `spawn_blocking` on Tauri's blocking pool instead of the main
-// IPC/UI thread (a plain `fn` command here would freeze the whole window
-// for up to REQUEST_TIMEOUT on every call - see backend/mod.rs).
-
 #[tauri::command]
 pub async fn get_twitch_chat(app: AppHandle) -> Result<serde_json::Value, String> {
     backend::get_twitch_chat(&app).await
 }
-#[tauri::command]
-pub async fn resend_current_state(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<StatusSnapshot, String> {
-    backend::resend_now(&app).await?;
-    Ok(state.snapshot())
-}
-
-#[tauri::command]
-pub async fn get_stream_session(app: AppHandle) -> Result<serde_json::Value, String> {
-    backend::get_stream_session(&app).await
-}
-
-#[tauri::command]
-pub async fn reset_stream_session(app: AppHandle) -> Result<serde_json::Value, String> {
-    backend::reset_stream_session(&app).await
-}
-
-#[tauri::command]
-pub async fn end_stream_session(app: AppHandle) -> Result<serde_json::Value, String> {
-    backend::end_stream_session(&app).await
-}
-
-#[tauri::command]
-pub async fn get_favorite_heroes(app: AppHandle) -> Result<Vec<u32>, String> {
-    backend::get_favorite_heroes(&app).await
-}
-
-#[tauri::command]
-pub async fn save_favorite_heroes(app: AppHandle, hero_ids: Vec<u32>) -> Result<Vec<u32>, String> {
-    backend::save_favorite_heroes(&app, hero_ids).await
-}
-
-#[tauri::command]
-pub fn save_obs_config(
-    app: AppHandle,
-    state: State<AppState>,
-    mut config: ObsConfig,
-) -> Result<StatusSnapshot, String> {
-    config.host = config.host.trim().to_string();
-    config.between_matches_scene = config.between_matches_scene.trim().to_string();
-    config.draft_scene = config.draft_scene.trim().to_string();
-    config.gameplay_scene = config.gameplay_scene.trim().to_string();
-    if config.host.is_empty() {
-        return Err("Укажите адрес OBS WebSocket.".into());
-    }
-    let mapping_changed = {
-        let inner = state.0.lock().unwrap();
-        if config.password.is_empty() {
-            config.password = inner.obs_config.password.clone();
-        }
-        config.mapped_scene_names() != inner.obs_config.mapped_scene_names()
-    };
-    config.validate_mapping(None)?;
-    let verification = obs::test_connection(&config);
-    if let Ok(scenes) = &verification {
-        if config.enabled || mapping_changed {
-            config.validate_mapping(Some(scenes))?;
-        }
-    }
-    storage::save_obs_config(&app, &config).map_err(|e| e.to_string())?;
-    {
-        let mut inner = state.0.lock().unwrap();
-        let automation_was_enabled = inner.obs_config.enabled;
-        inner.obs_config = config;
-        if !automation_was_enabled && inner.obs_config.enabled {
-            inner.obs_active_scene_name = None;
-        }
-        // WK-115 audit - a settings save is the user actively fixing their
-        // OBS setup (e.g. creating/renaming the Post Stream scene); give
-        // the mapped scene a fresh attempt instead of staying downgraded to
-        // the BetweenMatches fallback from an earlier failed switch.
-        inner.obs_post_stream_unavailable = false;
-        match &verification {
-            Ok(_) => {
-                inner.obs_connected = true;
-                inner.obs_last_error = None;
-            }
-            Err(error) => {
-                inner.obs_connected = false;
-                inner.obs_last_error = Some(format!(
-                    "Настройки сохранены, но сейчас невозможно проверить сцены: {error}"
-                ));
-            }
-        }
-    }
-    storage::append_rolling_log(&app, "OBS scene switching settings saved locally.");
-    let desired = {
-        let inner = state.0.lock().unwrap();
-        if inner.obs_config.enabled {
-            inner.obs_active_scene.or_else(|| {
-                inner
-                    .last_gsi_payload
-                    .as_ref()
-                    .map(BroadcastScene::from_gsi)
-            })
-        } else {
-            None
-        }
-    };
-    if let Some(desired) = desired {
-        obs::reapply_current_mapping(&app, desired);
-    }
-    Ok(state.snapshot())
-}
-
-#[tauri::command]
-pub fn test_obs_connection(app: AppHandle, state: State<AppState>) -> Result<Vec<String>, String> {
-    let config = state.0.lock().unwrap().obs_config.clone();
-    match obs::test_connection(&config) {
-        Ok(scenes) => {
-            let mut inner = state.0.lock().unwrap();
-            inner.obs_connected = true;
-            inner.obs_last_error = None;
-            inner.obs_retry_attempt = 0;
-            inner.obs_retry_at = None;
-            drop(inner);
-            storage::append_rolling_log(
-                &app,
-                &format!("OBS WebSocket connected; {} scenes found.", scenes.len()),
-            );
-            Ok(scenes)
-        }
-        Err(error) => {
-            let mut inner = state.0.lock().unwrap();
-            inner.obs_connected = false;
-            inner.obs_last_error = Some(error.clone());
-            drop(inner);
-            storage::append_rolling_log(&app, &format!("OBS WebSocket error: {error}"));
-            Err(error)
-        }
-    }
-}
-
-// WK-121 - OBS Browser Source migration (§13). Read-only detection - never
-// mutates AppState.obs_connected/obs_last_error (those track the scene-
-// switching connection's health, a separate concern from "is there a
-// PreReborn Browser Source and where does it point").
-#[tauri::command]
-pub fn detect_obs_browser_source(state: State<AppState>) -> Result<obs::BrowserSourceDetection, String> {
-    let config = state.0.lock().unwrap().obs_config.clone();
-    obs::detect_browser_source(&config)
-}
-
-#[tauri::command]
-pub fn migrate_obs_browser_source(
-    app: AppHandle,
-    state: State<AppState>,
-    input_name: String,
-) -> Result<(), String> {
-    let config = state.0.lock().unwrap().obs_config.clone();
-    let result = obs::migrate_browser_source(&config, &input_name);
-    match &result {
-        Ok(()) => storage::append_rolling_log(
-            &app,
-            &format!("OBS Browser Source '{input_name}' migrated to the local overlay URL."),
-        ),
-        Err(error) => storage::append_rolling_log(
-            &app,
-            &format!("OBS Browser Source migration failed for '{input_name}': {error}"),
-        ),
-    }
-    result
-}
-
-#[tauri::command]
-pub fn switch_obs_scene(
-    app: AppHandle,
-    state: State<AppState>,
-    scene: BroadcastScene,
-) -> Result<StatusSnapshot, String> {
-    let gate=app.try_state::<crate::core::dota_live::LiveDota>();let _admission=gate.as_ref().map(|g|g.core_writer()).transpose()?;
-    let config = state.0.lock().unwrap().obs_config.clone();
-    match obs::switch_scene_tracked(&app, &config, scene) {
-        Ok(()) => {
-            let mut inner = state.0.lock().unwrap();
-            inner.obs_connected = true;
-            inner.obs_active_scene = Some(scene);
-            inner.obs_active_scene_name = Some(scene.obs_scene_name(&config).to_string());
-            inner.obs_last_error = None;
-            drop(inner);
-            if let Some(g)=&gate{g.request_obs_reconciliation();}
-            storage::append_rolling_log(
-                &app,
-                &format!(
-                    "OBS scene switched manually to {}.",
-                    scene.obs_scene_name(&config)
-                ),
-            );
-            Ok(state.snapshot())
-        }
-        Err(error) => {
-            let mut inner = state.0.lock().unwrap();
-            inner.obs_connected = false;
-            inner.obs_last_error = Some(error.clone());
-            drop(inner);
-            storage::append_rolling_log(&app, &format!("Manual OBS scene switch failed: {error}"));
-            Err(error)
-        }
-    }
-}
-
-// WK-114 - "Итоги стрима": a manual OBS scene action, not a lifecycle action.
-// Switches to Post Stream (via the exact same primitive `switch_obs_scene`
-// above uses) and pins it there via `obs_manual_summary_override` so
-// automation (if enabled) doesn't drag the scene back on the next GSI tick -
-// see `obs::resolve_desired_scene`. Deliberately does NOT touch
-// `session_ended`, does not call `local_runtime::lifecycle`, and enqueues no
-// sync event: the local session and the real OBS stream both keep running.
-#[tauri::command]
-pub fn show_stream_summary_scene(app: AppHandle, state: State<AppState>) -> Result<StatusSnapshot, String> {
-    let gate=app.try_state::<crate::core::dota_live::LiveDota>();let _admission=gate.as_ref().map(|g|g.core_writer()).transpose()?;
-    let config = state.0.lock().unwrap().obs_config.clone();
-    match obs::switch_scene_tracked(&app, &config, BroadcastScene::PostStream) {
-        Ok(()) => {
-            let mut inner = state.0.lock().unwrap();
-            inner.obs_manual_summary_override = true;
-            inner.obs_connected = true;
-            inner.obs_active_scene = Some(BroadcastScene::PostStream);
-            inner.obs_active_scene_name = Some(BroadcastScene::PostStream.obs_scene_name(&config).to_string());
-            inner.obs_last_error = None;
-            drop(inner);
-            if let Some(g)=&gate{g.request_obs_reconciliation();}
-            storage::append_rolling_log(&app, "Manual 'Итоги стрима' scene shown (Post Stream), session unaffected.");
-            Ok(state.snapshot())
-        }
-        Err(error) => {
-            let mut inner = state.0.lock().unwrap();
-            inner.obs_connected = false;
-            inner.obs_last_error = Some(error.clone());
-            drop(inner);
-            storage::append_rolling_log(&app, &format!("'Итоги стрима' scene switch failed: {error}"));
-            Err(error)
-        }
-    }
-}
-
-// WK-114 - reverses show_stream_summary_scene: clears the pin only. If OBS
-// automation is enabled, the very next GSI tick (~1s) naturally resolves and
-// switches to whatever scene the current match phase actually implies (see
-// obs::handle_gsi) - no scene is forced here. If automation is disabled
-// (manual mode), the user already controls scenes by hand via the existing
-// scene buttons, same as for any other manual scene change.
-#[tauri::command]
-pub fn resume_live_scene(app:AppHandle,state: State<AppState>) -> StatusSnapshot {
-    state.0.lock().unwrap().obs_manual_summary_override = false;
-    if let Some(g)=app.try_state::<crate::core::dota_live::LiveDota>(){g.request_obs_reconciliation();}
-    state.snapshot()
-}
-
-// WK-124 - global runtime visibility override for the local overlay
-// renderer, NOT a BroadcastState/lifecycle action: flips
-// InnerState::overlay_visible only. BroadcastState keeps resolving
-// normally (GSI, LocalSession, match detection/finalization, MMR, OBS
-// scene automation, sync, the local HTTP/SSE server itself) - only the
-// renderer's own final visibility gate (see overlay-renderer/OverlayApp.tsx)
-// reads this field, via the same OverlayStateSnapshot the SSE stream already
-// diffs and pushes on every change (overlay_server.rs's `current`).
-// Toggle-only (no explicit on/off argument) so a caller never needs to first
-// read current state itself.
-//
-// WK-135 - the mutation itself is extracted into `toggle_overlay_visible_now`
-// so hotkeys.rs's global-shortcut callback (which only has an `&AppHandle`,
-// not a Tauri command's `State<AppState>` context) can call the exact same
-// logic the Settings hotkey and this command both end up invoking, without
-// duplicating it.
-pub(crate) fn toggle_overlay_visible_now(app: &AppHandle) -> StatusSnapshot {
-    let state = app.state::<AppState>();
-    let mut inner = state.0.lock().unwrap();
-    inner.overlay_visible = !inner.overlay_visible;
-    let now_visible = inner.overlay_visible;
-    drop(inner);
-    storage::append_rolling_log(
-        app,
-        if now_visible {
-            "Overlay visibility: OFF -> ON."
-        } else {
-            "Overlay visibility: ON -> OFF."
-        },
-    );
-    state.snapshot()
-}
-
-#[tauri::command]
-pub fn toggle_overlay_visible(app: AppHandle) -> StatusSnapshot {
-    toggle_overlay_visible_now(&app)
-}
-
-// Diagnostic-mode GSI capture - see src-tauri/src/diagnostics/mod.rs. Off by
-// default, purely additive: none of these touch AppState, the GSI config,
-// or anything the regular (non-diagnostic) UI reads.
 
 #[tauri::command]
 pub fn diagnostics_get_status(app: AppHandle) -> DiagnosticsStatusSnapshot {
@@ -840,13 +163,6 @@ pub fn diagnostics_stop(app: AppHandle) -> Result<DiagnosticsStatusSnapshot, Str
 pub fn diagnostics_clear(app: AppHandle) -> Result<DiagnosticsStatusSnapshot, String> {
     diagnostics::clear(&app)
 }
-
-// WK-81 - local Silero TTS sidecar (see src-tauri/src/silero.rs), the
-// primary (and, since WK-80 removed Piper, only local) synthesis engine -
-// system speechSynthesis is the fallback, handled entirely on the frontend.
-// Downloading resources and running synthesis can each take real time
-// (network, subprocess startup) - both commands are `async fn` so Tauri
-// runs them off the main IPC thread instead of blocking other commands.
 
 #[tauri::command]
 pub fn get_silero_status(app: AppHandle) -> SileroStatus {
@@ -903,11 +219,6 @@ pub fn diagnostics_trace_tts_frontend(app: AppHandle, event: FrontendTtsTraceInp
     diagnostics::observe_tts_stage(&app, &full);
 }
 
-// Global "skip current TTS" hotkey (see src-tauri/src/hotkeys.rs) - the
-// hotkey itself only emits an event the frontend listens for
-// (useTwitchChatSession.ts's skipTts()); these commands just let the
-// settings UI read/change which combo is registered.
-
 #[tauri::command]
 pub fn get_skip_hotkey_status(app: AppHandle) -> SkipHotkeyStatus {
     hotkeys::status(&app)
@@ -918,26 +229,10 @@ pub fn set_skip_hotkey(app: AppHandle, enabled: bool, shortcut: String) -> Resul
     hotkeys::set_skip_hotkey(&app, enabled, shortcut)
 }
 
-// WK-135 - global "show/hide overlay" hotkey (see hotkeys.rs), the primary
-// control for WK-124's overlay visibility switch. Same shape as the
-// skip-TTS pair above, but its OS-shortcut callback calls
-// `toggle_overlay_visible_now` directly (see that fn's comment) rather than
-// emitting an event for the frontend to react to.
-
-#[tauri::command]
-pub fn get_overlay_toggle_hotkey_status(app: AppHandle) -> OverlayToggleHotkeyStatus {
-    hotkeys::overlay_status(&app)
-}
-
-#[tauri::command]
-pub fn set_overlay_toggle_hotkey(app: AppHandle, enabled: bool, shortcut: String) -> Result<OverlayToggleHotkeyStatus, String> {
-    hotkeys::set_overlay_toggle_hotkey(&app, enabled, shortcut)
-}
-
 #[tauri::command]
 pub fn diagnostics_export(app: AppHandle) -> Result<String, String> {
     let default_name = format!(
-        "gsi-diagnostics-{}.zip",
+        "companion-diagnostics-{}.zip",
         chrono::Local::now().format("%Y-%m-%dT%H-%M-%S")
     );
     let picked = app
@@ -956,226 +251,17 @@ pub fn diagnostics_export(app: AppHandle) -> Result<String, String> {
 
     diagnostics::export(&app, output_path)
 }
-
-// WK-106 - Custom Game Sounds. Detection itself runs unconditionally inside
-// server/mod.rs's process_gsi_body -> game_sounds::handle_gsi (mirrors how
-// obs::handle_gsi is wired in) - everything here is just the settings/
-// catalog/managed-file surface the "Звуки" UI reads and writes through.
-
 #[tauri::command]
-pub fn get_game_sound_catalog() -> GameSoundCatalog {
-    game_sounds::get_catalog()
-}
-
+pub async fn clear_log(app:AppHandle,state:State<'_,AppState>)->Result<StatusSnapshot,String>{storage::clear_logs(&app).map_err(|e|e.to_string())?;Ok(state.snapshot())}
 #[tauri::command]
-pub fn get_game_sound_settings(app: AppHandle) -> GameSoundSettings {
-    game_sounds::get_settings(&app)
+pub fn save_obs_config(app:AppHandle,state:State<AppState>,config:crate::core::obs_transport::ObsConfig)->Result<StatusSnapshot,String>{
+ config.validate()?;{let mut inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;let mut saved=inner.obs_config.clone();saved.enabled=config.enabled;saved.host=config.host;saved.port=config.port;if !config.password.is_empty(){saved.password=config.password;}saved.validate()?;storage::save_obs_config(&app,&saved).map_err(|_|"obs_configuration_write_failed")?;inner.obs_config=saved;inner.obs_connected=false;inner.obs_streaming=None;inner.obs_last_error=None;}
+ Ok(state.snapshot())
 }
-
 #[tauri::command]
-pub fn update_game_sound_master(app: AppHandle, enabled: bool, volume: u8) -> Result<GameSoundSettings, String> {
-    game_sounds::update_master(&app, enabled, volume)
-}
-
-#[tauri::command]
-pub fn set_game_sound_binding(
-    app: AppHandle,
-    event_id: String,
-    kind: GameSoundEventKind,
-    asset_id: String,
-) -> Result<GameSoundSettings, String> {
-    game_sounds::set_binding(&app, event_id, kind, asset_id)
-}
-
-#[tauri::command]
-pub fn remove_game_sound_binding(app: AppHandle, event_id: String) -> Result<GameSoundSettings, String> {
-    game_sounds::remove_binding(&app, event_id)
-}
-
-// WK-106 self-review - import and bind happen as one Tauri command
-// (game_sounds::import_and_bind) rather than two separate round-trips, so a
-// failure partway through can never leave an imported file with nothing
-// bound to it (see that function's doc comment).
-#[tauri::command]
-pub fn import_and_bind_game_sound(
-    app: AppHandle,
-    event_id: String,
-    kind: GameSoundEventKind,
-) -> Result<GameSoundSettings, String> {
-    let picked = app
-        .dialog()
-        .file()
-        .add_filter("Audio", &["wav", "mp3", "ogg"])
-        .blocking_pick_file();
-    let Some(picked) = picked else {
-        return Err("Выбор файла отменён.".to_string());
-    };
-    let original_name = picked
-        .as_path()
-        .and_then(|p| p.file_name())
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| "sound".to_string());
-    let path = picked.into_path().map_err(|e| format!("Некорректный путь к файлу: {e}"))?;
-    game_sounds::import_and_bind(&app, event_id, kind, path, original_name)
-}
-
-#[tauri::command]
-pub fn preview_game_sound(app: AppHandle, asset_id: String) -> Result<GameSoundPreviewPayload, String> {
-    game_sounds::preview_sound(&app, asset_id)
-}
-
-// WK-108 latency addendum - the frontend half of the Game Sounds timing
-// instrumentation (see game_sounds/mod.rs's log_frontend_timing doc
-// comment). useGameSoundEngine.ts calls this once per pipeline stage it
-// observes for an actually-played sound, never per GSI tick.
-#[tauri::command]
-pub fn log_game_sound_timing(app: AppHandle, correlation_id: String, stage: String, elapsed_ms: u64) {
-    game_sounds::log_frontend_timing(&app, &correlation_id, &stage, elapsed_ms);
-}
-
-#[cfg(test)]
-mod ipc_contract_tests {
-    use tauri::ipc::{CallbackFn, InvokeBody};
-    use tauri::test::{get_ipc_response, mock_context, noop_assets};
-    use tauri::webview::InvokeRequest;
-
-    // WK-127 - production bug report: clicking "Перевести на localhost" in
-    // Settings -> OBS failed with `invalid args \`inputName\` for command
-    // \`migrate_obs_browser_source\`: command migrate_obs_browser_source
-    // missing required key inputName`. Every prior check of this pair (Rust
-    // signature `input_name: String` + frontend `invoke(..., { inputName })`,
-    // and Tauri's own default `rename_all = "camelCase"` argument-name
-    // convention, confirmed by tauri-macros' own source) said this SHOULD
-    // work - so this test drives the REAL Tauri IPC dispatch end to end
-    // (`tauri::test::get_ipc_response`, not a hand-called Rust function) the
-    // same way `local_runtime::handle_gsi`'s WK-116 regression test drives
-    // the real GSI entry point instead of the decision layer underneath it -
-    // exactly the class of bug a call-site-skipping unit test cannot catch.
-    fn request(cmd: &str, body: serde_json::Value) -> InvokeRequest {
-        InvokeRequest {
-            cmd: cmd.into(),
-            callback: CallbackFn(0),
-            error: CallbackFn(1),
-            url: if cfg!(any(windows, target_os = "android")) {
-                "http://tauri.localhost"
-            } else {
-                "tauri://localhost"
-            }
-            .parse()
-            .unwrap(),
-            body: InvokeBody::Json(body),
-            headers: Default::default(),
-            invoke_key: tauri::test::INVOKE_KEY.to_string(),
-        }
-    }
-
-    // The real `migrate_obs_browser_source` takes `app: AppHandle` (concrete,
-    // `= AppHandle<Wry>`), which cannot run against `MockRuntime` - only
-    // commands generic over `R: Runtime` can (see local_runtime/mod.rs's
-    // `handle_gsi` for the pattern this codebase already uses when a real
-    // production entry point needs this kind of end-to-end IPC test).
-    // Rewiring the real command to be runtime-generic just for this test
-    // would be a bigger change than this investigation warrants - this local
-    // stand-in has the IDENTICAL argument shape (`input_name: String`, no
-    // injected AppHandle/State) so it exercises the exact same Tauri-macro
-    // argument-name-matching logic the bug report is about, in isolation.
-    #[tauri::command]
-    fn repro_migrate_obs_browser_source(input_name: String) -> Result<String, String> {
-        Ok(input_name)
-    }
-
-    // WK-133 - same class of bug the WK-127 test above guards against,
-    // applied to `get_hero_opendota_stats(hero_id: i64)` (frontend sends
-    // `invoke("get_hero_opendota_stats", { heroId })` - see
-    // dotaCompanionApi.ts). A local stand-in for the same reason: the real
-    // command needs a concrete `AppHandle`/`spawn_blocking` network call,
-    // which can't run against `MockRuntime`.
-    #[tauri::command]
-    fn repro_get_hero_opendota_stats(hero_id: i64) -> Result<i64, String> {
-        Ok(hero_id)
-    }
-
-    fn build_app() -> tauri::App<tauri::test::MockRuntime> {
-        tauri::test::mock_builder()
-            .invoke_handler(tauri::generate_handler![
-                repro_migrate_obs_browser_source,
-                repro_get_hero_opendota_stats
-            ])
-            .build(mock_context(noop_assets()))
-            .expect("failed to build mock app")
-    }
-
-    // Reproduces the EXACT reported failure with the EXACT payload shape the
-    // frontend sends (`invoke("migrate_obs_browser_source", { inputName })`,
-    // see dotaCompanionApi.ts) against the real Tauri IPC dispatch. If this
-    // fails with "missing required key", the bug is real and reproducible at
-    // the IPC boundary, not just a theory.
-    #[test]
-    fn accepts_the_exact_payload_shape_the_frontend_sends() {
-        let app = build_app();
-        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
-            .build()
-            .unwrap();
-
-        let response = get_ipc_response(
-            &webview,
-            request(
-                "repro_migrate_obs_browser_source",
-                serde_json::json!({ "inputName": "PreReborn Overlay" }),
-            ),
-        );
-
-        assert_eq!(
-            response.unwrap().deserialize::<String>().unwrap(),
-            "PreReborn Overlay",
-            "the frontend's inputName payload must bind to the Rust input_name parameter"
-        );
-    }
-
-    // The failure mode this test guards against: if a future refactor
-    // renames the Rust parameter (or adds `rename_all = "snake_case"`)
-    // without updating the frontend, `{ inputName }` would stop matching and
-    // MUST fail exactly this way - pinning what the real bug looks like so
-    // it's recognizable again if ever reintroduced.
-    #[test]
-    fn a_snake_case_payload_key_is_rejected_with_the_missing_key_error() {
-        let app = build_app();
-        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
-            .build()
-            .unwrap();
-
-        let response = get_ipc_response(
-            &webview,
-            request(
-                "repro_migrate_obs_browser_source",
-                serde_json::json!({ "input_name": "PreReborn Overlay" }),
-            ),
-        );
-
-        let Err(value) = response else { panic!("a snake_case key must not satisfy the camelCase-expecting command") };
-        let message = value.as_str().unwrap_or_default();
-        assert!(message.contains("missing required key"), "got: {message}");
-    }
-
-    // WK-133 - pins `invoke("get_hero_opendota_stats", { heroId })`'s
-    // payload against the real Tauri IPC dispatch, the same way the
-    // migrate_obs_browser_source pair above pins its own argument name.
-    #[test]
-    fn get_hero_opendota_stats_accepts_the_exact_payload_shape_the_frontend_sends() {
-        let app = build_app();
-        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
-            .build()
-            .unwrap();
-
-        let response = get_ipc_response(
-            &webview,
-            request("repro_get_hero_opendota_stats", serde_json::json!({ "heroId": 42 })),
-        );
-
-        assert_eq!(
-            response.unwrap().deserialize::<i64>().unwrap(),
-            42,
-            "the frontend's heroId payload must bind to the Rust hero_id parameter"
-        );
-    }
+pub async fn test_obs_connection(app:AppHandle)->Result<Vec<String>,String>{
+ let config=app.state::<AppState>().0.lock().map_err(|_|"obs_state_poisoned")?.obs_config.clone();let checking=config.clone();
+ let result=tauri::async_runtime::spawn_blocking(move||obs::test_connection(&checking)).await.map_err(|_|"obs_check_failed")?;
+ let state=app.state::<AppState>();let mut inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;
+ if inner.obs_config.host!=config.host||inner.obs_config.port!=config.port||inner.obs_config.password!=config.password{return Err("obs_configuration_changed".into());}inner.obs_connected=result.is_ok();inner.obs_last_error=result.as_ref().err().cloned();result
 }

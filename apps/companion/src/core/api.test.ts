@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 import * as core from "./api";
-import * as legacy from "../services/dotaCompanionApi";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -26,10 +25,9 @@ describe("shared IPC compatibility", () => {
     ["setSkipHotkey", () => core.setSkipHotkey(false, "Alt+F10"), "set_skip_hotkey", { enabled: false, shortcut: "Alt+F10" }],
   ];
 
-  it.each(cases)("%s preserves the existing command and result", async (name, call, command, args) => {
+  it.each(cases)("%s preserves the existing command and result", async (_name, call, command, args) => {
     const result = { sentinel: "unchanged" };
     vi.mocked(invoke).mockResolvedValueOnce(result);
-    expect(legacy[name]).toBe(core[name]);
     expect(await call()).toBe(result);
     expect(invoke).toHaveBeenCalledExactlyOnceWith(...(args === undefined ? [command] : [command, args]));
   });

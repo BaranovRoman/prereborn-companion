@@ -25,6 +25,26 @@ struct Batch{status:Value,sound_intents:Vec<SoundIntent>,#[serde(default)]scene_
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 struct SoundIntent{operation_key:String,asset_file:String,volume:u8,deadline_ms:u64,context:Option<String>,#[serde(default)]speech:Option<String>}
 
+// Called from blocking worker/command threads only. The controller is read on
+// the UI thread; its current browser PID is resolved to an owned kernel handle.
+// No Manager/history callback, cached PID or Javascript assertion is trusted.
+#[cfg(windows)]
+fn verify_frontend_in_host(app:&tauri::AppHandle)->Result<(),String>{
+ let window=app.get_webview_window("main").ok_or("frontend_audio_unavailable")?;
+ let generation=companion_plugin_protocol::windows::current_host_generation().ok_or("host_supervision_unproven")?.to_string();
+ let(tx,rx)=std::sync::mpsc::sync_channel(1);
+ window.with_webview(move|view|{
+  let result=(||unsafe{
+   let browser=view.controller().CoreWebView2().map_err(|_|"frontend_controller_unavailable")?;let mut pid=0;
+   browser.BrowserProcessId(&mut pid).map_err(|_|"frontend_controller_unavailable")?;
+   companion_plugin_protocol::windows::verify_host_descendant(&generation,pid)
+  })();let _=tx.send(result);
+ }).map_err(|_|"frontend_controller_unavailable")?;
+ rx.recv_timeout(Duration::from_secs(2)).map_err(|_|"frontend_containment_unproven")?
+}
+#[cfg(not(windows))]
+fn verify_frontend_in_host(_app:&tauri::AppHandle)->Result<(),String>{Err("native_supervision_unsupported".into())}
+
 impl Service{
  fn worker_pin(&self,id:&str)->Result<(Pin,Manifest),String>{
   let installed=self.store.installed().get(id).cloned().ok_or("not_installed")?;
@@ -81,12 +101,16 @@ impl Service{
   self.open_worker(id)?;
   let (pin,_)=self.worker_pin(id)?;
   let (app,audio)=self.native.as_ref().ok_or("plugin_transport_unavailable")?;
+  verify_frontend_in_host(app)?;
   let worker=self.workers.get_mut(id).ok_or("not_running")?;
   if worker.active{return Err("already_active".into());}
   if pin.binding()!=worker.pin.binding(){return Err("process_binding_denied".into());}
   // Fencing cannot be skipped for a replayed/unknown audio admission. Waiting
   // here holds no worker history connection; frontend ACK never takes Manager.
   audio.fence(id,|request|app.emit_to("main","plugin-audio-fence",request).map_err(|_|"frontend_audio_unavailable".into()))?;
+  let quota=audio.quota(id)?;
+  if quota.blocking_unknown>0{return Err("unknown_effects_require_explicit_reconciliation".into());}
+  if quota.remaining_operations<256||quota.remaining_bytes<1024*1024{return Err("transport_quota_headroom_required".into());}
   audio.reopen(id)?;
   let activated=self.hosts.get(id).ok_or("not_running")?.0.lock().map_err(|_|locked())?.command_verified(&pin,&worker.binding,"host.activate".into(),serde_json::json!({}))
    .and_then(|result|if result.get("active")==Some(&Value::Bool(true)){Ok(())}else{Err("worker_activation_unconfirmed".into())});
@@ -136,12 +160,12 @@ impl Service{
   }).collect()
  }
 }
-// Temporary source-shape adapter only; removed with the legacy OBS struct.
-// Private credential serialization never crosses IPC or enters logs.
+// Only the native transport sees credentials. Public worker observations omit
+// connection configuration and are bound to the current verified package.
 fn read_obs_config(app:&tauri::AppHandle)->Result<super::super::obs_transport::ObsConfig,String>{
  use tauri::Manager;
  let state=app.state::<crate::state::AppState>();let inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;
- serde_json::from_value(serde_json::to_value(&inner.obs_config).map_err(|_|"obs_configuration_invalid")?).map_err(|_|"obs_configuration_invalid".into())
+ Ok(inner.obs_config.clone())
 }
 fn reconcile_stopped_scenes(app:&tauri::AppHandle,audio:&HostAudio,process:&ProcessBinding,epoch:u64)->Result<(),String>{
  audio.reconcile_scenes_after_native_exit(process,epoch,|desired,target|{
@@ -235,6 +259,7 @@ impl Task{
   // no history mutex in this process or callback back into PluginManager.
   let batch:Batch=serde_json::from_value(value).map_err(|_|"invalid_worker_batch")?;
   if batch.sound_intents.len()>32||batch.status.get("active")!=Some(&Value::Bool(true)){return Err("worker_admission_closed".into());}
+  if !batch.sound_intents.is_empty(){verify_frontend_in_host(&self.app)?;}
   let context=match batch.status.get("context"){Some(Value::Null)=>None,Some(Value::String(s))if !s.is_empty()&&s.len()<=128=>Some(s.as_str()),_=>return Err("invalid_worker_context".into())};
   let next_context=context.map(str::to_string);
   let mut previous=worker.effect_context.lock().map_err(|_|"effect_context_poisoned")?;
@@ -269,10 +294,13 @@ impl Task{
 }
 
 impl PluginManager{
- fn asset_command(&self,id:&str,name:&str,args:Value)->Result<Value,String>{
+ fn asset_command(&self,id:&str,name:&str,args:Value,expected_version:Option<&str>)->Result<Value,String>{
   let (worker,app,audio,host)={
    let mut guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_mut().map_err(|e|e.clone())?;
+   let active=service.manifests.get(id).ok_or("not_installed")?;
+   if expected_version!=Some(active.version.as_str()){return Err("stale_ui_package".into());}
    let (_,manifest)=service.worker_pin(id)?;
+   if expected_version!=Some(manifest.version.as_str()){return Err("stale_ui_package".into());}
    let obs=matches!(name,"obs.settings"|"obs.save");
    let permitted=if obs{manifest.permissions.iter().any(|p|p=="obs.scene")}else{name=="directory.pick"||manifest.permissions.iter().any(|p|p=="audio.play")};
    if !manifest.permissions.iter().any(|p|p=="ui")||!permitted
@@ -297,10 +325,9 @@ impl PluginManager{
      let state=app.state::<crate::state::AppState>();let mut inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;
      // Compare immediately before the actual config write, never overwrite a
      // concurrent core setting change with the older network-probe snapshot.
-     config=serde_json::from_value(serde_json::to_value(&inner.obs_config).map_err(|_|"obs_configuration_invalid")?).map_err(|_|"obs_configuration_invalid")?;
+     config=inner.obs_config.clone();
      config.update_plugin_bindings(id,&worker.pin.obs_bindings,&change.expected_revision,change.bindings)?;
-     let legacy=serde_json::from_value(serde_json::to_value(&config).map_err(|_|"obs_configuration_invalid")?).map_err(|_|"obs_configuration_invalid")?;
-     audio.locked_authorize(&worker.binding,worker.epoch)?;crate::storage::save_obs_config(&app,&legacy).map_err(|_|"obs_configuration_write_failed")?;inner.obs_config=legacy;
+     audio.locked_authorize(&worker.binding,worker.epoch)?;crate::storage::save_obs_config(&app,&config).map_err(|_|"obs_configuration_write_failed")?;inner.obs_config=config.clone();
     }else{if args!=serde_json::json!({}){return Err("invalid_ui_arguments".into());}config=read_obs_config(&app)?;}
     if config.host!=probed.host||config.port!=probed.port||config.password!=probed.password{snapshot=None;}
     audio.locked_authorize(&worker.binding,worker.epoch)?;
@@ -344,6 +371,7 @@ impl PluginManager{
     })();self.finish(&result.as_ref().map(|_|()).map_err(Clone::clone));result
    },
    "asset.preview"=>{
+    verify_frontend_in_host(&app)?;
     #[derive(Deserialize)]#[serde(rename_all="camelCase",deny_unknown_fields)]struct Preview{file_name:String,volume:u8}
     let p:Preview=serde_json::from_value(args).map_err(|_|"invalid_ui_arguments")?;
     let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|_|"clock_unavailable")?.as_millis() as u64;
@@ -354,13 +382,14 @@ impl PluginManager{
    _=>Err("command_not_allowed".into()),
   }
  }
- pub(super) fn ui_command(&self,id:&str,name:String,args:Value)->Result<Value,String>{
+ pub(super) fn ui_command(&self,id:&str,name:String,args:Value,expected_version:Option<&str>)->Result<Value,String>{
   if name.starts_with("host.")||name.len()>64||serde_json::to_vec(&args).map_err(|_|"invalid_ui_request")?.len()>8192{return Err("command_not_allowed".into());}
-  if matches!(name.as_str(),"asset.import"|"asset.preview"|"directory.pick"|"audio.receipt"|"obs.settings"|"obs.save"){return self.asset_command(id,&name,args);}
+  if matches!(name.as_str(),"asset.import"|"asset.preview"|"directory.pick"|"audio.receipt"|"obs.settings"|"obs.save"){return self.asset_command(id,&name,args,expected_version);}
   let (host,process)={
    let mut guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_mut().map_err(|e|e.clone())?;
    let manifest=service.manifests.get(id).cloned().ok_or("not_installed")?;
    if !manifest.permissions.iter().any(|p|p=="ui"){return Err("capability_denied".into());}
+   if manifest.min_api>=2&&expected_version!=Some(manifest.version.as_str()){return Err("stale_ui_package".into());}
    if manifest.min_api>=2&&manifest.execution==packages::ExecutionMode::Live{
     if !manifest.ui_commands.contains(&name){return Err("command_not_allowed".into());}
     service.open_worker(id)?;let worker=service.workers.get(id).ok_or("not_running")?;
@@ -377,11 +406,11 @@ impl PluginManager{
  }
  /// Hooked up only when the remaining legacy bootstrap is removed. Startup does
  /// not migrate game history, enable a plugin, or start an installed live worker.
- pub(super) fn attach_worker_host(&self,app:tauri::AppHandle,audio:Arc<HostAudio>)->Result<(),String>{
+ pub(crate) fn attach_worker_host(&self,app:tauri::AppHandle,audio:Arc<HostAudio>)->Result<(),String>{
   let mut guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_mut().map_err(|e|e.clone())?;
   service.native=Some((app,audio));Ok(())
  }
- pub(super) fn consume_workers(&self){
+ pub(crate) fn consume_workers(&self){
   let manager=self.clone();std::thread::spawn(move||{
    while !manager.shutting_down.load(Ordering::SeqCst){
     std::thread::sleep(Duration::from_millis(50));

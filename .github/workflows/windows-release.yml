@@ -117,19 +117,19 @@ jobs:
 
       - name: Targeted plugin library, core shell and invoke tests
         if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''
-        run: pnpm --filter @prereborn/companion exec vitest run src/pages/PluginsPage.test.tsx src/plugins/api.test.ts src/plugins/bridge.test.ts src/plugins/DotaPackageUI.test.tsx src/core/interface/CoreShell.test.tsx src/core/audio/useManagedPluginAudio.test.tsx src/hooks/useUpdater.test.tsx src/core/api.updater.test.ts
+        run: pnpm --filter @prereborn/companion exec vitest run src/pages/PluginsPage.test.tsx src/plugins/api.test.ts src/plugins/bridge.test.ts src/core/interface/CoreShell.test.tsx src/core/audio/useManagedPluginAudio.test.tsx src/hooks/useUpdater.test.tsx src/core/api.updater.test.ts
 
       - name: Independent installed plugin UI
         if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''
         run: |
           pnpm --filter @prereborn/dota-ui build
-          pnpm --filter @prereborn/dota-ui exec vitest run overlay/OverlayApp.test.tsx overlay/widgets/SessionWidget.test.tsx overlay/widgets/RecentMatchesWidget.test.tsx
+          pnpm --filter @prereborn/dota-ui exec vitest run src/App.test.tsx overlay/OverlayApp.test.tsx overlay/widgets/SessionWidget.test.tsx overlay/widgets/RecentMatchesWidget.test.tsx
 
-      - name: Targeted production GSI projection regressions
+      - name: Independent package GSI projection regressions
         if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''
         shell: bash
         timeout-minutes: 15
-        run: cargo test --locked --manifest-path apps/companion/src-tauri/Cargo.toml --test dota_projection
+        run: cargo test --locked --manifest-path plugins/Cargo.toml -p companion-dota-domain projection::tests -- --test-threads=1
 
       - name: Relocated Dota SQLite and detector regression tests
         if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''
@@ -154,7 +154,7 @@ jobs:
       - name: Build Tauri app (Windows installer)
         shell: powershell
         run: |
-          # Reuse committed overlay renderer; no overlay/Silero rebuild in validation.
+          # Core contains no game renderer/worker. Silero is not rebuilt here.
           $configPath = Join-Path (Get-Location) "validation-build-config.json"
           '{"build":{"beforeBuildCommand":"pnpm.cmd exec tsc && pnpm.cmd exec vite build"}}' | Set-Content $configPath -Encoding ascii
           & pnpm.cmd --filter @prereborn/companion exec tauri build --bundles nsis --config $configPath
@@ -165,9 +165,15 @@ jobs:
         shell: powershell
         run: ./scripts/companion-verify-windows-bundle.ps1 -Version "${{ inputs.validation_version }}"
 
-      - name: Smoke test (packaged GSI + localhost OBS overlay runtime)
+      - name: Smoke test (plugin-free core and single instance)
         shell: powershell
         run: ./scripts/companion-smoke-test.ps1
+
+      - name: Durable eight-hour transport budget (actual SQLite commits)
+        if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''
+        shell: bash
+        timeout-minutes: 60
+        run: cargo test --locked --manifest-path apps/companion/src-tauri/Cargo.toml --test plugin_transport store::tests::eight_hour_transport_budget_uses_actual_admission_ack_and_sqlite_receipts -- --exact --ignored --nocapture --test-threads=1
 
       - name: Generate checksums
         shell: powershell
@@ -425,7 +431,7 @@ jobs:
         shell: powershell
         run: ./scripts/companion-verify-windows-bundle.ps1 -Version "${{ steps.version.outputs.version }}"
 
-      - name: Smoke test (packaged GSI + localhost OBS overlay runtime)
+      - name: Smoke test (plugin-free core and single instance)
         shell: powershell
         run: ./scripts/companion-smoke-test.ps1
 

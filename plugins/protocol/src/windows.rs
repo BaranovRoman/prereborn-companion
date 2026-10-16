@@ -196,6 +196,17 @@ pub fn supervise_current_host(generation:&str)->Result<(),String>{
     }
     verify_current_generation(generation)
 }
+/// The caller gets this PID from its current native WebView controller,
+/// never a journal/JS payload. Resolve it to an owned kernel handle and
+/// prove membership in this host's non-breakaway job before admitting audio.
+pub fn verify_host_descendant(generation:&str,pid:u32)->Result<(),String>{unsafe{
+    verify_current_generation(generation)?;
+    let(current,job)=HOST_JOB.get().ok_or("host_supervision_unproven")?;
+    if current!=generation||pid==0||pid==GetCurrentProcessId(){return Err("frontend_process_uncontained".into());}
+    let process=own(OpenProcess(PROCESS_SYNCHRONIZE|PROCESS_QUERY_LIMITED_INFORMATION,0,pid)).map_err(|_|"frontend_process_uncontained")?;
+    let mut member=0;
+    if GetProcessId(process.as_raw_handle())!=pid||WaitForSingleObject(process.as_raw_handle(),0)!=WAIT_TIMEOUT||IsProcessInJob(process.as_raw_handle(),job.as_raw_handle(),&mut member)==0||member==0{return Err("frontend_process_uncontained".into());}Ok(())
+}}
 /// Updating must not kill the ordinary NSIS installer with the old host job.
 /// The caller first closes admission, stops child producers and destroys its
 /// WebViews. Prove every existing descendant handle exited before permitting
@@ -331,6 +342,7 @@ mod tests {
         let generation=uuid::Uuid::new_v4().to_string();let mut c=Command::new("C:\\Windows\\System32\\cmd.exe");c.args(["/d","/c","ping -n 30 127.0.0.1 >nul"]);
         let child=spawn(&c,&generation).unwrap();
         let orphan=Command::new("C:\\Windows\\System32\\cmd.exe").args(["/d","/c","ping -n 30 127.0.0.1 >nul"]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
+        verify_host_descendant(&host_generation,child.id()).unwrap();verify_host_descendant(&host_generation,orphan.id()).unwrap();assert!(verify_host_descendant(&host_generation,unsafe{GetCurrentProcessId()}).is_err());assert!(verify_host_descendant(&host_generation,0).is_err());
         println!("WORKER {} {} {} {}",generation,child.id(),host_generation,orphan.id());std::io::stdout().flush().unwrap();
         let mut line=String::new();std::io::stdin().read_line(&mut line).unwrap();
         if line.trim()=="retire"{

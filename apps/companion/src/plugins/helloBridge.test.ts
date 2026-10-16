@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { greeting } from "./bridge";
+import { greeting } from "./helloBridge";
 describe("iframe bridge", () => {
   it("accepts only greetings from the registered frame, with a bounded payload", () => {
     const source = {} as Window;

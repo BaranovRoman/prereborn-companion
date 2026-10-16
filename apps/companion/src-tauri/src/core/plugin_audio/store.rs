@@ -238,7 +238,7 @@ impl Store {
   let count:u64=sql(tx.query_row("SELECT count(*) FROM transport_processes",[],|r|r.get(0)))?;if previous.is_none()&&count>=128{return Err("transport_process_quota_exhausted".into());}
   let compacted=previous.as_ref().map_or(0,|p|p.compacted);
   let epoch=previous.map_or(Ok(1),|p|p.epoch.checked_add(1).filter(|n|*n<=i64::MAX as u64).ok_or("transport_epoch_exhausted"))?;
-  let record=ProcessRecord{process:process.into(),epoch,phase:ProcessPhase::Starting,supervision:"windows-job-list-v1".into(),heads:Default::default(),compacted};Self::write_process(&tx,&record)?;sql(tx.commit())?;Ok(record)
+  let mut record=ProcessRecord{process:process.into(),epoch,phase:ProcessPhase::Starting,supervision:"windows-job-list-v1".into(),heads:Default::default(),compacted};Self::compact(&tx,&mut record)?;Self::write_process(&tx,&record)?;sql(tx.commit())?;Ok(record)
  }
  pub fn process_ready(&mut self,process:&ProcessBinding,epoch:u64)->Result<()>{self.process_transition(process,epoch,ProcessPhase::Running)}
  pub fn process_draining(&mut self,process:&ProcessBinding,epoch:u64)->Result<()>{self.process_transition(process,epoch,ProcessPhase::Draining)}
@@ -383,7 +383,9 @@ mod tests{
   for raw in ["audio:0","audio:01","audio:-1","audio:9223372036854775808","http:1","audio:1:2"]{assert!(ordered_key(&process.generation,epoch,raw).is_err());}
  }
  #[test]
+ #[ignore="durable eight-hour workload; run the dedicated budget check explicitly"]
  fn eight_hour_transport_budget_uses_actual_admission_ack_and_sqlite_receipts(){
+  let started=std::time::Instant::now();
   let root=tempfile::tempdir().unwrap();let path=root.path().join("transport.sqlite3");let mut store=Store::open(&path).unwrap();let process=process();let epoch=activate(&mut store,&process);
   let registry=companion_plugin_protocol::playback::PlaybackRegistry::default();let(mut audio,mut speech,mut scenes,mut peak_bytes)=(0,0,0,0u64);
   // Synthetic 8h/8-match workload: 32 configured audio cues/minute (15360),
@@ -397,6 +399,7 @@ mod tests{
    if minute%60==0{speech+=1;let key=ordered_key(&process.generation,epoch,&format!("speech:{speech}")).unwrap();let token=registry.admit(Some(epoch),None).unwrap();store.admit(&process,&key,Action::Speech{text:"Draft notification".into(),volume:100},Some(token.clone())).unwrap();store.audio_ack("example",&key,&token,Status::Completed).unwrap();registry.ack(token,Status::Completed).unwrap();}
    if minute%12==0{scenes+=1;let key=ordered_key(&process.generation,epoch,&format!("scene:{scenes}")).unwrap();store.admit(&process,&key,Action::Scene{name:"Configured scene".into(),config_revision:Some("a".repeat(64)),transport_identity:Some("b".repeat(64)),context:Some(session)},None).unwrap();store.scene_result(&process,epoch,&key,Status::Completed).unwrap();}
    let q=store.quota().unwrap();peak_bytes=peak_bytes.max(BYTE_LIMIT-q.remaining_bytes);assert_eq!(q.unknown,0);assert!(q.remaining_operations>9000);
+   if minute%60==59{eprintln!("Transport budget hour {}: admitted={}, retained={}, compacted={}, receiptBytes={}, elapsedMs={}",(minute+1)/60,audio+speech+scenes,LIMIT-q.remaining_operations,q.compacted,BYTE_LIMIT-q.remaining_bytes,started.elapsed().as_millis());}
   }
   let q=store.quota().unwrap();eprintln!("8h transport: admitted={}, retained={}, compacted={}, peakReceiptBytes={}, unknown={}, pending={}, processIdentities=1; match receipts measured by separate actual facade workload",audio+speech+scenes,LIMIT-q.remaining_operations,q.compacted,peak_bytes,q.unknown,q.pending);
   assert_eq!(q.compacted+(LIMIT-q.remaining_operations),audio+speech+scenes);assert!(q.compacted>14000);assert_eq!(q.pending,0);assert!(peak_bytes<1024*1024);
@@ -412,7 +415,7 @@ mod tests{
   let receipt=store.conn.query_row("SELECT receipt FROM transport_effects",[],|r|r.get::<_,String>(0)).unwrap();let receipt:Receipt=serde_json::from_str(&receipt).unwrap();store.conn.execute("UPDATE transport_effects SET identity=?1",[identity(&receipt).unwrap()]).unwrap();
   store.process_draining(&process,epoch).unwrap();store.process_after_native_exit(&process,epoch).unwrap();
   let mut next=process.clone();next.generation=uuid::Uuid::new_v4().to_string();let next_epoch=activate(&mut store,&next);
-  assert_eq!(store.admit(&next,&key,action.clone(),None).unwrap_err(),"idempotency_conflict");
+  assert_eq!(store.admit(&next,&key,action.clone(),None).unwrap_err(),"ordered_operation_scope_mismatch");
   let next_key=ordered_key(&next.generation,next_epoch,"scene:64").unwrap();store.admit(&next,&next_key,action.clone(),None).unwrap();assert_eq!(store.lookup("example",&key).unwrap_err(),"process_generation_fenced");
   assert_eq!(store.admit(&next,&key,action,None).unwrap_err(),"ordered_operation_scope_mismatch");assert_eq!(store.quota().unwrap().compacted,1);
  }

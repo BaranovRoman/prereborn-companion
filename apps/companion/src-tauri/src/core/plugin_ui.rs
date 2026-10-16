@@ -32,6 +32,20 @@ pub(crate) fn response(app:&tauri::AppHandle,path:&str)->tauri::http::Response<V
 }
 #[cfg(test)]mod tests{
     use super::*;
+    #[test]fn only_bounded_ui_assets_inside_the_package_are_served(){
+        let temp=tempfile::tempdir().unwrap();let root=temp.path().join("ui");std::fs::create_dir(&root).unwrap();
+        std::fs::write(root.join("index.html"),b"<main>Package UI</main>").unwrap();
+        std::fs::write(root.join("manifest.json"),b"private").unwrap();
+        std::fs::write(temp.path().join("outside.js"),b"secret").unwrap();
+        assert_eq!(asset(&root,"/index.html").unwrap().0,b"<main>Package UI</main>");
+        for path in ["../outside.js","%2e%2e/outside.js","..\\outside.js","manifest.json",""]{assert!(asset(&root,path).is_err(),"{path}");}
+        std::fs::write(root.join("large.js"),vec![b'x';1024*1024+1]).unwrap();
+        assert_eq!(asset(&root,"large.js").unwrap_err(),"asset_too_large");
+        #[cfg(unix)]{
+            std::os::unix::fs::symlink(temp.path().join("outside.js"),root.join("link.js")).unwrap();
+            assert_eq!(asset(&root,"link.js").unwrap_err(),"asset_outside_plugin");
+        }
+    }
     #[test]fn nested_frames_do_not_grant_network_or_native_script_access(){
         let empty=csp(&[]);assert!(empty.contains("frame-src 'none'"));
         let granted=csp(&["http://127.0.0.1:4567".into()]);assert!(granted.contains("frame-src http://127.0.0.1:4567;"));

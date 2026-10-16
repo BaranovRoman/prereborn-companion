@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { DEFAULT_OVERLAY_TOGGLE_SHORTCUT, DEFAULT_SKIP_SHORTCUT, shortcutFromKeyboardEvent } from "../chat/hotkey-format";
+import { DEFAULT_SKIP_SHORTCUT, shortcutFromKeyboardEvent } from "../chat/hotkey-format";
 import type { SkipHotkeyStatus } from "../core/contracts";
 import { Checkbox, SettingsGroup, SettingsRow } from "./ui";
 
-// Any hotkey status this file renders (Skip TTS, overlay toggle, ...) is the
+// A hotkey status rendered by the reusable recorder is the
 // exact same shape - a structural interface, not a union of the two
 // generated types, so HotkeyBindRow doesn't need to know which hotkey it's
 // showing.
@@ -28,7 +28,7 @@ interface RowProps {
 // recording/reset/enable behavior (see the module comment below) without
 // duplicating it. Own local recording/error state per instance - two
 // hotkeys must not share one recording session.
-function HotkeyBindRow({ enableDescription, bindLabel, status, busy, defaultShortcut, onUpdate }: RowProps) {
+export function HotkeyBindRow({ enableDescription, bindLabel, status, busy, defaultShortcut, onUpdate }: RowProps) {
   const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -100,15 +100,7 @@ interface Props {
   status: SkipHotkeyStatus | null;
   busy: boolean;
   onUpdate: (enabled: boolean, shortcut: string) => Promise<void>;
-  // WK-135 - overlay show/hide hotkey (primary control for WK-124's overlay
-  // visibility switch). Optional so existing callers/tests that only know
-  // about Skip TTS keep working unchanged - when provided, a second bind row
-  // renders using the exact same HotkeyBindRow.
-  overlay?: {
-    status: HotkeyStatusLike | null;
-    busy: boolean;
-    onUpdate: (enabled: boolean, shortcut: string) => Promise<void>;
-  };
+
 }
 
 // Companion UI 2.0 follow-up - "пропустить озвучку" hotkey, moved here
@@ -120,11 +112,11 @@ interface Props {
 // next to TTS controls only because that's where the feature originally
 // shipped (WK-93).
 //
-// Visual-quality pass (Dota Keybindings reference): the shortcut is now a
+// The shortcut is a
 // compact key-binding field (`.hotkey-keybind`) that IS the click target
 // for recording, with a separate small reset icon beside it, laid out as a
 // settings row - not a status paragraph + a text button.
-export function HotkeySettings({ status, busy, onUpdate, overlay }: Props) {
+export function HotkeySettings({ status, busy, onUpdate }: Props) {
   return (
     <section className="hotkey-settings">
       <h2>Горячие клавиши</h2>
@@ -141,23 +133,7 @@ export function HotkeySettings({ status, busy, onUpdate, overlay }: Props) {
         текущую озвучку немедленно и переходит к следующему сообщению очереди; сама очередь не очищается, TTS не
         выключается. Никаких звуков при пропуске не воспроизводится.
       </p>
-      {overlay && (
-        <>
-          <HotkeyBindRow
-            enableDescription="Показать / скрыть PreReborn Overlay (WK-124)"
-            bindLabel="Показать / скрыть оверлей"
-            status={overlay.status}
-            busy={overlay.busy}
-            defaultShortcut={DEFAULT_OVERLAY_TOGGLE_SHORTCUT}
-            onUpdate={overlay.onUpdate}
-          />
-          <p className="hotkey-settings__hint">
-            Работает даже когда Companion свёрнут в трей. Переключает то же runtime-состояние видимости оверлея,
-            что и раньше кнопка на Главной: GSI, сессия, MMR, OBS-сцены и Twitch/звуки продолжают работать как
-            обычно, Browser Source не перезагружается.
-          </p>
-        </>
-      )}
+
     </section>
   );
 }

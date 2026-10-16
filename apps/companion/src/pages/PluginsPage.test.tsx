@@ -102,7 +102,7 @@ describe("PluginsPage", () => {
     const hello=post.mock.calls.find(([data])=>data.type==="plugin-host-ready")![0];
     const request={type:"plugin-command",version:2,instance:hello.instance,requestId:1,name:"sound.settings",args:{}};
     fireEvent(window,new MessageEvent("message",{source,data:request}));
-    await waitFor(()=>expect(api.request).toHaveBeenCalledExactlyOnceWith("hello","sound.settings",{}));
+    await waitFor(()=>expect(api.request).toHaveBeenCalledExactlyOnceWith("hello","sound.settings",{},"0.1.0"));
     fireEvent(window,new MessageEvent("message",{source,data:request}));
     fireEvent(window,new MessageEvent("message",{source:window,data:{...request,requestId:2}}));
     fireEvent(window,new MessageEvent("message",{source,data:{...request,requestId:2,name:"host.activate"}}));

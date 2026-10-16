@@ -33,15 +33,13 @@ describe("core boundary", () => {
     },
   );
 
-  it("keeps game bootstrap exclusively behind the built-in adapter", () => {
-    const rustRoot = resolve(sourceRoot, "../src-tauri/src");
-    const host = readFileSync(resolve(rustRoot, "lib.rs"), "utf8");
-    expect(host).toContain(".manage(dota::BuiltInDotaRuntime::default())");
-    for (const call of ["dota::initialize(&handle)", "dota::start_ingest(&handle)", "dota::start_workers(&handle)"]) {
-      expect(host.split(call)).toHaveLength(2);
-    }
-    expect(host).not.toMatch(/(?:game_sounds|local_runtime|overlay_server|opendota_overlay_cache|quiz_overlay)::(?:init|start_sweep|start_sync_worker)\(/);
-    const transport = readFileSync(resolve(rustRoot, "core/obs_transport.rs"), "utf8");
-    expect(transport).not.toMatch(/use crate::|AppState|ObsConfig|BroadcastState|GsiSnapshot/);
+  it("ships core without a built-in game bootstrap or game Cargo dependencies", () => {
+    const nativeRoot=resolve(sourceRoot,"../src-tauri");
+    const host=readFileSync(resolve(nativeRoot,"src/lib.rs"),"utf8");
+    expect(host).not.toMatch(/BuiltInDotaRuntime|(?:dota|game_sounds|local_runtime|overlay_server|server)::(?:initialize|start|init)/);
+    expect(readFileSync(resolve(nativeRoot,"Cargo.toml"),"utf8")).not.toMatch(/^companion-dota-/m);
+    for(const removed of ["src/dota/mod.rs","src/server/mod.rs","src/game_sounds/mod.rs","src/overlay_server.rs","src/local_runtime/mod.rs"]){expect(existsSync(resolve(nativeRoot,removed))).toBe(false);}
+    const transport=readFileSync(resolve(nativeRoot,"src/core/obs_transport.rs"),"utf8");
+    expect(transport).not.toMatch(/companion_dota|BroadcastState|GsiSnapshot/);
   });
 });

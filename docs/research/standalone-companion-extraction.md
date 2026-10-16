@@ -617,3 +617,45 @@ origin metadata. Tests: manifest denial/backward signature shape, protocol CSP,
 actual asset containment, four package serialization/integrity tests and core
 cargo check passed locally. The editor/settings backend port itself remains work;
 this does not claim a native renderer preview or signed package publication.
+
+## Physical core removal checkpoint (2026-10-16)
+
+The feature working tree now compiles without the BuiltIn Dota bootstrap or
+dependencies on dota-domain, dota-plugin and dota-storage. Game listeners,
+match/history operations, game sound pipeline, overlay renderer, game pages,
+lab entry points and game images are removed from the core source/bundle. The
+installed package owns the relocated implementations. This checkpoint replaces
+the earlier temporary reexports; it is not yet a finished replacement release.
+
+Startup initializes only generic account/chat/TTS/OBS/plugin transports. Windows
+root supervision is installed before creating the first WebView. Managed plugin
+audio requires native verification that the actual current WebView browser is
+inside that exact host generation's job. No game database is opened, no GSI or
+overlay port is bound, and installed live plugins do not auto-start. Identifier,
+data paths, updater endpoint/key and old user files are preserved. The old icon
+is replaced by a neutral vector-derived Companion monogram.
+
+Core OBS retains its real connection watcher/heartbeat/reconnect behavior and
+redacts passwords and opaque game mappings from public state. Game mappings
+remain opaque persisted extensions for the installed package. The existing Skip
+TTS hotkey/queue and settings retain their implementation; overlay hotkey behavior
+must still be delivered by the plugin, not left behind in core. Diagnostics now
+capture bounded opt-in TTS and public core status only, never GSI/history.
+
+Selected local checks passed: Rust core check; 22 storage, 18 hotkey, six backend,
+two real loopback OBS watcher, two installed asset/CSP tests and stale iframe
+version denial; core TypeScript and package TypeScript/UI tests. The TTS test
+helper was corrected to inspect the latest React render rather than a stale
+session object; selected hotkey and isolation regressions pass. These do not
+prove native WebView/audio/game acceptance.
+
+Windows run 38872561156 passed native supervision, including repeated actual host
+retirement/crash fixtures, but hit the 15-minute step timeout during the real
+eight-hour transport workload. That workload now has its own mandatory 60-minute
+step after packaged-core smoke, with progress output and unchanged durability.
+The new core cut and actual WebView containment still require Windows CI.
+
+Release remains blocked on completing package overlay/settings controls, removing
+backend/OBS IO delays from the sound poll path, validating prepared 0.5.94 data,
+and signed package install/update verification. No release, signed catalog, user
+database migration or native user-game smoke is claimed by this checkpoint.

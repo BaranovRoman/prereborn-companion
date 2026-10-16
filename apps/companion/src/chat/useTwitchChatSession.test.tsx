@@ -30,7 +30,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 // eslint-disable-next-line import/order
 import { listen } from "@tauri-apps/api/event";
-import { GameAudioFenceRegistry } from "../sounds/game-audio-fence";
+import { PluginAudioFenceRegistry } from "../core/audio/playbackRegistry";
 // eslint-disable-next-line import/order
 import {
   getSileroTtsStatus, getSkipHotkeyStatus, getTwitchChat, setSkipHotkey, synthesizeSileroTts,
@@ -290,10 +290,12 @@ describe("useTwitchChatSession", () => {
 
   // WK-83 - global "skip current TTS" hotkey (src-tauri/src/hotkeys.rs).
   describe("skipTts", () => {
-    const enableSilero = async (session: TwitchChatSession) => {
-      session.updateSetting("ttsEnabled", true);
-      session.updateSetting("ttsEngine", "silero");
-      await waitFor(() => expect(session.settings.ttsEnabled).toBe(true));
+    const enableSilero = async (getSession: () => TwitchChatSession) => {
+      getSession().updateSetting("ttsEnabled", true);
+      getSession().updateSetting("ttsEngine", "silero");
+      // React replaces the returned session on render. Read the current value,
+      // rather than waiting on the immutable pre-update render's object.
+      await waitFor(() => expect(getSession().settings.ttsEnabled).toBe(true));
     };
 
     it("is a safe no-op when nothing is speaking or queued", async () => {
@@ -314,7 +316,7 @@ describe("useTwitchChatSession", () => {
       let session: TwitchChatSession | undefined;
       render(<Harness showChat={true} onSession={(s) => { session = s; }} />);
       await waitFor(() => expect(session).toBeDefined());
-      await enableSilero(session!);
+      await enableSilero(() => session!);
 
       // Both messages arrive in the same poll batch, so both are enqueued
       // before drainTts() ever runs - message two must stay queued (not
@@ -350,7 +352,7 @@ describe("useTwitchChatSession", () => {
       let session: TwitchChatSession | undefined;
       render(<Harness showChat={true} onSession={(s) => { session = s; }} />);
       await waitFor(() => expect(session).toBeDefined());
-      await enableSilero(session!);
+      await enableSilero(() => session!);
 
       vi.mocked(getTwitchChat).mockResolvedValue({
         ...STATUS, messages: [chatMessage("msg-1", "первое"), chatMessage("msg-2", "второе")],
@@ -384,7 +386,7 @@ describe("useTwitchChatSession", () => {
       let session: TwitchChatSession | undefined;
       render(<Harness showChat={true} onSession={(s) => { session = s; }} />);
       await waitFor(() => expect(session).toBeDefined());
-      await enableSilero(session!);
+      await enableSilero(() => session!);
 
       vi.mocked(getTwitchChat).mockResolvedValue({
         ...STATUS, messages: [chatMessage("msg-1", "первое"), chatMessage("msg-2", "второе")],
@@ -419,7 +421,7 @@ describe("useTwitchChatSession", () => {
       let session: TwitchChatSession | undefined;
       render(<Harness showChat={true} onSession={(s) => { session = s; }} />);
       await waitFor(() => expect(session).toBeDefined());
-      await enableSilero(session!);
+      await enableSilero(() => session!);
 
       vi.mocked(getTwitchChat).mockResolvedValue({
         ...STATUS,
@@ -521,7 +523,7 @@ describe("useTwitchChatSession", () => {
       render(<Harness showChat={true} onSession={(s) => { session = s; }} />);
       await waitFor(() => expect(session).toBeDefined());
       await waitFor(() => expect(vi.mocked(listen)).toHaveBeenCalledWith("hotkeys://skip-tts", expect.any(Function)));
-      await enableSilero(session!);
+      await enableSilero(() => session!);
 
       vi.mocked(getTwitchChat).mockResolvedValue({
         ...STATUS, messages: [chatMessage("msg-1", "первое"), chatMessage("msg-2", "второе")],
@@ -772,7 +774,7 @@ describe("game fence while Twitch TTS is active", () => {
     vi.mocked(getTwitchChat).mockResolvedValue({ ...STATUS, messages: [chatMessage("fence-a", "first"), chatMessage("fence-b", "second")] });
     await waitFor(() => expect(speak).toHaveBeenCalledTimes(1), { timeout: 4000 });
     cancel.mockClear(); // the hook stops any previous TTS during initial mounting
-    const registry = new GameAudioFenceRegistry();const gameStop = vi.fn(() => true);
+    const registry = new PluginAudioFenceRegistry();const gameStop = vi.fn(() => true);
     registry.track({ id: "game", scope: { instance: "tts-test", generation: 1, epoch: 1, session: "session" } }, gameStop);
     expect(registry.fence({ instance: "tts-test", generation: 1, requestId: "stop", playbackIds: ["game"] })).toBe(true);
     expect(gameStop).toHaveBeenCalledOnce();expect(cancel).not.toHaveBeenCalled();expect(session!.isSpeaking()).toBe(true);

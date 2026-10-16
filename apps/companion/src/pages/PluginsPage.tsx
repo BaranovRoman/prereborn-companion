@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Button, Input } from "../components/ui";
 import * as api from "../plugins/api";
-import { greeting } from "../plugin-lab/bridge";
+import { greeting } from "../plugins/helloBridge";
 import { ready as uiReady, request as uiRequest, UI_VERSION } from "../../../../plugins/protocol/ui";
 import "./PluginsPage.css";
 
@@ -77,6 +77,7 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
       </div>}
       {view?.catalog.filter((r) => r.manifest.id === selected.id).map((r) => <div key={r.manifest.version}>{installButton(r)}</div>)}
       <small>При удалении пользовательские данные сохраняются.</small>
+      {selected.transport!=null&&<details><summary>Диагностика runtime</summary><pre>{JSON.stringify({runtime:selected.runtime,transport:selected.transport},null,2)}</pre></details>}
       {((selected.manifest?.execution === "live" && selected.manifest.minApi>=2)|| (selected.installed.enabled && selected.runtime?.phase === "running")) && <PluginUI key={`ui-${selected.id}-${selected.installed.active}`} plugin={selected} />}
       {selected.manifest?.execution !== "live" && !selected.installed.enabled && <p>Чтобы открыть интерфейс этого плагина, включите его отдельным действием.</p>}
     </article> : !opened && <>
@@ -166,7 +167,7 @@ function PluginUI({ plugin }: { plugin: api.Installed }) {
         lastRequest = request.requestId;
         if (inFlight >= 8) { reply(null,"plugin_request_quota"); return; }
         inFlight++;
-        try { reply(await api.request(plugin.id,request.name,request.args)); }
+        try { reply(await api.request(plugin.id,request.name,request.args,plugin.installed.active)); }
         catch (e) { const message = api.errorText(e); reply(null,message); if (!disposed) setError(message); }
         finally { inFlight--; }
         return;

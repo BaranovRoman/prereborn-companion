@@ -20,6 +20,7 @@ import { OutputSettings } from "./OutputSettings";
 import { ObsConnectionPage } from "./ObsConnectionPage";
 import { useHostStatus } from "./hostStatus";
 import { synthesizeSileroTts } from "../api";
+import "../../components/ui/ui.css";
 import "./CoreShell.css";
 
 type Section="overview"|"chat"|"speech"|"obs"|"plugins"|"settings";
@@ -39,9 +40,8 @@ export function CoreShell() {
   const [diagnosticBusy,setDiagnosticBusy]=useState(false);
   const [voiceNotifications,setVoiceNotifications]=useState(()=>{try{const raw=localStorage.getItem("companion-system-voice-reminders-v1");return raw==null||raw==="true";}catch{return true;}});
   const synthesizeNotification=useCallback((text:string)=>synthesizeSileroTts(text,chat.settings.sileroVoice),[chat.settings.sileroVoice]);
-  // The legacy event names are transport aliases until the worker migration completes.
   // Core never loads a game catalog, bindings, game hooks or a second Twitch queue.
-  useManagedPluginAudio({enabled:true,eventName:"game-sound-play",fenceEvent:"game-audio-fence",fenceAckCommand:"game_audio_fence_ack",synthesize:synthesizeNotification,voiceNotificationsEnabled:voiceNotifications},overallVolume);
+  useManagedPluginAudio({enabled:true,eventName:"plugin-audio-play",fenceEvent:"plugin-audio-fence",fenceAckCommand:"plugin_audio_fence_ack",synthesize:synthesizeNotification,voiceNotificationsEnabled:voiceNotifications},overallVolume);
   useEffect(()=>{void updater.checkForUpdate();},[]); // same standard updater and signature verification
   const diagnostic=async(command:string)=>{if(diagnosticBusy)return;setDiagnosticBusy(true);setDiagnosticError(null);try{const result=await invoke<unknown>(command);setDiagnosticResult(typeof result==="string"?result:"Операция подтверждена приложением.");}catch(e){setDiagnosticError(String(e));}finally{setDiagnosticBusy(false);}};
   const connection=(state:string|undefined)=>state==="connected"?"Подключён":state==="recovering"||state==="reconnecting"?"Переподключение":state==="unavailable"?"Недоступен":"Ожидание подключения";

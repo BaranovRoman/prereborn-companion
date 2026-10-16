@@ -1,10 +1,9 @@
 // @vitest-environment jsdom
-import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { Dota } from "../../../../plugins/dota/ui/src/App";
+import { Dota } from "./App";
 const mocks=vi.hoisted(()=>({invoke:vi.fn(),catalog:vi.fn(),settings:vi.fn()}));
-vi.mock("../../../../plugins/dota/ui/src/api",()=>mocks);
+vi.mock("./api",()=>mocks);
 const asset={id:"existing",fileName:"existing.wav",originalName:"my-jump.wav",sizeBytes:4};
 const settings={schemaVersion:1,enabled:true,masterVolume:63,bindings:[{eventId:"techies_suicide",kind:"abilityCast",assetId:asset.id}],assets:[asset]};
 beforeEach(()=>{

@@ -37,6 +37,7 @@ impl HostAudio{
  pub(crate) fn process_draining(&self,process:&ProcessBinding,epoch:u64)->Result<(),String>{self.locked()?.process_draining(process,epoch)}
  pub(crate) fn process_after_native_exit(&self,process:&ProcessBinding,epoch:u64)->Result<(),String>{self.locked()?.process_after_native_exit(process,epoch)}
  pub(crate) fn process(&self,plugin:&str)->Result<Option<store::ProcessRecord>,String>{self.locked()?.process(plugin)}
+ pub(crate) fn quota(&self,plugin:&str)->Result<store::Quota,String>{self.locked()?.quota_for(plugin)}
  pub(crate) fn receipt(&self,plugin:&str,key:&str)->Result<Option<store::Receipt>,String>{self.locked()?.lookup(plugin,key)}
  pub(crate) fn locked_authorize(&self,process:&ProcessBinding,epoch:u64)->Result<(),String>{self.locked()?.authorize(process,epoch)}
  fn registry(&self,plugin:&str)->Result<Arc<PlaybackRegistry>,String>{

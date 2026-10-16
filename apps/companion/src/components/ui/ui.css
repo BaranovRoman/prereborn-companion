@@ -1,309 +1,60 @@
-/* WK-121 - Dota-like UI foundation primitives (Button/IconButton/Checkbox/
-   Select/Input/SearchInput/Tabs/SectionHeader/SettingsRow/SettingsGroup/
-   Tooltip/Badge/Slider). Reuses the existing --ui-* token set from App.css
-   (same palette apps/web's stream dashboard already uses) - no new colors,
-   no rounded-SaaS shapes, no pill controls. These are additive classes;
-   existing bespoke selectors elsewhere in App.css are migrated onto them
-   incrementally as their screens are touched, not all at once. */
-
-/* ---- Button / IconButton ---- */
-.ui-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 8px 14px;
-  background: linear-gradient(180deg, var(--ui-raised), var(--ui-well));
-  box-shadow: inset 0 0 0 1px var(--ui-edge-soft);
-  color: var(--ui-text);
-  font: inherit;
-  font-weight: 600;
-  letter-spacing: .01em;
-  white-space: nowrap;
-}
-.ui-button:hover:not(:disabled) {
-  color: #eeeae2;
-  border-color: #190a0a;
-  background: linear-gradient(180deg, #4d302f, #211719);
-  box-shadow: inset 0 0 0 1px var(--ui-red-hover);
-}
-.ui-button--primary { border-color: #260d0d; background: linear-gradient(180deg, var(--ui-red-hover), #612a29); box-shadow: inset 0 0 0 1px rgba(225,156,147,.25); color: #f2ece5; }
-.ui-button--primary:hover:not(:disabled) { background: linear-gradient(180deg, #aa5b54, #71302e); }
-.ui-button--danger { border-color: var(--border); color: var(--danger); }
-.ui-button--danger:hover:not(:disabled) { background: linear-gradient(180deg, #4d302f, #211719); box-shadow: inset 0 0 0 1px var(--danger); }
-.ui-button--ghost { background: transparent; box-shadow: none; border-color: transparent; color: var(--ui-text-soft); }
-.ui-button--ghost:hover:not(:disabled) { background: linear-gradient(180deg, rgba(255,255,255,.04), transparent 55%); box-shadow: none; border-color: transparent; color: var(--ui-text); }
-.ui-button--small { padding: 5px 10px; font-size: .8rem; }
-
-.ui-icon-button {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border: 1px solid #050606;
-  border-radius: var(--radius);
-  background: radial-gradient(circle at 50% 30%, #363b3c, #17191a 74%);
-  box-shadow: inset 0 0 0 1px var(--ui-edge-soft), inset 0 1px rgba(255, 255, 255, .10), 0 2px 6px rgba(0, 0, 0, .4);
-  color: var(--ui-text-soft);
-  font-size: 1.1rem;
-  line-height: 1;
-}
-.ui-icon-button:hover:not(:disabled) { color: var(--ui-text); border-color: #190a0a; box-shadow: inset 0 0 0 1px var(--ui-red-hover), inset 0 1px rgba(255, 255, 255, .10); }
-.ui-icon-button--active { color: #f5efe6; box-shadow: inset 0 0 0 1px var(--ui-gold); }
-
-/* ---- Checkbox / Radio ----
-   WK-122 §5 - Checkbox and Radio must look IDENTICAL (same square, border,
-   background, hover, focus, checked treatment); only their underlying
-   <input type> and grouping semantics differ. One shared rule block for
-   both `.ui-checkbox__box` and `.ui-radio__box` is what keeps that
-   guarantee structural rather than something to remember to keep in sync
-   by hand.
-   Visual-quality pass - matched literally against a Dota 2 Settings
-   checkbox screenshot (not "Dota-style from memory"): outer dark metal
-   frame (always visible, never overwritten by state) -> a recessed dark
-   inset gap -> a smaller bright cyan-white inner square when checked. The
-   inner square is a fixed-size `::after` a few px smaller than the frame
-   on every side, not the frame's own background - checking the control
-   must never turn the WHOLE box white, only light up the inner square, so
-   the frame + gap stay visible and the glow reads as coming from that
-   inner square rather than the control itself. NO checkmark, dot, or any
-   other glyph anywhere. Disabled-checked keeps the exact same frame/gap/
-   inner-square geometry, just desaturated/dimmed with no glow. Red stays
-   the accent for buttons/tabs/nav; this one control deliberately breaks
-   from it because the reference does. */
-.ui-checkbox, .ui-radio { display: inline-flex; align-items: center; gap: 9px; font-size: .88rem; color: var(--ui-text); cursor: pointer; }
-.ui-checkbox.is-disabled, .ui-radio.is-disabled { color: var(--ui-text-soft); cursor: not-allowed; }
-.ui-checkbox__box, .ui-radio__box {
-  appearance: none;
-  -webkit-appearance: none;
-  flex-shrink: 0;
-  width: 19px;
-  height: 19px;
-  margin: 0;
-  border: 1px solid #05070a;
-  border-radius: 2px;
-  background: linear-gradient(180deg, #10141a, #191f26);
-  box-shadow: inset 0 2px 3px rgba(0, 0, 0, .7), inset 0 0 0 1px rgba(123, 140, 168, .22);
-  display: grid;
-  place-items: center;
-  cursor: inherit;
-}
-.ui-checkbox__box:hover:not(:disabled), .ui-radio__box:hover:not(:disabled) {
-  box-shadow: inset 0 2px 3px rgba(0, 0, 0, .7), inset 0 0 0 1px #5b7fd1;
-}
-.ui-checkbox__box::after, .ui-radio__box::after {
-  content: "";
-  width: 11px;
-  height: 11px;
-  border-radius: 1px;
-  background: transparent;
-}
-.ui-checkbox__box:checked::after, .ui-radio__box:checked::after {
-  background: linear-gradient(180deg, #eef4fb, #cbdcf0 55%, #a9c3e6);
-  box-shadow: 0 0 5px 1px rgba(79, 111, 196, .65), inset 0 1px 1px rgba(255, 255, 255, .85);
-}
-.ui-checkbox__box:focus-visible, .ui-radio__box:focus-visible { outline: 2px solid #5b7fd1; outline-offset: 2px; }
-.ui-checkbox__box:disabled, .ui-radio__box:disabled {
-  cursor: not-allowed;
-  border-color: #06080a;
-  background: linear-gradient(180deg, #0c0e11, #121519);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .6), inset 0 0 0 1px rgba(123, 140, 168, .08);
-}
-.ui-checkbox__box:disabled:checked::after, .ui-radio__box:disabled:checked::after {
-  background: linear-gradient(180deg, #cdd6e2, #aebac9 55%, #96a4b8);
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, .4);
-}
-
-/* ---- Select ---- */
-.ui-select-wrap { position: relative; display: inline-grid; min-width: 0; }
-.ui-select {
-  appearance: none;
-  -webkit-appearance: none;
-  min-width: 0;
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: .6em 2.1em .6em .75em;
-  color: var(--ui-text);
-  background: linear-gradient(180deg, var(--ui-void), var(--ui-well));
-  box-shadow: inset 0 0 0 1px var(--ui-edge-soft);
-  font: inherit;
-}
-.ui-select:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--ui-edge); }
-.ui-select:focus-visible { outline: 2px solid var(--ui-red-hover); outline-offset: 1px; }
-.ui-select:disabled { opacity: .5; }
-.ui-select-wrap::after {
-  content: "";
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  width: 7px;
-  height: 7px;
-  border-right: 1.5px solid var(--ui-text-soft);
-  border-bottom: 1.5px solid var(--ui-text-soft);
-  transform: translateY(-70%) rotate(45deg);
-  pointer-events: none;
-}
-
-/* ---- Input / SearchInput ---- */
-.ui-input {
-  min-width: 0;
-  width: 100%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: .6em .75em;
-  color: var(--ui-text);
-  background: linear-gradient(180deg, var(--ui-void), var(--ui-well));
-  box-shadow: inset 0 0 0 1px var(--ui-edge-soft);
-  font: inherit;
-}
-.ui-input:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--ui-edge); }
-.ui-input:focus-visible { outline: 2px solid var(--ui-red-hover); outline-offset: 1px; }
-.ui-input::placeholder { color: var(--ui-text-muted); }
-
-.ui-search { position: relative; display: flex; align-items: center; }
-.ui-search__icon { position: absolute; left: 11px; width: 14px; height: 14px; color: var(--ui-text-muted); pointer-events: none; }
-.ui-search .ui-input { padding-left: 32px; padding-right: 30px; }
-.ui-search__clear { position: absolute; right: 8px; border: 0; background: transparent; color: var(--ui-text-muted); padding: 2px 4px; line-height: 1; font-size: .9rem; }
-.ui-search__clear:hover { color: var(--ui-text); }
-
-/* ---- Tabs (workspace level) ----
-   Matched literally against a Dota 2 "ГЕРОИ / РУКОВОДСТВА / ТРЕНДЫ"-style
-   in-page tab row: items separated by a literal "/" glyph, not gaps or an
-   underline - a plain centered text list, muted gold when idle, brighter
-   when active. Deliberately the OTHER navigation language from the global
-   header (`.app-header__nav` in App.css, a heavy segmented metal-plate
-   bar): two different navigation levels on purpose (задача §3-4). */
-.ui-tabs { display: flex; align-items: center; justify-content: center; gap: 0; }
-.ui-tabs__tab {
-  position: relative;
-  padding: 6px 14px;
-  border: 0;
-  background: transparent;
-  color: rgba(162, 151, 110, .62);
-  font-size: .82rem;
-  font-weight: 700;
-  letter-spacing: .1em;
-  text-transform: uppercase;
-}
-.ui-tabs__tab:not(:first-child)::before {
-  content: "/";
-  position: absolute;
-  left: -2px;
-  color: rgba(162, 151, 110, .3);
-  font-weight: 400;
-}
-.ui-tabs__tab:hover:not(:disabled) { color: var(--ui-gold); }
-.ui-tabs__tab.is-active { color: #f5efe6; text-shadow: 0 0 10px rgba(245, 239, 230, .35); }
-
-/* ---- SectionHeader ---- */
-.ui-section-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; margin-bottom: 16px; flex-wrap: wrap; }
-.ui-section-header__eyebrow { display: block; margin-bottom: 4px; color: var(--ui-gold); font-size: .72rem; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
-.ui-section-header__title { margin: 0; color: var(--ui-text); font-size: 1.3rem; font-weight: 700; letter-spacing: .01em; }
-.ui-section-header__description { margin: 4px 0 0; color: var(--ui-text-soft); font-size: .85rem; }
-.ui-section-header__actions { display: flex; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
-
-/* ---- SettingsGroup / SettingsRow ---- */
-.ui-settings-group { display: grid; gap: 2px; margin-bottom: 22px; }
-.ui-settings-group__title { margin: 0 0 8px; color: var(--ui-text-soft); font-size: .74rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
-.ui-settings-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 13px 4px;
-  border-bottom: 1px solid var(--border);
-}
-.ui-settings-row:last-child { border-bottom: 0; }
-.ui-settings-row__label { display: grid; gap: 3px; min-width: 0; }
-.ui-settings-row__label strong { color: var(--ui-text); font-size: .92rem; font-weight: 600; }
-.ui-settings-row__label span { color: var(--ui-text-soft); font-size: .78rem; }
-.ui-settings-row__control { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-
-/* ---- Badge ---- */
-.ui-badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: var(--radius); border: 1px solid var(--border); font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ui-text-soft); background: var(--ui-void); }
-.ui-badge--success { color: var(--success); background: rgba(152,201,101,.12); }
-.ui-badge--danger { color: var(--danger); background: rgba(123,53,50,.16); }
-.ui-badge--warning { color: var(--warning); background: rgba(201,161,90,.12); }
-.ui-badge--gold { color: var(--ui-gold); background: rgba(162,151,110,.14); }
-.ui-badge__dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
-
-/* ---- Slider ----
-   Matched against the Dota 2 audio-settings slider reference: a thin flat
-   recessed track (no rounded/material pill) with a subtle filled-vs-empty
-   split up to the handle, and a small rectangular metallic handle (taller
-   than the track, glossy top-lit gradient) rather than a round thumb.
-   `--ui-slider-fill` is written inline by Slider.tsx from the input's own
-   value/min/max so the filled portion tracks the real value without a JS
-   re-render of the CSS. */
-.ui-slider {
-  width: 100%;
-  height: 6px;
-  margin: 8px 0;
-  appearance: none;
-  -webkit-appearance: none;
-  border-radius: 1px;
-  background: linear-gradient(90deg, var(--ui-edge) var(--ui-slider-fill, 0%), var(--ui-void) var(--ui-slider-fill, 0%));
-  box-shadow: inset 0 2px 3px rgba(0, 0, 0, .75), inset 0 0 0 1px var(--border);
-  cursor: pointer;
-}
-.ui-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 10px;
-  height: 20px;
-  margin-top: 0;
-  border: 1px solid #45433d;
-  border-radius: 1px;
-  background: linear-gradient(180deg, #eeece5, #a5a297 45%, #7c796e);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .6), inset 0 1px 0 rgba(255, 255, 255, .6);
-  cursor: pointer;
-}
-.ui-slider::-moz-range-thumb {
-  width: 10px;
-  height: 20px;
-  border: 1px solid #45433d;
-  border-radius: 1px;
-  background: linear-gradient(180deg, #eeece5, #a5a297 45%, #7c796e);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .6), inset 0 1px 0 rgba(255, 255, 255, .6);
-  cursor: pointer;
-}
-.ui-slider::-moz-range-track { height: 6px; border-radius: 1px; background: var(--ui-void); box-shadow: inset 0 2px 3px rgba(0, 0, 0, .75), inset 0 0 0 1px var(--border); }
-.ui-slider::-moz-range-progress { height: 6px; border-radius: 1px; background: var(--ui-edge); }
-.ui-slider:disabled { cursor: not-allowed; }
-.ui-slider:disabled::-webkit-slider-thumb { background: var(--ui-text-muted); border-color: #050606; box-shadow: none; cursor: not-allowed; }
-.ui-slider:disabled::-moz-range-thumb { background: var(--ui-text-muted); border-color: #050606; box-shadow: none; cursor: not-allowed; }
-.ui-slider:disabled::-moz-range-progress { background: var(--ui-text-muted); }
-
-/* ---- Tooltip ---- */
-.ui-tooltip { position: relative; display: inline-flex; }
-.ui-tooltip__bubble {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 10;
-  width: max-content;
-  max-width: 240px;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: linear-gradient(180deg, var(--ui-panel), var(--ui-well));
-  box-shadow: inset 0 0 0 1px var(--ui-edge-soft), 0 8px 18px rgba(0,0,0,.45);
-  color: var(--ui-text);
-  font-size: .78rem;
-  line-height: 1.35;
-  pointer-events: none;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 120ms ease;
-}
-.ui-tooltip:hover .ui-tooltip__bubble, .ui-tooltip:focus-within .ui-tooltip__bubble { opacity: 1; visibility: visible; }
-
-/* WK-63 - small "?"-style trigger for a raw-error detail tooltip, reused
-   wherever a mapped error message hides technical text behind a Tooltip
-   (AccountForm, RuntimeHealthPanel) instead of showing it inline. */
-.error-detail-trigger { cursor: help; opacity: .75; }
+/* Shared neutral desktop controls. The host provides the --ui-* color tokens. */
+.ui-button,.ui-icon-button { display:inline-flex; align-items:center; justify-content:center; gap:8px; border:1px solid var(--ui-edge); border-radius:6px; padding:8px 13px; background:var(--ui-well); color:var(--ui-text); font:inherit; font-weight:500; white-space:nowrap; box-shadow:none; }
+.ui-button:hover:not(:disabled),.ui-icon-button:hover:not(:disabled) { background:var(--ui-raised); border-color:var(--ui-text-muted); }
+.ui-button--primary { background:var(--accent); border-color:transparent; color:var(--ui-void); }
+.ui-button--primary:hover:not(:disabled) { background:#c0ceff; border-color:transparent; }
+.ui-button--danger { color:var(--danger); }
+.ui-button--danger:hover:not(:disabled) { background:#332126; border-color:var(--danger); }
+.ui-button--ghost { background:transparent; border-color:transparent; color:var(--ui-text-soft); }
+.ui-button--ghost:hover:not(:disabled) { background:var(--ui-well); border-color:transparent; color:var(--ui-text); }
+.ui-button--small { padding:5px 9px; font-size:12px; }
+.ui-icon-button { width:36px; height:36px; padding:0; line-height:1; }
+.ui-icon-button--active { color:var(--accent); border-color:var(--accent); }
+.ui-checkbox,.ui-radio { display:inline-flex; align-items:center; gap:9px; font-size:13px; color:var(--ui-text); cursor:pointer; }
+.ui-checkbox.is-disabled,.ui-radio.is-disabled { opacity:.5; cursor:not-allowed; }
+.ui-checkbox__box,.ui-radio__box { appearance:none; -webkit-appearance:none; display:grid; place-items:center; flex-shrink:0; width:17px; height:17px; margin:0; border:1px solid var(--ui-text-muted); border-radius:4px; background:var(--ui-void); cursor:inherit; }
+.ui-radio__box { border-radius:50%; }
+.ui-checkbox__box::after,.ui-radio__box::after { content:""; width:9px; height:9px; border-radius:1px; background:transparent; }
+.ui-radio__box::after { border-radius:50%; }
+.ui-checkbox__box:checked,.ui-radio__box:checked { border-color:var(--accent); }
+.ui-checkbox__box:checked::after,.ui-radio__box:checked::after { background:var(--accent); }
+.ui-checkbox__box:focus-visible,.ui-radio__box:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+.ui-select-wrap { position:relative; display:inline-grid; min-width:0; }
+.ui-select,.ui-input { min-width:0; width:100%; border:1px solid var(--ui-edge); border-radius:6px; padding:9px 11px; color:var(--ui-text); background:var(--ui-void); font:inherit; }
+.ui-select { appearance:none; -webkit-appearance:none; padding-right:32px; }
+.ui-select-wrap::after { content:""; position:absolute; right:12px; top:50%; width:6px; height:6px; border-right:1.5px solid var(--ui-text-soft); border-bottom:1.5px solid var(--ui-text-soft); transform:translateY(-70%) rotate(45deg); pointer-events:none; }
+.ui-input::placeholder { color:var(--ui-text-muted); }
+.ui-input:hover:not(:disabled),.ui-select:hover:not(:disabled) { border-color:var(--ui-text-muted); }
+.ui-input:focus-visible,.ui-select:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.ui-select:disabled,.ui-input:disabled { opacity:.5; }
+.ui-search { position:relative; display:flex; align-items:center; }
+.ui-search__icon { position:absolute; left:11px; width:14px; height:14px; color:var(--ui-text-muted); pointer-events:none; }
+.ui-search .ui-input { padding-left:32px; padding-right:30px; }
+.ui-search__clear { position:absolute; right:8px; border:0; background:transparent; color:var(--ui-text-muted); padding:2px 4px; line-height:1; }
+.ui-tabs { display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+.ui-tabs__tab { border:0; border-radius:6px; background:transparent; color:var(--ui-text-soft); padding:8px 12px; font:inherit; }
+.ui-tabs__tab:hover:not(:disabled),.ui-tabs__tab.is-active { color:var(--ui-text); background:var(--ui-raised); }
+.ui-section-header { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:16px; flex-wrap:wrap; }
+.ui-section-header__eyebrow { display:block; margin-bottom:4px; color:var(--ui-text-muted); font-size:11px; }
+.ui-section-header__title { margin:0; color:var(--ui-text); font-size:18px; font-weight:600; }
+.ui-section-header__description { margin:4px 0 0; color:var(--ui-text-soft); font-size:13px; }
+.ui-section-header__actions { display:flex; gap:8px; flex-wrap:wrap; }
+.ui-settings-group { display:grid; gap:2px; margin-bottom:22px; }
+.ui-settings-group__title { margin:0 0 8px; color:var(--ui-text-soft); font-size:13px; font-weight:600; }
+.ui-settings-row { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 0; border-bottom:1px solid var(--ui-edge-soft); }
+.ui-settings-row:last-child { border-bottom:0; }
+.ui-settings-row__label { display:grid; gap:3px; min-width:0; }
+.ui-settings-row__label strong { color:var(--ui-text); font-size:13px; font-weight:500; }
+.ui-settings-row__label span { color:var(--ui-text-soft); font-size:12px; }
+.ui-settings-row__control { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+.ui-badge { display:inline-flex; align-items:center; gap:5px; padding:3px 7px; border-radius:5px; font-size:12px; color:var(--ui-text-soft); background:var(--ui-raised); }
+.ui-badge--success { color:var(--success); }.ui-badge--danger { color:var(--danger); }.ui-badge--warning { color:var(--warning); }.ui-badge--gold { color:var(--ui-text-soft); }
+.ui-badge__dot { width:6px; height:6px; border-radius:50%; background:currentColor; flex-shrink:0; }
+.ui-slider { appearance:none; -webkit-appearance:none; height:5px; padding:0; border:0; border-radius:3px; background:linear-gradient(90deg,var(--accent) var(--ui-slider-fill,0%),var(--ui-edge) var(--ui-slider-fill,0%)); cursor:pointer; }
+.ui-slider::-webkit-slider-thumb { appearance:none; -webkit-appearance:none; width:13px; height:13px; border:0; border-radius:50%; background:var(--accent); }
+.ui-slider::-moz-range-thumb { width:13px; height:13px; border:0; border-radius:50%; background:var(--accent); }
+.ui-slider::-moz-range-progress { background:var(--accent); }.ui-slider:disabled { opacity:.5; cursor:not-allowed; }
+.ui-tooltip { position:relative; display:inline-flex; }
+.ui-tooltip__bubble { position:absolute; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%); z-index:10; width:max-content; max-width:240px; padding:8px 10px; border:1px solid var(--ui-edge); border-radius:6px; background:var(--ui-panel); color:var(--ui-text); font-size:12px; line-height:1.4; pointer-events:none; opacity:0; visibility:hidden; }
+.ui-tooltip:hover .ui-tooltip__bubble,.ui-tooltip:focus-within .ui-tooltip__bubble { opacity:1; visibility:visible; }
+.error-detail-trigger { cursor:help; color:var(--ui-text-muted); }
