@@ -80,6 +80,12 @@ impl History {
  pub fn refresh_account(&mut self,mode:Option<&str>,rating:Option<i64>)->Result<(),String>{
   let grant=self.grant.as_ref().ok_or("worker_inactive")?;self.adapter.refresh_account(&mut self.connection,grant,mode,rating)
  }
+ pub fn expire_quiz_geometry(&mut self,current:Option<&str>)->Result<(),String>{
+  let grant=self.grant.as_ref().ok_or("worker_inactive")?;self.adapter.expire_quiz_geometry(&mut self.connection,grant,current,chrono::Utc::now())
+ }
+ pub fn queue_quiz_geometry(&mut self,geometry:&db::host_execution::external_lifecycle::QuizGeometry)->Result<String,String>{
+  let grant=self.grant.as_ref().ok_or("worker_inactive")?;self.adapter.queue_quiz_geometry(&mut self.connection,grant,geometry,chrono::Utc::now())
+ }
  pub fn quiz_transition(&mut self,between:bool)->Result<Option<String>,String>{
   let grant=self.grant.as_ref().ok_or("worker_inactive")?;self.adapter.quiz_transition(&mut self.connection,grant,between,chrono::Utc::now())
  }

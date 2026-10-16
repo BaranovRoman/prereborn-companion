@@ -834,3 +834,30 @@ text/color/time and public connectivity leave core, never user/account IDs or
 tokens. Protocol projection, core account-expiry and worker capability-expiry
 regressions pass. Package App tests: 14 passed; package TypeScript passed.
 None of these tests constitute real Windows native GSI/audio/OBS acceptance.
+
+## Quiz geometry through the existing writer (2026-10-16)
+
+The relocated HTTP server now accepts only bounded, typed geometry for the
+published active round and its actual option IDs. Other Origins, stale rounds,
+unknown fields and invalid coordinates are denied. Four pending requests at
+most reach the existing serialized worker; HTTP threads never touch SQLite.
+HTTP 202 reports only a recorded durable outbox identity, not backend delivery.
+The unchanged backend quiz/geometry PUT is dispatched via the existing CoreRead
+HTTP slot, and delivery requires its actual ok/applied response. A stale-round
+applied:false response is a handled result, never a successful geometry claim.
+
+The geometry document, outbox UUID and receipt share one transaction. Identical
+submissions retain their existing identity. Geometry Unknown is frozen, including
+crash after admission; it is not eligible for automatic HTTP retry and prevents
+new coordinates for that same uncertain round. A fresh authoritative quiz/state
+read may reject expired old-round records: backend SQL requires that exact owned
+round to remain active, so a late old request cannot affect a new round. This
+is rejected expiry, not success or exactly-once HTTP proof. No keys/Unknown are
+deleted. Existing sync/events UUID retry semantics remain unchanged.
+
+Five selected real-SQL sync bookkeeping tests pass, including frozen Unknown,
+no newer overwrite, round-expiry reconciliation, duplicate identities, receipt
+corruption and rollback. One existing-server loopback HTTP test passes for
+Origin/round rejection and recorded-vs-delivered distinction. Package cargo
+check passes. Actual quiz interaction in OBS/Extension is still native UAT,
+not something these tests claim to have performed.

@@ -5,6 +5,18 @@ use companion_dota_domain::session_lifecycle::{self as lifecycle,LifecycleDecisi
 pub struct Outcome {pub session:Option<String>,pub stream_ended:Option<bool>}
 #[derive(Serialize)]
 struct LifecycleReceipt {family:&'static str,before:u64,after:u64,decision:Option<Decision>,resolved_session:String,interrupted:Vec<String>,sessions:Vec<SessionReceipt>}
+#[derive(Clone,Debug,Serialize,Deserialize)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+pub struct QuizGeometry{pub round_id:String,pub interactive_regions:Vec<QuizRegion>}
+#[derive(Clone,Debug,Serialize,Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QuizRegion{pub id:String,pub value:String,pub x:f64,pub y:f64,pub width:f64,pub height:f64}
+impl QuizGeometry{
+ pub fn validate(&self)->Result<()>{
+  if uuid::Uuid::parse_str(&self.round_id).is_err()||self.interactive_regions.is_empty()||self.interactive_regions.len()>16||encode(self)?.len()>6144
+   ||self.interactive_regions.iter().any(|r|[&r.id,&r.value].iter().any(|v|v.is_empty()||v.len()>128||v.chars().any(char::is_control))||[r.x,r.y,r.width,r.height].iter().any(|n|!n.is_finite()||!(0.0..=1.0).contains(n))){return Err("quiz_geometry_invalid".into());}Ok(())
+ }
+}
 impl Adapter {
  pub fn corrections_since(&mut self,c:&mut Connection,pin:&impl ExecutionGrant)->Result<String>{
   self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;self.sync_scope(&tx,pin)?;
@@ -66,6 +78,54 @@ impl Adapter {
   let doc=encode(&serde_json::json!({"family":"quiz-outbox-v1","id":id,"plugin":pin.binding().id,"event":event,"createdAt":now.to_rfc3339(),"epoch":pin.lease().epoch}))?;
   Self::sync_receipt(&tx,&format!("quiz-outbox:{id}"),&hash(&doc),&doc)?;sql(tx.commit())?;Ok(Some(id))
  }
+ pub fn queue_quiz_geometry(&mut self,c:&mut Connection,pin:&impl ExecutionGrant,geometry:&QuizGeometry,now:DateTime<Utc>)->Result<String>{
+  geometry.validate()?;if !pin.permits("dota.overlay.update"){return Err("capability_denied".into());}
+  self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;self.sync_scope(&tx,pin)?;
+  let body=encode(geometry)?;let key=format!("quiz-geometry:{}",hash(&body));
+  if let Some((id,_))=Self::geometry_receipt(&tx,&key,&body,&pin.binding().id)?{
+   let(unknown,failed):(bool,bool)=sql(tx.query_row("SELECT delivered_at IS NULL AND failed_at IS NULL AND coalesce(last_error LIKE '%Unknown%',0),failed_at IS NOT NULL FROM sync_outbox WHERE id=?1",[&id],|r|Ok((r.get(0)?,r.get(1)?))))?;
+   if failed{return Err("quiz_round_expired".into());}if unknown{return Err("quiz_geometry_unknown".into());}return Ok(id);
+  }
+  let uncertain:bool=sql(tx.query_row("SELECT EXISTS(SELECT 1 FROM sync_outbox WHERE entity_type='overlay-geometry' AND entity_local_id=?1 AND delivered_at IS NULL AND failed_at IS NULL AND last_error LIKE '%Unknown%')",[&geometry.round_id],|r|r.get(0)))?;
+  if uncertain{return Err("quiz_geometry_unknown".into());}
+  sql(Facade::new(&tx).enqueue("overlay-geometry",&geometry.round_id,"quiz_geometry",&serde_json::to_value(geometry).map_err(|_|"quiz_geometry_invalid")?,now))?;
+  let id:String=sql(tx.query_row("SELECT id FROM sync_outbox WHERE rowid=last_insert_rowid()",[],|row|row.get(0)))?;
+  let doc=encode(&serde_json::json!({"family":"quiz-geometry-v1","id":id,"plugin":pin.binding().id,"body":body,"createdAt":now.to_rfc3339()}))?;
+  if doc.len()>8192{return Err("quiz_geometry_receipt_limit".into());}
+  Self::sync_receipt(&tx,&key,&hash(&doc),&doc)?;sql(tx.commit())?;Ok(id)
+ }
+ fn geometry_receipt(tx:&Transaction<'_>,key:&str,body:&str,plugin:&str)->Result<Option<(String,DateTime<Utc>)>>{
+  let saved:Option<(String,String,String,String)>=sql(tx.query_row("SELECT identity,status,CASE WHEN length(CAST(receipt AS BLOB))<=8192 THEN receipt ELSE NULL END,checksum FROM pc_tx_ledger JOIN pc_tx_receipts USING(operation_key) WHERE operation_key=?1",[key],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional())?;
+  let Some((identity,status,doc,checksum))=saved else{return Ok(None);};
+  if status!="completed"||identity!=hash(&doc)||checksum!=hash(&doc){return Err("receipt_corrupt".into());}
+  let receipt:serde_json::Value=serde_json::from_str(&doc).map_err(|_|"receipt_corrupt")?;
+  if receipt["family"]!="quiz-geometry-v1"||receipt["plugin"]!=plugin||receipt["body"]!=body{return Err("quiz_outbox_scope_mismatch".into());}
+  let id=receipt["id"].as_str().filter(|id|uuid::Uuid::parse_str(id).is_ok()).ok_or("receipt_corrupt")?;
+  let created=receipt["createdAt"].as_str().and_then(lifecycle::parse_rfc3339).ok_or("receipt_corrupt")?;Ok(Some((id.into(),created)))
+ }
+ fn geometry_outbox_eligible(tx:&Transaction<'_>,row:&super::super::sync::OutboxRow,cutover:DateTime<Utc>,plugin:&str)->Result<bool>{
+  if row.entity_type!="overlay-geometry"||row.event_type!="quiz_geometry"{return Ok(false);}
+  let geometry:QuizGeometry=serde_json::from_str(&row.payload).map_err(|_|"quiz_geometry_invalid")?;geometry.validate()?;
+  if geometry.round_id!=row.entity_local_id{return Err("quiz_outbox_scope_mismatch".into());}
+  let body=encode(&geometry)?;let key=format!("quiz-geometry:{}",hash(&body));let(id,created)=Self::geometry_receipt(tx,&key,&body,plugin)?.ok_or("quiz_receipt_missing")?;
+  if id!=row.id{return Err("quiz_outbox_scope_mismatch".into());}Ok(created>=cutover)
+ }
+ /// A fresh backend round read can safely expire old coordinates: the real
+ /// PUT's SQL also requires that exact round to remain active. It cannot apply
+ /// to a newer round, even if the old request completes late. This is rejected
+ /// expiry, not proof that the uncertain HTTP write succeeded.
+ pub fn expire_quiz_geometry(&mut self,c:&mut Connection,pin:&impl ExecutionGrant,current_round:Option<&str>,now:DateTime<Utc>)->Result<()> {
+  if current_round.is_some_and(|id|uuid::Uuid::parse_str(id).is_err())||!pin.permits("dota.overlay.update"){return Err("quiz_state_invalid".into());}
+  self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;self.sync_scope(&tx,pin)?;
+  let rows={let mut query=sql(tx.prepare("SELECT id,entity_type,entity_local_id,event_type,payload,attempts FROM sync_outbox WHERE entity_type='overlay-geometry' AND delivered_at IS NULL AND failed_at IS NULL AND entity_local_id!=coalesce(?1,'') ORDER BY rowid LIMIT 16"))?;
+   let rows=sql(query.query_map([current_round],|r|Ok(super::super::sync::OutboxRow{id:r.get(0)?,entity_type:r.get(1)?,entity_local_id:r.get(2)?,event_type:r.get(3)?,payload:r.get(4)?,attempts:r.get(5)?})))?;sql(rows.collect::<rusqlite::Result<Vec<_>>>())?};
+  for row in rows{
+   Self::geometry_outbox_eligible(&tx,&row,DateTime::UNIX_EPOCH,&pin.binding().id)?;
+   sql(super::super::sync::mark_failed(&tx,&row.id,"quiz round expired; uncertain geometry was not replayed",now))?;
+   let doc=encode(&serde_json::json!({"family":"quiz-geometry-expiry-v1","id":row.id,"result":"rejected","httpResult":"unconfirmed","currentRound":current_round}))?;
+   Self::sync_receipt(&tx,&format!("quiz-expired:{}",row.id),&hash(&doc),&doc)?;
+  }sql(tx.commit())
+ }
  fn quiz_outbox_eligible(tx:&Transaction<'_>,row:&super::super::sync::OutboxRow,cutover:DateTime<Utc>,plugin:&str)->Result<bool>{
   if row.entity_type!="overlay"||row.entity_local_id!=plugin||!matches!(row.event_type.as_str(),"between_matches_entered"|"between_matches_left"){return Ok(false);}
   let saved:Option<(String,String,String,String)>=sql(tx.query_row("SELECT identity,status,CASE WHEN length(CAST(receipt AS BLOB))<=2048 THEN receipt ELSE NULL END,checksum FROM pc_tx_ledger JOIN pc_tx_receipts USING(operation_key) WHERE operation_key=?1",[format!("quiz-outbox:{}",row.id)],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional())?;
@@ -83,13 +143,14 @@ impl Adapter {
   // Bounded legacy-shadow skipping. Continue on the next tick, never starve GSI.
   for _ in 0..8 {
    let Some(row)=sql(super::super::sync::next_pending(&tx,now))?else{sql(tx.commit())?;return Ok(None);};
-   if sql(super::super::sync::is_eligible(&tx,&row,cutover))?||Self::quiz_outbox_eligible(&tx,&row,cutover,&pin.binding().id)?{
+   if sql(super::super::sync::is_eligible(&tx,&row,cutover))?||Self::quiz_outbox_eligible(&tx,&row,cutover,&pin.binding().id)?||Self::geometry_outbox_eligible(&tx,&row,cutover,&pin.binding().id)?{
     if row.attempts<0||uuid::Uuid::parse_str(&row.id).is_err(){return Err("outbox_corrupt".into());}
     let key=format!("outbox-admit:{}:{}",row.id,row.attempts);let identity=hash(&encode(&("outbox-admission-v1",&row))?);
     let saved:Option<(String,String,String,String)>=sql(tx.query_row("SELECT identity,status,CASE WHEN length(CAST(receipt AS BLOB))<=2048 THEN receipt ELSE NULL END,checksum FROM pc_tx_ledger JOIN pc_tx_receipts USING(operation_key) WHERE operation_key=?1",[&key],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional())?;
     if let Some((prior,status,doc,checksum))=saved{if prior!=identity||status!="completed"||hash(&doc)!=checksum{return Err("receipt_corrupt".into());}}
     else{
      sql(super::super::sync::mark_sending(&tx,&row.id,row.attempts,now))?;
+     if row.entity_type=="overlay-geometry"{sql(tx.execute("UPDATE sync_outbox SET next_attempt_at='9999-12-31T23:59:59+00:00' WHERE id=?1",[&row.id]))?;}
      let doc=encode(&serde_json::json!({"family":"outbox-admission-v1","id":row.id,"delivery":"unknown","attempt":row.attempts}))?;
      Self::sync_receipt(&tx,&key,&identity,&doc)?;
     }
@@ -102,8 +163,9 @@ impl Adapter {
   sql(tx.commit())?;Ok(None)
  }
  /// Records delivery truth, including Unknown/retry, using the same original
- /// event UUID. Only sync/events has a proven server-side idempotency contract;
- /// this does NOT authorize generic HTTP, OBS or audio retries.
+ /// event UUID. Only sync/events has a proven operation-UUID deduplication
+ /// contract. Geometry Unknown remains frozen until a fresh authoritative
+ /// quiz read proves that its round ended; no blind replay or newer overwrite.
  pub fn settle_sync(&mut self,c:&mut Connection,pin:&impl ExecutionGrant,row:&super::super::sync::OutboxRow,delivery:&str,now:DateTime<Utc>)->Result<()> {
   if !matches!(delivery,"delivered"|"rejected"|"unknown"|"retryable"){return Err("invalid_sync_result".into());}
   self.bound(c)?;let tx=sql(c.transaction_with_behavior(TransactionBehavior::Immediate))?;self.sync_scope(&tx,pin)?;
@@ -120,6 +182,7 @@ impl Adapter {
    "rejected"=>sql(super::super::sync::mark_failed(&tx,&row.id,"backend rejected event",now))?,
    _=>sql(super::super::sync::mark_retry(&tx,&row.id,if delivery=="unknown"{"backend result Unknown; same event UUID retained"}else{"backend temporarily unavailable"},row.attempts,now))?,
   }
+  if row.entity_type=="overlay-geometry"&&matches!(delivery,"unknown"|"retryable"){sql(tx.execute("UPDATE sync_outbox SET next_attempt_at='9999-12-31T23:59:59+00:00' WHERE id=?1",[&row.id]))?;}
   let revision:u64=sql(tx.query_row("SELECT value FROM pc_tx_epoch WHERE id=1",[],|r|r.get(0)))?;
   let doc=encode(&serde_json::json!({"family":"outbox-state-v1","id":row.id,"delivery":delivery,"revision":revision}))?;
   Self::sync_receipt(&tx,&key,&identity,&doc)?;sql(tx.commit())
@@ -321,6 +384,23 @@ mod sync_bookkeeping_tests {
   let mut pin=Pin{package,lease,session:None};adapter.initialize_sync(&mut c,&pin).unwrap();assert!(store::find_open_session(&c).unwrap().is_none());
   let now=Utc::now()+chrono::Duration::seconds(1);if create{pin.session=adapter.external_lifecycle(&mut c,&pin,Some(true),None,now,false).unwrap().session;}
   (root,c,adapter,pin,now+chrono::Duration::seconds(1))
+ }
+ #[test]fn quiz_geometry_outbox_keeps_one_identity_and_uses_the_existing_delivery_recovery(){
+  let(_root,mut c,mut adapter,pin,now)=ready_with_session(false);
+  let geometry=QuizGeometry{round_id:uuid::Uuid::new_v4().to_string(),interactive_regions:vec![QuizRegion{id:"option-a".into(),value:"option-a".into(),x:0.1,y:0.2,width:0.3,height:0.1}]};
+  let id=adapter.queue_quiz_geometry(&mut c,&pin,&geometry,now).unwrap();assert_eq!(adapter.queue_quiz_geometry(&mut c,&pin,&geometry,now).unwrap(),id);
+  let row=adapter.pending_sync(&mut c,&pin,now).unwrap().unwrap();assert_eq!(row.id,id);assert_eq!(row.event_type,"quiz_geometry");
+  adapter.settle_sync(&mut c,&pin,&row,"unknown",now).unwrap();assert_eq!(sync::outbox_status(&c).unwrap().unknown_delivery_count,1);
+  assert_eq!(adapter.queue_quiz_geometry(&mut c,&pin,&geometry,now).unwrap_err(),"quiz_geometry_unknown");
+  assert!(adapter.pending_sync(&mut c,&pin,now+chrono::Duration::minutes(10)).unwrap().is_none());
+  let mut changed=geometry.clone();changed.interactive_regions[0].x=0.2;assert_eq!(adapter.queue_quiz_geometry(&mut c,&pin,&changed,now).unwrap_err(),"quiz_geometry_unknown");
+  adapter.expire_quiz_geometry(&mut c,&pin,Some(&geometry.round_id),now).unwrap();assert_eq!(sync::outbox_status(&c).unwrap().unknown_delivery_count,1);
+  adapter.expire_quiz_geometry(&mut c,&pin,None,now).unwrap();assert_eq!(sync::outbox_status(&c).unwrap().unknown_delivery_count,0);
+  assert!(adapter.pending_sync(&mut c,&pin,now+chrono::Duration::minutes(10)).unwrap().is_none());
+  assert_eq!(adapter.queue_quiz_geometry(&mut c,&pin,&geometry,now).unwrap_err(),"quiz_round_expired");
+  let key=format!("quiz-geometry:{}",hash(&encode(&geometry).unwrap()));c.execute("UPDATE pc_tx_receipts SET checksum=?2 WHERE operation_key=?1",params![key,"0".repeat(64)]).unwrap();
+  assert_eq!(adapter.queue_quiz_geometry(&mut c,&pin,&geometry,now).unwrap_err(),"receipt_corrupt");
+  assert!(store::find_open_session(&c).unwrap().is_none());let mut invalid=geometry.clone();invalid.interactive_regions[0].x=1.1;assert_eq!(adapter.queue_quiz_geometry(&mut c,&pin,&invalid,now).unwrap_err(),"quiz_geometry_invalid");
  }
  #[test]
  fn quiz_scene_outbox_is_atomic_deduplicated_and_does_not_create_a_session(){
