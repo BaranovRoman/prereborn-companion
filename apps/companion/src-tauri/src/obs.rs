@@ -70,6 +70,18 @@ impl Default for ObsConfig {
 }
 
 impl ObsConfig {
+    /// Temporary legacy-config projection during extraction. No credentials or
+    /// game enum are included in the host's public resource contract.
+    pub(crate) fn plugin_bindings(&self)->std::collections::BTreeMap<String,String>{
+        [("betweenMatches".into(),self.between_matches_scene.clone()),("draft".into(),self.draft_scene.clone()),("gameplay".into(),self.gameplay_scene.clone()),("postStream".into(),self.post_stream_scene.clone())].into()
+    }
+    pub(crate) fn plugin_revision(&self)->String{
+        use sha2::{Digest,Sha256};
+        format!("{:x}",Sha256::digest(serde_json::to_vec(&(self.enabled,&self.host,self.port,self.plugin_bindings())).expect("serializable OBS mappings")))
+    }
+    pub(crate) fn same_transport(&self,other:&Self)->bool{
+        self.host==other.host&&self.port==other.port&&self.password==other.password&&self.enabled==other.enabled&&self.plugin_bindings()==other.plugin_bindings()
+    }
     pub fn mapped_scene_names(&self) -> [&str; 4] {
         [
             self.between_matches_scene.as_str(),
@@ -176,18 +188,13 @@ fn resolve_desired_scene(
     manual_summary_override: bool,
     post_stream_unavailable: bool,
 ) -> BroadcastScene {
-    let canonical = broadcast_state::resolve(requested, session_ended, manual_summary_override);
-    if canonical == BroadcastScene::PostStream && post_stream_unavailable {
-        BroadcastScene::BetweenMatches
-    } else {
-        canonical
-    }
+    companion_dota_domain::obs_policy::resolve(requested,session_ended,manual_summary_override,post_stream_unavailable)
 }
 
 const RECOVERY_TICK: Duration = Duration::from_secs(1);
 
 fn retry_delay(attempt: u32) -> Duration {
-    Duration::from_secs(2_u64.saturating_pow(attempt.min(5)).min(30))
+    Duration::from_secs(companion_dota_domain::obs_policy::retry_seconds(attempt))
 }
 
 pub fn init(app: AppHandle) {

@@ -62,9 +62,13 @@ pub(crate) fn set_program_scene_before(config:&ConnectionSettings<'_>,desired:&s
 /// confirms desired state, never exactly-once command delivery. Cached state,
 /// write ACK alone and blind retry cannot establish this result.
 pub(crate) fn reconcile_scene(desired:&str,mut observe:impl FnMut()->Result<String,String>,mut switch:impl FnMut()->Result<(),String>)->bool{
-    match observe(){Ok(scene) if scene==desired=>return true,Err(_)=>return false,_=>()}
+    reconcile_scene_status(desired,&mut observe,&mut switch)==companion_plugin_protocol::audio::Status::Completed
+}
+pub(crate) fn reconcile_scene_status(desired:&str,mut observe:impl FnMut()->Result<String,String>,mut switch:impl FnMut()->Result<(),String>)->companion_plugin_protocol::audio::Status{
+    use companion_plugin_protocol::audio::Status;
+    match observe(){Ok(scene) if scene==desired=>return Status::Completed,Err(_)=>return Status::Cancelled,_=>()}
     let _=switch();
-    matches!(observe(),Ok(scene) if scene==desired)
+    if matches!(observe(),Ok(scene) if scene==desired){Status::Completed}else{Status::Unknown}
 }
 
 pub(crate) fn read_json(socket: &mut ObsSocket) -> Result<Value, String> {
@@ -324,6 +328,7 @@ mod tests {
     }
     #[test]
     fn reconciliation_never_trusts_write_ack_or_cached_state_or_retries_an_ambiguous_write(){
+        assert_eq!(reconcile_scene_status("desired",||Err("not connected before any write".into()),||panic!("blind write")),companion_plugin_protocol::audio::Status::Cancelled);
         assert!(!reconcile_scene("desired",||Err("unreachable".into()),||panic!("blind write")));
         assert!(reconcile_scene("desired",||Ok("desired".into()),||panic!("duplicate write")));
         let mut observations=[Ok("other".into()),Ok("desired".into())].into_iter();let mut writes=0;

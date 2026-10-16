@@ -14,13 +14,13 @@ impl ProcessGrant for Pin{
  fn permits(&self,cap:&str)->bool{self.permissions.iter().any(|p|p==cap)}
 }
 #[derive(Clone)]
-pub(super) struct WorkerProcess{pin:Pin,binding:ProcessBinding,epoch:u64,root:PathBuf,active:bool,polling:Arc<AtomicBool>,stream_observation:Arc<Mutex<Option<companion_plugin_protocol::obs::StreamObservation>>>,effect_context:Arc<Mutex<Option<Option<String>>>>}
+pub(super) struct WorkerProcess{pin:Pin,binding:ProcessBinding,epoch:u64,root:PathBuf,active:bool,polling:Arc<AtomicBool>,stream_observation:Arc<Mutex<Option<companion_plugin_protocol::obs::StreamObservation>>>,effect_context:Arc<Mutex<Option<Option<String>>>>,scene_receipt:Arc<Mutex<Option<companion_plugin_protocol::obs::SceneReceipt>>>,scene_observation:Arc<Mutex<Option<companion_plugin_protocol::obs::SceneObservation>>>}
 struct Task{worker:WorkerProcess,host:PluginHost,app:tauri::AppHandle,audio:Arc<HostAudio>}
 struct PollGuard(Arc<AtomicBool>);
 impl Drop for PollGuard{fn drop(&mut self){self.0.store(false,Ordering::SeqCst);}}
 #[derive(Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
-struct Batch{status:Value,sound_intents:Vec<SoundIntent>}
+struct Batch{status:Value,sound_intents:Vec<SoundIntent>,#[serde(default)]scene_intent:Option<companion_plugin_protocol::obs::SceneIntent>}
 #[derive(Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 struct SoundIntent{operation_key:String,asset_file:String,volume:u8,deadline_ms:u64,context:Option<String>}
@@ -67,7 +67,7 @@ impl Service{
    audio.process_after_native_exit(&process,epoch)?;return Err(error);
   }
   drop(runtime);
-  self.workers.insert(id.into(),WorkerProcess{pin,binding:process,epoch,root,active:false,polling:Default::default(),stream_observation:Default::default(),effect_context:Default::default()});self.manifests.insert(id.into(),manifest);Ok(())
+  self.workers.insert(id.into(),WorkerProcess{pin,binding:process,epoch,root,active:false,polling:Default::default(),stream_observation:Default::default(),effect_context:Default::default(),scene_receipt:Default::default(),scene_observation:Default::default()});self.manifests.insert(id.into(),manifest);Ok(())
  }
  pub(super) fn prepare_worker(&mut self,id:&str)->Result<(),String>{
   self.open_worker(id)?;
@@ -135,6 +135,44 @@ impl Service{
  }
 }
 impl Task{
+ fn scene_observation(&self)->Result<Option<companion_plugin_protocol::obs::SceneObservation>,String>{
+  use companion_plugin_protocol::obs::{SceneObservation,StreamObservation};use tauri::Manager;use std::time::{Instant,Duration,SystemTime,UNIX_EPOCH};
+  if !self.worker.pin.permits("obs.scene"){return Ok(None);}
+  let config={let state=self.app.state::<crate::state::AppState>();let inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;inner.obs_config.clone()};
+  let now=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_|"clock_unavailable")?.as_millis() as u64;
+  let mut cached=self.worker.scene_observation.lock().map_err(|_|"obs_observation_poisoned")?;
+  let revision=config.plugin_revision();
+  if let Some(obs)=cached.as_ref().filter(|s|s.config_revision==revision&&now>=s.observed_at_ms&&now-s.observed_at_ms<1000){return Ok(Some(obs.clone()));}
+  let connection=super::super::obs_transport::ConnectionSettings{host:&config.host,port:config.port,password:&config.password};
+  let snapshot=super::super::obs_transport::snapshot_before(&connection,Instant::now()+Duration::from_millis(500)).ok();
+  let unchanged={let state=self.app.state::<crate::state::AppState>();let inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;inner.obs_config.same_transport(&config)};
+  let snapshot=snapshot.filter(|_|unchanged);
+  let observed_at_ms=SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_|"clock_unavailable")?.as_millis() as u64;
+  let observation=SceneObservation{observed_at_ms,config_revision:revision,enabled:config.enabled,bindings:config.plugin_bindings(),current_scene:snapshot.as_ref().map(|s|s.current_scene.clone()),scenes:snapshot.as_ref().map(|s|s.scenes.clone()).unwrap_or_default(),streaming:snapshot.map(|s|s.streaming)};
+  observation.validate()?;
+  *self.worker.stream_observation.lock().map_err(|_|"obs_observation_poisoned")?=Some(StreamObservation{observed_at_ms,streaming:observation.streaming});
+  *cached=Some(observation.clone());Ok(Some(observation))
+ }
+ fn scene_intent(&self,intent:&companion_plugin_protocol::obs::SceneIntent,context:Option<&str>)->Result<companion_plugin_protocol::obs::SceneReceipt,String>{
+  use tauri::Manager;use std::time::{Instant,Duration};use companion_plugin_protocol::{obs::SceneReceipt,audio::Status};
+  if !self.worker.pin.permits("obs.scene")||intent.operation_key.is_empty()||intent.operation_key.len()>128||intent.context.as_deref()!=context{return Err("invalid_scene_intent".into());}
+  self.audio.locked_authorize(&self.worker.binding,self.worker.epoch)?;
+  let config={let state=self.app.state::<crate::state::AppState>();let inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;inner.obs_config.clone()};
+  if !config.enabled||config.plugin_revision()!=intent.config_revision{return Err("obs_configuration_changed".into());}
+  let mappings=config.plugin_bindings();let name=mappings.get(&intent.semantic).filter(|s|!s.is_empty()).ok_or("obs_semantic_denied")?;
+  let key=format!("{}:{}",self.worker.binding.generation,packages::hash(&serde_json::to_vec(intent).map_err(|_|"invalid_scene_intent")?));
+  let receipt=self.audio.scene(&self.worker.pin,&self.worker.binding,self.worker.epoch,&key,name,|may_write|{
+   let deadline=Instant::now()+Duration::from_millis(1500);
+   let connection=super::super::obs_transport::ConnectionSettings{host:&config.host,port:config.port,password:&config.password};
+   let status=if may_write{super::super::obs_transport::reconcile_scene_status(name,||super::super::obs_transport::program_scene_before(&connection,deadline),||super::super::obs_transport::set_program_scene_before(&connection,name,deadline))}
+    else{if super::super::obs_transport::program_scene_before(&connection,deadline).is_ok_and(|current|current==*name){Status::Completed}else{Status::Unknown}};
+   let state=self.app.state::<crate::state::AppState>();let inner=state.0.lock().map_err(|_|"obs_state_poisoned")?;
+   Ok(if inner.obs_config.same_transport(&config){status}else{Status::Unknown})
+  })?;
+  // Queued/playing do not describe a synchronous scene operation.
+  if !matches!(receipt.status,Status::Completed|Status::Unknown|Status::Cancelled){return Err("obs_receipt_invalid".into());}
+  Ok(SceneReceipt{operation_key:intent.operation_key.clone(),status:receipt.status})
+ }
  fn stream_observation(&self)->Result<companion_plugin_protocol::obs::StreamObservation,String>{
   use companion_plugin_protocol::obs::StreamObservation;
   use std::time::{Instant,Duration,SystemTime,UNIX_EPOCH};
@@ -161,9 +199,11 @@ impl Task{
   let worker=&self.worker;
   // OBS IO is outside both process command and history locks. An unavailable
   // transport supplies None; it can never fabricate an authoritative stop.
+  let scene_observation=self.scene_observation()?;
   let observation=self.stream_observation()?;
   let mut runtime=self.host.0.lock().map_err(|_|locked())?;
-  let args=serde_json::json!({"streamObservation":observation});
+  let scene_receipt=worker.scene_receipt.lock().map_err(|_|"obs_receipt_poisoned")?.take();
+  let args=serde_json::json!({"streamObservation":observation,"sceneObservation":scene_observation,"sceneReceipt":scene_receipt});
   let value=if worker.pin.permits("backend.access"){
    runtime.command_verified_reader(&worker.pin,&worker.binding,args,|value|{
     use companion_plugin_protocol::backend::{Request,Response};
@@ -189,6 +229,12 @@ impl Task{
    self.audio.reopen(&worker.pin.package.id)?;
   }
   *previous=Some(next_context);drop(previous);
+  if let Some(intent)=batch.scene_intent{
+   let receipt=self.scene_intent(&intent,context)?;
+   let blocked=receipt.status==companion_plugin_protocol::audio::Status::Unknown;
+   *worker.scene_receipt.lock().map_err(|_|"obs_receipt_poisoned")?=Some(receipt);
+   if blocked{return Ok(());}
+  }
   for sound in batch.sound_intents{
    if stopping.load(Ordering::SeqCst){return Err("core_shutdown".into());}
    if sound.operation_key.is_empty()||sound.operation_key.len()>128||sound.context.as_ref().is_some_and(|s|s.is_empty()||s.len()>128){return Err("invalid_sound_intent".into());}

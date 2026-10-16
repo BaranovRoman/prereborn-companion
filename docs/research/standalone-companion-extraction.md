@@ -351,3 +351,29 @@ native Dota/OBS/audio smoke. Server Postgres tests were inspected, not executed 
 Remaining work includes OBS policy/effects, backend corrections/overlay controls,
 draft reminder/hotkeys, host/WebView crash fencing, safe retention and physical core
 extraction before signing/publishing a complete standalone release.
+
+## Worker OBS execution checkpoint (2026-10-16)
+
+The installed worker now computes scene intents from its actual broadcast/session
+state and fresh public OBS observations. Original precedence, optional missing
+Post Stream fallback and retry delay are canonical domain functions reused by the
+legacy adapter, not copied algorithms. Manual scene changes and reconnect/config
+updates are compared with authoritative state; no per-snapshot keys are generated
+when the desired scene already matches. An unresolved operation retains its exact
+identity rather than becoming another switch. Credentials remain in the core.
+
+Host execution binds semantic mapping, config revision, process generation, epoch
+and the last committed opaque context. It commits the existing transport ledger
+admission before OBS IO and returns a typed correlated receipt on the next poll.
+IO runs without history/ledger mutexes; the process command lock serializes stop
+and other commands. An initial failed observation means Cancelled before a write;
+an uncertain write means Unknown. Unknown retry only observes fresh program-scene
+truth, never resends a command. Config/context disagreement remains fail-closed.
+The UI explicitly surfaces uncertain OBS state even while the worker is active.
+
+Targeted checks: 2 worker scene-policy tests; 37 existing OBS tests; 4 actual local
+WebSocket transport tests; 7 host audio/scene durable-identity tests; 10 protocol
+and 8 real-process macOS IPC tests; 9 independent UI tests/TypeScript; core check.
+Windows supervised fixture was extended with correlated scene receipt handling
+and Unknown identity retention; its next CI run is pending. This is not native
+OBS/game/audio smoke. Startup attachment still waits for the physical BuiltIn cut.

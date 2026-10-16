@@ -1,6 +1,29 @@
 //! Public OBS observations supplied by the credential-owning host. No account,
 //! connection settings, scene policy or game/session identity crosses this API.
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+/// Semantic mappings and fresh public transport truth only. Credentials remain
+/// in Companion. Plugins choose their own semantics, not a websocket method.
+#[derive(Clone,Debug,Serialize,Deserialize)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+pub struct SceneObservation{
+ pub observed_at_ms:u64,pub config_revision:String,pub enabled:bool,
+ pub bindings:BTreeMap<String,String>,pub current_scene:Option<String>,pub scenes:Vec<String>,pub streaming:Option<bool>,
+}
+impl SceneObservation{
+ pub fn fresh(&self,now:u64)->bool{now>=self.observed_at_ms&&now-self.observed_at_ms<=3000}
+ pub fn validate(&self)->Result<(),String>{
+  let name=|s:&str|!s.is_empty()&&s.len()<=256&&!s.chars().any(char::is_control);
+  if self.config_revision.len()!=64||!self.config_revision.bytes().all(|b|b.is_ascii_hexdigit())||self.bindings.len()>16||self.bindings.iter().any(|(k,v)|k.is_empty()||k.len()>64||!k.bytes().all(|b|b.is_ascii_alphanumeric()||b==b'-')||(!v.is_empty()&&!name(v)))||self.scenes.len()>128||self.scenes.iter().any(|s|!name(s))||self.current_scene.as_ref().is_some_and(|s|!name(s)){return Err("obs_observation_invalid".into());}Ok(())
+ }
+}
+#[derive(Clone,Debug,Serialize,Deserialize,PartialEq)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+pub struct SceneIntent{pub operation_key:String,pub semantic:String,pub config_revision:String,pub context:Option<String>}
+#[derive(Clone,Debug,Serialize,Deserialize)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+pub struct SceneReceipt{pub operation_key:String,pub status:crate::audio::Status}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

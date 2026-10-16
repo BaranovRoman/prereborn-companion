@@ -62,6 +62,24 @@ impl HostAudio{
   Ok(admission.receipt)
  }
  pub(crate) fn owns(&self,token:&Token)->bool{self.binding(token).is_ok()}
+ /// IO runs without the ledger mutex. The process command lock serializes
+ /// this call with stop/reconfigure. A saved Unknown is observation-only.
+ pub(crate) fn scene(&self,pin:&impl ProcessGrant,process:&ProcessBinding,epoch:u64,key:&str,name:&str,execute:impl FnOnce(bool)->Result<Status,String>)->Result<store::Receipt,String>{
+  let action=store::Action::Scene{name:name.into()};
+  if !pin.permits(action.permission())||pin.binding()!=&process.package{return Err("capability_denied".into());}
+  let admission={let mut ledger=self.locked()?;ledger.authorize(process,epoch)?;
+   if let Some(receipt)=ledger.lookup(&process.package.id,key)?{
+    if receipt.process!=process.into()||receipt.action!=action{return Err("idempotency_conflict".into());}
+    if matches!(receipt.status,Status::Completed|Status::Cancelled){return Ok(receipt);}
+    store::Admission{fresh:false,receipt}
+   }else{
+    if ledger.uncertain_for(&process.package.id)?{return Err("unknown_effects_require_explicit_reconciliation".into());}
+    ledger.admit(process,key,action,None)?
+   }
+  };
+  let status=execute(admission.fresh).unwrap_or(Status::Unknown);
+  self.locked()?.scene_result(process,epoch,key,status)
+ }
  pub(crate) fn ack(&self,token:Token,status:Status)->Result<(),String>{
   let mut ledger=self.locked()?;
   let (registry,qualified)=self.binding(&token)?;
@@ -100,11 +118,27 @@ mod tests{
  impl ProcessGrant for Pin{
   fn binding(&self)->&companion_plugin_protocol::PackageBinding{&self.binding}
   fn executable(&self)->&Path{Path::new("verified-by-manager")}
-  fn permits(&self,cap:&str)->bool{self.allowed&&cap=="audio.play"}
+  fn permits(&self,cap:&str)->bool{self.allowed&&matches!(cap,"audio.play"|"obs.scene")}
  }
  fn pin()->(Pin,ProcessBinding){
   let binding=companion_plugin_protocol::PackageBinding{id:"example".into(),version:"1.0.0".into(),executable_hash:"a".repeat(64),manifest_hash:"b".repeat(64)};
   (Pin{binding:binding.clone(),allowed:true},ProcessBinding{generation:uuid::Uuid::new_v4().to_string(),package:binding})
+ }
+ #[test]
+ fn uncertain_scene_is_observation_only_on_retry_and_actual_truth_is_required_before_new_effects(){
+  let root=tempfile::tempdir().unwrap();let audio=HostAudio::open(&root.path().join("transport.sqlite3")).unwrap();let (pin,process)=pin();
+  let epoch=audio.reserve_process(&process).unwrap().epoch;audio.process_ready(&process,epoch).unwrap();
+  let cancelled=audio.scene(&pin,&process,epoch,"scene:offline","Gameplay",|may_write|{assert!(may_write);Ok(Status::Cancelled)}).unwrap();assert_eq!(cancelled.status,Status::Cancelled);
+  let first=audio.scene(&pin,&process,epoch,"scene:1","Gameplay",|may_write|{assert!(may_write);assert_eq!(audio.receipt("example","scene:1")?.unwrap().status,Status::Unknown);Ok(Status::Unknown)}).unwrap();
+  assert_eq!(first.status,Status::Unknown);assert!(first.uncertain);
+  assert!(audio.scene(&pin,&process,epoch,"scene:2","Draft",|_|panic!("new write after Unknown")).is_err());
+  let second=audio.scene(&pin,&process,epoch,"scene:1","Gameplay",|may_write|{assert!(!may_write);Err("authoritative probe unavailable".into())}).unwrap();assert_eq!(second.status,Status::Unknown);
+  assert!(audio.scene(&pin,&process,epoch,"scene:1","Gameplay",|may_write|{assert!(!may_write);Ok(Status::Cancelled)}).is_err());
+  assert!(audio.scene(&pin,&process,epoch+1,"scene:1","Gameplay",|_|panic!("stale epoch")).is_err());
+  assert!(audio.scene(&pin,&process,epoch,"scene:1","Other",|_|panic!("payload conflict")).is_err());
+  let reconciled=audio.scene(&pin,&process,epoch,"scene:1","Gameplay",|may_write|{assert!(!may_write);Ok(Status::Completed)}).unwrap();assert_eq!(reconciled.status,Status::Completed);
+  assert_eq!(audio.scene(&pin,&process,epoch,"scene:1","Gameplay",|_|panic!("completed re-executed")).unwrap().status,Status::Completed);
+  assert_eq!(audio.scene(&pin,&process,epoch,"scene:2","Draft",|may_write|{assert!(may_write);Ok(Status::Completed)}).unwrap().status,Status::Completed);
  }
  #[test]
  fn actual_transport_commits_before_emit_preserves_receipt_after_asset_removal_and_requires_frontend_completion(){

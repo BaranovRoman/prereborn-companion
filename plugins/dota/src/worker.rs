@@ -44,12 +44,12 @@ fn retain_context(sounds:&mut Vec<SoundIntent>,context:Option<&str>)->u64{
 
 #[derive(Default,Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
-struct PollContext{stream_observation:Option<companion_plugin_protocol::obs::StreamObservation>}
+struct PollContext{stream_observation:Option<companion_plugin_protocol::obs::StreamObservation>,scene_observation:Option<companion_plugin_protocol::obs::SceneObservation>,scene_receipt:Option<companion_plugin_protocol::obs::SceneReceipt>}
 
 pub struct Worker {
  launch:Launch, history:Option<History>, listener:Option<Listener>, pipeline:Pipeline,
  overlay:Option<crate::overlay::server::Server>,last_overlay_at:Option<std::time::Instant>,scene:companion_dota_domain::broadcast_state::BroadcastState,
- selected_directory:Option<PathBuf>,
+ selected_directory:Option<PathBuf>,obs:crate::obs::Controller,
  dropped_sound_intents:u64,
  last_lifecycle_at:Option<std::time::Instant>,last_watchdog_at:Option<std::time::Instant>,stream_ended:bool,streaming:Option<bool>,
  next_account_at:Option<std::time::Instant>,account_request_sequence:u64,account_failures:u32,backend_error:Option<String>,account:Option<Value>,
@@ -59,11 +59,11 @@ pub struct Worker {
  last_error:Option<String>, processed:u64, last_sequence:Option<u64>, last_analysis:Option<Value>,last_gsi:Option<Value>,last_receipt:Option<companion_dota_domain::match_execution::Receipt>,
 }
 impl Worker {
- pub fn new(launch:Launch)->Self{Self{launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,dropped_sound_intents:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,next_sync_at:None,pending_sync:None,backend_updates:0,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
+ pub fn new(launch:Launch)->Self{Self{launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,obs:Default::default(),dropped_sound_intents:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,next_sync_at:None,pending_sync:None,backend_updates:0,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
  pub fn status(&self)->Value{
   let history=self.history.as_ref();let active=history.is_some_and(History::active);
   json!({"prepared":history.is_some(),"active":active,"awaitingSession":active&&history.and_then(History::session).is_none(),
-   "session":history.and_then(History::session),"epoch":history.and_then(History::epoch),"lastError":self.last_error,"streaming":self.streaming,"streamEnded":self.stream_ended,"backendError":self.backend_error,"backendUpdates":self.backend_updates,
+   "session":history.and_then(History::session),"epoch":history.and_then(History::epoch),"lastError":self.last_error,"streaming":self.streaming,"streamEnded":self.stream_ended,"obsError":self.obs.error,"obsReceipt":self.obs.last_receipt,"backendError":self.backend_error,"backendUpdates":self.backend_updates,
    "gsi":self.listener.as_ref().map(|l|json!(l.status())).or(self.last_gsi.clone()),"processed":self.processed,"lastSequence":self.last_sequence,"analysis":self.last_analysis,
    "receipt":self.last_receipt,"context":self.effect_context(),"droppedSoundIntents":self.dropped_sound_intents,"detectedSounds":self.detected_sounds,"plannedSounds":self.planned_sounds,"lastSoundSignal":self.last_sound_signal,"lastSoundOperation":self.last_sound_operation,"overlay":self.overlay.as_ref().map(|s|json!({"running":!s.closed(),"clients":s.clients()}))})
  }
@@ -206,6 +206,7 @@ impl Worker {
   Ok(())
  }
  fn poll(&mut self,context:PollContext)->Result<Value,String>{
+  if let Some(receipt)=context.scene_receipt{let now=u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_|"clock_unavailable")?;self.obs.receipt(receipt,now)?;}
   if self.overlay.as_ref().is_some_and(|s|s.closed()){return Err(self.close_after_error("overlay_listener_failed".into()));}
   if let Some(listener)=self.listener.as_ref().filter(|l|l.failed()||l.status().rejected>0){
    let code=listener.status().last_error.unwrap_or("gsi_admission_failed").to_string();return Err(self.close_after_error(code));
@@ -221,7 +222,12 @@ impl Worker {
     Err(error)=>return Err(self.close_after_error(error)),
    }
   }
-  let before=self.processed;let result=self.frames();
+  let before=self.processed;let mut result=self.frames();
+  if let Ok(batch)=&mut result{
+   let effect_context=self.effect_context();
+   let intent=if self.launch.capabilities.iter().any(|c|c=="obs.scene")&&self.history.as_ref().is_some_and(History::active){self.obs.plan(context.scene_observation.as_ref(),self.scene,self.stream_ended,false,effect_context.as_deref(),now_ms)?}else{None};
+   batch["sceneIntent"]=serde_json::to_value(intent).map_err(|_|"obs_intent_encoding_failed")?;batch["status"]=self.status();
+  }
   if result.is_ok()&&self.overlay.is_some()&&(before!=self.processed||self.last_overlay_at.is_none_or(|at|at.elapsed()>=std::time::Duration::from_secs(1))){
    if let Err(error)=self.publish_overlay(){return Err(self.close_after_error(error));}
   }

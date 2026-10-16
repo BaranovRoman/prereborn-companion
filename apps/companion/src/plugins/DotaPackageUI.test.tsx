@@ -20,6 +20,13 @@ beforeEach(()=>{
 });
 afterEach(()=>{cleanup();vi.clearAllMocks();});
 describe("installed Dota package UI",()=>{
+  it("does not hide an uncertain OBS effect behind the active worker state",async()=>{
+    const previous=mocks.invoke.getMockImplementation()!;
+    mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>name==="status"?{prepared:true,active:true,awaitingSession:true,obsError:"obs_result_unknown_requires_authoritative_reconciliation",lastError:null}:previous(name,...args));
+    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});
+    expect((await screen.findByRole("alert")).textContent).toContain("obs_result_unknown_requires_authoritative_reconciliation");
+    expect(screen.getByText(/Ожидание игровой сессии/)).toBeTruthy();
+  });
   it("shows persisted uncertain delivery without claiming that history was sent",async()=>{
     const previous=mocks.invoke.getMockImplementation()!;
     mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>name==="history.sync"?{pendingCount:2,retryingCount:1,failedCount:0,unknownDeliveryCount:1}:previous(name,...args));

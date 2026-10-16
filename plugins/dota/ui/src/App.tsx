@@ -51,6 +51,7 @@ export function Dota() {
       {status?.gsi&&<span>{status.processed} кадров обработано</span>}</header>
     <nav aria-label="Разделы Dota">{[["heroes","Герои"],["items","Предметы"],["history","История"],["settings","Настройки"]].map(([key,title])=><button aria-current={tab===key?"page":undefined} key={key} onClick={()=>{setTab(key);setError(null);}}>{title}</button>)}</nav>
     {(error||status?.lastError)&&<p role="alert">{error??status?.lastError}</p>}
+    {status?.obsError&&<p role="alert">OBS: {status.obsError}. Выполнение игровых сцен не подтверждено.</p>}
     {!catalog||!settings?<p role="status">Чтение каталога и сохранённых настроек…</p>:<>
       {tab==="heroes"&&(hero?<section><button onClick={()=>setHero(null)}>← Все герои</button><h2>{hero.displayName}</h2>
         <div className="abilities">{hero.abilities.map(ability=><article key={ability.id}><img src={ability.iconUrl} alt="" width={56} height={56}/><h3>{ability.displayName}</h3>

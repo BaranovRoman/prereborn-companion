@@ -147,6 +147,25 @@ fn supervised_worker_accepts_fresh_demo_and_bot_gsi_without_obs_and_reopens_the_
 }
 #[cfg(windows)]
 #[test]
+fn supervised_worker_keeps_uncertain_scene_identity_and_consumes_only_correlated_host_receipts(){
+    use companion_plugin_protocol::{obs::{SceneObservation,SceneReceipt},audio::Status};
+    let root=tempfile::tempdir().unwrap();let (mut runtime,pin,binding)=launch_bound_worker(root.path(),&["ui","data.legacy","obs.scene"]);
+    runtime.command_verified(&pin,&binding,"host.prepare".into(),json!({})).unwrap();runtime.command_verified(&pin,&binding,"host.activate".into(),json!({})).unwrap();
+    let now=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64;
+    let mut observation=SceneObservation{observed_at_ms:now,config_revision:"a".repeat(64),enabled:true,bindings:[("betweenMatches".into(),"Idle".into())].into(),current_scene:Some("Manual".into()),scenes:vec!["Idle".into(),"Manual".into()],streaming:Some(false)};
+    let first=runtime.command_verified(&pin,&binding,"host.poll".into(),json!({"sceneObservation":observation})).unwrap();assert_eq!(first["sceneIntent"]["semantic"],"betweenMatches");assert_eq!(first["status"]["session"],serde_json::Value::Null);
+    let key=first["sceneIntent"]["operationKey"].as_str().unwrap().to_string();
+    let uncertain=runtime.command_verified(&pin,&binding,"host.poll".into(),json!({"sceneObservation":observation,"sceneReceipt":SceneReceipt{operation_key:key.clone(),status:Status::Unknown}})).unwrap();
+    assert_eq!(uncertain["sceneIntent"],first["sceneIntent"]);assert_eq!(uncertain["status"]["obsReceipt"]["status"],"unknown");
+    observation.current_scene=Some("Idle".into());
+    let confirmed=runtime.command_verified(&pin,&binding,"host.poll".into(),json!({"sceneObservation":observation,"sceneReceipt":SceneReceipt{operation_key:key,status:Status::Completed}})).unwrap();
+    assert_eq!(confirmed["sceneIntent"],serde_json::Value::Null);assert_eq!(confirmed["status"]["obsError"],serde_json::Value::Null);
+    assert_eq!(confirmed["status"]["session"],serde_json::Value::Null);
+    assert!(runtime.command_verified(&pin,&binding,"host.poll".into(),json!({"sceneReceipt":{"operationKey":"forged","status":"completed"}})).unwrap_err().starts_with("obs_receipt_scope_mismatch"));
+    runtime.command_verified(&pin,&binding,"host.stop".into(),json!({})).unwrap();runtime.stop().unwrap();runtime.stopped_confirmed().unwrap();
+}
+#[cfg(windows)]
+#[test]
 fn supervised_worker_bootstraps_account_and_recovers_unknown_outbox_delivery_through_existing_reverse_ipc(){
     let root=tempfile::tempdir().unwrap();let caps=["ui","data.legacy","backend.access","obs.scene"];let(mut runtime,pin,binding)=launch_bound_worker(root.path(),&caps);
     runtime.command("host.prepare".into(),json!({})).unwrap();runtime.command("host.activate".into(),json!({})).unwrap();

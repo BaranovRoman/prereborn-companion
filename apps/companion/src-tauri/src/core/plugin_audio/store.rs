@@ -209,6 +209,15 @@ impl Store {
   sql(tx.execute("INSERT INTO transport_effects VALUES(?1,?2,?3,?4,?5)",params![process.package.id,operation_key,identity,doc,hash(&doc)]))?;
   sql(tx.commit())?;Ok(Admission{fresh:true,receipt})
  }
+ pub fn scene_result(&mut self,process:&ProcessBinding,epoch:u64,key:&str,status:Status)->Result<Receipt>{
+  if !matches!(status,Status::Completed|Status::Cancelled|Status::Unknown){return Err("scene_result_invalid".into());}
+  let tx=sql(self.conn.transaction_with_behavior(TransactionBehavior::Immediate))?;Self::authorize_in(&tx,process,Some(epoch))?;
+  let (doc,checksum):(String,String)=sql(tx.query_row("SELECT CASE WHEN length(CAST(receipt AS BLOB))<=4096 THEN receipt ELSE NULL END,checksum FROM transport_effects WHERE plugin=?1 AND operation_key=?2",params![process.package.id,key],|r|Ok((r.get(0)?,r.get(1)?))))?;
+  let mut receipt=Self::decode(&doc,&checksum)?;
+  if receipt.process!=process.into()||receipt.operation_key!=key||!matches!(receipt.action,Action::Scene{..})||receipt.playback.is_some(){return Err("scene_scope_mismatch".into());}
+  if !matches!(receipt.status,Status::Completed|Status::Cancelled){if receipt.uncertain&&status==Status::Cancelled{return Err("uncertain_scene_not_cancelled".into());}receipt.status=status;receipt.uncertain=status==Status::Unknown;Self::write(&tx,&receipt)?;}
+  sql(tx.commit())?;Ok(receipt)
+ }
  pub fn audio_ack(&mut self,plugin:&str,key:&str,token:&Token,status:Status)->Result<Receipt>{
   let tx=sql(self.conn.transaction_with_behavior(TransactionBehavior::Immediate))?;
   let (doc,checksum):(String,String)=sql(tx.query_row("SELECT CASE WHEN length(CAST(receipt AS BLOB))<=4096 THEN receipt ELSE NULL END,checksum FROM transport_effects WHERE plugin=?1 AND operation_key=?2",params![plugin,key],|r|Ok((r.get(0)?,r.get(1)?))))?;

@@ -213,7 +213,8 @@ impl Runtime {
     pub fn command_verified(&mut self,pin:&impl crate::ProcessGrant,binding:&ProcessBinding,name:String,args:Value)->Result<Value,String>{
         self.poll();
         if self.process.as_ref()!=Some(binding)||&binding.package!=pin.binding()||!pin.permits("ui"){return Err("process_binding_denied".into());}
-        self.command_with_handlers(name,args,&mut |_|Err("capability_denied".into()),None,Some(8192),false)
+        let limit=if name=="host.poll"{32768}else{8192};
+        self.command_with_handlers(name,args,&mut |_|Err("capability_denied".into()),None,Some(limit),false)
     }
     /// One bounded reverse resource request, only during the host's poll and
     /// only for this exact verified generation. UI commands cannot install a
@@ -221,7 +222,7 @@ impl Runtime {
     pub fn command_verified_reader(&mut self,pin:&impl crate::ProcessGrant,binding:&ProcessBinding,args:Value,mut reader:impl FnMut(Value)->Result<Value,String>)->Result<Value,String>{
         self.poll();
         if self.process.as_ref()!=Some(binding)||&binding.package!=pin.binding()||!pin.permits("ui")||!pin.permits("backend.access"){return Err("process_binding_denied".into());}
-        self.command_with_handlers("host.poll".into(),args,&mut reader,None,Some(8192),true)
+        self.command_with_handlers("host.poll".into(),args,&mut reader,None,Some(32768),true)
     }
     pub fn command_with_reader(&mut self, name: String, args: Value, mut reader: impl FnMut(Value)->Result<Value,String>) -> Result<Value, String> {
         self.command_with_handlers(name,args,&mut reader,None,None,true)
