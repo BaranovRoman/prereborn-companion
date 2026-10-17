@@ -177,7 +177,10 @@ function PluginUI({ plugin }: { plugin: api.Installed }) {
       if (event.source !== frame.current?.contentWindow) return;
       if (uiReady(event,frame.current?.contentWindow ?? null)) {
         ready = true; window.clearTimeout(timeout); setError(null);
-        frame.current?.contentWindow?.postMessage({type:"plugin-host-ready",version:UI_VERSION,instance,pluginId:plugin.id,pluginVersion:plugin.installed.active},"*"); return;
+        frame.current?.contentWindow?.postMessage({type:"plugin-host-ready",version:UI_VERSION,instance,pluginId:plugin.id,pluginVersion:plugin.installed.active},"*");
+        // Package screens (e.g. hero type-to-search) receive keys only inside the frame.
+        if (!document.activeElement || document.activeElement === document.body) frame.current?.focus();
+        return;
       }
       if (legacy && event.data?.type === "hello-ui-ready" && event.data.version === 1) { ready = true; window.clearTimeout(timeout); return; }
       const request = uiRequest(event,frame.current?.contentWindow ?? null,instance,commands);

@@ -26,7 +26,7 @@ describe("installed Dota package UI",()=>{
   it("keeps overlay backend errors visible in diagnostics without presenting them as GSI failure",async()=>{
     const previous=mocks.invoke.getMockImplementation()!;
     mocks.invoke.mockImplementation(async(name:string,args?:unknown)=>name==="status"?{prepared:true,active:true,awaitingSession:true,processed:2,lastError:null,overlayBackendError:"backend_response_limit"}:previous(name,args));
-    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});
+    render(<Dota/>);await screen.findByTitle("Techies");
     fireEvent.click(screen.getByRole("button",{name:"Настройки"}));
     expect(await screen.findByText(/Overlay backend: backend_response_limit/)).toBeTruthy();
     expect(screen.getByRole("status").textContent).toContain("Ожидание игровой сессии");
@@ -39,7 +39,7 @@ describe("installed Dota package UI",()=>{
       if(name==="overlay.visibility")return new Promise(r=>{resolve=v=>{visible=false;r(v);};});
       return previous(name,...args);
     });
-    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});fireEvent.click(screen.getByRole("button",{name:"Overlay"}));
+    render(<Dota/>);await screen.findByTitle("Techies");fireEvent.click(screen.getByRole("button",{name:"Overlay"}));
     expect((screen.getByLabelText("Адрес overlay") as HTMLInputElement).value).toBe("http://127.0.0.1:3666/overlay");
     fireEvent.click(screen.getByRole("button",{name:"Скрыть overlay"}));
     await waitFor(()=>expect(mocks.invoke).toHaveBeenCalledWith("overlay.visibility",{visible:false}));
@@ -58,7 +58,7 @@ describe("installed Dota package UI",()=>{
     const previous=mocks.invoke.getMockImplementation()!;const bindings={betweenMatches:"Saved idle",draft:"Saved draft",gameplay:"Saved game",postStream:"Saved summary"};
     const initial={configRevision:"a".repeat(64),bindings,enabled:false,connected:false,scenes:[]};let resolve!:(value:unknown)=>void;
     mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>name==="obs.settings"?initial:name==="obs.save"?new Promise(r=>{resolve=r;}):previous(name,...args));
-    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});fireEvent.click(screen.getByRole("button",{name:"OBS и сцены"}));
+    render(<Dota/>);await screen.findByTitle("Techies");fireEvent.click(screen.getByRole("button",{name:"OBS и сцены"}));
     await screen.findByText(/OBS недоступен/);expect((screen.getByLabelText("Игра") as HTMLInputElement).value).toBe("Saved game");
     fireEvent.change(screen.getByLabelText("Игра"),{target:{value:"New game"}});fireEvent.click(screen.getByRole("button",{name:"Сохранить сцены"}));
     await waitFor(()=>expect(mocks.invoke).toHaveBeenCalledWith("obs.save",{expectedRevision:initial.configRevision,bindings:{...bindings,gameplay:"New game"}}));expect(screen.queryByText(/Сопоставление сохранено/)).toBeNull();
@@ -67,20 +67,20 @@ describe("installed Dota package UI",()=>{
   it("does not report success or retry after a stale OBS mapping precondition",async()=>{
     const previous=mocks.invoke.getMockImplementation()!;
     mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>{if(name==="obs.settings")return {configRevision:"a".repeat(64),bindings:{betweenMatches:"Idle",draft:"Draft",gameplay:"Game",postStream:"Summary"},enabled:true,connected:true,scenes:["Idle","Draft","Game","Summary"]};if(name==="obs.save")throw Error("obs_configuration_changed");return previous(name,...args);});
-    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});fireEvent.click(screen.getByRole("button",{name:"OBS и сцены"}));await screen.findByRole("button",{name:"Сохранить сцены"});fireEvent.click(screen.getByRole("button",{name:"Сохранить сцены"}));
+    render(<Dota/>);await screen.findByTitle("Techies");fireEvent.click(screen.getByRole("button",{name:"OBS и сцены"}));await screen.findByRole("button",{name:"Сохранить сцены"});fireEvent.click(screen.getByRole("button",{name:"Сохранить сцены"}));
     await screen.findByText(/obs_configuration_changed/);expect(screen.queryByText(/Сопоставление сохранено/)).toBeNull();expect(mocks.invoke.mock.calls.filter(([name])=>name==="obs.save")).toHaveLength(1);
   });
   it("does not hide an uncertain OBS effect behind the active worker state",async()=>{
     const previous=mocks.invoke.getMockImplementation()!;
     mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>name==="status"?{prepared:true,active:true,awaitingSession:true,obsError:"obs_result_unknown_requires_authoritative_reconciliation",lastError:null}:previous(name,...args));
-    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});
+    render(<Dota/>);await screen.findByTitle("Techies");
     expect((await screen.findByRole("alert")).textContent).toContain("obs_result_unknown_requires_authoritative_reconciliation");
     expect(screen.getByText(/Ожидание игровой сессии/)).toBeTruthy();
   });
   it("shows persisted uncertain delivery without claiming that history was sent",async()=>{
     const previous=mocks.invoke.getMockImplementation()!;
     mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>name==="history.sync"?{pendingCount:2,retryingCount:1,failedCount:0,unknownDeliveryCount:1}:previous(name,...args));
-    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});fireEvent.click(screen.getByRole("button",{name:"История"}));
+    render(<Dota/>);await screen.findByTitle("Techies");fireEvent.click(screen.getByRole("button",{name:"История"}));
     await screen.findByText(/Результат доставки не подтверждён: 1/);
     expect(screen.getByText(/Ожидают отправки: 2/)).toBeTruthy();
     expect(screen.queryByText("Изменение сохранено в истории.")).toBeNull();
@@ -92,7 +92,7 @@ describe("installed Dota package UI",()=>{
       if(name==="history.edit"){const request=args as {operationKey:string;expectedRevision:number;session:string};return {operationKey:request.operationKey,beforeRevision:7,revision:8,resolvedSession:request.session,streamEnded:false};}
       return previous(name,args);
     });
-    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});fireEvent.click(screen.getByRole("button",{name:"История"}));await screen.findByText(/Текущий MMR: 2400/);
+    render(<Dota/>);await screen.findByTitle("Techies");fireEvent.click(screen.getByRole("button",{name:"История"}));await screen.findByText(/Текущий MMR: 2400/);
     fireEvent.change(screen.getByRole("spinbutton",{name:"Текущий MMR"}),{target:{value:"2500"}});fireEvent.click(screen.getByRole("button",{name:"Сохранить MMR"}));
     await screen.findByText("Изменение сохранено в истории.");
     expect(mocks.invoke).toHaveBeenCalledWith("history.edit",expect.objectContaining({operationKey:expect.stringMatching(/^manual:[0-9a-f-]{36}$/),expectedRevision:7,session:"preserved-session",edit:{kind:"rating",rating:2500}}));
@@ -104,7 +104,7 @@ describe("installed Dota package UI",()=>{
       if(name==="history.edit")throw new Error("stale_revision");
       return previous(name,args);
     });
-    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});fireEvent.click(screen.getByRole("button",{name:"История"}));await screen.findByText(/Текущий MMR: 2400/);
+    render(<Dota/>);await screen.findByTitle("Techies");fireEvent.click(screen.getByRole("button",{name:"История"}));await screen.findByText(/Текущий MMR: 2400/);
     fireEvent.change(screen.getByRole("spinbutton",{name:"Текущий MMR"}),{target:{value:"2500"}});fireEvent.click(screen.getByRole("button",{name:"Сохранить MMR"}));
     await screen.findByRole("alert");expect(screen.getByRole("alert").textContent).toContain("stale_revision");
     expect(screen.queryByText("Изменение сохранено в истории.")).toBeNull();expect(screen.getByText(/Текущий MMR: 2400/)).toBeTruthy();
@@ -118,14 +118,14 @@ describe("installed Dota package UI",()=>{
       if(name==="gsi.find")return {found:false,installed:false};
       return previous(name,...args);
     });
-    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});fireEvent.click(screen.getByRole("button",{name:"Настройки"}));
+    render(<Dota/>);await screen.findByTitle("Techies");fireEvent.click(screen.getByRole("button",{name:"Настройки"}));
     await screen.findByText(/Последний результат аудио ядра: unknown/);
     expect(mocks.invoke).toHaveBeenCalledWith("audio.receipt",{operationKey:"sound:bound-generation:2:0"});
     expect(screen.getByText(/обнаружено звуковых событий: 1/)).toBeTruthy();
     expect(screen.queryByText(/Последний результат аудио ядра: completed/)).toBeNull();
   });
   it("uses saved bindings and the protected host preview/import instead of iframe playback",async()=>{
-    render(<Dota/>);fireEvent.click(await screen.findByRole("button",{name:/Techies/}));
+    render(<Dota/>);fireEvent.click(await screen.findByTitle("Techies"));
     expect(screen.getByText("my-jump.wav")).toBeTruthy();
     fireEvent.click(screen.getByRole("button",{name:"Прослушать"}));
     await waitFor(()=>expect(mocks.invoke).toHaveBeenCalledWith("asset.preview",{fileName:"existing.wav",volume:63}));
@@ -150,7 +150,7 @@ describe("installed Dota package UI",()=>{
   it("does not register a binding after cancelled/failed native selection",async()=>{
     const invoke=mocks.invoke.getMockImplementation()!;
     mocks.invoke.mockImplementation((name:string,...args:unknown[])=>name==="asset.import"?Promise.reject(new Error("file_selection_cancelled")):invoke(name,...args));
-    render(<Dota/>);fireEvent.click(await screen.findByRole("button",{name:/Techies/}));
+    render(<Dota/>);fireEvent.click(await screen.findByTitle("Techies"));
     fireEvent.click(screen.getByRole("button",{name:"Выбрать файл"}));
     await screen.findAllByText(/file_selection_cancelled/);
     expect(mocks.invoke.mock.calls.some(([name])=>name==="sound.import")).toBe(false);
@@ -163,7 +163,7 @@ describe("installed Dota package UI",()=>{
       if(name==="gsi.install")return {found:true,installed:true,path:"C:\\Steam\\dota 2 beta"};
       return previous(name,...args);
     });
-    render(<Dota/>);await screen.findByRole("button",{name:/Techies/});fireEvent.click(screen.getByRole("button",{name:"Настройки"}));
+    render(<Dota/>);await screen.findByTitle("Techies");fireEvent.click(screen.getByRole("button",{name:"Настройки"}));
     await screen.findByText("Установка Dota не найдена автоматически.");
     expect(screen.getByRole("button",{name:"Настроить GSI"}).hasAttribute("disabled")).toBe(true);
     expect(mocks.invoke.mock.calls.some(([name])=>name==="gsi.install")).toBe(false);

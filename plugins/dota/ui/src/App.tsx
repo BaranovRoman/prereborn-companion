@@ -6,11 +6,14 @@ import { SoundBindingRow } from "./components/sounds/SoundBindingRow";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { ObsPanel } from "./components/ObsPanel";
 import { HeroStatistics } from "./components/HeroStatistics";
-import { getHeroByInternalName } from "./services/heroCatalog";
+import { getHeroById, getHeroByInternalName } from "./services/heroCatalog";
+import { HeroesPage } from "./components/HeroesPage";
+import { useFavoriteHeroes } from "./hooks/useFavoriteHeroes";
+import "./heroes.css";
 import { OverlayPanel } from "./components/OverlayPanel";
 
 export function Dota() {
-  const [tab,setTab] = useState("heroes"); const [query,setQuery] = useState(""); const [hero,setHero] = useState<TrackedHero|null>(null);
+  const [tab,setTab] = useState("heroes"); const favorites = useFavoriteHeroes(); const [hero,setHero] = useState<TrackedHero|null>(null);
   const [catalog,setCatalog] = useState<GameSoundCatalog|null>(null); const [settings,setSettings] = useState<GameSoundSettings|null>(null);
   const [status,setStatus] = useState<api.Status|null>(null); const [history,setHistory] = useState<api.History|null>(null);
   const [gsi,setGsi]=useState<api.GsiInstallation|null>(null);
@@ -66,7 +69,7 @@ export function Dota() {
             <SoundBindingRow eventId={ability.id} kind="abilityCast" masterVolume={settings.masterVolume} binding={settings.bindings.find(b=>b.eventId===ability.id)} assets={settings.assets} onChooseFile={choose} onPreview={preview} onRemove={remove}/>
           </>}</article>)}</div>
         {getHeroByInternalName(hero.id)&&<HeroStatistics key={hero.id} heroId={getHeroByInternalName(hero.id)!.id}/>}
-      </section>:<section><label>Поиск героя <input value={query} onChange={e=>setQuery(e.target.value)} /></label><div className="hero-grid">{catalog.heroes.filter(h=>`${h.displayName} ${h.id}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map(h=><button key={h.id} onClick={()=>setHero(h)}><img src={h.iconUrl} alt="" loading="lazy" width={72} height={40}/><span>{h.displayName}</span>{h.abilities.some(a=>settings.bindings.some(b=>b.eventId===a.id))&&<small>♪ Настроен звук</small>}</button>)}</div></section>)}
+      </section>:<HeroesPage favorites={favorites} soundSettings={settings} trackedHeroes={catalog.heroes} onSelectHero={id=>{const entry=getHeroById(id);const tracked=entry&&catalog.heroes.find(h=>h.id===`npc_dota_hero_${entry.name}`);if(tracked)setHero(tracked);}}/>)}
       {tab==="items"&&<ItemsCatalog items={catalog.items} settings={settings} onChooseFile={choose} onPreview={preview} onRemove={remove}/>}
       {tab==="history"&&<HistoryPanel history={history} sync={sync} active={status?.active===true} reload={async()=>{setHistory(await api.invoke<api.History>("history.summary"));setSync(await api.invoke<api.SyncStatus>("history.sync"));}}/>}
       {tab==="obs"&&<ObsPanel/>}

@@ -123,7 +123,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''
         run: |
           pnpm --filter @prereborn/dota-ui build
-          pnpm --filter @prereborn/dota-ui exec vitest run src/App.test.tsx src/overlayApi.test.ts src/components/DesignPage.test.tsx src/components/HeroStatistics.test.tsx src/hooks/useLocalOverlayPreviewReady.test.tsx overlay/OverlayApp.test.tsx overlay/widgets/SessionWidget.test.tsx overlay/widgets/RecentMatchesWidget.test.tsx
+          pnpm --filter @prereborn/dota-ui exec vitest run src/App.test.tsx src/overlayApi.test.ts src/components/DesignPage.test.tsx src/components/HeroStatistics.test.tsx src/components/HeroesPage.test.tsx src/hooks/useLocalOverlayPreviewReady.test.tsx overlay/OverlayApp.test.tsx overlay/widgets/SessionWidget.test.tsx overlay/widgets/RecentMatchesWidget.test.tsx
 
       - name: Independent package GSI projection regressions
         if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''
