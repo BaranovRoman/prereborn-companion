@@ -55,7 +55,7 @@ describe("installed Dota package UI",()=>{
     expect((await screen.findByRole("alert")).textContent).toContain("plugin_process_requires_recovery");
   });
   it("keeps saved OBS mappings available offline and waits for the native save result",async()=>{
-    const previous=mocks.invoke.getMockImplementation()!;const bindings={betweenMatches:"Saved idle",draft:"Saved draft",gameplay:"Saved game",postStream:"Saved summary"};
+    const previous=mocks.invoke.getMockImplementation()!;const bindings={betweenMatches:"Saved idle",gameplay:"Saved game"};
     const initial={configRevision:"a".repeat(64),bindings,enabled:false,connected:false,scenes:[]};let resolve!:(value:unknown)=>void;
     mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>name==="obs.settings"?initial:name==="obs.save"?new Promise(r=>{resolve=r;}):previous(name,...args));
     render(<Dota/>);await screen.findByTitle("Techies");fireEvent.click(screen.getByRole("button",{name:"OBS и сцены"}));
@@ -66,7 +66,7 @@ describe("installed Dota package UI",()=>{
   });
   it("does not report success or retry after a stale OBS mapping precondition",async()=>{
     const previous=mocks.invoke.getMockImplementation()!;
-    mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>{if(name==="obs.settings")return {configRevision:"a".repeat(64),bindings:{betweenMatches:"Idle",draft:"Draft",gameplay:"Game",postStream:"Summary"},enabled:true,connected:true,scenes:["Idle","Draft","Game","Summary"]};if(name==="obs.save")throw Error("obs_configuration_changed");return previous(name,...args);});
+    mocks.invoke.mockImplementation(async(name:string,...args:unknown[])=>{if(name==="obs.settings")return {configRevision:"a".repeat(64),bindings:{betweenMatches:"Idle",gameplay:"Game"},enabled:true,connected:true,scenes:["Idle","Draft","Game","Summary"]};if(name==="obs.save")throw Error("obs_configuration_changed");return previous(name,...args);});
     render(<Dota/>);await screen.findByTitle("Techies");fireEvent.click(screen.getByRole("button",{name:"OBS и сцены"}));await screen.findByRole("button",{name:"Сохранить сцены"});fireEvent.click(screen.getByRole("button",{name:"Сохранить сцены"}));
     await screen.findByText(/obs_configuration_changed/);expect(screen.queryByText(/Сопоставление сохранено/)).toBeNull();expect(mocks.invoke.mock.calls.filter(([name])=>name==="obs.save")).toHaveLength(1);
   });

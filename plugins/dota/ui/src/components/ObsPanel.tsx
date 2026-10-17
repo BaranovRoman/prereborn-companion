@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from "react";
 import {invoke} from "../api";
-const scenes=[["betweenMatches","Между матчами"],["draft","Драфт"],["gameplay","Игра"],["postStream","Итоги стрима"]] as const;
+// Must match the signed obsBindings: two scenes since 0.2.3 (draft is shown inside Between Matches).
+const scenes=[["betweenMatches","Между матчами"],["gameplay","Игра"]] as const;
 interface Settings{configRevision:string;bindings:Record<string,string>;enabled:boolean;connected:boolean;scenes:string[]}
 function verified(value:Settings):Settings{
  if(!value||!/^[a-f0-9]{64}$/.test(value.configRevision)||typeof value.enabled!=="boolean"||typeof value.connected!=="boolean"||!Array.isArray(value.scenes)||value.scenes.length>128||value.scenes.some(s=>typeof s!=="string"||s.length>256)||!value.bindings||scenes.some(([key])=>typeof value.bindings[key]!=="string"||value.bindings[key].length>256))throw Error("obs_settings_invalid");return value;
