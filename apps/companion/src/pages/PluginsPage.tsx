@@ -8,6 +8,14 @@ import "./PluginsPage.css";
 
 const phaseText = { running: "Работает", starting: "Запускается", stopped: "Остановлен", failed: "Ошибка процесса" };
 
+// convertFileSrc percent-encodes the whole argument (`/` becomes %2F), which
+// breaks the protocol's id/version/asset routing and relative module URLs.
+// Take only its platform base and keep real path separators.
+function pluginAsset(id: string, version: string, relative: string) {
+  const base = convertFileSrc("", "plugin-ui").replace(/\/?$/, "/");
+  return base + [id, version, ...relative.split("/")].map(encodeURIComponent).join("/");
+}
+
 // Installed packages only: the core serves just the signed, hash-checked
 // manifest icon (PNG/WebP). Catalog entries and any failure keep the monogram.
 function PluginIcon({ plugin }: { plugin: api.Installed }) {
@@ -15,7 +23,7 @@ function PluginIcon({ plugin }: { plugin: api.Installed }) {
   const icon = plugin.manifest?.icon;
   const letter = (plugin.manifest?.name ?? plugin.id).slice(0, 1);
   if (!icon?.startsWith("ui/") || failed) return <span className="plugin-icon" aria-hidden="true">{letter}</span>;
-  return <img className="plugin-icon" alt="" aria-hidden="true" src={convertFileSrc(`${plugin.id}/${plugin.installed.active}/${icon.slice(3)}`, "plugin-ui")} onError={() => setFailed(true)} />;
+  return <img className="plugin-icon" alt="" aria-hidden="true" src={pluginAsset(plugin.id, plugin.installed.active, icon.slice(3))} onError={() => setFailed(true)} />;
 }
 
 export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = {}) {
@@ -200,6 +208,6 @@ function PluginUI({ plugin }: { plugin: api.Installed }) {
   return <div>{error && <p role="alert">{error}</p>}
     <iframe ref={frame} title={plugin.manifest?.name ?? plugin.id} sandbox="allow-scripts" referrerPolicy="no-referrer"
       onLoad={() => frame.current?.contentWindow?.postMessage({type:"plugin-host-probe",version:UI_VERSION},"*")}
-      src={convertFileSrc(`${plugin.id}/${plugin.installed.active}/${relative}`, "plugin-ui")} style={{ width: "100%", height: 480 }} />
+      src={pluginAsset(plugin.id, plugin.installed.active, relative)} style={{ width: "100%", height: 480 }} />
   </div>;
 }

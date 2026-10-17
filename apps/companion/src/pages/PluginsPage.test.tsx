@@ -4,7 +4,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { PluginsPage } from "./PluginsPage";
 import * as api from "../plugins/api";
 vi.mock("../plugins/api", async (original) => ({ ...await original<typeof api>(), view: vi.fn(), refresh: vi.fn(), install: vi.fn(), cancel: vi.fn(), action: vi.fn(), command: vi.fn(), request: vi.fn() }));
-vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (p: string) => `plugin-ui://localhost/${p}` }));
+// Mirrors Tauri's real convertFileSrc, which percent-encodes the whole path.
+vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (p: string, protocol: string) => `${protocol}://localhost/${encodeURIComponent(p)}` }));
 const manifest = { id: "hello", name: "Hello World", description: "Test plugin", version: "0.1.0", platform: "macos", arch: "aarch64", minApi: 1, maxApi: 1, ui: "ui/index.html", permissions: ["ui"] };
 const initial = (): api.View => ({ installed: [], catalog: [{ manifest, url: "https://github.com/test", sha256: "hash", signature: "sig" }], error: null, catalogError: null, localInstallAllowed: false, transfer: { busy: false, id: null, received: 0, total: null, stage: "", error: null } });
 let view: api.View;
@@ -28,6 +29,8 @@ describe("PluginsPage", () => {
     const prepare=await screen.findByRole("button",{name:"Подготовить backup и миграцию"});
     expect(prepare.hasAttribute("disabled")).toBe(true);
     expect(screen.getByTitle("Installed Worker").getAttribute("sandbox")).toBe("allow-scripts");
+    // Real separators: the protocol routes id/version/asset and module URLs resolve under them.
+    expect(screen.getByTitle("Installed Worker").getAttribute("src")).toBe("plugin-ui://localhost/example/0.1.0/index.html");
     expect(api.action).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("checkbox"));fireEvent.click(prepare);
     await waitFor(()=>expect(api.action).toHaveBeenCalledWith("example","prepare"));
