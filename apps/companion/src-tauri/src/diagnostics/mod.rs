@@ -19,7 +19,12 @@ impl DiagnosticsState{pub fn new()->Self{Self::default()}}
  pub companion_version:String,pub os:String,pub app_log_size_bytes:u64,
 }
 fn root(app:&AppHandle)->PathBuf{storage::logs_root(app).join("diagnostics")}
-fn persist(session:&Session)->Result<(),String>{std::fs::write(session.dir.join("session-state.json"),serde_json::to_vec(session).map_err(|_|"diagnostics_encoding_failed")?).map_err(|_|"diagnostics_metadata_write_failed".into())}
+/// Replace, never truncate in place: a crash mid-write must not hide the
+/// newest session from recovery (and leave its directory orphaned).
+fn persist(session:&Session)->Result<(),String>{
+ let bytes=serde_json::to_vec(session).map_err(|_|"diagnostics_encoding_failed")?;let tmp=session.dir.join("session-state.json.tmp");
+ std::fs::write(&tmp,bytes).and_then(|_|std::fs::rename(&tmp,session.dir.join("session-state.json"))).map_err(|_|"diagnostics_metadata_write_failed".into())
+}
 fn read_bounded(path:&Path,limit:u64)->Result<Vec<u8>,String>{
  let meta=path.symlink_metadata().map_err(|_|"diagnostics_file_unavailable")?;if !meta.is_file()||meta.file_type().is_symlink()||meta.len()>limit{return Err("diagnostics_file_limit".into());}
  let mut bytes=Vec::new();std::fs::File::open(path).map_err(|_|"diagnostics_file_unavailable")?.take(limit+1).read_to_end(&mut bytes).map_err(|_|"diagnostics_file_unavailable")?;if bytes.len()as u64>limit{return Err("diagnostics_file_limit".into());}Ok(bytes)
@@ -29,10 +34,31 @@ pub fn status<R:tauri::Runtime>(app:&AppHandle<R>)->DiagnosticsStatusSnapshot{
  DiagnosticsStatusSnapshot{active:session.is_some_and(|s|!s.finalized),has_session:session.is_some(),session_id:session.map(|s|s.session_id.clone()),started_at:session.map(|s|s.started_at.clone()),bytes_written:session.map_or(0,|s|s.bytes_written),size_limit_bytes:SIZE_LIMIT,size_limit_reached:session.is_some_and(|s|s.bytes_written>=SIZE_LIMIT),tts_trace_count:session.map_or(0,|s|s.tts_trace_count),companion_version:COMPANION_VERSION.into(),os:std::env::consts::OS.into(),app_log_size_bytes:storage::rolling_log_size_bytes(app)}
 }
 pub fn recover_last_session(app:&AppHandle){
- let Ok(entries)=std::fs::read_dir(root(app))else{return;};let mut dirs:Vec<_>=entries.filter_map(Result::ok).filter(|e|e.file_type().is_ok_and(|m|m.is_dir())).map(|e|e.path()).collect();dirs.sort();
- for dir in dirs.into_iter().rev(){
+ if let Some(session)=recover_in(&root(app)){app.state::<DiagnosticsState>().0.lock().unwrap().session=Some(session);}
+}
+/// Newest well-formed session whose directory name is its own id; a session
+/// that was running when the app stopped is recovered as finalized.
+fn recover_in(root:&Path)->Option<Session>{
+ let entries=std::fs::read_dir(root).ok()?;let mut dirs:Vec<_>=entries.filter_map(Result::ok).filter(|e|e.file_type().is_ok_and(|m|m.is_dir())).map(|e|e.path()).collect();dirs.sort();
+ dirs.into_iter().rev().find_map(|dir|{
   let session=read_bounded(&dir.join("session-state.json"),32768).ok().and_then(|b|serde_json::from_slice::<Session>(&b).ok());
-  if let Some(mut session)=session.filter(|s|!s.session_id.is_empty()&&dir.file_name().and_then(|n|n.to_str())==Some(s.session_id.as_str())&&chrono::DateTime::parse_from_rfc3339(&s.started_at).is_ok()&&s.bytes_written<=SIZE_LIMIT){session.dir=dir;session.finalized=true;app.state::<DiagnosticsState>().0.lock().unwrap().session=Some(session);return;}
+  session.filter(|s|!s.session_id.is_empty()&&dir.file_name().and_then(|n|n.to_str())==Some(s.session_id.as_str())&&chrono::DateTime::parse_from_rfc3339(&s.started_at).is_ok()&&s.bytes_written<=SIZE_LIMIT).map(|mut s|{s.dir=dir;s.finalized=true;s})
+ })
+}
+#[cfg(test)]mod tests{
+ use super::*;
+ fn session(root:&Path,id:&str,bytes:u64)->Session{let dir=root.join(id);std::fs::create_dir_all(&dir).unwrap();let s=Session{session_id:id.into(),started_at:"2026-10-17T10:00:00+07:00".into(),bytes_written:bytes,dir,..Default::default()};persist(&s).unwrap();s}
+ #[test]fn recovery_takes_the_newest_valid_session_finalized_and_ignores_forged_or_oversized_state(){
+  let root=tempfile::tempdir().unwrap();let root=root.path();assert!(recover_in(&root.join("missing")).is_none());
+  session(root,"diag_20261017T100000_a",10);let newest=session(root,"diag_20261017T110000_b",20);
+  assert!(!newest.dir.join("session-state.json.tmp").exists());
+  let recovered=recover_in(root).unwrap();assert_eq!(recovered.session_id,"diag_20261017T110000_b");assert!(recovered.finalized);assert_eq!(recovered.dir,newest.dir);
+  // A state file naming another directory, an oversized counter or a symlink is skipped.
+  let forged=root.join("diag_20261017T120000_c");std::fs::create_dir(&forged).unwrap();std::fs::copy(newest.dir.join("session-state.json"),forged.join("session-state.json")).unwrap();
+  session(root,"diag_20261017T130000_d",SIZE_LIMIT+1);
+  #[cfg(unix)]{let link=root.join("diag_20261017T140000_e");std::fs::create_dir(&link).unwrap();std::os::unix::fs::symlink(newest.dir.join("session-state.json"),link.join("session-state.json")).unwrap();}
+  std::fs::create_dir(root.join("diag_20261017T150000_f")).unwrap();std::fs::write(root.join("diag_20261017T150000_f/session-state.json"),b"{\"session_id\":").unwrap();
+  assert_eq!(recover_in(root).unwrap().session_id,"diag_20261017T110000_b");
  }
 }
 pub fn start(app:&AppHandle)->Result<DiagnosticsStatusSnapshot,String>{
