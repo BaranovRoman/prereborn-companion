@@ -928,3 +928,20 @@ catalog offers the candidate, updates without launching anything and refuses
 reinstalls. The candidate workflow derives the archive name from the signed
 metadata and downloads the older release only from its signed GitHub URL.
 Companion version stays tag-derived (source metadata 0.4.0 by design).
+
+## 0.5.94 → 0.2.0 upgrade rehearsal (2026-10-17)
+
+The 0.5.94 Prepare code (`local_runtime/schema.rs`, `transaction_schema.rs` and
+the transactional DDL/triggers in `host_execution.rs`) is byte-identical to
+what dota-storage ships now except `pub` visibility, and 0.5.94 wrote its
+backup to `<app_data>/local-runtime.pre-external.sqlite3`, the same directory
+the core gives a `data.legacy` package. A History test seeds a real finished
+ranked match with the store API, adds user sound/config files, runs Prepare
+(0.5.94 path), then Prepare again as 0.2.0: rows are identical, the first
+backup is byte-for-byte retained, nothing is activated, hero stats read the
+old match and the user files are untouched. A stale 0.5.94 process record
+carries `windows-job-list-v1`; `fence_generation` treats a missing job as
+stopped, so takeover after an app or PC restart is proven by the native path,
+not a PID. Leftover Unknown effects still require explicit reconciliation
+(unchanged safety rule). This is not a real user's database or a native
+Windows upgrade run.

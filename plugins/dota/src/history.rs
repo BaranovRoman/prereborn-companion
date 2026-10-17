@@ -134,6 +134,31 @@ impl History {
 #[cfg(test)]
 mod tests {
  use super::*;
+ /// Upgrade rehearsal: 0.5.94's Prepare is the same schema/transaction_schema
+ /// code (byte-identical DDL), so this is the on-disk state 0.2.0 meets.
+ #[test]fn a_history_prepared_by_0594_keeps_matches_files_and_the_original_backup_after_update(){
+  use db::model::{RankedMode,MatchResult};
+  let root=tempfile::tempdir().unwrap();let path=root.path().join("local-runtime.sqlite3");
+  let at=|n:i64|chrono::DateTime::from_timestamp(1_760_000_000+n,0).unwrap();
+  {let mut c=rusqlite::Connection::open(&path).unwrap();db::schema::migrate(&c).unwrap();store::set_current_rating(&mut c,4200).unwrap();
+   let session=store::ensure_gameplay_session(&mut c,at(0)).unwrap().local_id;store::create_match(&c,&session,Some("7700"),105,"radiant",RankedMode::Ranked,at(1)).unwrap();
+   let matched=store::find_active_match(&c,&session).unwrap().unwrap().local_id;store::finalize_match(&mut c,&matched,&session,RankedMode::Ranked,MatchResult::Win,"high",at(2)).unwrap();}
+  std::fs::create_dir(root.path().join("sounds")).unwrap();
+  let files=[("game-sounds-config.json",b"{\"user\":true}".to_vec()),("sounds/blast-off.wav",b"RIFF user audio".to_vec()),("overlay-layout.json",b"{\"version\":5}".to_vec())];
+  for(name,bytes)in &files{std::fs::write(root.path().join(name),bytes).unwrap();}
+  let rows=|c:&rusqlite::Connection|->Vec<String>{["local_sessions","local_matches"].iter().flat_map(|t|{let mut s=c.prepare(&format!("SELECT * FROM {t} ORDER BY rowid")).unwrap();let n=s.column_count();
+   s.query_map([],|r|Ok((0..n).map(|i|format!("{:?}",r.get_ref(i).unwrap())).collect::<Vec<_>>().join("|"))).unwrap().map(Result::unwrap).collect::<Vec<_>>()}).collect()};
+  let before=rows(&rusqlite::Connection::open(&path).unwrap());assert_eq!(before.len(),2);
+  // 0.5.94 manual Prepare.
+  drop(History::prepare(root.path()).unwrap());
+  let backup=std::fs::read(root.path().join("local-runtime.pre-external.sqlite3")).unwrap();
+  // 0.2.0 after the signed update: manual Prepare again, nothing activated.
+  let history=History::prepare(root.path()).unwrap();
+  assert_eq!(std::fs::read(root.path().join("local-runtime.pre-external.sqlite3")).unwrap(),backup,"the first verified backup is never replaced");
+  assert_eq!(rows(&history.connection),before);assert!(!history.active());assert!(history.session().is_none());
+  let stats=history.hero_stats(105).unwrap();assert_eq!((stats.matches,stats.wins,stats.losses),(1,1,0));
+  for(name,bytes)in &files{assert_eq!(&std::fs::read(root.path().join(name)).unwrap(),bytes,"{name}");}
+ }
  #[test]fn hero_history_read_is_bounded_and_does_not_disguise_storage_failure_as_zero_matches(){
   let root=tempfile::tempdir().unwrap();let history=History::prepare(root.path()).unwrap();
   assert_eq!(history.hero_stats(105).unwrap().matches,0);assert_eq!(history.hero_stats(0).unwrap_err(),"invalid_hero_id");assert_eq!(history.hero_stats(2049).unwrap_err(),"invalid_hero_id");
