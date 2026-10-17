@@ -32,3 +32,10 @@
 
 
 :root{--border:#3b424e;--radius:7px;--ui-void:#15181d;--ui-edge:#252a33;--ui-edge-soft:#252a33;--ui-text-muted:#aab2c0;--ui-text-soft:#d5dce5;--ui-gold:#d5dce5;--ui-green:#b8d2a8}
+
+.hero-statistics{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px;margin-top:18px}
+.hero-statistics>button,.hero-statistics>[role=alert]{grid-column:1/-1;justify-self:start}
+.hero-detail__stats-list{display:grid;gap:6px;margin:0}.hero-detail__stats-row{display:flex;justify-content:space-between;gap:16px}
+.hero-detail__stats-row dt,.hero-detail__stats-caption,.hero-detail__stats-empty{color:var(--ui-text-muted)}
+.hero-detail__stats-row dd{margin:0}.hero-detail__stats-recent{display:flex;gap:5px;margin-top:10px}.hero-detail__stats-dot{width:8px;height:8px;border-radius:50%;background:#9299a6}
+.hero-detail__stats-dot--win{background:#8dc5a3}.hero-detail__stats-dot--loss{background:#d89191}.hero-detail__stats-title{margin:0 0 10px}

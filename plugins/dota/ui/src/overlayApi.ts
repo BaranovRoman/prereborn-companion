@@ -8,8 +8,15 @@ const verify=<T,>(result:Result):T=>{
  if(result.status!=="completed"||result.response?.error||!result.response?.status||result.response.status<200||result.response.status>=300||typeof result.response.body!=="object"||!result.response.body)throw Error(result.response?.error??"backend_settings_unconfirmed");
  return result.response.body as T;
 };
-const read=<T,>(resource:string)=>invoke<Result>("backend.request",{request:{resource,operationKey:`read:${crypto.randomUUID()}`,query:{},body:null}}).then(verify<T>);
-const save=<T,>(resource:string,body:T)=>invoke<Result>("backend.request",{request:{resource,operationKey:`setting:${crypto.randomUUID()}`,query:{},body}}).then(verify<T>);
+let pending=0;let backendTail:Promise<unknown>=Promise.resolve();
+function backendCall<T>(perform:()=>Promise<T>):Promise<T>{
+ if(pending>=8)return Promise.reject(Error("backend_ui_queue_full"));pending++;
+ const task=backendTail.then(perform);backendTail=task.catch(()=>undefined);
+ return task.finally(()=>{pending--;});
+}
+export const readBackendResource=<T,>(resource:string,query:Record<string,string>={})=>backendCall(()=>invoke<Result>("backend.request",{request:{resource,operationKey:`read:${crypto.randomUUID()}`,query,body:null}}).then(verify<T>));
+const read=readBackendResource;
+const save=<T,>(resource:string,body:T)=>backendCall(()=>invoke<Result>("backend.request",{request:{resource,operationKey:`setting:${crypto.randomUUID()}`,query:{},body}}).then(verify<T>));
 export const getOverlayLayout=()=>read<OverlayLayoutDoc>("overlay-layout");
 export const saveOverlayLayout=(layout:OverlayLayoutDoc)=>save("overlay-layout-save",layout);
 export const getQueueSettings=()=>read<QueueSettingsDoc>("queue-settings");

@@ -188,6 +188,10 @@ impl Worker {
    (||{if !self.launch.capabilities.iter().any(|c|c=="backend.access")||!self.launch.capabilities.iter().any(|c|matches!(c.as_str(),"data.legacy"|"data.private")){return Err("capability_denied".into());}
     let input:Resource=serde_json::from_value(args).map_err(|_|"invalid_backend_resource")?;
     if !companion_plugin_protocol::backend::public_response(&input.body){return Err("invalid_backend_resource".into());}
+    if matches!(input.resource.as_str(),"hero-stats"|"hero-insights"){
+     if !input.body.is_object()||!input.body.get("status").is_some_and(Value::is_string){return Err("invalid_backend_resource".into());}
+     return Ok(json!({"handled":false,"applied":false}));
+    }
     crate::overlay::save_resource(&self.launch.data_root,&input.resource,&input.body)?;
     let read=input.resource.strip_suffix("-save").unwrap_or(&input.resource);
     self.overlay_refresh.insert(read.into(),std::time::Instant::now()+std::time::Duration::from_secs(60));
@@ -206,6 +210,11 @@ impl Worker {
   else if name=="status"{crate::ui::empty(args).map(|_|self.status())}
   else if !self.launch.capabilities.iter().any(|c|matches!(c.as_str(),"data.legacy"|"data.private")){Err("capability_denied".into())}
   else if name.starts_with("overlay."){self.overlay_command(name,args)}
+  else if name=="history.hero"{
+   #[derive(Deserialize)]#[serde(rename_all="camelCase",deny_unknown_fields)]struct Hero{hero_id:i64}
+   (||{let hero:Hero=serde_json::from_value(args).map_err(|_|"invalid_hero_id")?;
+    self.history.as_ref().ok_or("not_prepared")?.hero_stats(hero.hero_id).and_then(|value|serde_json::to_value(value).map_err(|_|"history_encoding_failed".into()))})()
+  }
   else if name=="history.summary"{crate::ui::empty(args).and_then(|_|self.history.as_ref().ok_or_else(||"not_prepared".to_string())).and_then(History::summary).and_then(|summary|serde_json::to_value(summary).map_err(|_|"history_encoding_failed".into()))}
   else if name=="history.sync"{crate::ui::empty(args).and_then(|_|self.history.as_ref().ok_or_else(||"not_prepared".to_string())).and_then(History::sync_status).and_then(|status|serde_json::to_value(status).map_err(|_|"history_encoding_failed".into()))}
   else if name=="history.context"{crate::ui::empty(args).and_then(|_|self.history.as_ref().ok_or_else(||"not_prepared".to_string())).and_then(History::edit_context)}

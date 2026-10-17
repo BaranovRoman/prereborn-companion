@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { beforeEach,expect,it,vi } from "vitest";
 const native=vi.hoisted(()=>({invoke:vi.fn()}));vi.mock("./api",()=>native);
-import { chooseGameplayReference,getOverlayLayout,saveOverlayLayout,reconcileSettings } from "./overlayApi";
+import { chooseGameplayReference,getOverlayLayout,saveOverlayLayout,reconcileSettings,readBackendResource } from "./overlayApi";
 import type { OverlayLayoutDoc } from "./overlayTypes";
 beforeEach(()=>{native.invoke.mockReset();});
 it("returns the actual native saved document only after its receipt, with one operation key",async()=>{
@@ -27,4 +27,11 @@ it("image selection passes only managed metadata to the worker",async()=>{
  native.invoke.mockImplementation(async(name:string)=>name==="image.import"?{fileName:"managed.png"}:{url:"http://127.0.0.1:3666/overlay/assets/gameplay-reference?v=hash"});
  await expect(chooseGameplayReference()).resolves.toContain("/overlay/assets/gameplay-reference");
  expect(native.invoke.mock.calls).toEqual([["image.import"],["overlay.image.apply",{kind:"reference",fileName:"managed.png"}]]);
+});
+
+it("serializes signed UI reads so independent hero panels cannot race the native one-request guard",async()=>{
+ let finish!:(value:unknown)=>void;native.invoke.mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve;})).mockResolvedValue({status:"completed",response:{status:200,error:null,body:{status:"no_data"}}});
+ const first=readBackendResource("hero-stats",{id:"105"});const second=readBackendResource("hero-insights",{id:"105"});await Promise.resolve();expect(native.invoke).toHaveBeenCalledTimes(1);
+ finish({status:"completed",response:{status:200,error:null,body:{status:"no_data"}}});await Promise.all([first,second]);expect(native.invoke).toHaveBeenCalledTimes(2);
+ expect(native.invoke.mock.calls[1][1].request).toMatchObject({resource:"hero-insights",query:{id:"105"},body:null});
 });

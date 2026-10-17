@@ -181,6 +181,16 @@ fn backend_identity(app:&tauri::AppHandle)->Result<(String,String),String>{
  let account=crate::storage::load_session(app).map(|s|format!("session:{}",s.email.trim().to_lowercase())).unwrap_or_else(||format!("legacy:{:x}",Sha256::digest(token.as_bytes())));
  let authority=format!("{:x}",Sha256::digest(format!("{}\0{account}",crate::state::DEFAULT_BACKEND_URL).as_bytes()));Ok((token,authority))
 }
+fn resource_cache_ack(method:&companion_plugin_protocol::backend::Method,reply:&Value)->bool{
+ reply.get("applied")==Some(&Value::Bool(true))||(*method==companion_plugin_protocol::backend::Method::Get&&reply.get("handled")==Some(&Value::Bool(false))&&reply.get("applied")==Some(&Value::Bool(false)))
+}
+#[cfg(test)]mod resource_ack_tests{use super::*;use companion_plugin_protocol::backend::Method;
+ #[test]fn an_uncached_read_is_not_an_acknowledgement_of_a_write(){
+  let uncached=serde_json::json!({"handled":false,"applied":false});assert!(resource_cache_ack(&Method::Get,&uncached));
+  for method in [Method::Put,Method::Post]{assert!(!resource_cache_ack(&method,&uncached));assert!(!resource_cache_ack(&method,&serde_json::json!({})));assert!(resource_cache_ack(&method,&serde_json::json!({"applied":true})));}
+  assert!(!resource_cache_ack(&Method::Get,&serde_json::json!({"handled":false})));
+ }
+}
 fn drain_ui_backend(worker:&WorkerProcess)->Result<(),String>{
  let deadline=std::time::Instant::now()+Duration::from_secs(2);
  loop{match worker.ui_backend.try_lock(){
@@ -366,7 +376,7 @@ impl PluginManager{
     let public=|receipt:super::super::plugin_audio::store::Receipt|serde_json::json!({"operationKey":receipt.operation_key,"status":receipt.status,"response":receipt.backend_response,"reconciled":receipt.reconciled});
     let apply=|resource:&str,body:Option<&Value>|->Result<(),String>{
      if let Some(body)=body{let mut runtime=host.0.lock().map_err(|_|locked())?;audio.locked_authorize(&worker.binding,worker.epoch)?;let confirmed=runtime.command_verified(&worker.pin,&worker.binding,"host.resource".into(),serde_json::json!({"resource":resource,"body":body}))?;
-      if confirmed.get("applied")!=Some(&Value::Bool(true)){return Err("worker_resource_apply_unconfirmed".into());}
+      if !worker.pin.backend_resources.get(resource).is_some_and(|resource|resource_cache_ack(&resource.method,&confirmed)){return Err("worker_resource_apply_unconfirmed".into());}
      }Ok(())
     };
     if name=="backend.reconcile"{
@@ -489,7 +499,7 @@ impl PluginManager{
   let mut runtime=host.0.lock().map_err(|_|locked())?;
   match process{Some((pin,binding))=>runtime.command_verified(&pin,&binding,name,args),None=>runtime.command(name,args)}
  }
- /// Hooked up only when the remaining legacy bootstrap is removed. Startup does
+ /// Attach the generic native host after root supervision. Startup does
  /// not migrate game history, enable a plugin, or start an installed live worker.
  pub(crate) fn attach_worker_host(&self,app:tauri::AppHandle,audio:Arc<HostAudio>)->Result<(),String>{
   let mut guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_mut().map_err(|e|e.clone())?;

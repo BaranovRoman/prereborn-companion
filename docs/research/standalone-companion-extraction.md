@@ -861,3 +861,17 @@ corruption and rollback. One existing-server loopback HTTP test passes for
 Origin/round rejection and recorded-vs-delivered distinction. Package cargo
 check passes. Actual quiz interaction in OBS/Extension is still native UAT,
 not something these tests claim to have performed.
+
+## Package hero statistics (2026-10-17)
+
+The package UI ports the pure hero-detail panels. Local numbers come from the
+existing `store::hero_local_stats` through `history.hero` (hero id 1..=2048);
+an SQL failure is reported as `history_read_failed`, never as zero matches.
+OpenDota hero-stats/insights are signed read-only resources the worker answers
+as explicitly uncached (`handled:false, applied:false`); the native host
+accepts that answer only for GET, while PUT/POST still require `applied:true`.
+Favorites rewrite the full queue document via the durable native PUT and show
+the new state only after the actual receipt. Package backend calls are
+serialized through one bounded queue (8 pending) so they never race the native
+single-request UI guard. Selected UI tests (22), the native ACK boundary test,
+the history read/error test and 12 worker tests pass; not native Windows UAT.

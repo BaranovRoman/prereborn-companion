@@ -5,6 +5,8 @@ import { ItemsCatalog } from "./components/sounds/ItemsCatalog";
 import { SoundBindingRow } from "./components/sounds/SoundBindingRow";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { ObsPanel } from "./components/ObsPanel";
+import { HeroStatistics } from "./components/HeroStatistics";
+import { getHeroByInternalName } from "./services/heroCatalog";
 import { OverlayPanel } from "./components/OverlayPanel";
 
 export function Dota() {
@@ -63,6 +65,7 @@ export function Dota() {
             {ability.status==="experimental"&&<p>Экспериментальное событие{ability.reason?`: ${ability.reason}`:""}</p>}
             <SoundBindingRow eventId={ability.id} kind="abilityCast" masterVolume={settings.masterVolume} binding={settings.bindings.find(b=>b.eventId===ability.id)} assets={settings.assets} onChooseFile={choose} onPreview={preview} onRemove={remove}/>
           </>}</article>)}</div>
+        {getHeroByInternalName(hero.id)&&<HeroStatistics key={hero.id} heroId={getHeroByInternalName(hero.id)!.id}/>}
       </section>:<section><label>Поиск героя <input value={query} onChange={e=>setQuery(e.target.value)} /></label><div className="hero-grid">{catalog.heroes.filter(h=>`${h.displayName} ${h.id}`.toLocaleLowerCase().includes(query.toLocaleLowerCase())).map(h=><button key={h.id} onClick={()=>setHero(h)}><img src={h.iconUrl} alt="" loading="lazy" width={72} height={40}/><span>{h.displayName}</span>{h.abilities.some(a=>settings.bindings.some(b=>b.eventId===a.id))&&<small>♪ Настроен звук</small>}</button>)}</div></section>)}
       {tab==="items"&&<ItemsCatalog items={catalog.items} settings={settings} onChooseFile={choose} onPreview={preview} onRemove={remove}/>}
       {tab==="history"&&<HistoryPanel history={history} sync={sync} active={status?.active===true} reload={async()=>{setHistory(await api.invoke<api.History>("history.summary"));setSync(await api.invoke<api.SyncStatus>("history.sync"));}}/>}

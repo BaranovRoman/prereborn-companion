@@ -113,6 +113,11 @@ impl History {
   let Some(id)=self.session()else{return Ok(false);};
   Ok(store::find_session(&self.connection,id).map_err(|_|"history_read_failed")?.ok_or("session_missing")?.ended_at.is_some())
  }
+ pub fn hero_stats(&self,hero_id:i64)->Result<db::summary::HeroLocalStats,String>{
+  if !(1..=2048).contains(&hero_id){return Err("invalid_hero_id".into());}
+  let stats=store::hero_local_stats(&self.connection,hero_id,10).map_err(|_|"history_read_failed")?;
+  Ok(db::summary::HeroLocalStats{matches:stats.matches,wins:stats.wins,losses:stats.losses,avg_kills:stats.avg_kills,avg_deaths:stats.avg_deaths,avg_assists:stats.avg_assists,recent_results:stats.recent_results})
+ }
  pub fn summary(&self)->Result<db::summary::LocalSessionSummary,String> {db::summary::try_get(&self.connection).map_err(|_|"history_read_failed".into())}
  pub fn sync_status(&self)->Result<db::sync::SyncOutboxStatus,String>{db::sync::outbox_status(&self.connection).map_err(|_|"history_read_failed".into())}
  pub fn confirm_prepared(&self)->Result<(),String>{transaction_schema::activation_preflight(&self.connection,&self.backup)}
@@ -129,6 +134,11 @@ impl History {
 #[cfg(test)]
 mod tests {
  use super::*;
+ #[test]fn hero_history_read_is_bounded_and_does_not_disguise_storage_failure_as_zero_matches(){
+  let root=tempfile::tempdir().unwrap();let history=History::prepare(root.path()).unwrap();
+  assert_eq!(history.hero_stats(105).unwrap().matches,0);assert_eq!(history.hero_stats(0).unwrap_err(),"invalid_hero_id");assert_eq!(history.hero_stats(2049).unwrap_err(),"invalid_hero_id");
+  history.connection.execute("DROP TABLE local_matches",[]).unwrap();assert_eq!(history.hero_stats(105).unwrap_err(),"history_read_failed");assert!(!history.active());
+ }
  #[test]
  fn manual_preparation_has_no_fake_session_retains_verified_backup_and_denies_second_writer() {
   let root=tempfile::tempdir().unwrap();
