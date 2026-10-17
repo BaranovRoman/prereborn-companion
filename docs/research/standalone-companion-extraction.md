@@ -902,3 +902,29 @@ The editor reference opacity is package state in `overlay-editor.json`
 no storage. The 0.5.90 value in the main WebView localStorage is not migrated:
 the core must not know package keys. It is a cosmetic editor-only setting.
 Worker tests: 56 passed; package UI: 49 passed (8 files); tsc passed.
+
+## Official API2 package metadata 0.2.0 (2026-10-17)
+
+`plugins/dota/manifest.windows-live.json` is now the real 0.2.0 API2 policy
+(the 0.1.0 API1 entry stays in the signed catalog for old clients): live,
+minApi=maxApi=2; permissions ui, data.legacy, audio.play, obs.scene,
+overlay.publish, backend.access, chat.read; 35 uiCommands, exactly the bridge
+calls in the package UI source; 15 signed backend resources, exactly what the
+worker and UI request (unit test fails on drift in either direction); OBS
+bindings use the unchanged 0.5.94 config keys and defaults
+(`between_matches_scene`… "Dota — Между матчами"…); frame origin
+`http://127.0.0.1:3666`; package-owned `ui/icon.png`.
+
+The core serves an image only for the manifest-declared icon of an installed,
+signature- and hash-verified package (PNG/WebP, ≤256 KiB, never SVG); catalog
+entries keep the monogram. Worker crate version is 0.2.0 (the worker rejects
+any other launch version); storage fixtures read it from Cargo.toml. One
+unix-only storage test had a stale API1 forged handshake (never run on
+Windows CI) and now uses the current CORE_API.
+
+`verify_candidate` accepts the previous archive: it installs the newest older
+signed catalog release, keeps an explicit enabled choice, checks that the
+catalog offers the candidate, updates without launching anything and refuses
+reinstalls. The candidate workflow derives the archive name from the signed
+metadata and downloads the older release only from its signed GitHub URL.
+Companion version stays tag-derived (source metadata 0.4.0 by design).

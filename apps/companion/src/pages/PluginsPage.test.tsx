@@ -11,6 +11,17 @@ let view: api.View;
 beforeEach(() => { view = initial(); vi.mocked(api.view).mockImplementation(async () => view); vi.mocked(api.action).mockResolvedValue(); vi.mocked(api.install).mockResolvedValue(); vi.mocked(api.cancel).mockResolvedValue(); vi.mocked(api.refresh).mockResolvedValue(); vi.mocked(api.command).mockResolvedValue({ text: "Hello" }); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 describe("PluginsPage", () => {
+  it("shows only an installed package's signed icon and falls back to the monogram", async () => {
+    view.installed=[{id:"dota2",manifest:{...manifest,id:"dota2",name:"Dota 2",icon:"ui/icon.png"},installed:{active:"0.2.0",enabled:false,pending:null,previous:null},runtime:null,error:null}];
+    view.catalog=[{manifest:{...manifest,icon:"ui/icon.png"},url:"https://github.com/test",sha256:"hash",signature:"sig"}];
+    const {container}=render(<PluginsPage />);
+    await screen.findByText("Dota 2");
+    const icons=container.querySelectorAll("img.plugin-icon");expect(icons.length).toBe(1);
+    expect(icons[0].getAttribute("src")).toBe("plugin-ui://localhost/dota2/0.2.0/icon.png");
+    fireEvent.error(icons[0]);
+    await waitFor(()=>expect(container.querySelector("img.plugin-icon")).toBeNull());
+    expect(container.querySelectorAll("span.plugin-icon").length).toBe(2);
+  });
   it("opens API2 settings without activation or preparation and requires explicit confirmation", async () => {
     view.apiVersion=2;view.installed=[{id:"example",manifest:{...manifest,id:"example",name:"Installed Worker",minApi:2,maxApi:2,execution:"live",uiCommands:["status"]},installed:{active:"0.1.0",enabled:false,pending:null,previous:null},runtime:null,error:null}];
     render(<PluginsPage initialPluginId="example"/>);

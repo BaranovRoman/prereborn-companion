@@ -230,7 +230,8 @@ impl PluginManager {
         let manifest=service.store.manifest(id,version)?;
         let expected=manifest.files.get(&format!("ui/{asset}")).ok_or("unsigned_ui_asset")?;
         let file = service.store.ui_asset(id, version, asset)?;
-        let(bytes,mime)=super::plugin_ui::asset(file.parent().ok_or("missing_parent")?, file.file_name().and_then(|s| s.to_str()).ok_or("invalid_asset")?)?;
+        let icon=manifest.icon.as_deref()==Some(format!("ui/{asset}").as_str());
+        let(bytes,mime)=super::plugin_ui::asset(file.parent().ok_or("missing_parent")?, file.file_name().and_then(|s| s.to_str()).ok_or("invalid_asset")?,icon)?;
         if packages::hash(&bytes)!=*expected{return Err("ui_payload_checksum_mismatch".into());}Ok((bytes,mime))
     }
     pub(crate) fn ui_frame_origins(&self,path:&str)->Result<Vec<String>,String>{

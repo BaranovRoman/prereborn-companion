@@ -20,6 +20,11 @@ pub trait ExecutionGrant: companion_plugin_protocol::ProcessGrant {
 }
 const TABLES:[(&str,&str);4]=[("local_matches","local_id"),("local_sessions","local_id"),("sync_meta","key"),("sync_outbox","id")];
 
+/// The real worker refuses a host whose expected version differs from its own.
+#[cfg(test)]
+pub fn dota_package_version()->&'static str {
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"),"/../dota/Cargo.toml")).lines().find_map(|l|l.strip_prefix("version = \"")).and_then(|v|v.strip_suffix('"')).unwrap()
+}
 #[cfg(test)]
 #[derive(Clone)]
 pub struct Fixture {pub root:Arc<FixtureRoot>,pub path:PathBuf}

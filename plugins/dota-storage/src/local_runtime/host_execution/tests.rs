@@ -11,7 +11,7 @@ fn request(adapter:&mut FixtureAdapter,s:&str,key:&str,at:i64,snapshot:ReplayGsi
 }
 fn worker()->companion_plugin_protocol::runtime::Runtime {
     let path=std::path::PathBuf::from(std::env::var_os("COMPANION_TEST_PLUGIN_DIR").unwrap_or_else(||std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../target/debug").into_os_string())).join(if cfg!(windows){"companion-dota-plugin.exe"}else{"companion-dota-plugin"});
-    let mut w=companion_plugin_protocol::runtime::Runtime::default();w.start_expected(&path,&[],"dota2",Some("0.1.0")).unwrap();w
+    let mut w=companion_plugin_protocol::runtime::Runtime::default();w.start_expected(&path,&[],"dota2",Some(dota_package_version())).unwrap();w
 }
 pub use super::super::transaction_tests::legacy_apply;
 #[test]

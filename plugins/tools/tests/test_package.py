@@ -1,4 +1,4 @@
-import base64, importlib.util, json, pathlib, tempfile, unittest, zipfile
+import base64, importlib.util, json, pathlib, re, tempfile, unittest, zipfile
 from unittest.mock import patch
 spec=importlib.util.spec_from_file_location('package',pathlib.Path(__file__).parents[1]/'package.py')
 p=importlib.util.module_from_spec(spec);spec.loader.exec_module(p)
@@ -21,9 +21,10 @@ class PackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             root=pathlib.Path(root);ui=root/'dota/ui/dist';ui.mkdir(parents=True);(ui/'index.html').write_text('test')
             binary=root/'target/release/companion-dota-plugin.exe';binary.parent.mkdir(parents=True);binary.write_bytes(b'unit fixture')
+            version=json.loads((p.ROOT/'plugins/dota/manifest.windows-live.json').read_text())['version']
             with patch.object(p,'sign',return_value='unit-test-placeholder'):
-                release=p.package(binary,ui,'0.1.0','windows','x86_64',root/'original',root/'key','https://github.com/example',p.ROOT/'plugins/dota/manifest.windows-live.json')
-            original=root/'original/dota2-0.1.0-windows-x86_64.zip'
+                release=p.package(binary,ui,version,'windows','x86_64',root/'original',root/'key','https://github.com/example',p.ROOT/'plugins/dota/manifest.windows-live.json')
+            original=root/f'original/dota2-{version}-windows-x86_64.zip'
             with zipfile.ZipFile(original) as archive:
                 self.assertTrue(all(i.date_time==(1980,1,1,0,0,0) for i in archive.infolist()))
                 meta={'release':release,'manifest_bytes':base64.b64encode(archive.read('manifest.json')).decode(),'manifest_signature':archive.read('manifest.minisig').decode(),'catalog_bytes':base64.b64encode(p.encode({'schema':1,'releases':[release]})).decode(),'catalog_signature':'unit-test-placeholder'}
@@ -34,19 +35,39 @@ class PackageTests(unittest.TestCase):
                 p.assemble(root,metadata,root/'damaged')
     def test_live_identity_protocol_and_file_hashes_preserved(self):
         with tempfile.TemporaryDirectory() as root:
-            root=pathlib.Path(root);ui=root/'ui';ui.mkdir();(ui/'index.html').write_text('test')
+            root=pathlib.Path(root);ui=root/'ui';ui.mkdir();(ui/'index.html').write_text('test');(ui/'icon.png').write_bytes(b'png')
             binary=root/'worker.exe';binary.write_bytes(b'executable fixture')
             manifest=json.loads((p.ROOT/'plugins/dota/manifest.windows-live.json').read_text())
+            cargo=re.search(r'^version = "([^"]+)"',(p.ROOT/'plugins/dota/Cargo.toml').read_text(),re.M).group(1)
+            self.assertEqual(manifest['version'],cargo,'worker refuses a launch whose package version differs from its own')
             template=root/'manifest.json';template.write_text(json.dumps(manifest))
             # Unit serialization test only: NOT a signed distribution or trust-root override.
             with patch.object(p,'sign',return_value='unit-test-placeholder'):
-                release=p.package(binary,ui,'0.1.0','windows','x86_64',root/'out',root/'key','https://github.com/example',template)
-            self.assertEqual(release['manifest']['execution'],'live')
-            self.assertEqual((release['manifest']['minApi'],release['manifest']['maxApi']),(1,1))
-            with zipfile.ZipFile(root/'out/dota2-0.1.0-windows-x86_64.zip') as archive:
-                for name,h in release['manifest']['files'].items():
+                release=p.package(binary,ui,manifest['version'],'windows','x86_64',root/'out',root/'key','https://github.com/example',template)
+            m=release['manifest']
+            self.assertEqual((m['execution'],m['minApi'],m['maxApi']),('live',2,2))
+            self.assertEqual(m['permissions'],['ui','data.legacy','audio.play','obs.scene','overlay.publish','backend.access','chat.read'])
+            self.assertEqual(m['uiFrameOrigins'],['http://127.0.0.1:3666']);self.assertEqual(m['icon'],'ui/icon.png');self.assertIn('ui/icon.png',m['files'])
+            # The existing 0.5.94 OBS config keys and defaults, never invented names.
+            self.assertEqual({k:(v['legacyField'],v['defaultScene']) for k,v in m['obsBindings'].items()},{
+                'betweenMatches':('between_matches_scene','Dota — Между матчами'),'draft':('draft_scene','Dota — Драфт'),
+                'gameplay':('gameplay_scene','Dota — Игра'),'postStream':('post_stream_scene','Dota — Post Stream')})
+            self.assertLessEqual(len(m['backendResources']),16);self.assertFalse(any(c.startswith('host.') for c in m['uiCommands']))
+            with zipfile.ZipFile(root/f"out/dota2-{manifest['version']}-windows-x86_64.zip") as archive:
+                for name,h in m['files'].items():
                     self.assertEqual(p.digest(archive.read(name)),h)
                 self.assertNotIn('key',archive.namelist())
+    def test_signed_policy_matches_what_the_package_actually_calls(self):
+        manifest=json.loads((p.ROOT/'plugins/dota/manifest.windows-live.json').read_text())
+        sources=[f for f in (p.ROOT/'plugins/dota/ui/src').rglob('*.ts*') if '.test.' not in f.name]
+        text='\n'.join(f.read_text(encoding='utf-8') for f in sources)
+        called=set(re.findall(r'(?:invoke|read|pages)(?:<[^>]*>)?\(\s*"([a-z0-9._]+)"',text))
+        called|=set(re.findall(r'read<[^>]*>\("([a-z.]+)"',text))
+        self.assertEqual(called,set(manifest['uiCommands']))
+        worker=(p.ROOT/'plugins/dota/src/worker.rs').read_text(encoding='utf-8')
+        used=set(re.findall(r'resource:"([a-z-]+)"',worker))|set(re.findall(r'\("([a-z-]+)",\d+\)',worker))|set(re.findall(r'"(quiz-geometry|sync-event|gsi-state|commands)"',worker))
+        used|=set(re.findall(r'(?:readBackendResource|read|save)(?:<[^>]*>)?\("([a-z-]+)"',text))
+        self.assertEqual(used,set(manifest['backendResources']))
     def test_signing_key_inside_ui_is_rejected_before_signing(self):
         with tempfile.TemporaryDirectory() as root:
             root=pathlib.Path(root);ui=root/'ui';ui.mkdir();binary=root/'worker';binary.write_bytes(b'x')

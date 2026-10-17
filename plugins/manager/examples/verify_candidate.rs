@@ -3,13 +3,39 @@ use companion_plugin_manager::{Store,Release,TRUSTED_KEY,MAX_PACKAGE,MAX_METADAT
 use std::{fs,path::PathBuf,sync::atomic::AtomicBool};
 fn main()->Result<(),Box<dyn std::error::Error>> {
     let args:Vec<_>=std::env::args_os().skip(1).collect();
-    if args.len()!=2&&args.len()!=4{return Err("usage: verify_candidate ARCHIVE RELEASE_JSON [CATALOG SIGNATURE]".into());}
+    if !matches!(args.len(),2|4|5){return Err("usage: verify_candidate ARCHIVE RELEASE_JSON [CATALOG SIGNATURE [PREVIOUS_ARCHIVE]]".into());}
     if fs::metadata(&args[0])?.len()>MAX_PACKAGE||fs::metadata(&args[1])?.len()>MAX_METADATA as u64{return Err("candidate too large".into());}
     let bytes=fs::read(&args[0])?;let release:Release=serde_json::from_slice(&fs::read(&args[1])?)?;
     if release.manifest.id!="dota2"{return Err("expected dota2".into());}
-    if args.len()==4 {
-        let catalog=companion_plugin_manager::catalog(&fs::read(&args[2])?,&fs::read_to_string(&args[3])?,TRUSTED_KEY)?;
-        if !catalog.releases.iter().any(|r|serde_json::to_value(r).ok()==serde_json::to_value(&release).ok()){return Err("release not in signed catalog".into());}
+    let mut catalog=None;
+    if args.len()>=4 {
+        let signed=companion_plugin_manager::catalog(&fs::read(&args[2])?,&fs::read_to_string(&args[3])?,TRUSTED_KEY)?;
+        if !signed.releases.iter().any(|r|serde_json::to_value(r).ok()==serde_json::to_value(&release).ok()){return Err("release not in signed catalog".into());}
+        catalog=Some(signed);
+    }
+    if args.len()==5 {
+        // Update from the newest older signed release that this catalog still
+        // keeps for existing clients; its bytes are checked against that entry.
+        let signed=catalog.as_ref().unwrap();let candidate=semver::Version::parse(&release.manifest.version)?;
+        let previous=signed.releases.iter().filter(|r|r.manifest.id=="dota2"&&r.manifest.platform==release.manifest.platform&&r.manifest.arch==release.manifest.arch)
+            .filter_map(|r|semver::Version::parse(&r.manifest.version).ok().filter(|v|*v<candidate).map(|v|(v,r))).max_by(|a,b|a.0.cmp(&b.0)).map(|(_,r)|r.clone()).ok_or("no older signed release to update from")?;
+        if fs::metadata(&args[4])?.len()>MAX_PACKAGE{return Err("previous archive too large".into());}
+        let old=fs::read(&args[4])?;let root=tempfile::tempdir()?;
+        let mut store=Store::open(root.path().join("plugins"),TRUSTED_KEY)?;
+        store.install(&old,&previous,false,&AtomicBool::new(false))?;
+        assert!(!store.installed()["dota2"].enabled,"installation must not enable Dota");
+        // A user who had explicitly enabled the old package keeps that choice;
+        // the update itself never enables, prepares or launches anything.
+        store.enable("dota2",true)?;
+        let offered=signed.installable(&store.installed());
+        assert!(offered.iter().any(|r|r.manifest.version==release.manifest.version),"catalog must offer the candidate to an installed older version");
+        assert!(store.install(&old,&previous,false,&AtomicBool::new(false)).is_err(),"reinstalling the old version must not downgrade");
+        store.install(&bytes,&release,false,&AtomicBool::new(false))?;
+        let state=&store.installed()["dota2"];
+        assert_eq!(state.active,release.manifest.version);assert_eq!(state.previous.as_deref(),Some(previous.manifest.version.as_str()));assert!(state.pending.is_none());assert!(state.enabled);
+        store.verify("dota2",&release.manifest.version)?;
+        store.install(&bytes,&release,false,&AtomicBool::new(false)).expect_err("same version is not reinstalled");
+        println!("Signed update {} -> {} verified; enabled choice kept, nothing launched.",previous.manifest.version,release.manifest.version);
     }
     let root=tempfile::tempdir()?;
     let mut store=Store::open(root.path().join("plugins"),TRUSTED_KEY)?;

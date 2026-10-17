@@ -91,7 +91,7 @@ fn host_checks_forged_fingerprint_inside_transaction_even_if_worker_bypasses_val
     let(mut host,fixture,_,_)=setup();let frame=host.frame(snapshot("42","DOTA_GAMERULES_STATE_GAME_IN_PROGRESS"),now(1),1,"forged").unwrap();let expected=host.expected.clone().unwrap();
     host.runtime.stop().unwrap(); // Reap real worker before using an adversarial test process.
     let request=DiagnosticRequest::Execute{scope:host.scope.clone(),sequence:1,snapshot_identity:"0".repeat(64),request:expected.request("forged","frame:1",rules::analyze(&frame.context,&frame.snapshot,1).detector.unwrap())};
-    let path=fixture.root.path().join("forged-worker");let ready=json!({"protocol":1,"message":{"type":"ready","id":"dota2","version":"0.1.0","min_core_api":1,"max_core_api":1}});
+    let path=fixture.root.path().join("forged-worker");let ready=json!({"protocol":1,"message":{"type":"ready","id":"dota2","version":"0.1.0","min_core_api":companion_plugin_protocol::CORE_API,"max_core_api":companion_plugin_protocol::CORE_API}});
     let reverse=json!({"protocol":1,"message":{"type":"diagnostic_execute","id":1,"request":request}});let reply=json!({"protocol":1,"message":{"type":"reply","id":1,"result":{}}});
     std::fs::write(&path,format!("#!/bin/sh\nread line\nprintf '%s\\n' '{ready}'\nread line\nprintf '%s\\n' '{reverse}'\nread line\nprintf '%s\\n' '{reply}'\n")).unwrap();std::fs::set_permissions(&path,std::fs::Permissions::from_mode(0o700)).unwrap();
     let mut runtime=Runtime::default();runtime.start_expected(&path,&[],"dota2",Some("0.1.0")).unwrap();let before=parity::dump(&host.adapter.conn);let mut refusal=None;

@@ -1,16 +1,199 @@
 {
   "schema": 1,
   "id": "dota2",
-  "name": "Dota 2 — Windows beta",
-  "description": "External Dota для Windows. Требует ручной подготовки backup и успешных process/audio/OBS fences в совместимом Companion.",
-  "version": "0.1.0",
+  "name": "Dota 2",
+  "description": "Игровые звуки по GSI, история матчей, OBS-сцены и оверлей для Dota 2. Устанавливается отдельно от Companion; подготовка backup и включение выполняются вручную.",
+  "version": "0.2.0",
   "platform": "windows",
   "arch": "x86_64",
-  "minApi": 1,
-  "maxApi": 1,
+  "minApi": 2,
+  "maxApi": 2,
   "executable": "bin/companion-dota-plugin.exe",
   "ui": "ui/index.html",
   "execution": "live",
-  "permissions": ["ui", "dota.match.execute", "dota.sound.play", "dota.obs.scene", "dota.overlay.update"],
+  "author": "Prereborn",
+  "icon": "ui/icon.png",
+  "permissions": [
+    "ui",
+    "data.legacy",
+    "audio.play",
+    "obs.scene",
+    "overlay.publish",
+    "backend.access",
+    "chat.read"
+  ],
+  "uiCommands": [
+    "asset.import",
+    "asset.preview",
+    "audio.receipt",
+    "backend.pending",
+    "backend.reconcile",
+    "backend.request",
+    "catalog.heroes",
+    "catalog.items",
+    "directory.pick",
+    "gsi.find",
+    "gsi.install",
+    "history.context",
+    "history.edit",
+    "history.hero",
+    "history.summary",
+    "history.sync",
+    "image.import",
+    "obs.save",
+    "obs.settings",
+    "overlay.hotkey",
+    "overlay.hotkey.save",
+    "overlay.image.apply",
+    "overlay.image.get",
+    "overlay.image.remove",
+    "overlay.reference",
+    "overlay.reference.save",
+    "overlay.summary",
+    "overlay.visibility",
+    "sound.assets",
+    "sound.bindings",
+    "sound.import",
+    "sound.master",
+    "sound.remove",
+    "sound.summary",
+    "status"
+  ],
+  "backendResources": {
+    "account": {
+      "path": "/stream/companion/account-settings",
+      "method": "GET",
+      "queryKeys": [],
+      "maxRequest": 0,
+      "maxResponse": 24576
+    },
+    "corrections": {
+      "path": "/stream/companion/sync/corrections",
+      "method": "GET",
+      "queryKeys": [
+        "since"
+      ],
+      "maxRequest": 0,
+      "maxResponse": 24576
+    },
+    "sync-event": {
+      "path": "/stream/companion/sync/events",
+      "method": "POST",
+      "queryKeys": [],
+      "maxRequest": 8192,
+      "maxResponse": 4096
+    },
+    "quiz-state": {
+      "path": "/stream/companion/quiz/state",
+      "method": "GET",
+      "queryKeys": [],
+      "maxRequest": 0,
+      "maxResponse": 8192
+    },
+    "quiz-geometry": {
+      "path": "/stream/companion/quiz/geometry",
+      "method": "PUT",
+      "queryKeys": [],
+      "maxRequest": 8192,
+      "maxResponse": 4096
+    },
+    "overlay-layout": {
+      "path": "/stream/companion/overlay-layout",
+      "method": "GET",
+      "queryKeys": [],
+      "maxRequest": 0,
+      "maxResponse": 24576
+    },
+    "overlay-layout-save": {
+      "path": "/stream/companion/overlay-layout",
+      "method": "PUT",
+      "queryKeys": [],
+      "maxRequest": 8192,
+      "maxResponse": 24576
+    },
+    "queue-settings": {
+      "path": "/stream/companion/queue-settings",
+      "method": "GET",
+      "queryKeys": [],
+      "maxRequest": 0,
+      "maxResponse": 24576
+    },
+    "queue-settings-save": {
+      "path": "/stream/companion/queue-settings",
+      "method": "PUT",
+      "queryKeys": [],
+      "maxRequest": 8192,
+      "maxResponse": 24576
+    },
+    "gsi-state": {
+      "path": "/stream/companion/gsi-state",
+      "method": "PUT",
+      "queryKeys": [],
+      "maxRequest": 4096,
+      "maxResponse": 1024
+    },
+    "commands": {
+      "path": "/stream/companion/commands",
+      "method": "GET",
+      "queryKeys": [],
+      "maxRequest": 0,
+      "maxResponse": 1024
+    },
+    "favorite-heroes": {
+      "path": "/stream/integrations/opendota/favorite-heroes",
+      "method": "GET",
+      "queryKeys": [
+        "heroIds"
+      ],
+      "maxRequest": 0,
+      "maxResponse": 24576
+    },
+    "profile-radar": {
+      "path": "/stream/integrations/opendota/profile-radar",
+      "method": "GET",
+      "queryKeys": [],
+      "maxRequest": 0,
+      "maxResponse": 8192
+    },
+    "hero-stats": {
+      "path": "/stream/integrations/opendota/hero-stats/{id}",
+      "method": "GET",
+      "queryKeys": [
+        "id"
+      ],
+      "maxRequest": 0,
+      "maxResponse": 4096
+    },
+    "hero-insights": {
+      "path": "/stream/integrations/opendota/hero-insights/{id}",
+      "method": "GET",
+      "queryKeys": [
+        "id"
+      ],
+      "maxRequest": 0,
+      "maxResponse": 8192
+    }
+  },
+  "obsBindings": {
+    "betweenMatches": {
+      "legacyField": "between_matches_scene",
+      "defaultScene": "Dota — Между матчами"
+    },
+    "draft": {
+      "legacyField": "draft_scene",
+      "defaultScene": "Dota — Драфт"
+    },
+    "gameplay": {
+      "legacyField": "gameplay_scene",
+      "defaultScene": "Dota — Игра"
+    },
+    "postStream": {
+      "legacyField": "post_stream_scene",
+      "defaultScene": "Dota — Post Stream"
+    }
+  },
+  "uiFrameOrigins": [
+    "http://127.0.0.1:3666"
+  ],
   "files": {}
 }

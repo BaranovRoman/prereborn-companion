@@ -167,3 +167,11 @@ fn official_dota_package_integrity_and_overlay_assets() {
     s.executable("dota2","0.1.0").unwrap();
     s.ui_asset("dota2","0.1.0","overlay/index.html").unwrap();
 }
+#[test]fn the_official_api2_template_passes_the_installed_manager_policy(){
+    let mut manifest:companion_plugin_manager::Manifest=serde_json::from_str(include_str!("../../dota/manifest.windows-live.json")).unwrap();
+    for name in [manifest.executable.clone(),manifest.ui.clone(),manifest.icon.clone().unwrap()]{manifest.files.insert(name,"0".repeat(64));}
+    manifest.validate().unwrap();
+    assert_eq!((manifest.min_api,manifest.max_api),(2,2));
+    let mut api1=manifest.clone();api1.min_api=1;api1.max_api=1;assert!(api1.validate().is_err(),"API2 policy cannot be signed as API1");
+    let mut extra=manifest.clone();extra.permissions.push("data.private".into());assert!(extra.validate().is_err());
+}

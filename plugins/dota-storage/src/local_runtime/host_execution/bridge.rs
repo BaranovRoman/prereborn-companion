@@ -37,7 +37,7 @@ impl Host {
         let lease=ownership.recover(Owner::External).map_err(str::to_string)?;
         value.phase=ownership.phase();value.run=uuid::Uuid::new_v4().to_string();save(&tx,&value)?;sql(tx.commit())?;
         self.scope=DiagnosticScope{session:value.session,epoch:lease.epoch,run:value.run};self.expected=None;self.confirmed=None;self.blocked=false;self.last_sequence=None;
-        match self.runtime.start_expected(&binary(),&[],"dota2",Some("0.1.0")) {
+        match self.runtime.start_expected(&binary(),&[],"dota2",Some(dota_package_version())) {
             Ok(_)=>{self.owns_process=true;Ok(())},
             Err(error)=>{self.draining()?;Err(error)},
         }

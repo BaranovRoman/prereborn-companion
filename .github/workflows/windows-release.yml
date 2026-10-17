@@ -275,9 +275,21 @@ jobs:
           if not source.isdigit(): raise SystemExit('Invalid source run')
           pathlib.Path('dota-public-metadata.json').write_text(raw,encoding='utf-8')
           subprocess.run(['gh','run','download',source,'--repo',os.environ['GITHUB_REPOSITORY'],'--name','dota-windows-candidate','--dir','dota-exact-source'],check=True)
+          # Older signed release kept in the catalog: downloaded only from its
+          # signed GitHub URL; the verifier checks its sha256 and signature.
+          import base64, re, urllib.request
+          catalog=json.loads(base64.b64decode(meta['catalog_bytes'],validate=True)); candidate=meta['release']['manifest']['version']
+          key=lambda v:tuple(int(x) for x in v.split('.'))
+          older=[r for r in catalog['releases'] if r['manifest']['id']=='dota2' and r['manifest']['platform']=='windows' and r['manifest']['arch']=='x86_64' and re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',r['manifest']['version']) and key(r['manifest']['version'])<key(candidate)]
+          if not older: raise SystemExit('Catalog must keep an older signed release for existing clients')
+          previous=max(older,key=lambda r:key(r['manifest']['version']))
+          if not previous['url'].startswith('https://github.com/BaranovRoman/prereborn-companion-plugins/releases/download/'): raise SystemExit('Unexpected previous release URL')
+          pathlib.Path('dota-previous').mkdir()
+          with urllib.request.urlopen(previous['url'],timeout=60) as response, open('dota-previous/previous.zip','wb') as out: out.write(response.read(33554433))
           PY
           python plugins/tools/package.py assemble --input-root dota-exact-source --metadata dota-public-metadata.json --output dota-signed-candidate
-          cargo run --locked --release --manifest-path plugins/Cargo.toml -p companion-plugin-manager --example verify_candidate -- dota-signed-candidate/dota2-0.1.0-windows-x86_64.zip dota-signed-candidate/dota2-0.1.0-windows-x86_64.release.json dota-signed-candidate/catalog.json dota-signed-candidate/catalog.minisig
+          version=$(python -c "import json,re,sys;v=json.load(open('dota-public-metadata.json'))['release']['manifest']['version'];sys.exit('Invalid candidate version') if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',v) else print(v)")
+          cargo run --locked --release --manifest-path plugins/Cargo.toml -p companion-plugin-manager --example verify_candidate -- "dota-signed-candidate/dota2-$version-windows-x86_64.zip" "dota-signed-candidate/dota2-$version-windows-x86_64.release.json" dota-signed-candidate/catalog.json dota-signed-candidate/catalog.minisig dota-previous/previous.zip
       - name: Upload verified signed staging candidate (no release/catalog publication)
         if: inputs.dota_candidate_metadata != ''
         uses: actions/upload-artifact@v4

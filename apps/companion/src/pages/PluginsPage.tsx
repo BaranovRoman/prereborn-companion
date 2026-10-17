@@ -8,6 +8,16 @@ import "./PluginsPage.css";
 
 const phaseText = { running: "Работает", starting: "Запускается", stopped: "Остановлен", failed: "Ошибка процесса" };
 
+// Installed packages only: the core serves just the signed, hash-checked
+// manifest icon (PNG/WebP). Catalog entries and any failure keep the monogram.
+function PluginIcon({ plugin }: { plugin: api.Installed }) {
+  const [failed, setFailed] = useState(false);
+  const icon = plugin.manifest?.icon;
+  const letter = (plugin.manifest?.name ?? plugin.id).slice(0, 1);
+  if (!icon?.startsWith("ui/") || failed) return <span className="plugin-icon" aria-hidden="true">{letter}</span>;
+  return <img className="plugin-icon" alt="" aria-hidden="true" src={convertFileSrc(`${plugin.id}/${plugin.installed.active}/${icon.slice(3)}`, "plugin-ui")} onError={() => setFailed(true)} />;
+}
+
 export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = {}) {
   const [view, setView] = useState<api.View | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +95,7 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
       {view && view.installed.length === 0 && <p>Плагины ещё не установлены.</p>}
       <div className="plugin-grid" aria-label="Установленные плагины">
         {view?.installed.map((p) => <article className="plugin-card" key={p.id}>
-          <span className="plugin-icon" aria-hidden="true">{(p.manifest?.name ?? p.id).slice(0, 1)}</span>
+          <PluginIcon plugin={p} />
           <h4>{p.manifest?.name ?? p.id}</h4><p>{p.manifest?.description ?? "Метаданные установленного пакета недоступны."}</p>
           <p>Версия {p.installed.active} · {p.installed.enabled ? phaseText[p.runtime?.phase ?? "stopped"] : "Отключён"}</p>
           <small>{p.manifest?.author ? `Автор: ${p.manifest.author}` : "Автор не указан в манифесте."}</small>
