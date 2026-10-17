@@ -67,14 +67,14 @@ pub struct Worker {
  dropped_sound_intents:u64,audio_sequence:u64,speech_sequence:u64,
  last_lifecycle_at:Option<std::time::Instant>,last_watchdog_at:Option<std::time::Instant>,stream_ended:bool,streaming:Option<bool>,
  next_account_at:Option<std::time::Instant>,account_request_sequence:u64,account_failures:u32,backend_error:Option<String>,account:Option<Value>,
- live_gsi:Option<(u64,Value)>,gsi_sent:u64,pending_gsi:Option<u64>,next_gsi_at:Option<std::time::Instant>,gsi_failures:u32,next_command_at:Option<std::time::Instant>,remote_scene:Option<(companion_dota_domain::broadcast_state::BroadcastState,u64)>,last_command:Option<String>,presence_error:Option<String>,
+ reopen_probed:bool,live_gsi:Option<(u64,Value)>,gsi_sent:u64,pending_gsi:Option<u64>,next_gsi_at:Option<std::time::Instant>,gsi_failures:u32,next_command_at:Option<std::time::Instant>,remote_scene:Option<(companion_dota_domain::broadcast_state::BroadcastState,u64)>,last_command:Option<String>,presence_error:Option<String>,
  next_sync_at:Option<std::time::Instant>,pending_sync:Option<companion_dota_storage::local_runtime::sync::OutboxRow>,
  backend_updates:u64,next_corrections_at:Option<std::time::Instant>,pending_corrections:Option<String>,
  detected_sounds:u64,planned_sounds:u64,last_sound_signal:Option<Value>,last_sound_operation:Option<String>,
  last_error:Option<String>, processed:u64, last_sequence:Option<u64>, last_analysis:Option<Value>,last_gsi:Option<Value>,last_receipt:Option<companion_dota_domain::match_execution::Receipt>,
 }
 impl Worker {
- pub fn new(launch:Launch)->Self{let mut hotkey=crate::overlay::hotkey::Controller::default();hotkey.load(&launch.data_root);Self{chat:None,overlay_hotkey:hotkey,overlay_visible:true,show_summary:false,pending_backend:None,obsolete_overlay_request:None,overlay_refresh:Default::default(),overlay_resources:Default::default(),overlay_backend_error:None,launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,obs:Default::default(),reminder:Default::default(),dropped_sound_intents:0,audio_sequence:0,speech_sequence:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,live_gsi:None,gsi_sent:0,pending_gsi:None,next_gsi_at:None,gsi_failures:0,next_command_at:None,remote_scene:None,last_command:None,presence_error:None,next_sync_at:None,pending_sync:None,backend_updates:0,next_corrections_at:None,pending_corrections:None,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
+ pub fn new(launch:Launch)->Self{let mut hotkey=crate::overlay::hotkey::Controller::default();hotkey.load(&launch.data_root);Self{chat:None,overlay_hotkey:hotkey,overlay_visible:true,show_summary:false,pending_backend:None,obsolete_overlay_request:None,overlay_refresh:Default::default(),overlay_resources:Default::default(),overlay_backend_error:None,launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,obs:Default::default(),reminder:Default::default(),dropped_sound_intents:0,audio_sequence:0,speech_sequence:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,reopen_probed:false,live_gsi:None,gsi_sent:0,pending_gsi:None,next_gsi_at:None,gsi_failures:0,next_command_at:None,remote_scene:None,last_command:None,presence_error:None,next_sync_at:None,pending_sync:None,backend_updates:0,next_corrections_at:None,pending_corrections:None,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
  pub fn status(&self)->Value{
   let history=self.history.as_ref();let active=history.is_some_and(History::active);
   json!({"overlayVisible":self.overlay_visible,"showSummary":self.show_summary,"overlayHotkey":self.overlay_hotkey.status(),"prepared":history.is_some(),"active":active,"awaitingSession":active&&history.and_then(History::session).is_none(),
@@ -242,6 +242,12 @@ impl Worker {
  /// Commands are serialized by the existing stdio loop: one coordinator, one
  /// listener, and no duplicate preparation even when the UI repeats a request.
  pub fn command(&mut self,name:&str,args:Value)->Result<Value,String>{
+  // Once per process: storage that an earlier manual Prepare migrated is
+  // reopened with Prepare's own verification. A first Prepare stays manual.
+  if self.history.is_none()&&!self.reopen_probed&&self.launch.capabilities.iter().any(|c|matches!(c.as_str(),"data.legacy"|"data.private")){
+   self.reopen_probed=true;
+   match History::open_prepared(&self.launch.data_root){Ok(history)=>self.history=history,Err(error)=>self.last_error=Some(error)}
+  }
   let result=if name=="host.resource"{
    #[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Resource{resource:String,body:Value}
    (||{if !self.launch.capabilities.iter().any(|c|c=="backend.access")||!self.launch.capabilities.iter().any(|c|matches!(c.as_str(),"data.legacy"|"data.private")){return Err("capability_denied".into());}
@@ -596,6 +602,15 @@ mod tests {
   let mut restarted=super::tests::worker(root.path());restarted.launch.capabilities.extend(["ui".into(),"overlay.publish".into()]);
   assert_eq!(restarted.command("overlay.reference",json!({})).unwrap()["opacity"],0.4);
   assert!(crate::overlay::saved(root.path(),"overlay-editor.json",1024).is_err());assert!(worker.history.is_none());
+ }
+ #[test]fn after_a_restart_prepared_storage_is_readable_without_enabling_and_nothing_starts(){
+  let root=tempfile::tempdir().unwrap();
+  {let mut first=worker(root.path());first.command("host.prepare",json!({})).unwrap();}
+  let mut restarted=worker(root.path());restarted.launch.capabilities.push("ui".into());
+  let status=restarted.command("host.status",json!({})).unwrap();assert_eq!(status["prepared"],true);assert_eq!(status["active"],false);
+  assert_eq!(restarted.command("history.summary",json!({})).unwrap()["hasSession"],false);
+  assert_eq!(restarted.command("history.hero",json!({"heroId":105})).unwrap()["matches"],0);
+  assert!(restarted.listener.is_none());assert!(restarted.overlay.is_none());assert_eq!(restarted.status()["session"],Value::Null);
  }
  #[test]fn disabled_quiz_is_not_polled_and_failed_enrichment_keeps_the_last_actual_response(){
   use companion_plugin_protocol::backend::Response;

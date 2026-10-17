@@ -31,6 +31,16 @@ impl History {
   let adapter=Adapter::attach(&mut c)?;
   Ok(Self{connection:c,adapter,backup,grant:None})
  }
+ /// A later session's open of storage that a manual Prepare already migrated:
+ /// the same verification as Prepare, never a migration, never a new file.
+ pub fn open_prepared(root:&Path)->Result<Option<Self>,String> {
+  let path=root.join("local-runtime.sqlite3");
+  if !path.is_file()||!root.join("local-runtime.pre-external.sqlite3").is_file(){return Ok(None);}
+  let probe=Connection::open_with_flags(&path,rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY|rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(|_|"history_open_failed")?;
+  probe.busy_timeout(std::time::Duration::from_secs(2)).map_err(|_|"history_open_failed")?;
+  if !transaction_schema::namespace_prepared(&probe)?{return Ok(None);}
+  drop(probe);Self::prepare(root).map(Some)
+ }
  #[cfg(windows)]
  pub fn activate(&mut self,process:&SupervisedProcess,package:PackageBinding,capabilities:Vec<String>)->Result<(),String> {
   if self.grant.is_some(){return Err("already_active".into());}
@@ -158,6 +168,19 @@ mod tests {
   assert_eq!(rows(&history.connection),before);assert!(!history.active());assert!(history.session().is_none());
   let stats=history.hero_stats(105).unwrap();assert_eq!((stats.matches,stats.wins,stats.losses),(1,1,0));
   for(name,bytes)in &files{assert_eq!(&std::fs::read(root.path().join(name)).unwrap(),bytes,"{name}");}
+ }
+ #[test]fn a_later_session_reopens_only_already_prepared_storage_without_migrating(){
+  let root=tempfile::tempdir().unwrap();assert!(History::open_prepared(root.path()).unwrap().is_none());assert_eq!(std::fs::read_dir(root.path()).unwrap().count(),0);
+  {let c=rusqlite::Connection::open(root.path().join("local-runtime.sqlite3")).unwrap();db::schema::migrate(&c).unwrap();}
+  std::fs::write(root.path().join("local-runtime.pre-external.sqlite3"),b"unrelated").unwrap();
+  assert!(History::open_prepared(root.path()).unwrap().is_none(),"an unprepared legacy schema is never migrated implicitly");
+  let c=rusqlite::Connection::open(root.path().join("local-runtime.sqlite3")).unwrap();assert!(!transaction_schema::namespace_prepared(&c).unwrap());drop(c);
+  std::fs::remove_file(root.path().join("local-runtime.pre-external.sqlite3")).unwrap();
+  drop(History::prepare(root.path()).unwrap());let backup=std::fs::read(root.path().join("local-runtime.pre-external.sqlite3")).unwrap();
+  let reopened=History::open_prepared(root.path()).unwrap().unwrap();assert!(!reopened.active());
+  assert_eq!(std::fs::read(root.path().join("local-runtime.pre-external.sqlite3")).unwrap(),backup);
+  drop(reopened);std::fs::write(root.path().join("local-runtime.pre-external.sqlite3"),b"damaged").unwrap();
+  assert!(History::open_prepared(root.path()).is_err(),"a damaged backup still fails verification");
  }
  #[test]fn hero_history_read_is_bounded_and_does_not_disguise_storage_failure_as_zero_matches(){
   let root=tempfile::tempdir().unwrap();let history=History::prepare(root.path()).unwrap();

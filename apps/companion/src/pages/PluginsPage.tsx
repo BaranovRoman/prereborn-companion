@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { Button, Input } from "../components/ui";
 import * as api from "../plugins/api";
@@ -63,10 +63,10 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
     </div>;
   };
   return <section className="page-content plugin-library" aria-label="Плагины">
-    <header className="plugin-library__heading">
-      <div><h2>{selected ? selected.manifest?.name ?? selected.id : "Плагины"}</h2><p>{selected ? "Управление установленным плагином" : "Устанавливайте только нужные расширения Companion."}</p></div>
+    {!selected && <header className="plugin-library__heading">
+      <div><h2>Плагины</h2><p>Устанавливайте только нужные расширения Companion.</p></div>
       <Button disabled={disabled} onClick={() => void run(api.refresh)}>Обновить каталог</Button>
-    </header>
+    </header>}
     {(error || view?.error) && <p role="alert">{error ?? api.errorText(view?.error)}</p>}
     {!view && !error && <p role="status">Загрузка библиотеки…</p>}
     {view?.catalogError && <p role="status">{api.errorText(view.catalogError)} Установленные плагины доступны независимо от каталога.</p>}
@@ -78,24 +78,30 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
       </>}
     </div>}
     {view?.transfer.error && !error && <p role="alert">{api.errorText(view.transfer.error)}</p>}
-    {opened && <Button onClick={() => setOpened(null)}>Все плагины</Button>}
+    {opened && !selected && <Button onClick={() => setOpened(null)}>Все плагины</Button>}
     {opened && view && !selected && <p role="status">Плагин больше не установлен. Пользовательские данные сохранены.</p>}
     {selected ? <article className="plugin-detail">
-      <p>{selected.manifest?.description}</p>
-      <p>Версия {selected.installed.active} · {selected.installed.enabled ? phaseText[selected.runtime?.phase ?? "stopped"] : "Отключён"}</p>
-      <p>{selected.manifest?.author ? `Автор: ${selected.manifest.author}` : "Автор не указан в манифесте."}</p>
+      <div className="plugin-toolbar">
+        <Button onClick={() => setOpened(null)}>Все плагины</Button>
+        <PluginIcon plugin={selected} />
+        <div className="plugin-toolbar__title"><h2>{selected.manifest?.name ?? selected.id}</h2>
+          <span>v{selected.installed.active} · {selected.installed.enabled ? phaseText[selected.runtime?.phase ?? "stopped"] : "Отключён"}{selected.manifest?.author ? ` · ${selected.manifest.author}` : ""}</span></div>
+        {selected.manifest?.execution === "live" ? <WorkerControls key={`controls-${selected.id}-${selected.installed.active}`} plugin={selected} disabled={disabled} run={run} /> : <div className="plugin-actions">
+          <Button disabled={disabled} onClick={() => void run(() => api.action(selected.id, selected.installed.enabled ? "disable" : "enable"))}>{selected.installed.enabled ? "Отключить" : "Включить"}</Button>
+          {selected.installed.enabled && selected.runtime?.phase !== "running" && <Button disabled={disabled} onClick={() => void run(() => api.action(selected.id, "start"))}>Запустить</Button>}
+          <Button disabled={disabled || selected.runtime?.phase !== "running"} onClick={() => void run(() => api.action(selected.id, "stop"))}>Остановить</Button>
+          {selected.installed.previous && <Button disabled={disabled || selected.runtime?.phase === "running"} onClick={() => void run(() => api.action(selected.id, "rollback"))}>Откатить на {selected.installed.previous}</Button>}
+        </div>}
+        {view?.catalog.filter((r) => r.manifest.id === selected.id && r.manifest.version !== selected.installed.active).map((r) => <div key={r.manifest.version}>{installButton(r)}</div>)}
+      </div>
       {selected.installed.pending && <p role="status">Обновление {selected.installed.pending} будет активировано после остановки.</p>}
       {(selected.error || selected.runtime?.lastError) && <p role="alert">{api.errorText(selected.error ?? selected.runtime?.lastError)}</p>}
-      {selected.manifest?.execution === "live" ? <WorkerControls key={`controls-${selected.id}-${selected.installed.active}`} plugin={selected} disabled={disabled} run={run} /> : <div className="plugin-actions">
-        <Button disabled={disabled} onClick={() => void run(() => api.action(selected.id, selected.installed.enabled ? "disable" : "enable"))}>{selected.installed.enabled ? "Отключить" : "Включить"}</Button>
-        {selected.installed.enabled && selected.runtime?.phase !== "running" && <Button disabled={disabled} onClick={() => void run(() => api.action(selected.id, "start"))}>Запустить</Button>}
-        <Button disabled={disabled || selected.runtime?.phase !== "running"} onClick={() => void run(() => api.action(selected.id, "stop"))}>Остановить</Button>
-        {selected.installed.previous && <Button disabled={disabled || selected.runtime?.phase === "running"} onClick={() => void run(() => api.action(selected.id, "rollback"))}>Откатить на {selected.installed.previous}</Button>}
-        <Button variant="danger" disabled={disabled} onClick={() => void run(() => api.action(selected.id, "remove"))}>Удалить</Button>
-      </div>}
-      {view?.catalog.filter((r) => r.manifest.id === selected.id).map((r) => <div key={r.manifest.version}>{installButton(r)}</div>)}
-      <small>При удалении пользовательские данные сохраняются.</small>
-      {selected.transport!=null&&<details><summary>Диагностика runtime</summary><pre>{JSON.stringify({runtime:selected.runtime,transport:selected.transport},null,2)}</pre></details>}
+      <details className="plugin-about"><summary>О плагине и диагностика</summary>
+        <p>{selected.manifest?.description}</p>
+        <div className="plugin-actions"><Button variant="danger" disabled={disabled} onClick={() => void run(() => api.action(selected.id, "remove"))}>Удалить</Button></div>
+        <small>При удалении пользовательские данные сохраняются. Включение только вручную: после перезапуска приложение не запускает live-плагин автоматически.</small>
+        {selected.transport!=null&&<pre>{JSON.stringify({runtime:selected.runtime,transport:selected.transport},null,2)}</pre>}
+      </details>
       {((selected.manifest?.execution === "live" && selected.manifest.minApi>=2)|| (selected.installed.enabled && selected.runtime?.phase === "running")) && <PluginUI key={`ui-${selected.id}-${selected.installed.active}`} plugin={selected} />}
       {selected.manifest?.execution !== "live" && !selected.installed.enabled && <p>Чтобы открыть интерфейс этого плагина, включите его отдельным действием.</p>}
     </article> : !opened && <>
@@ -140,22 +146,18 @@ function WorkerControls({ plugin, disabled, run }: { plugin: api.Installed; disa
       setResult(action==="prepare"?"Подготовка подтверждена worker: backup проверен, хранилище подготовлено. Плагин ещё не включён.":action==="enable"?"Плагин включён вручную.":"Плагин остановлен. Пользовательские данные сохранены.");
     }catch(e){setFailure(api.errorText(e));throw e;}finally{inFlight.current=false;setPending(null);}});
   };
-  return <section aria-label="Управление плагином" aria-busy={pending!==null}>
+  return <section className="plugin-controls" aria-label="Управление плагином" aria-busy={pending!==null}>
     {!compatible&&<p role="status">Установленный пакет использует старый API. Для запуска установите совместимое обновление из каталога.</p>}
-    {compatible&&!plugin.installed.enabled&&<>
-      <label><input type="checkbox" checked={confirmed} disabled={disabled||pending!==null} onChange={e=>setConfirmed(e.target.checked)}/>Разрешаю ручную подготовку хранилища. Перед изменением схемы будет проверен backup; существующие файлы сохраняются.</label>
-      {!confirmed&&<p>Подготовка заблокирована до ручного подтверждения.</p>}
+    {compatible&&!plugin.installed.enabled&&!prepared&&<div className="plugin-prepare">
+      <label><input type="checkbox" checked={confirmed} disabled={disabled||pending!==null} onChange={e=>setConfirmed(e.target.checked)}/>Разрешаю первую подготовку хранилища (backup проверяется, файлы сохраняются)</label>
       <Button disabled={disabled||pending!==null||!confirmed} onClick={()=>void execute("prepare")}>Подготовить backup и миграцию</Button>
-      {!prepared&&<p>Перед включением необходимо подтвердить подготовку хранилища.</p>}
-    </>}
+    </div>}
     <div className="plugin-actions">
-      <Button disabled={disabled||pending!==null||!compatible||(!plugin.installed.enabled&&!prepared)} onClick={()=>void execute(plugin.installed.enabled?"disable":"enable")}>{plugin.installed.enabled?"Отключить":"Включить"}</Button>
+      <Button variant={plugin.installed.enabled?undefined:"primary"} disabled={disabled||pending!==null||!compatible||(!plugin.installed.enabled&&!prepared)} onClick={()=>void execute(plugin.installed.enabled?"disable":"enable")}>{plugin.installed.enabled?"Отключить":"Включить"}</Button>
       {compatible&&(plugin.error||plugin.runtime?.phase==="failed")&&<Button disabled={disabled||pending!==null} onClick={()=>void execute("recover")}>Проверить остановку и восстановить</Button>}
-      <Button variant="danger" disabled={disabled||pending!==null} onClick={()=>void run(()=>api.action(plugin.id,"remove"))}>Удалить</Button>
     </div>
     {pending&&<p role="status">{pending==="prepare"?"Проверка пакета, backup и подготовка хранилища…":"Ожидаем подтверждение native-команды…"}</p>}
     {result&&<p role="status">{result}</p>}{failure&&<p role="alert">{failure}</p>}
-    <small>Включение только вручную. После перезапуска приложение не запускает live-плагин автоматически.</small>
   </section>;
 }
 
@@ -204,10 +206,17 @@ function PluginUI({ plugin }: { plugin: api.Installed }) {
     frame.current?.contentWindow?.postMessage({type:"plugin-host-probe",version:UI_VERSION},"*");
     return () => { disposed = true; window.clearTimeout(timeout); window.removeEventListener("message", handler); };
   }, [plugin.id,plugin.installed.active,policy,legacy]);
+  const [height, setHeight] = useState(560);
+  useLayoutEffect(() => {
+    const fit = () => { const top = frame.current?.getBoundingClientRect().top ?? 0; setHeight(Math.max(480, Math.floor(window.innerHeight - top - 16))); };
+    fit(); window.addEventListener("resize", fit);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit); observer?.observe(document.body);
+    return () => { window.removeEventListener("resize", fit); observer?.disconnect(); };
+  }, []);
   const relative = plugin.manifest?.ui.replace(/^ui\//, "") ?? "index.html";
   return <div>{error && <p role="alert">{error}</p>}
     <iframe ref={frame} title={plugin.manifest?.name ?? plugin.id} sandbox="allow-scripts" referrerPolicy="no-referrer"
       onLoad={() => frame.current?.contentWindow?.postMessage({type:"plugin-host-probe",version:UI_VERSION},"*")}
-      src={pluginAsset(plugin.id, plugin.installed.active, relative)} style={{ width: "100%", height: 480 }} />
+      src={pluginAsset(plugin.id, plugin.installed.active, relative)} style={{ width: "100%", height }} />
   </div>;
 }
