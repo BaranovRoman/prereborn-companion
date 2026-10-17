@@ -15,6 +15,8 @@ vi.mock("../overlayApi", () => ({
   getGameplayReference: vi.fn().mockResolvedValue(null),
   chooseGameplayReference: vi.fn(),
   removeGameplayReference: vi.fn(),
+  getReferenceOpacity: vi.fn().mockResolvedValue(0.65),
+  saveReferenceOpacity: vi.fn().mockResolvedValue(0.65),
 }));
 
 // WK-152 - the preview iframe now gates on a real readiness probe (see

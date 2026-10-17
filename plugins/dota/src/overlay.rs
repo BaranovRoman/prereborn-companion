@@ -8,13 +8,30 @@ pub mod images;
 /// A confirmed host response only; iframe commands cannot call host.resource.
 /// Preserve the complete document, including fields the local editor ignores.
 pub fn save_resource(root:&std::path::Path,resource:&str,body:&serde_json::Value)->Result<(),String>{
- use std::io::Write;
  let name=match resource{"overlay-layout"|"overlay-layout-save"=>"overlay-layout.json","queue-settings"|"queue-settings-save"=>"queue-settings.json",_=>return Err("backend_resource_unhandled".into())};
  let version=body.get("version").and_then(serde_json::Value::as_u64);
  // Existing backend contracts: overlay layout v5; queue settings v1/v2,
  // normalized to v2 by the server. Do not invent a common schema version.
  if if name=="overlay-layout.json"{version!=Some(5)}else{!matches!(version,Some(1|2))}
   ||if name=="overlay-layout.json"{!body.get("scenes").is_some_and(serde_json::Value::is_object)}else{!body.get("visibility").is_some_and(serde_json::Value::is_object)||!body.get("widgets").is_some_and(serde_json::Value::is_object)}{return Err("overlay_settings_invalid".into());}
+ write(root,name,body)
+}
+/// 0.5.90 kept the last confirmed account-settings document for the renderer's
+/// next start. Only the background account read writes it, never host.resource.
+pub fn save_account(root:&std::path::Path,body:&serde_json::Value)->Result<(),String>{
+ if !body.is_object(){return Err("account_settings_invalid".into());}write(root,"account-overlay-data.json",body)
+}
+/// Editor-only reference opacity (0.5.90 kept it in WebView localStorage; the
+/// sandboxed package frame has no storage). Not part of the layout or snapshot.
+pub fn reference_opacity(root:&std::path::Path)->Result<f64,String>{
+ Ok(match read(root,"overlay-editor.json",1024)?{Some(value)=>value.get("referenceOpacity").and_then(serde_json::Value::as_f64).filter(|o|(0.1..=1.0).contains(o)).unwrap_or(0.65),None=>0.65})
+}
+pub fn save_reference_opacity(root:&std::path::Path,opacity:f64)->Result<f64,String>{
+ if !(0.1..=1.0).contains(&opacity){return Err("invalid_reference_opacity".into());}
+ write(root,"overlay-editor.json",&serde_json::json!({"referenceOpacity":opacity}))?;Ok(opacity)
+}
+fn write(root:&std::path::Path,name:&str,body:&serde_json::Value)->Result<(),String>{
+ use std::io::Write;
  let bytes=serde_json::to_vec(body).map_err(|_|"overlay_settings_invalid")?;if bytes.len()>24576{return Err("overlay_settings_limit".into());}
  let path=root.join(name);if path.symlink_metadata().is_ok_and(|m|m.file_type().is_symlink()){return Err("overlay_config_invalid".into());}
  let tmp=root.join(format!(".overlay-settings-{}.tmp",uuid::Uuid::new_v4()));
@@ -24,8 +41,11 @@ pub fn save_resource(root:&std::path::Path,resource:&str,body:&serde_json::Value
 /// Only pre-existing public overlay cache/config files are read here. Never
 /// companion-config.json, OBS credentials, a raw GSI payload or a supplied path.
 pub fn saved(root:&std::path::Path,name:&str,limit:u64)->Result<Option<serde_json::Value>,String>{
- use std::io::Read;
  if !matches!(name,"overlay-layout.json"|"queue-settings.json"|"account-overlay-data.json"){return Err("overlay_config_denied".into());}
+ read(root,name,limit)
+}
+fn read(root:&std::path::Path,name:&str,limit:u64)->Result<Option<serde_json::Value>,String>{
+ use std::io::Read;
  let path=root.join(name);let metadata=match path.symlink_metadata(){Ok(m)=>m,Err(e)if e.kind()==std::io::ErrorKind::NotFound=>return Ok(None),Err(_)=>return Err("overlay_config_unavailable".into())};
  if !metadata.is_file()||metadata.file_type().is_symlink()||metadata.len()>limit{return Err("overlay_config_invalid".into());}
  let mut bytes=Vec::new();std::fs::File::open(path).map_err(|_|"overlay_config_unavailable")?.take(limit+1).read_to_end(&mut bytes).map_err(|_|"overlay_config_unavailable")?;

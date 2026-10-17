@@ -38,6 +38,15 @@ impl Launch {
 #[derive(Serialize)]
 #[serde(rename_all="camelCase")]
 pub struct SoundIntent {operation_key:String,asset_file:String,volume:u8,deadline_ms:u64,context:Option<String>,#[serde(skip_serializing_if="Option::is_none")]speech:Option<String>}
+/// Public live passthrough for the unchanged backend presence/scene contract.
+/// Built from the strict projection only: fixed scalar fields, no raw GSI JSON.
+fn live_state(snapshot:&companion_dota_domain::contracts::ReplayGsi)->Value{
+ let mut payload=serde_json::Map::new();
+ if let Some(p)=&snapshot.player{payload.insert("player".into(),json!({"activity":p.activity,"team_name":p.team_name,"kills":p.kills,"deaths":p.deaths,"assists":p.assists}));}
+ if let Some(m)=&snapshot.map{payload.insert("map".into(),json!({"game_state":m.game_state,"matchid":m.matchid,"win_team":m.win_team}));}
+ if let Some(h)=&snapshot.hero{payload.insert("hero".into(),json!({"id":h.id}));}
+ Value::Object(payload)
+}
 fn retain_context(sounds:&mut Vec<SoundIntent>,context:Option<&str>)->u64{
  let before=sounds.len();sounds.retain(|s|s.context.as_deref()==context);(before-sounds.len())as u64
 }
@@ -58,17 +67,18 @@ pub struct Worker {
  dropped_sound_intents:u64,audio_sequence:u64,speech_sequence:u64,
  last_lifecycle_at:Option<std::time::Instant>,last_watchdog_at:Option<std::time::Instant>,stream_ended:bool,streaming:Option<bool>,
  next_account_at:Option<std::time::Instant>,account_request_sequence:u64,account_failures:u32,backend_error:Option<String>,account:Option<Value>,
+ live_gsi:Option<(u64,Value)>,gsi_sent:u64,pending_gsi:Option<u64>,next_gsi_at:Option<std::time::Instant>,gsi_failures:u32,next_command_at:Option<std::time::Instant>,remote_scene:Option<(companion_dota_domain::broadcast_state::BroadcastState,u64)>,last_command:Option<String>,presence_error:Option<String>,
  next_sync_at:Option<std::time::Instant>,pending_sync:Option<companion_dota_storage::local_runtime::sync::OutboxRow>,
  backend_updates:u64,next_corrections_at:Option<std::time::Instant>,pending_corrections:Option<String>,
  detected_sounds:u64,planned_sounds:u64,last_sound_signal:Option<Value>,last_sound_operation:Option<String>,
  last_error:Option<String>, processed:u64, last_sequence:Option<u64>, last_analysis:Option<Value>,last_gsi:Option<Value>,last_receipt:Option<companion_dota_domain::match_execution::Receipt>,
 }
 impl Worker {
- pub fn new(launch:Launch)->Self{let mut hotkey=crate::overlay::hotkey::Controller::default();hotkey.load(&launch.data_root);Self{chat:None,overlay_hotkey:hotkey,overlay_visible:true,show_summary:false,pending_backend:None,obsolete_overlay_request:None,overlay_refresh:Default::default(),overlay_resources:Default::default(),overlay_backend_error:None,launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,obs:Default::default(),reminder:Default::default(),dropped_sound_intents:0,audio_sequence:0,speech_sequence:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,next_sync_at:None,pending_sync:None,backend_updates:0,next_corrections_at:None,pending_corrections:None,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
+ pub fn new(launch:Launch)->Self{let mut hotkey=crate::overlay::hotkey::Controller::default();hotkey.load(&launch.data_root);Self{chat:None,overlay_hotkey:hotkey,overlay_visible:true,show_summary:false,pending_backend:None,obsolete_overlay_request:None,overlay_refresh:Default::default(),overlay_resources:Default::default(),overlay_backend_error:None,launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,obs:Default::default(),reminder:Default::default(),dropped_sound_intents:0,audio_sequence:0,speech_sequence:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,live_gsi:None,gsi_sent:0,pending_gsi:None,next_gsi_at:None,gsi_failures:0,next_command_at:None,remote_scene:None,last_command:None,presence_error:None,next_sync_at:None,pending_sync:None,backend_updates:0,next_corrections_at:None,pending_corrections:None,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
  pub fn status(&self)->Value{
   let history=self.history.as_ref();let active=history.is_some_and(History::active);
   json!({"overlayVisible":self.overlay_visible,"showSummary":self.show_summary,"overlayHotkey":self.overlay_hotkey.status(),"prepared":history.is_some(),"active":active,"awaitingSession":active&&history.and_then(History::session).is_none(),
-   "session":history.and_then(History::session),"epoch":history.and_then(History::epoch),"lastError":self.last_error,"streaming":self.streaming,"streamEnded":self.stream_ended,"obsError":self.obs.error,"obsReceipt":self.obs.last_receipt,"backendError":self.backend_error,"overlayBackendError":self.overlay_backend_error,"backendUpdates":self.backend_updates,
+   "session":history.and_then(History::session),"epoch":history.and_then(History::epoch),"lastError":self.last_error,"streaming":self.streaming,"streamEnded":self.stream_ended,"obsError":self.obs.error,"obsReceipt":self.obs.last_receipt,"backendError":self.backend_error,"presenceError":self.presence_error,"overlayBackendError":self.overlay_backend_error,"backendUpdates":self.backend_updates,
    "gsi":self.listener.as_ref().map(|l|json!(l.status())).or(self.last_gsi.clone()),"processed":self.processed,"lastSequence":self.last_sequence,"analysis":self.last_analysis,
    "receipt":self.last_receipt,"context":self.effect_context(),"droppedSoundIntents":self.dropped_sound_intents,"detectedSounds":self.detected_sounds,"plannedSounds":self.planned_sounds,"lastSoundSignal":self.last_sound_signal,"lastSoundOperation":self.last_sound_operation,"overlay":self.overlay.as_ref().map(|s|json!({"running":!s.closed(),"clients":s.clients()}))})
  }
@@ -90,10 +100,10 @@ impl Worker {
     self.pending_corrections=Some(since.clone());
     return Ok(Some(Request{resource:"corrections".into(),operation_key:format!("corrections:{}:{}",self.launch.generation,self.account_request_sequence),query:[("since".into(),since)].into(),body:None}));
    }
-   if self.next_sync_at.is_some_and(|at|at>std::time::Instant::now()){return self.overlay_backend_request();}
+   if self.next_sync_at.is_some_and(|at|at>std::time::Instant::now()){return self.enrichment_request();}
    self.next_sync_at=Some(std::time::Instant::now()+std::time::Duration::from_secs(2));
    if self.pending_sync.is_some(){return Err("backend_request_in_flight".into());}
-   let Some(row)=self.history.as_mut().unwrap().pending_sync()?else{return self.overlay_backend_request();};
+   let Some(row)=self.history.as_mut().unwrap().pending_sync()?else{return self.enrichment_request();};
    let payload:Value=match serde_json::from_str(&row.payload){Ok(value)=>value,Err(_)=>{self.history.as_mut().unwrap().settle_sync(&row,"rejected")?;self.backend_error=Some("outbox_payload_invalid".into());return Ok(None);}};
    let geometry=row.event_type=="quiz_geometry"&&row.entity_type=="overlay-geometry";
    let request=Request{resource:if geometry{"quiz-geometry"}else{"sync-event"}.into(),operation_key:format!("sync:{}:{}",row.id,row.attempts),query:Default::default(),body:Some(if geometry{payload}else{json!({"eventId":row.id,"eventType":row.event_type,"payload":payload})})};
@@ -102,6 +112,53 @@ impl Worker {
   self.account_request_sequence=self.account_request_sequence.checked_add(1).ok_or("backend_sequence_exhausted")?;
   self.next_account_at=Some(std::time::Instant::now()+std::time::Duration::from_secs(60));
   Ok(Some(companion_plugin_protocol::backend::Request{resource:"account".into(),operation_key:format!("account:{}:{}",self.launch.generation,self.account_request_sequence),query:Default::default(),body:None}))
+ }
+ fn enrichment_request(&mut self)->Result<Option<companion_plugin_protocol::backend::Request>,String>{
+  if let Some(request)=self.live_backend_request()?{return Ok(Some(request));}
+  self.overlay_backend_request()
+ }
+ /// Presence and the website's remote test-scene mailbox, as 0.5.90 did:
+ /// commands every 15s; the projected live state at most once per second and
+ /// only after a new admitted frame. Both are latest-state reads/upserts, never
+ /// effect keys, so a lost reply is superseded instead of replayed.
+ fn live_backend_request(&mut self)->Result<Option<companion_plugin_protocol::backend::Request>,String>{
+  use companion_plugin_protocol::backend::Request;
+  let now=std::time::Instant::now();
+  let request=if self.launch.capabilities.iter().any(|c|c=="obs.scene")&&self.next_command_at.is_none_or(|at|at<=now){
+   self.next_command_at=Some(now+std::time::Duration::from_secs(15));
+   ("commands",None)
+  }else{
+   let Some((frame,state))=self.live_gsi.as_ref().filter(|(frame,_)|*frame!=self.gsi_sent)else{return Ok(None);};
+   if self.next_gsi_at.is_some_and(|at|at>now){return Ok(None);}
+   self.next_gsi_at=Some(now+std::time::Duration::from_secs(1));self.pending_gsi=Some(*frame);
+   ("gsi-state",Some(json!({"payload":state,"companionVersion":concat!("dota2@",env!("CARGO_PKG_VERSION"))})))
+  };
+  self.account_request_sequence=self.account_request_sequence.checked_add(1).ok_or("backend_sequence_exhausted")?;
+  let request=Request{resource:request.0.into(),operation_key:format!("live:{}:{}",self.launch.generation,self.account_request_sequence),query:Default::default(),body:request.1};
+  request.validate()?;Ok(Some(request))
+ }
+ fn live_backend_response(&mut self,request:&companion_plugin_protocol::backend::Request,response:companion_plugin_protocol::backend::Response)->Result<(),String>{
+  let ok=response.error.is_none()&&response.status.is_some_and(|code|(200..300).contains(&code));
+  let failure=||if response.status==Some(426){"companion_outdated".to_string()}else{response.error.clone().unwrap_or_else(||format!("backend_{}_unavailable",request.resource.replace('-',"_")))};
+  if request.resource=="gsi-state"{
+   let frame=self.pending_gsi.take().ok_or("backend_request_not_pending")?;
+   if ok{self.gsi_sent=frame;self.gsi_failures=0;self.presence_error=None;}
+   else{self.gsi_failures=self.gsi_failures.saturating_add(1);self.next_gsi_at=Some(std::time::Instant::now()+std::time::Duration::from_secs(2u64.saturating_pow(self.gsi_failures.min(5)).min(30)));self.presence_error=Some(failure());}
+   return Ok(());
+  }
+  if !ok{self.presence_error=Some(failure());return Ok(());}
+  self.presence_error=None;
+  let Some(body)=response.body.filter(|_|response.status!=Some(204))else{return Ok(());};
+  use companion_dota_domain::broadcast_state::BroadcastState;
+  let scene=match body.get("scene").and_then(Value::as_str){Some("betweenMatches")=>BroadcastState::BetweenMatches,Some("draft")=>BroadcastState::Draft,Some("gameplay")=>BroadcastState::Gameplay,_=>{self.presence_error=Some("obs_command_invalid".into());return Ok(());}};
+  let Some(id)=body.get("id").and_then(Value::as_str).filter(|id|!id.is_empty()&&id.len()<=64)else{self.presence_error=Some("obs_command_invalid".into());return Ok(());};
+  if self.last_command.as_deref()==Some(id){return Ok(());}
+  // Same lifetime as 0.5.90's one-shot remote switch: the next real GSI frame
+  // resumes automatic policy; ended/summary precedence still applies.
+  self.last_command=Some(id.into());self.remote_scene=Some((scene,self.processed));Ok(())
+ }
+ fn requested_scene(&mut self)->companion_dota_domain::broadcast_state::BroadcastState{
+  match self.remote_scene{Some((scene,frame)) if frame==self.processed=>scene,Some(_)=>{self.remote_scene=None;self.scene},None=>self.scene}
  }
  /// Bounded refreshes use the same single host HTTP slot as sync. Cached
  /// enrichment never delays GSI processing and never creates effect keys.
@@ -147,6 +204,7 @@ impl Worker {
   self.pending_backend=None;
   if self.obsolete_overlay_request.as_ref()==Some(&request.operation_key){self.obsolete_overlay_request=None;return Ok(());}
   if matches!(request.resource.as_str(),"overlay-layout"|"queue-settings"|"favorite-heroes"|"profile-radar"|"quiz-state"){return self.overlay_backend_response(request,response);}
+  if matches!(request.resource.as_str(),"gsi-state"|"commands"){return self.live_backend_response(request,response);}
   if request.resource=="account"{self.account_response(request,response)?;self.backend_updates=self.backend_updates.checked_add(1).ok_or("backend_sequence_exhausted")?;return Ok(());}
   if request.resource=="corrections"{
    let since=self.pending_corrections.take().ok_or("backend_request_not_pending")?;
@@ -176,6 +234,7 @@ impl Worker {
   let mode=account.get("gameMode").and_then(Value::as_str);let rating=account.get("currentMmr").and_then(Value::as_i64);
   if mode.is_some_and(|m|!matches!(m,"ranked"|"unranked"))||rating.is_some_and(|r|!(0..=30000).contains(&r)){self.backend_unavailable("account_settings_invalid".into());return Ok(());}
   self.history.as_mut().ok_or("not_prepared")?.refresh_account(mode,rating)?;
+  if self.account.as_ref()!=Some(&account){self.overlay_backend_error=crate::overlay::save_account(&self.launch.data_root,&account).err();}
   self.account=Some(account);self.backend_error=None;self.account_failures=0;Ok(())
  }
  fn backend_unavailable(&mut self,error:String){self.backend_error=Some(error);self.account_failures=self.account_failures.saturating_add(1);self.next_account_at=Some(std::time::Instant::now()+std::time::Duration::from_secs(2u64.saturating_pow(self.account_failures.min(5)).min(60)));}
@@ -242,6 +301,11 @@ impl Worker {
      self.last_overlay_at=None;self.publish_overlay()?;
     }
     Ok(json!({"url":url}))
+   },
+   "overlay.reference"=>{crate::ui::empty(args)?;Ok(json!({"opacity":crate::overlay::reference_opacity(&self.launch.data_root)?}))},
+   "overlay.reference.save"=>{
+    #[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Reference{opacity:f64}
+    let input:Reference=serde_json::from_value(args).map_err(|_|"invalid_reference_opacity")?;Ok(json!({"opacity":crate::overlay::save_reference_opacity(&self.launch.data_root,input.opacity)?}))
    },
    "overlay.hotkey"=>{crate::ui::empty(args)?;Ok(json!(self.overlay_hotkey.status()))},
    "overlay.hotkey.save"=>{let config=serde_json::from_value(args).map_err(|_|"invalid_overlay_hotkey")?;Ok(json!(self.overlay_hotkey.update(&self.launch.data_root,config,self.history.as_ref().is_some_and(History::active))?))},
@@ -326,7 +390,7 @@ impl Worker {
   self.overlay_hotkey.stop()?;
   self.overlay.take();self.last_overlay_at=None;
   if let Some(listener)=self.listener.take(){self.last_gsi=Some(json!(listener.status()));}
-  self.pipeline.reset();
+  self.pipeline.reset();self.remote_scene=None;self.live_gsi=None;
   if let Some(history)=self.history.as_mut(){history.drain()?;}
   Ok(())
  }
@@ -362,7 +426,7 @@ impl Worker {
   let before=self.processed;let mut result=self.frames();
   if let Ok(batch)=&mut result{
    let effect_context=self.effect_context();
-   let intent=if self.launch.capabilities.iter().any(|c|c=="obs.scene")&&self.history.as_ref().is_some_and(History::active){self.obs.plan(context.scene_observation.as_ref(),self.scene,self.stream_ended,self.show_summary,effect_context.as_deref(),now_ms)?}else{None};
+   let intent=if self.launch.capabilities.iter().any(|c|c=="obs.scene")&&self.history.as_ref().is_some_and(History::active){{let requested=self.requested_scene();self.obs.plan(context.scene_observation.as_ref(),requested,self.stream_ended,self.show_summary,effect_context.as_deref(),now_ms)?}}else{None};
    batch["sceneIntent"]=serde_json::to_value(intent).map_err(|_|"obs_intent_encoding_failed")?;batch["status"]=self.status();
   }
   if result.is_ok()&&self.overlay.is_some()&&(before!=self.processed||self.last_overlay_at.is_none_or(|at|at.elapsed()>=std::time::Duration::from_secs(1))){
@@ -381,6 +445,7 @@ impl Worker {
    let settings=config::load_verified(&self.launch.data_root.join("game-sounds-config.json"))?;
    let raw=serde_json::to_value(&frame.snapshot).map_err(|_|"projection_serialization_failed")?;
    self.scene=companion_dota_domain::broadcast_state::BroadcastState::from_gsi(&raw);
+   self.live_gsi=Some((self.processed.wrapping_add(1),live_state(&frame.snapshot)));
    let result=self.pipeline.frame(&raw,frame.sequence,frame.observed_at_ms,Default::default(),&settings,&self.launch.data_root.join("sounds"))?;
    self.detected_sounds=self.detected_sounds.checked_add(result.analysis.sound_signals.len() as u64).ok_or("sound_counter_exhausted")?;
    self.planned_sounds=self.planned_sounds.checked_add(result.sounds.len() as u64).ok_or("sound_counter_exhausted")?;
@@ -488,6 +553,49 @@ mod tests {
   let favorites=worker.overlay_backend_request().unwrap().unwrap();assert_eq!(favorites.resource,"favorite-heroes");assert_eq!(favorites.query.get("heroIds").unwrap(),"105,14");
   worker.pending_backend=Some(favorites.clone());worker.backend_response(&favorites,Response::failed(&favorites,"backend_result_unknown")).unwrap();
   assert_eq!(worker.overlay_backend_error.as_deref(),Some("backend_result_unknown"));assert!(worker.history.is_none());assert!(worker.listener.is_none());
+ }
+ #[test]fn live_passthrough_is_whitelisted_throttled_and_the_remote_scene_lasts_until_the_next_frame(){
+  use companion_plugin_protocol::backend::Response;use companion_dota_domain::broadcast_state::BroadcastState;
+  let snapshot:companion_dota_domain::contracts::ReplayGsi=serde_json::from_value(json!({"player":{"activity":"playing","kills":3},"map":{"game_state":"DOTA_GAMERULES_STATE_GAME_IN_PROGRESS","matchid":"77","customgamename":"/private/path"},"hero":{"id":105},"items":{"slot0":{"name":"item_blink"}},"abilities":{"ability0":{"name":"techies_suicide","cooldown":3.0}}})).unwrap();
+  let state=live_state(&snapshot);let text=state.to_string();
+  assert_eq!(state["map"]["game_state"],"DOTA_GAMERULES_STATE_GAME_IN_PROGRESS");assert_eq!(state["player"]["activity"],"playing");assert_eq!(state["hero"]["id"],105);
+  for denied in ["items","abilities","couriers","customgamename","custom_game_name","private","techies"]{assert!(!text.contains(denied),"{denied}");}
+  let root=tempfile::tempdir().unwrap();let mut worker=worker(root.path());worker.launch.capabilities.extend(["backend.access".into(),"obs.scene".into()]);
+  let commands=worker.live_backend_request().unwrap().unwrap();assert_eq!(commands.resource,"commands");assert!(commands.body.is_none());
+  assert!(worker.live_backend_request().unwrap().is_none(),"no frame, no state upsert");
+  worker.live_gsi=Some((1,state.clone()));
+  let put=worker.live_backend_request().unwrap().unwrap();assert_eq!(put.resource,"gsi-state");assert_eq!(put.body.as_ref().unwrap()["payload"],state);
+  assert!(!put.body.as_ref().unwrap()["companionVersion"].as_str().unwrap().starts_with(char::is_numeric));
+  worker.live_backend_response(&put,Response{operation_key:put.operation_key.clone(),status:Some(426),body:None,error:Some("backend_http_rejected".into())}).unwrap();
+  assert_eq!(worker.presence_error.as_deref(),Some("companion_outdated"));assert_eq!(worker.gsi_sent,0);assert!(worker.live_backend_request().unwrap().is_none(),"failure backs off");
+  worker.next_gsi_at=None;let retry=worker.live_backend_request().unwrap().unwrap();
+  worker.live_backend_response(&retry,Response{operation_key:retry.operation_key.clone(),status:Some(200),body:Some(json!({"ok":true})),error:None}).unwrap();
+  assert_eq!(worker.gsi_sent,1);worker.next_gsi_at=None;assert!(worker.live_backend_request().unwrap().is_none(),"delivered state is not resent");
+  let reply=|body:Value|Response{operation_key:commands.operation_key.clone(),status:Some(200),body:Some(body),error:None};
+  worker.live_backend_response(&commands,Response{operation_key:commands.operation_key.clone(),status:Some(204),body:None,error:None}).unwrap();assert!(worker.remote_scene.is_none());
+  worker.live_backend_response(&commands,reply(json!({"id":"c1","scene":"postStream"}))).unwrap();assert_eq!(worker.presence_error.as_deref(),Some("obs_command_invalid"));assert!(worker.remote_scene.is_none());
+  worker.live_backend_response(&commands,reply(json!({"id":"c2","scene":"draft","createdAt":"now"}))).unwrap();
+  assert_eq!(worker.requested_scene(),BroadcastState::Draft);assert_eq!(worker.requested_scene(),BroadcastState::Draft);
+  worker.processed+=1;assert_eq!(worker.requested_scene(),BroadcastState::BetweenMatches);
+  worker.live_backend_response(&commands,reply(json!({"id":"c2","scene":"draft"}))).unwrap();assert!(worker.remote_scene.is_none(),"a repeated command id is not reapplied");
+  assert!(worker.history.is_none());assert!(worker.listener.is_none());
+ }
+ #[test]fn the_account_cache_file_takes_only_an_object_and_never_follows_host_resource(){
+  let root=tempfile::tempdir().unwrap();let account=json!({"gameMode":"ranked","currentMmr":4200});
+  crate::overlay::save_account(root.path(),&account).unwrap();assert_eq!(crate::overlay::saved(root.path(),"account-overlay-data.json",24576).unwrap(),Some(account.clone()));
+  assert!(crate::overlay::save_account(root.path(),&json!([1])).is_err());assert!(crate::overlay::save_resource(root.path(),"account",&account).is_err());
+  let mut worker=worker(root.path());worker.launch.capabilities.push("backend.access".into());
+  assert!(worker.command("host.resource",json!({"resource":"account","body":{"gameMode":"unranked"}})).is_err());
+  assert_eq!(crate::overlay::saved(root.path(),"account-overlay-data.json",24576).unwrap(),Some(account));
+ }
+ #[test]fn reference_opacity_is_bounded_package_state_and_survives_a_restart(){
+  let root=tempfile::tempdir().unwrap();let mut worker=worker(root.path());worker.launch.capabilities.extend(["ui".into(),"overlay.publish".into()]);
+  assert_eq!(worker.command("overlay.reference",json!({})).unwrap()["opacity"],0.65);
+  assert_eq!(worker.command("overlay.reference.save",json!({"opacity":0.4})).unwrap()["opacity"],0.4);
+  for bad in [json!({"opacity":0.0}),json!({"opacity":1.5}),json!({"opacity":0.5,"path":"x"}),json!({"opacity":"0.5"})]{assert!(worker.command("overlay.reference.save",bad).is_err());}
+  let mut restarted=super::tests::worker(root.path());restarted.launch.capabilities.extend(["ui".into(),"overlay.publish".into()]);
+  assert_eq!(restarted.command("overlay.reference",json!({})).unwrap()["opacity"],0.4);
+  assert!(crate::overlay::saved(root.path(),"overlay-editor.json",1024).is_err());assert!(worker.history.is_none());
  }
  #[test]fn disabled_quiz_is_not_polled_and_failed_enrichment_keeps_the_last_actual_response(){
   use companion_plugin_protocol::backend::Response;

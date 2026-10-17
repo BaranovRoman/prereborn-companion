@@ -41,3 +41,5 @@ export const removeQueueWebcamFallback=()=>invoke("overlay.image.remove",{kind:"
 export const chooseGameplayReference=()=>chooseImage("reference");
 export const getGameplayReference=()=>invoke<{url:string|null}>("overlay.image.get",{kind:"reference"}).then(result=>result.url);
 export const removeGameplayReference=()=>invoke("overlay.image.remove",{kind:"reference"});
+export const getReferenceOpacity=()=>invoke<{opacity:number}>("overlay.reference",{}).then(result=>result.opacity);
+export const saveReferenceOpacity=(opacity:number)=>invoke<{opacity:number}>("overlay.reference.save",{opacity}).then(result=>result.opacity);

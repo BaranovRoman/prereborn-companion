@@ -875,3 +875,30 @@ the new state only after the actual receipt. Package backend calls are
 serialized through one bounded queue (8 pending) so they never race the native
 single-request UI guard. Selected UI tests (22), the native ACK boundary test,
 the history read/error test and 12 worker tests pass; not native Windows UAT.
+
+## Presence, remote test scene, account cache, editor opacity (2026-10-17)
+
+Two 0.5.90 backend integrations were missing after the core cut and now live
+in the package worker on the same single CoreRead slot (no second poller):
+
+- `gsi-state` (PUT `/stream/companion/gsi-state`): the public overlay's scene
+  resolver and debug panel plus companion presence. The body is built from the
+  strict projection only — `player{activity,team_name,kills,deaths,assists}`,
+  `map{game_state,matchid,win_team}`, `hero{id}` — never raw GSI, items,
+  abilities or custom game paths. At most once per second and only after a new
+  admitted frame; failures back off 2^n s (max 30) like 0.5.90. The label
+  `dota2@<package version>` is sent as companionVersion: the backend floor
+  (0.4.0) compares app versions, and a bare package number would be a false 426.
+- `commands` (GET `/stream/companion/commands`, every 15 s, requires
+  `obs.scene`): the website's remote test scene. Only betweenMatches/draft/
+  gameplay are accepted; a repeated command id is ignored. As in 0.5.90 the
+  requested scene lasts until the next real GSI frame; ended/summary
+  precedence still wins. This poll also keeps presence without a running game.
+
+The confirmed account-settings document is again written to
+`account-overlay-data.json` (only by the background read, never host.resource).
+The editor reference opacity is package state in `overlay-editor.json`
+(0.1–1.0, default 0.65) via `overlay.reference[.save]`; the sandboxed frame has
+no storage. The 0.5.90 value in the main WebView localStorage is not migrated:
+the core must not know package keys. It is a cosmetic editor-only setting.
+Worker tests: 56 passed; package UI: 49 passed (8 files); tsc passed.
