@@ -214,7 +214,9 @@ pub fn verify_host_descendant(generation:&str,pid:u32)->Result<(),String>{unsafe
 pub fn fence_current_host_children(generation:&str)->Result<(),String>{
     verify_current_generation(generation)?;
     let (current,job)=HOST_JOB.get().ok_or("host_supervision_unproven")?;if current!=generation{return Err("host_generation_fenced".into());}
-    let deadline=Instant::now()+Duration::from_secs(2);let mut handles=Vec::new();let mut seen=std::collections::BTreeSet::new();
+    // Proof requirements below are unchanged; the budget only covers slow
+    // console/child teardown (seen on a loaded CI runner) before the updater.
+    let deadline=Instant::now()+Duration::from_secs(5);let mut handles=Vec::new();let mut seen=std::collections::BTreeSet::new();
     loop{unsafe{
         // A child can exit (or finish creating its own child) between the job
         // list query and OpenProcess. Discard that incomplete witness and
