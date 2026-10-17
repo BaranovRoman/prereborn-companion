@@ -112,6 +112,12 @@ export function HeroesPage({ favorites, soundSettings, trackedHeroes, onSelectHe
   }, [query]);
 
   const matchedIds = useMemo(() => new Set(searchHeroes(query).map((h) => h.id)), [query]);
+  const roster = useRef<HTMLDivElement>(null);
+  // A match below the fold read as a failed search: bring the first one into view.
+  useEffect(() => {
+    if (!query) return;
+    roster.current?.querySelector<HTMLElement>('[data-search-match="true"]')?.scrollIntoView?.({ block: "nearest" });
+  }, [query, matchedIds]);
   const favoriteHeroes = useMemo(
     () => favorites.heroIds.map((id) => DOTA_HEROES.find((h) => h.id === id)).filter((h): h is HeroCatalogEntry => !!h),
     [favorites.heroIds]
@@ -154,7 +160,7 @@ export function HeroesPage({ favorites, soundSettings, trackedHeroes, onSelectHe
           ) : undefined}
       </header>
 
-      <div className="hero-roster">
+      <div className="hero-roster" ref={roster}>
         {/* WK-141 - the active query is a temporary Reaver overlay ON the
             roster (absolutely positioned, pointer-events: none), not a
             form field: idle vs. active-search roster geometry stays

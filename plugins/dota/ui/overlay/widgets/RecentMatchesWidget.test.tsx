@@ -83,3 +83,14 @@ describe("RecentMatchesWidget", () => {
     expect(screen.getByText("-30")).toBeTruthy();
   });
 });
+
+describe("RecentMatchesWidget numbering", () => {
+  it("numbers unranked matches in gameplay as well", () => {
+    const { container } = render(<RecentMatchesWidget showDetails matches={[
+      match({ matchId: "1" }),
+      match({ matchId: "2", rankedMode: "unranked", rankedModeDetected: "unranked", ratingBefore: null, ratingAfter: null, detectedRatingDelta: null }),
+      match({ matchId: "3" }),
+    ]} />);
+    expect(Array.from(container.querySelectorAll("[title]")).map((row) => row.firstElementChild?.textContent)).toEqual(["1", "2", "3"]);
+  });
+});

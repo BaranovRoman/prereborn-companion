@@ -21,7 +21,7 @@
 @media (max-width: 860px) {
   .attribute-grid { grid-template-columns: 1fr; }
 }
-.hero-portrait-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 8px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ui-void); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
+.hero-portrait-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 6px; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--ui-void); box-shadow: inset 0 0 0 1px var(--ui-edge-soft); }
 .hero-portrait-tile {
   position: relative;
   aspect-ratio: 1.78;
@@ -234,3 +234,8 @@
 }
 .hero-portrait-tile__favorite.is-active { color: var(--ui-gold); text-shadow: 0 0 6px rgba(162,151,110,.6), 0 1px 2px #000; }
 .hero-portrait-tile__favorite:hover { color: #f2ece5; }
+
+/* Package frame: the whole roster should fit a 1080p window; tiles shrink
+   instead of the columns growing taller than the frame. */
+.heroes-page .attribute-grid { gap: 12px; }
+.heroes-page .hero-portrait-tile__name { font-size: 11px; }

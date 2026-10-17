@@ -39,7 +39,8 @@ export function RecentMatchesWidget({ matches, settings, anchor = "top-left", be
             className={styles.matchRow}
             title={hero?.localizedName}
           >
-            {(betweenMatches || delta !== null) && <span className={styles.matchIndex}>{index + 1}</span>}
+            {/* Every finalized match keeps its position, ranked or not. */}
+            <span className={styles.matchIndex}>{index + 1}</span>
             {hero && <img className={styles.heroIconTiny} src={hero.iconUrl} alt={hero.localizedName} />}
             {showDetails && (
               <span className={styles.matchHeroData}>

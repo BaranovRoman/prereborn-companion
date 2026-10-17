@@ -13,7 +13,6 @@ import { IntegrationsPanel } from "../../components/IntegrationsPanel";
 import { TwitchChatPage } from "../../components/TwitchChatPage";
 import { ChatTtsSettings } from "../../components/settings/ChatTtsSettings";
 import { UpdateBanner } from "../../components/UpdateBanner";
-import { AudioDeviceChangeBanner } from "../../components/AudioDeviceChangeBanner";
 import { PluginsPage } from "../../pages/PluginsPage";
 import { Button } from "../../components/ui";
 import { OutputSettings } from "./OutputSettings";
@@ -53,7 +52,7 @@ export function CoreShell() {
     </aside>
     <main className="companion-main">
       <UpdateBanner state={updater.state} onCheck={()=>void updater.checkForUpdate()} onInstall={()=>void updater.installUpdate()} onRestart={()=>void updater.restartToApply()} onDismiss={updater.dismiss}/>
-      <AudioDeviceChangeBanner toLabel={output.switchPrompt?.toLabel??null} onSwitch={output.onSwitchToNewDefault} onKeep={output.onKeepCurrentDevice}/>
+      {/* No device-change prompt: a chosen device stays chosen; "system default" follows Windows silently. */}
       {/* Plugins render their own heading/toolbar; a second title only costs plugin UI height. */}
       {section!=="plugins"&&<header className="companion-page-heading"><div><p className="core-eyebrow">COMPANION</p><h1>{sections.find((s)=>s.id===section)?.label}</h1></div></header>}
       {error&&<p className="core-notice" role="alert">Состояние сервисов не получено: {error} <button onClick={()=>void refresh()}>Повторить</button></p>}

@@ -92,8 +92,8 @@ describe("installed Dota package UI",()=>{
       if(name==="history.edit"){const request=args as {operationKey:string;expectedRevision:number;session:string};return {operationKey:request.operationKey,beforeRevision:7,revision:8,resolvedSession:request.session,streamEnded:false};}
       return previous(name,args);
     });
-    render(<Dota/>);await screen.findByTitle("Techies");fireEvent.click(screen.getByRole("button",{name:"История"}));await screen.findByText(/Текущий MMR: 2400/);
-    fireEvent.change(screen.getByRole("spinbutton",{name:"Текущий MMR"}),{target:{value:"2500"}});fireEvent.click(screen.getByRole("button",{name:"Сохранить MMR"}));
+    render(<Dota/>);await screen.findByTitle("Techies");fireEvent.click(screen.getByRole("button",{name:"История"}));expect((await screen.findByRole("textbox",{name:"Текущий MMR"}) as HTMLInputElement).value).toBe("2400");
+    {const mmr=screen.getByRole("textbox",{name:"Текущий MMR"});fireEvent.focus(mmr);fireEvent.change(mmr,{target:{value:"2500"}});fireEvent.blur(mmr);}
     await screen.findByText("Изменение сохранено в истории.");
     expect(mocks.invoke).toHaveBeenCalledWith("history.edit",expect.objectContaining({operationKey:expect.stringMatching(/^manual:[0-9a-f-]{36}$/),expectedRevision:7,session:"preserved-session",edit:{kind:"rating",rating:2500}}));
   });
@@ -104,10 +104,10 @@ describe("installed Dota package UI",()=>{
       if(name==="history.edit")throw new Error("stale_revision");
       return previous(name,args);
     });
-    render(<Dota/>);await screen.findByTitle("Techies");fireEvent.click(screen.getByRole("button",{name:"История"}));await screen.findByText(/Текущий MMR: 2400/);
-    fireEvent.change(screen.getByRole("spinbutton",{name:"Текущий MMR"}),{target:{value:"2500"}});fireEvent.click(screen.getByRole("button",{name:"Сохранить MMR"}));
+    render(<Dota/>);await screen.findByTitle("Techies");fireEvent.click(screen.getByRole("button",{name:"История"}));expect((await screen.findByRole("textbox",{name:"Текущий MMR"}) as HTMLInputElement).value).toBe("2400");
+    {const mmr=screen.getByRole("textbox",{name:"Текущий MMR"});fireEvent.focus(mmr);fireEvent.change(mmr,{target:{value:"2500"}});fireEvent.blur(mmr);}
     await screen.findByRole("alert");expect(screen.getByRole("alert").textContent).toContain("stale_revision");
-    expect(screen.queryByText("Изменение сохранено в истории.")).toBeNull();expect(screen.getByText(/Текущий MMR: 2400/)).toBeTruthy();
+    expect(screen.queryByText("Изменение сохранено в истории.")).toBeNull();expect((screen.getByRole("textbox",{name:"Текущий MMR"}) as HTMLInputElement).value).toBe("2400");
     expect(mocks.invoke.mock.calls.filter(([name])=>name==="history.edit")).toHaveLength(1);
   });
   it("shows the exact protected audio receipt without treating an emitted intent as completed playback",async()=>{
@@ -143,7 +143,7 @@ describe("installed Dota package UI",()=>{
     render(<Dota/>);await screen.findByText("gsi_invalid_slot");
     expect(screen.getByText(/Плагин выключен/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button",{name:"История"}));
-    await screen.findByText(/Текущий MMR: 2400/);
+    expect((await screen.findByRole("textbox",{name:"Текущий MMR"}) as HTMLInputElement).value).toBe("2400");
     expect(screen.queryByText("Плагин работает")).toBeNull();
     expect(screen.getByText("gsi_invalid_slot")).toBeTruthy();
   });
