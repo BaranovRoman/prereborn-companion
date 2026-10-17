@@ -54,7 +54,8 @@ export function CoreShell() {
     <main className="companion-main">
       <UpdateBanner state={updater.state} onCheck={()=>void updater.checkForUpdate()} onInstall={()=>void updater.installUpdate()} onRestart={()=>void updater.restartToApply()} onDismiss={updater.dismiss}/>
       <AudioDeviceChangeBanner toLabel={output.switchPrompt?.toLabel??null} onSwitch={output.onSwitchToNewDefault} onKeep={output.onKeepCurrentDevice}/>
-      <header className="companion-page-heading"><div><p className="core-eyebrow">COMPANION</p><h1>{sections.find((s)=>s.id===section)?.label}</h1></div></header>
+      {/* Plugins render their own heading/toolbar; a second title only costs plugin UI height. */}
+      {section!=="plugins"&&<header className="companion-page-heading"><div><p className="core-eyebrow">COMPANION</p><h1>{sections.find((s)=>s.id===section)?.label}</h1></div></header>}
       {error&&<p className="core-notice" role="alert">Состояние сервисов не получено: {error} <button onClick={()=>void refresh()}>Повторить</button></p>}
       {section==="overview"&&<section className="core-overview">
         <h2>Сервисы</h2>

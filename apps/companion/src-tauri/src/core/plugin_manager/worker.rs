@@ -121,6 +121,8 @@ impl Service{
   worker.active=true;
   if let Err(error)=self.store.enable(id,true){let stopped=self.stop_worker(id);return Err(stopped.err().map_or(error.clone(),|stop|format!("{error}; stop: {stop}")));}Ok(())
  }
+ /// A worker process that only serves the plugin UI (never activated).
+ pub(super) fn ui_only_worker(&self,id:&str)->bool{self.workers.get(id).is_some_and(|worker|!worker.active)}
  pub(super) fn stop_worker(&mut self,id:&str)->Result<(),String>{
   let (app,audio)=self.native.as_ref().ok_or("plugin_transport_unavailable")?;
   let worker=self.workers.get_mut(id).ok_or("not_running")?;

@@ -56,9 +56,10 @@ export function Dota() {
     await api.invoke("asset.preview",{fileName:asset.fileName,volume:settings!.masterVolume});
   };
   return <main>
-    <header><div><h1>Dota 2</h1><p role="status">{statusError?"Состояние плагина не подтверждено":!status?"Подключение к плагину…":!status.active?"Плагин выключен — настройки доступны":status.awaitingSession?"Ожидание игровой сессии · звуки доступны и в опробовании героя":"Плагин работает"}</p></div>
-      {status?.gsi&&<span>{status.processed} кадров обработано</span>}</header>
-    <nav aria-label="Разделы Dota">{[["heroes","Герои"],["items","Предметы"],["history","История"],["obs","OBS и сцены"],["overlay","Overlay"],["settings","Настройки"]].map(([key,title])=><button aria-current={tab===key?"page":undefined} key={key} onClick={()=>{setTab(key);setError(null);}}>{title}</button>)}</nav>
+    <header className="dota-bar">
+      <nav aria-label="Разделы Dota">{[["heroes","Герои"],["items","Предметы"],["history","История"],["obs","OBS и сцены"],["overlay","Overlay"],["settings","Настройки"]].map(([key,title])=><button aria-current={tab===key?"page":undefined} key={key} onClick={()=>{setTab(key);setError(null);}}>{title}</button>)}</nav>
+      <p role="status">{statusError?"Состояние плагина не подтверждено":!status?"Подключение к плагину…":!status.active?"Плагин выключен — настройки доступны":status.awaitingSession?"Ожидание игровой сессии · звуки доступны и в опробовании героя":"Плагин работает"}{!statusError&&status?.gsi?` · ${status.processed} кадров`:""}</p>
+    </header>
     {(statusError||error||status?.lastError)&&<p role="alert">{statusError??error??status?.lastError}</p>}
     {status?.obsError&&<p role="alert">OBS: {status.obsError}. Выполнение игровых сцен не подтверждено.</p>}
     {!catalog||!settings?<p role="status">Чтение каталога и сохранённых настроек…</p>:<>

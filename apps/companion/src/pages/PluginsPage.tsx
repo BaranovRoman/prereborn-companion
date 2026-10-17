@@ -94,7 +94,10 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
         </div>}
         {view?.catalog.filter((r) => r.manifest.id === selected.id && r.manifest.version !== selected.installed.active).map((r) => <div key={r.manifest.version}>{installButton(r)}</div>)}
       </div>
-      {selected.installed.pending && <p role="status">Обновление {selected.installed.pending} будет активировано после остановки.</p>}
+      {selected.installed.pending && <div className="plugin-controls" role="status">
+        <span>Установлена версия {selected.installed.pending}; сейчас работает {selected.installed.active}.</span>
+        <Button variant="primary" disabled={disabled} onClick={() => void run(async () => { const enabled = selected.installed.enabled; await api.action(selected.id, "stop"); if (enabled) await api.action(selected.id, "enable"); })}>Перезапустить на {selected.installed.pending}</Button>
+      </div>}
       {(selected.error || selected.runtime?.lastError) && <p role="alert">{api.errorText(selected.error ?? selected.runtime?.lastError)}</p>}
       <details className="plugin-about"><summary>О плагине и диагностика</summary>
         <p>{selected.manifest?.description}</p>

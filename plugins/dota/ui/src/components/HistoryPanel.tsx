@@ -1,6 +1,8 @@
+import { getHeroById } from "../services/heroCatalog";
 import { useState } from "react";
 import * as api from "../api";
 
+const RESULT:Record<string,string>={win:"Победа",loss:"Поражение",abandon:"Покинул"};
 export function HistoryPanel({history,sync,active,reload}:{history:api.History|null;sync:api.SyncStatus|null;active:boolean;reload:()=>Promise<void>}) {
   const [rating,setRating]=useState("");const [busy,setBusy]=useState(false);
   const [error,setError]=useState<string|null>(null);const [result,setResult]=useState<string|null>(null);
@@ -35,16 +37,20 @@ export function HistoryPanel({history,sync,active,reload}:{history:api.History|n
     {error&&<p role="alert">{error} Изменение не повторяется автоматически.</p>}
     {result&&<p role="status">{result}</p>}
     {busy&&<p role="status">Сохранение…</p>}
-    {matches.length===0?<p>Завершённых матчей пока нет.</p>:<div className="history">{matches.map(m=><article key={m.localId}>
-      <strong>{m.matchId?`Матч ${m.matchId}`:"Локальный матч"}</strong><p>{m.state} · {m.result??"результат не определён"}</p>
-      <p>K/D/A: {m.kills??"—"}/{m.deaths??"—"}/{m.assists??"—"}</p><time>{new Date(m.startedAt).toLocaleString()}</time>
-      {m.state==="finalized"&&<div className="sound-binding-row__actions">
+    {matches.length===0?<p>Завершённых матчей пока нет.</p>:<div className="history">{matches.map(m=>{const hero=getHeroById(m.heroId);return <article key={m.localId} className="history-row">
+      {hero?<img src={hero.iconUrl} alt="" width={48} height={27} loading="lazy"/>:<span className="history-row__hero"/>}
+      <strong>{hero?.localizedName??(m.matchId?`Матч ${m.matchId}`:"Локальный матч")}</strong>
+      <span className={`history-row__result history-row__result--${m.result??"unknown"}`}>{RESULT[m.result??""]??(m.state==="finalized"?"Не определён":"Идёт")}</span>
+      <span>{m.rankedMode==="ranked"?"Рейтинг":m.rankedMode==="unranked"?"Обычный":"—"}</span>
+      <span>{m.kills??"—"}/{m.deaths??"—"}/{m.assists??"—"}</span>
+      <time>{new Date(m.startedAt).toLocaleString([], {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</time>
+      {m.state==="finalized"?<details><summary>Изменить</summary><div className="sound-binding-row__actions">
         {typeof m.detectedRatingDelta==="number"&&m.detectedRatingDelta!==0&&Math.abs(m.detectedRatingDelta*2)<=1000&&<button disabled={disabled} onClick={()=>void edit({kind:"match_delta",local_id:m.localId,delta:m.detectedRatingDelta!*2})}>MMR ×2</button>}
         {!!m.ratingDeltaCorrection&&<button disabled={disabled} onClick={()=>void edit({kind:"match_delta",local_id:m.localId,delta:null})}>Сбросить поправку MMR</button>}
         <button disabled={disabled} onClick={()=>void edit({kind:"match_mode",local_id:m.localId,ranked:m.rankedMode!=="ranked"})}>{m.rankedMode==="ranked"?"Считать нерейтинговым":"Считать рейтинговым"}</button>
         {m.rankedMode!==m.rankedModeDetected&&<button disabled={disabled} onClick={()=>void edit({kind:"match_mode",local_id:m.localId,ranked:null})}>Сбросить тип матча</button>}
-      </div>}
-    </article>)}</div>}
+      </div></details>:<span/>}
+    </article>;})}</div>}
     {history.hasSession&&<details><summary>Восстановление сессии</summary><p>Завершайте сессию только вне игры. Автоматическое восстановление не меняет неопределённый результат матча.</p>
       <label><input type="checkbox" disabled={disabled} checked={confirmed} onChange={e=>setConfirmed(e.target.checked)}/> Подтверждаю ручное восстановление</label>
       <div className="sound-binding-row__actions">

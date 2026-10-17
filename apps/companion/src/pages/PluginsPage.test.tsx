@@ -12,6 +12,13 @@ let view: api.View;
 beforeEach(() => { view = initial(); vi.mocked(api.view).mockImplementation(async () => view); vi.mocked(api.action).mockResolvedValue(); vi.mocked(api.install).mockResolvedValue(); vi.mocked(api.cancel).mockResolvedValue(); vi.mocked(api.refresh).mockResolvedValue(); vi.mocked(api.command).mockResolvedValue({ text: "Hello" }); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 describe("PluginsPage", () => {
+  it("applies a pending update by stopping and re-enabling only what was enabled", async () => {
+    view.apiVersion=2;view.installed=[{id:"dota2",manifest:{...manifest,id:"dota2",name:"Dota 2",minApi:2,maxApi:2,execution:"live",version:"0.2.0"},installed:{active:"0.2.0",enabled:true,pending:"0.2.1",previous:null},runtime:null,error:null}];
+    render(<PluginsPage initialPluginId="dota2"/>);
+    fireEvent.click(await screen.findByRole("button",{name:"Перезапустить на 0.2.1"}));
+    await waitFor(()=>expect(api.action).toHaveBeenCalledWith("dota2","enable"));
+    expect(vi.mocked(api.action).mock.calls.map(c=>c[1])).toEqual(["stop","enable"]);
+  });
   it("shows only an installed package's signed icon and falls back to the monogram", async () => {
     view.installed=[{id:"dota2",manifest:{...manifest,id:"dota2",name:"Dota 2",icon:"ui/icon.png"},installed:{active:"0.2.0",enabled:false,pending:null,previous:null},runtime:null,error:null}];
     view.catalog=[{manifest:{...manifest,icon:"ui/icon.png"},url:"https://github.com/test",sha256:"hash",signature:"sig"}];
@@ -81,7 +88,7 @@ describe("PluginsPage", () => {
     const frame = await screen.findByTitle("Hello World") as HTMLIFrameElement;
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts");
     expect(frame.src).toContain("hello/0.1.0/index.html");
-    expect(screen.getByText(/будет активировано после остановки/)).toBeTruthy();
+    expect(screen.getByText(/Установлена версия .*; сейчас работает/)).toBeTruthy();
     window.dispatchEvent(new MessageEvent("message", { data: { type: "hello-greet", text: "unsafe" }, source: window }));
     expect(api.command).not.toHaveBeenCalled();
     window.dispatchEvent(new MessageEvent("message", { data: { type: "hello-ui-ready", version: 1 }, source: frame.contentWindow }));

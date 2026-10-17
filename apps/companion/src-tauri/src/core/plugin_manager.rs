@@ -188,6 +188,10 @@ impl PluginManager {
             } else { self.fetch(&release.url, packages::MAX_PACKAGE)? };
             if let Ok(mut t) = self.transfer.lock() { t.stage = "verify_install".into(); }
             let mut guard = self.service.lock().map_err(|_| locked())?; let service = guard.as_mut().map_err(|e| e.clone())?;
+            // A process opened only for the settings UI must not turn the
+            // update into a pending one that its own Enable would bypass.
+            // The normal native stop path retires it first.
+            if service.ui_only_worker(id) { service.stop(id)?; }
             let running = service.running(id);
             service.store.install(&bytes, &release, running, &self.cancel)?;
             let active = service.store.installed()[id].active.clone();
@@ -297,7 +301,9 @@ pub fn setup(app: &tauri::AppHandle) {
         Err(e) => PluginManager::unavailable(format!("plugin_data_path_unavailable: {e}")),
     };
     app.manage(manager.clone());
-    std::thread::spawn(move || manager.restore());
+    // Installed plugins first; then the signed catalog, so updates show up
+    // without a manual refresh. A failure keeps the verified cached catalog.
+    std::thread::spawn(move || { manager.restore(); let _ = manager.refresh(); });
 }
 #[tauri::command]
 pub async fn plugins_view(app: tauri::AppHandle) -> Result<View, String> {
