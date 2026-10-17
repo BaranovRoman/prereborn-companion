@@ -55,6 +55,38 @@ fn retain_context(sounds:&mut Vec<SoundIntent>,context:Option<&str>)->u64{
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 struct PollContext{chat:Option<companion_plugin_protocol::chat::Snapshot>,stream_observation:Option<companion_plugin_protocol::obs::StreamObservation>,scene_observation:Option<companion_plugin_protocol::obs::SceneObservation>,scene_receipt:Option<companion_plugin_protocol::obs::SceneReceipt>}
 
+/// Opt-in diagnostic for classifying items: only changes of item slots in the
+/// strict projection (name, cooldown start, charges), bounded, in memory.
+/// No raw GSI, no player identity, nothing persisted.
+#[derive(Default)]
+pub struct ItemTrace {started:Option<std::time::Instant>,recording:bool,last:std::collections::BTreeMap<String,(Option<String>,f64,Option<i64>)>,events:Vec<Value>,dropped:u64}
+const ITEM_TRACE_LIMIT:usize=2000;
+impl ItemTrace {
+ fn observe(&mut self,snapshot:&companion_dota_domain::contracts::ReplayGsi){
+  if !self.recording{return;}
+  let t=self.started.map_or(0,|s|s.elapsed().as_millis() as u64);
+  let hero=snapshot.hero.as_ref().and_then(|h|h.id);
+  let mut now=std::collections::BTreeMap::new();
+  for(slot,signal)in snapshot.items.iter().flatten(){now.insert(slot.clone(),(signal.name.clone().filter(|n|n!="empty"),signal.cooldown.unwrap_or(0.0),signal.charges));}
+  let push=|event:Value,events:&mut Vec<Value>,dropped:&mut u64|{if events.len()<ITEM_TRACE_LIMIT{events.push(event);}else{*dropped+=1;}};
+  for(slot,(name,cooldown,charges))in &now{
+   let before=self.last.get(slot);
+   match before{
+    None=>if let Some(name)=name{push(json!({"t":t,"hero":hero,"slot":slot,"item":name,"change":"appeared","cooldown":cooldown,"charges":charges}),&mut self.events,&mut self.dropped);},
+    Some((old_name,old_cooldown,old_charges))=>{
+     if old_name!=name{push(json!({"t":t,"hero":hero,"slot":slot,"item":name,"from":old_name,"change":"replaced","cooldown":cooldown,"charges":charges}),&mut self.events,&mut self.dropped);}
+     else if let Some(name)=name{
+      if *old_cooldown<=0.0&&*cooldown>0.0{push(json!({"t":t,"hero":hero,"slot":slot,"item":name,"change":"cooldown_start","cooldown":cooldown,"charges":charges}),&mut self.events,&mut self.dropped);}
+      else if *cooldown>*old_cooldown+0.5{push(json!({"t":t,"hero":hero,"slot":slot,"item":name,"change":"cooldown_jump","from":old_cooldown,"cooldown":cooldown}),&mut self.events,&mut self.dropped);}
+      if old_charges!=charges{push(json!({"t":t,"hero":hero,"slot":slot,"item":name,"change":"charges","from":old_charges,"charges":charges}),&mut self.events,&mut self.dropped);}
+     }
+    }
+   }
+  }
+  for(slot,(name,_,_))in &self.last{if !now.contains_key(slot)&&name.is_some(){push(json!({"t":t,"hero":hero,"slot":slot,"item":name,"change":"removed"}),&mut self.events,&mut self.dropped);}}
+  self.last=now;
+ }
+}
 pub struct Worker {
  chat:Option<companion_plugin_protocol::chat::Snapshot>,
  overlay_hotkey:crate::overlay::hotkey::Controller,overlay_visible:bool,show_summary:bool,
@@ -67,14 +99,14 @@ pub struct Worker {
  dropped_sound_intents:u64,audio_sequence:u64,speech_sequence:u64,
  last_lifecycle_at:Option<std::time::Instant>,last_watchdog_at:Option<std::time::Instant>,stream_ended:bool,streaming:Option<bool>,
  next_account_at:Option<std::time::Instant>,account_request_sequence:u64,account_failures:u32,backend_error:Option<String>,account:Option<Value>,
- reopen_probed:bool,live_gsi:Option<(u64,Value)>,gsi_sent:u64,pending_gsi:Option<u64>,next_gsi_at:Option<std::time::Instant>,gsi_failures:u32,next_command_at:Option<std::time::Instant>,remote_scene:Option<(companion_dota_domain::broadcast_state::BroadcastState,u64)>,last_command:Option<String>,presence_error:Option<String>,
+ reopen_probed:bool,item_trace:Option<ItemTrace>,live_gsi:Option<(u64,Value)>,gsi_sent:u64,pending_gsi:Option<u64>,next_gsi_at:Option<std::time::Instant>,gsi_failures:u32,next_command_at:Option<std::time::Instant>,remote_scene:Option<(companion_dota_domain::broadcast_state::BroadcastState,u64)>,last_command:Option<String>,presence_error:Option<String>,
  next_sync_at:Option<std::time::Instant>,pending_sync:Option<companion_dota_storage::local_runtime::sync::OutboxRow>,
  backend_updates:u64,next_corrections_at:Option<std::time::Instant>,pending_corrections:Option<String>,
  detected_sounds:u64,planned_sounds:u64,last_sound_signal:Option<Value>,last_sound_operation:Option<String>,
  last_error:Option<String>, processed:u64, last_sequence:Option<u64>, last_analysis:Option<Value>,last_gsi:Option<Value>,last_receipt:Option<companion_dota_domain::match_execution::Receipt>,
 }
 impl Worker {
- pub fn new(launch:Launch)->Self{let mut hotkey=crate::overlay::hotkey::Controller::default();hotkey.load(&launch.data_root);Self{chat:None,overlay_hotkey:hotkey,overlay_visible:true,show_summary:false,pending_backend:None,obsolete_overlay_request:None,overlay_refresh:Default::default(),overlay_resources:Default::default(),overlay_backend_error:None,launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,obs:Default::default(),reminder:Default::default(),dropped_sound_intents:0,audio_sequence:0,speech_sequence:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,reopen_probed:false,live_gsi:None,gsi_sent:0,pending_gsi:None,next_gsi_at:None,gsi_failures:0,next_command_at:None,remote_scene:None,last_command:None,presence_error:None,next_sync_at:None,pending_sync:None,backend_updates:0,next_corrections_at:None,pending_corrections:None,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
+ pub fn new(launch:Launch)->Self{let mut hotkey=crate::overlay::hotkey::Controller::default();hotkey.load(&launch.data_root);Self{chat:None,overlay_hotkey:hotkey,overlay_visible:true,show_summary:false,pending_backend:None,obsolete_overlay_request:None,overlay_refresh:Default::default(),overlay_resources:Default::default(),overlay_backend_error:None,launch,history:None,listener:None,pipeline:Default::default(),overlay:None,last_overlay_at:None,scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,selected_directory:None,obs:Default::default(),reminder:Default::default(),dropped_sound_intents:0,audio_sequence:0,speech_sequence:0,last_lifecycle_at:None,last_watchdog_at:None,stream_ended:false,streaming:None,next_account_at:None,account_request_sequence:0,account_failures:0,backend_error:None,account:None,reopen_probed:false,item_trace:None,live_gsi:None,gsi_sent:0,pending_gsi:None,next_gsi_at:None,gsi_failures:0,next_command_at:None,remote_scene:None,last_command:None,presence_error:None,next_sync_at:None,pending_sync:None,backend_updates:0,next_corrections_at:None,pending_corrections:None,detected_sounds:0,planned_sounds:0,last_sound_signal:None,last_sound_operation:None,last_error:None,processed:0,last_sequence:None,last_analysis:None,last_gsi:None,last_receipt:None}}
  pub fn status(&self)->Value{
   let history=self.history.as_ref();let active=history.is_some_and(History::active);
   json!({"overlayVisible":self.overlay_visible,"showSummary":self.show_summary,"overlayHotkey":self.overlay_hotkey.status(),"prepared":history.is_some(),"active":active,"awaitingSession":active&&history.and_then(History::session).is_none(),
@@ -275,6 +307,15 @@ impl Worker {
   else if name=="status"{crate::ui::empty(args).map(|_|self.status())}
   else if !self.launch.capabilities.iter().any(|c|matches!(c.as_str(),"data.legacy"|"data.private")){Err("capability_denied".into())}
   else if name.starts_with("overlay."){self.overlay_command(name,args)}
+  else if name=="items.trace.start"{crate::ui::empty(args)?;self.item_trace=Some(ItemTrace{started:Some(std::time::Instant::now()),recording:true,..Default::default()});Ok(json!({"recording":true,"events":0}))}
+  else if name=="items.trace.stop"{crate::ui::empty(args)?;let trace=self.item_trace.as_mut().ok_or("item_trace_not_started")?;trace.recording=false;Ok(json!({"recording":false,"events":trace.events.len(),"dropped":trace.dropped}))}
+  else if name=="items.trace"{
+   #[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Page{offset:usize}
+   let page:Page=serde_json::from_value(args).map_err(|_|"invalid_ui_page")?;
+   let trace=self.item_trace.as_ref();let events=trace.map_or(&[][..],|t|&t.events[..]);
+   if page.offset>events.len(){return Err("invalid_ui_page".into());}
+   Ok(json!({"recording":trace.is_some_and(|t|t.recording),"total":events.len(),"dropped":trace.map_or(0,|t|t.dropped),"events":&events[page.offset..(page.offset+200).min(events.len())]}))
+  }
   else if name=="history.hero"{
    #[derive(Deserialize)]#[serde(rename_all="camelCase",deny_unknown_fields)]struct Hero{hero_id:i64}
    (||{let hero:Hero=serde_json::from_value(args).map_err(|_|"invalid_hero_id")?;
@@ -452,6 +493,7 @@ impl Worker {
    let raw=serde_json::to_value(&frame.snapshot).map_err(|_|"projection_serialization_failed")?;
    self.scene=companion_dota_domain::broadcast_state::BroadcastState::from_gsi(&raw);
    self.live_gsi=Some((self.processed.wrapping_add(1),live_state(&frame.snapshot)));
+   if let Some(trace)=self.item_trace.as_mut(){trace.observe(&frame.snapshot);}
    let result=self.pipeline.frame(&raw,frame.sequence,frame.observed_at_ms,Default::default(),&settings,&self.launch.data_root.join("sounds"))?;
    self.detected_sounds=self.detected_sounds.checked_add(result.analysis.sound_signals.len() as u64).ok_or("sound_counter_exhausted")?;
    self.planned_sounds=self.planned_sounds.checked_add(result.sounds.len() as u64).ok_or("sound_counter_exhausted")?;
@@ -611,6 +653,20 @@ mod tests {
   assert_eq!(restarted.command("history.summary",json!({})).unwrap()["hasSession"],false);
   assert_eq!(restarted.command("history.hero",json!({"heroId":105})).unwrap()["matches"],0);
   assert!(restarted.listener.is_none());assert!(restarted.overlay.is_none());assert_eq!(restarted.status()["session"],Value::Null);
+ }
+ #[test]fn item_trace_records_only_slot_changes_bounded_and_paged(){
+  let root=tempfile::tempdir().unwrap();let mut worker=worker(root.path());worker.launch.capabilities.push("ui".into());
+  assert_eq!(worker.command("items.trace",json!({"offset":0})).unwrap()["total"],0);
+  worker.command("items.trace.start",json!({})).unwrap();
+  let frame=|cooldown:f64,charges:i64|->companion_dota_domain::contracts::ReplayGsi{serde_json::from_value(json!({"hero":{"id":105},"items":{"slot0":{"name":"item_blink","cooldown":cooldown},"slot1":{"name":"item_tango","charges":charges},"slot2":{"name":"empty"}}})).unwrap()};
+  for(cd,ch)in[(0.0,3),(0.0,3),(14.0,3),(13.0,2),(12.0,2)]{worker.item_trace.as_mut().unwrap().observe(&frame(cd,ch));}
+  let page=worker.command("items.trace",json!({"offset":0})).unwrap();
+  let changes:Vec<_>=page["events"].as_array().unwrap().iter().map(|e|format!("{}:{}",e["item"].as_str().unwrap(),e["change"].as_str().unwrap())).collect();
+  assert_eq!(changes,vec!["item_blink:appeared","item_tango:appeared","item_blink:cooldown_start","item_tango:charges"]);
+  assert!(!page.to_string().contains("steamid"));
+  worker.command("items.trace.stop",json!({})).unwrap();worker.item_trace.as_mut().unwrap().observe(&frame(0.0,1));
+  assert_eq!(worker.command("items.trace",json!({"offset":0})).unwrap()["total"],4,"nothing is recorded after stop");
+  assert!(worker.command("items.trace",json!({"offset":5})).is_err());assert!(worker.history.is_none());
  }
  #[test]fn disabled_quiz_is_not_polled_and_failed_enrichment_keeps_the_last_actual_response(){
   use companion_plugin_protocol::backend::Response;

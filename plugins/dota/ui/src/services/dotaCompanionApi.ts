@@ -19,8 +19,10 @@ export interface TrackedItem {
   displayName: string;
   iconUrl: string;
   supported: boolean;
+  experimental: boolean;
   signal: ItemSignal | null;
   reason: string | null;
+  category: string;
 }
 export interface TrackedAbility {
   id: string;

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import * as api from "./api";
 import type { GameSoundCatalog, GameSoundEventKind, GameSoundSettings, ManagedSoundAsset, TrackedHero } from "./services/dotaCompanionApi";
 import { ItemsCatalog } from "./components/sounds/ItemsCatalog";
+import { ItemTracePanel } from "./components/ItemTracePanel";
 import { SoundBindingRow } from "./components/sounds/SoundBindingRow";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { ObsPanel } from "./components/ObsPanel";
@@ -71,6 +72,7 @@ export function Dota() {
           </>}</article>)}</div>
         {getHeroByInternalName(hero.id)&&<HeroStatistics key={hero.id} heroId={getHeroByInternalName(hero.id)!.id}/>}
       </section>:<HeroesPage favorites={favorites} soundSettings={settings} trackedHeroes={catalog.heroes} onSelectHero={id=>{const entry=getHeroById(id);const tracked=entry&&catalog.heroes.find(h=>h.id===`npc_dota_hero_${entry.name}`);if(tracked)setHero(tracked);}}/>)}
+      {tab==="items"&&<ItemTracePanel/>}
       {tab==="items"&&<ItemsCatalog items={catalog.items} settings={settings} onChooseFile={choose} onPreview={preview} onRemove={remove}/>}
       {tab==="history"&&<HistoryPanel history={history} sync={sync} active={status?.active===true} reload={async()=>{setHistory(await api.invoke<api.History>("history.summary"));setSync(await api.invoke<api.SyncStatus>("history.sync"));}}/>}
       {tab==="obs"&&<ObsPanel/>}

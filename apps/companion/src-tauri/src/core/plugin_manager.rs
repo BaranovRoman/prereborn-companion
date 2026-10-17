@@ -21,6 +21,8 @@ struct Service {
     manifests: BTreeMap<String, Manifest>, errors: BTreeMap<String, String>, catalog_error: Option<String>,
     workers:BTreeMap<String,worker::WorkerProcess>,
     native:Option<(tauri::AppHandle,Arc<super::plugin_audio::HostAudio>)>,native_error:Option<String>,
+    /// https hosts the user confirmed for a plugin during this app session.
+    approved_links:BTreeMap<String,std::collections::BTreeSet<String>>,
 }
 #[derive(Clone)]
 pub struct PluginManager {
@@ -79,7 +81,7 @@ impl PluginManager {
                 },
                 Err(_) => packages::catalog(SEED, SEED_SIG, TRUSTED_KEY)?,
             };
-            let mut service = Service { store, catalog, hosts: BTreeMap::new(), manifests: BTreeMap::new(), errors: BTreeMap::new(), catalog_error, workers:Default::default(),native:None,native_error:None };
+            let mut service = Service { store, catalog, hosts: BTreeMap::new(), manifests: BTreeMap::new(), errors: BTreeMap::new(), catalog_error, workers:Default::default(),native:None,native_error:None,approved_links:Default::default() };
             for (id, p) in service.store.installed() {
                 match service.store.verify(&id, &p.active) {
                     Ok(m) => { service.manifests.insert(id, m); },
@@ -338,7 +340,7 @@ pub async fn plugins_command(app: tauri::AppHandle, id: String, name: String, ar
 mod tests {
     use super::*;
     fn fixture_manager(root:PathBuf,key:&str)->PluginManager {
-        PluginManager{service:Arc::new(Mutex::new(Ok(Service{store:Store::open(root,key).unwrap(),catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None,workers:Default::default(),native:None,native_error:None}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default()}
+        PluginManager{service:Arc::new(Mutex::new(Ok(Service{store:Store::open(root,key).unwrap(),catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None,workers:Default::default(),native:None,native_error:None,approved_links:Default::default()}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default()}
     }
     #[test] fn cancel_does_not_wait_for_stalled_network_read() {
         let (tx, rx) = mpsc::sync_channel(2);
@@ -413,5 +415,5 @@ mod tests {
 #[cfg(test)]
 pub(crate) fn fixture_installed(root:PathBuf,key:&str,release:&Release,bytes:&[u8])->PluginManager {
     let mut store=Store::open(root,key).unwrap();store.install(bytes,release,false,&AtomicBool::new(false)).unwrap();
-    PluginManager{service:Arc::new(Mutex::new(Ok(Service{store,catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None,workers:Default::default(),native:None,native_error:None}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default()}
+    PluginManager{service:Arc::new(Mutex::new(Ok(Service{store,catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None,workers:Default::default(),native:None,native_error:None,approved_links:Default::default()}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default()}
 }

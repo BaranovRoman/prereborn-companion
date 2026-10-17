@@ -1,0 +1,2585 @@
+{
+ "source": "odota/dotaconstants@5c0242df9057848fa2036ca3fafe9f2bd4508163",
+ "items": [
+  {
+   "id": "item_desolator",
+   "displayName": "Desolator",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/desolator.png",
+   "category": "artifact",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_diffusal_blade",
+   "displayName": "Diffusal Blade",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/diffusal_blade.png",
+   "category": "artifact",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_diffusal_blade_2",
+   "displayName": "Diffusal Blade",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/diffusal_blade_2.png",
+   "category": "artifact",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_disperser",
+   "displayName": "Disperser",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/disperser.png",
+   "category": "artifact",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_dragon_lance",
+   "displayName": "Dragon Lance",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/dragon_lance.png",
+   "category": "artifact",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_echo_sabre",
+   "displayName": "Echo Sabre",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/echo_sabre.png",
+   "category": "artifact",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_skadi",
+   "displayName": "Eye of Skadi",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/skadi.png",
+   "category": "artifact",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_gungir",
+   "displayName": "Gleipnir",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/gungir.png",
+   "category": "artifact",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_heavens_halberd",
+   "displayName": "Heaven's Halberd",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/heavens_halberd.png",
+   "category": "artifact",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_helm_of_the_dominator",
+   "displayName": "Helm of the Dominator",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/helm_of_the_dominator.png",
+   "category": "artifact",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_helm_of_the_overlord",
+   "displayName": "Helm of the Overlord",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/helm_of_the_overlord.png",
+   "category": "artifact",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_kaya_and_sange",
+   "displayName": "Kaya and Sange",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/kaya_and_sange.png",
+   "category": "artifact",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_maelstrom",
+   "displayName": "Maelstrom",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/maelstrom.png",
+   "category": "artifact",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_mask_of_madness",
+   "displayName": "Mask of Madness",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/mask_of_madness.png",
+   "category": "artifact",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_mjollnir",
+   "displayName": "Mjollnir",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/mjollnir.png",
+   "category": "artifact",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_sange",
+   "displayName": "Sange",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/sange.png",
+   "category": "artifact",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_sange_and_yasha",
+   "displayName": "Sange and Yasha",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/sange_and_yasha.png",
+   "category": "artifact",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_satanic",
+   "displayName": "Satanic",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/satanic.png",
+   "category": "artifact",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_yasha",
+   "displayName": "Yasha",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/yasha.png",
+   "category": "artifact",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_yasha_and_kaya",
+   "displayName": "Yasha and Kaya",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/yasha_and_kaya.png",
+   "category": "artifact",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_travel_boots",
+   "displayName": "Boots of Travel",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/travel_boots.png",
+   "category": "common",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_travel_boots_2",
+   "displayName": "Boots of Travel 2",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/travel_boots_2.png",
+   "category": "common",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_bracer",
+   "displayName": "Bracer",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/bracer.png",
+   "category": "common",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_hand_of_midas",
+   "displayName": "Hand of Midas",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/hand_of_midas.png",
+   "category": "common",
+   "supported": true,
+   "experimental": false,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_harpoon",
+   "displayName": "Harpoon",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/harpoon.png",
+   "category": "common",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_angels_demise",
+   "displayName": "Khanda",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/angels_demise.png",
+   "category": "common",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_magic_wand",
+   "displayName": "Magic Wand",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/magic_wand.png",
+   "category": "common",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_null_talisman",
+   "displayName": "Null Talisman",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/null_talisman.png",
+   "category": "common",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_oblivion_staff",
+   "displayName": "Oblivion Staff",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/oblivion_staff.png",
+   "category": "common",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_pers",
+   "displayName": "Perseverance",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/pers.png",
+   "category": "common",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_phase_boots",
+   "displayName": "Phase Boots",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/phase_boots.png",
+   "category": "common",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_phylactery",
+   "displayName": "Phylactery",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/phylactery.png",
+   "category": "common",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_power_treads",
+   "displayName": "Power Treads",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/power_treads.png",
+   "category": "common",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Переключение атрибута не создаёт отдельного события в GSI; нужна проверка на записи."
+  },
+  {
+   "id": "item_soul_ring",
+   "displayName": "Soul Ring",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/soul_ring.png",
+   "category": "common",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_witch_blade",
+   "displayName": "Witch Blade",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/witch_blade.png",
+   "category": "common",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_wraith_band",
+   "displayName": "Wraith Band",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/wraith_band.png",
+   "category": "common",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_ultimate_scepter_roshan",
+   "displayName": "Aghanim's Blessing - Roshan",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/ultimate_scepter_roshan.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_aghanims_shard",
+   "displayName": "Aghanim's Shard",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/aghanims_shard.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_aghanims_shard_roshan",
+   "displayName": "Aghanim's Shard - Consumable",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/aghanims_shard_roshan.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_arcane_blink",
+   "displayName": "Arcane Blink",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/arcane_blink.png",
+   "category": "components",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_boots_of_elves",
+   "displayName": "Band of Elvenskin",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/boots_of_elves.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_belt_of_strength",
+   "displayName": "Belt of Strength",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/belt_of_strength.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_blade_of_alacrity",
+   "displayName": "Blade of Alacrity",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/blade_of_alacrity.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_blades_of_attack",
+   "displayName": "Blades of Attack",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/blades_of_attack.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_blink",
+   "displayName": "Blink Dagger",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/blink.png",
+   "category": "components",
+   "supported": true,
+   "experimental": false,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_blitz_knuckles",
+   "displayName": "Blitz Knuckles",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/blitz_knuckles.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_boots",
+   "displayName": "Boots of Speed",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/boots.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_bottle",
+   "displayName": "Bottle",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/bottle.png",
+   "category": "components",
+   "supported": true,
+   "experimental": true,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_broadsword",
+   "displayName": "Broadsword",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/broadsword.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_chainmail",
+   "displayName": "Chainmail",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/chainmail.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_chasm_stone",
+   "displayName": "Chasm Stone",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/chasm_stone.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_circlet",
+   "displayName": "Circlet",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/circlet.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_claymore",
+   "displayName": "Claymore",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/claymore.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_cloak",
+   "displayName": "Cloak",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/cloak.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_cornucopia",
+   "displayName": "Cornucopia",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/cornucopia.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_crown",
+   "displayName": "Crown",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/crown.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_diadem",
+   "displayName": "Diadem",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/diadem.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_gauntlets",
+   "displayName": "Gauntlets of Strength",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/gauntlets.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_gem",
+   "displayName": "Gem of True Sight",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/gem.png",
+   "category": "components",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_ghost",
+   "displayName": "Ghost Scepter",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/ghost.png",
+   "category": "components",
+   "supported": true,
+   "experimental": false,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_gloves",
+   "displayName": "Gloves of Haste",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/gloves.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_helm_of_iron_will",
+   "displayName": "Helm of Iron Will",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/helm_of_iron_will.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_infused_raindrop",
+   "displayName": "Infused Raindrops",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/infused_raindrop.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Срабатывает автоматически от магического урона — это не действие игрока."
+  },
+  {
+   "id": "item_javelin",
+   "displayName": "Javelin",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/javelin.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_magic_stick",
+   "displayName": "Magic Stick",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/magic_stick.png",
+   "category": "components",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_mantle",
+   "displayName": "Mantle of Intelligence",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/mantle.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_mithril_hammer",
+   "displayName": "Mithril Hammer",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/mithril_hammer.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_lifesteal",
+   "displayName": "Morbid Mask",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/lifesteal.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_ogre_axe",
+   "displayName": "Ogre Axe",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/ogre_axe.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_blight_stone",
+   "displayName": "Orb of Blight",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/blight_stone.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_orb_of_frost",
+   "displayName": "Orb of Frost",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/orb_of_frost.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_orb_of_venom",
+   "displayName": "Orb of Venom",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/orb_of_venom.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_overwhelming_blink",
+   "displayName": "Overwhelming Blink",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/overwhelming_blink.png",
+   "category": "components",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_pocket_roshan",
+   "displayName": "Pocket Roshan",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/pocket_roshan.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_quarterstaff",
+   "displayName": "Quarterstaff",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/quarterstaff.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_quelling_blade",
+   "displayName": "Quelling Blade",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/quelling_blade.png",
+   "category": "components",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_ring_of_health",
+   "displayName": "Ring of Health",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/ring_of_health.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_ring_of_protection",
+   "displayName": "Ring of Protection",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/ring_of_protection.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_ring_of_regen",
+   "displayName": "Ring of Regen",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/ring_of_regen.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_ring_of_tarrasque",
+   "displayName": "Ring of Tarrasque",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/ring_of_tarrasque.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_robe",
+   "displayName": "Robe of the Magi",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/robe.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_sobi_mask",
+   "displayName": "Sage's Mask",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/sobi_mask.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_shadow_amulet",
+   "displayName": "Shadow Amulet",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/shadow_amulet.png",
+   "category": "components",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_shawl",
+   "displayName": "Shawl",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/shawl.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_slippers",
+   "displayName": "Slippers of Agility",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/slippers.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_splintmail",
+   "displayName": "Splintmail",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/splintmail.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_staff_of_wizardry",
+   "displayName": "Staff of Wizardry",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/staff_of_wizardry.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_stout_shield",
+   "displayName": "Stout Shield",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/stout_shield.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_swift_blink",
+   "displayName": "Swift Blink",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/swift_blink.png",
+   "category": "components",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_tiara_of_selemene",
+   "displayName": "Tiara of Selemene",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/tiara_of_selemene.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_void_stone",
+   "displayName": "Void Stone",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/void_stone.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_voodoo_mask",
+   "displayName": "Voodoo Mask",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/voodoo_mask.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_wind_lace",
+   "displayName": "Wind Lace",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/wind_lace.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_wizard_hat",
+   "displayName": "Wizard Hat",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/wizard_hat.png",
+   "category": "components",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_aegis",
+   "displayName": "Aegis of the Immortal",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/aegis.png",
+   "category": "consumables",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_courier",
+   "displayName": "Animal Courier",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/courier.png",
+   "category": "consumables",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_royale_with_cheese",
+   "displayName": "Block of Cheese",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/royale_with_cheese.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": true,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_blood_grenade",
+   "displayName": "Blood Grenade",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/blood_grenade.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": false,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_cheese",
+   "displayName": "Cheese",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/cheese.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": true,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_clarity",
+   "displayName": "Clarity",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/clarity.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": false,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_dust",
+   "displayName": "Dust of Appearance",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/dust.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": false,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_enchanted_mango",
+   "displayName": "Enchanted Mango",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/enchanted_mango.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": false,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_faerie_fire",
+   "displayName": "Faerie Fire",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/faerie_fire.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": false,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_flying_courier",
+   "displayName": "Flying Courier",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/flying_courier.png",
+   "category": "consumables",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_flask",
+   "displayName": "Healing Salve",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/flask.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": false,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_branches",
+   "displayName": "Iron Branch",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/branches.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": true,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_moon_shard",
+   "displayName": "Moon Shard",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/moon_shard.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": true,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_ward_dispenser",
+   "displayName": "Observer and Sentry Wards",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/ward_dispenser.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": true,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_ward_observer",
+   "displayName": "Observer Ward",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/ward_observer.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": true,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_refresher_shard",
+   "displayName": "Refresher Shard",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/refresher_shard.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": true,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_ward_sentry",
+   "displayName": "Sentry Ward",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/ward_sentry.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": true,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_smoke_of_deceit",
+   "displayName": "Smoke of Deceit",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/smoke_of_deceit.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": false,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_tango",
+   "displayName": "Tango",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/tango.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": false,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_tango_single",
+   "displayName": "Tango (Shared)",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/tango_single.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": true,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_tome_of_knowledge",
+   "displayName": "Tome of Knowledge",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/tome_of_knowledge.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": true,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_tpscroll",
+   "displayName": "Town Portal Scroll",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/tpscroll.png",
+   "category": "consumables",
+   "supported": true,
+   "experimental": false,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_abyssal_blade",
+   "displayName": "Abyssal Blade",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/abyssal_blade.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_aeon_disk",
+   "displayName": "Aeon Disk",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/aeon_disk.png",
+   "category": "epic",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_armlet",
+   "displayName": "Armlet of Mordiggian",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/armlet.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_assault",
+   "displayName": "Assault Cuirass",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/assault.png",
+   "category": "epic",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_bfury",
+   "displayName": "Battle Fury",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/bfury.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_black_king_bar",
+   "displayName": "Black King Bar",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/black_king_bar.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": false,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_blade_mail",
+   "displayName": "Blade Mail",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/blade_mail.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_bloodstone",
+   "displayName": "Bloodstone",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/bloodstone.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_bloodthorn",
+   "displayName": "Bloodthorn",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/bloodthorn.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_butterfly",
+   "displayName": "Butterfly",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/butterfly.png",
+   "category": "epic",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_consecrated_wraps",
+   "displayName": "Consecrated Wraps",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/consecrated_wraps.png",
+   "category": "epic",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_crellas_crozier",
+   "displayName": "Crella's Crozier",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/crellas_crozier.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_crimson_guard",
+   "displayName": "Crimson Guard",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/crimson_guard.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_lesser_crit",
+   "displayName": "Crystalys",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/lesser_crit.png",
+   "category": "epic",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_greater_crit",
+   "displayName": "Daedalus",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/greater_crit.png",
+   "category": "epic",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_rapier",
+   "displayName": "Divine Rapier",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/rapier.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_eternal_shroud",
+   "displayName": "Eternal Shroud",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/eternal_shroud.png",
+   "category": "epic",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_ethereal_blade",
+   "displayName": "Ethereal Blade",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/ethereal_blade.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_heart",
+   "displayName": "Heart of Tarrasque",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/heart.png",
+   "category": "epic",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_hurricane_pike",
+   "displayName": "Hurricane Pike",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/hurricane_pike.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_kaya",
+   "displayName": "Kaya",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/kaya.png",
+   "category": "epic",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_sphere",
+   "displayName": "Linken's Sphere",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/sphere.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_lotus_orb",
+   "displayName": "Lotus Orb",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/lotus_orb.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_manta",
+   "displayName": "Manta Style",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/manta.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_meteor_hammer",
+   "displayName": "Meteor Hammer",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/meteor_hammer.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_monkey_king_bar",
+   "displayName": "Monkey King Bar",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/monkey_king_bar.png",
+   "category": "epic",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_nullifier",
+   "displayName": "Nullifier",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/nullifier.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_radiance",
+   "displayName": "Radiance",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/radiance.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_invis_sword",
+   "displayName": "Shadow Blade",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/invis_sword.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_shivas_guard",
+   "displayName": "Shiva's Guard",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/shivas_guard.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_silver_edge",
+   "displayName": "Silver Edge",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/silver_edge.png",
+   "category": "epic",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_basher",
+   "displayName": "Skull Basher",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/basher.png",
+   "category": "epic",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_soul_booster",
+   "displayName": "Soul Booster",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/soul_booster.png",
+   "category": "epic",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_vanguard",
+   "displayName": "Vanguard",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/vanguard.png",
+   "category": "epic",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_ash_legion_shield",
+   "displayName": "Ash Legion Shield",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/ash_legion_shield.png",
+   "category": "neutral1",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_chipped_vest",
+   "displayName": "Chipped Vest",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/chipped_vest.png",
+   "category": "neutral1",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_dagger_of_ristul",
+   "displayName": "Dagger of Ristul",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/dagger_of_ristul.png",
+   "category": "neutral1",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_dormant_curio",
+   "displayName": "Dormant Curio",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/dormant_curio.png",
+   "category": "neutral1",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_duelist_gloves",
+   "displayName": "Duelist Gloves",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/duelist_gloves.png",
+   "category": "neutral1",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_foragers_kit",
+   "displayName": "Forager's Kit",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/foragers_kit.png",
+   "category": "neutral1",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_kobold_cup",
+   "displayName": "Kobold Cup",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/kobold_cup.png",
+   "category": "neutral1",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_occult_bracelet",
+   "displayName": "Occult Bracelet",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/occult_bracelet.png",
+   "category": "neutral1",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_polliwog_charm",
+   "displayName": "Pollywog Charm",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/polliwog_charm.png",
+   "category": "neutral1",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_possessed_mask",
+   "displayName": "Possessed Mask",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/possessed_mask.png",
+   "category": "neutral1",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_stonefeather_satchel",
+   "displayName": "Stonefeather Satchel",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/stonefeather_satchel.png",
+   "category": "neutral1",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_weighted_dice",
+   "displayName": "Weighted Dice",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/weighted_dice.png",
+   "category": "neutral1",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_crippling_crossbow",
+   "displayName": "Crippling Crossbow",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/crippling_crossbow.png",
+   "category": "neutral2",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_defiant_shell",
+   "displayName": "Defiant Shell",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/defiant_shell.png",
+   "category": "neutral2",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_essence_ring",
+   "displayName": "Essence Ring",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/essence_ring.png",
+   "category": "neutral2",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_mana_draught",
+   "displayName": "Mana Draught",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/mana_draught.png",
+   "category": "neutral2",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_medallion_of_courage",
+   "displayName": "Medallion of Courage",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/medallion_of_courage.png",
+   "category": "neutral2",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_poor_mans_shield",
+   "displayName": "Poor Man's Shield",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/poor_mans_shield.png",
+   "category": "neutral2",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_searing_signet",
+   "displayName": "Searing Signet",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/searing_signet.png",
+   "category": "neutral2",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_seeds_of_serenity",
+   "displayName": "Seeds of Serenity",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/seeds_of_serenity.png",
+   "category": "neutral2",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_pogo_stick",
+   "displayName": "Tumbler's Toy",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/pogo_stick.png",
+   "category": "neutral2",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_cloak_of_flames",
+   "displayName": "Cloak of Flames",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/cloak_of_flames.png",
+   "category": "neutral3",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_gunpowder_gauntlets",
+   "displayName": "Gunpowder Gauntlet",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/gunpowder_gauntlets.png",
+   "category": "neutral3",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_jidi_pollen_bag",
+   "displayName": "Jidi Pollen Bag",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/jidi_pollen_bag.png",
+   "category": "neutral3",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_partisans_brand",
+   "displayName": "Partisan's Brand",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/partisans_brand.png",
+   "category": "neutral3",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_psychic_headband",
+   "displayName": "Psychic Headband",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/psychic_headband.png",
+   "category": "neutral3",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_serrated_shiv",
+   "displayName": "Serrated Shiv",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/serrated_shiv.png",
+   "category": "neutral3",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_spellslinger",
+   "displayName": "Spellslinger",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/spellslinger.png",
+   "category": "neutral3",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_stormcrafter",
+   "displayName": "Stormcrafter",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/stormcrafter.png",
+   "category": "neutral3",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_unrelenting_eye",
+   "displayName": "Unrelenting Eye",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/unrelenting_eye.png",
+   "category": "neutral3",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_conjurers_catalyst",
+   "displayName": "Conjurer's Catalyst",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/conjurers_catalyst.png",
+   "category": "neutral4",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_dandelion_amulet",
+   "displayName": "Dandelion Amulet",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/dandelion_amulet.png",
+   "category": "neutral4",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_enchanters_bauble",
+   "displayName": "Enchanter's Bauble",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/enchanters_bauble.png",
+   "category": "neutral4",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_flayers_bota",
+   "displayName": "Flayer's Bota",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/flayers_bota.png",
+   "category": "neutral4",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_giant_maul",
+   "displayName": "Giant's Maul",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/giant_maul.png",
+   "category": "neutral4",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_idol_of_screeauk",
+   "displayName": "Idol of Scree'auk",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/idol_of_screeauk.png",
+   "category": "neutral4",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_metamorphic_mandible",
+   "displayName": "Metamorphic Mandible",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/metamorphic_mandible.png",
+   "category": "neutral4",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_prophets_pendulum",
+   "displayName": "Prophet's Pendulum",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/prophets_pendulum.png",
+   "category": "neutral4",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_rattlecage",
+   "displayName": "Rattlecage",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/rattlecage.png",
+   "category": "neutral4",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_demonicon",
+   "displayName": "Book of the Dead",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/demonicon.png",
+   "category": "neutral5",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_dezun_bloodrite",
+   "displayName": "Dezun Bloodrite",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/dezun_bloodrite.png",
+   "category": "neutral5",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_divine_regalia",
+   "displayName": "Divine Regalia",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/divine_regalia.png",
+   "category": "neutral5",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_fallen_sky",
+   "displayName": "Fallen Sky",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/fallen_sky.png",
+   "category": "neutral5",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_harmonizer",
+   "displayName": "Harmonizer",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/harmonizer.png",
+   "category": "neutral5",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_minotaur_horn",
+   "displayName": "Minotaur Horn",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/minotaur_horn.png",
+   "category": "neutral5",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_riftshadow_prism",
+   "displayName": "Riftshadow Prism",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/riftshadow_prism.png",
+   "category": "neutral5",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_spider_legs",
+   "displayName": "Spider Legs",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/spider_legs.png",
+   "category": "neutral5",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_desolator_2",
+   "displayName": "Stygian Desolator",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/desolator_2.png",
+   "category": "neutral5",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_heavy_blade",
+   "displayName": "Witchbane",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/heavy_blade.png",
+   "category": "neutral5",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_aether_lens",
+   "displayName": "Aether Lens",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/aether_lens.png",
+   "category": "rare",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_ultimate_scepter_2",
+   "displayName": "Aghanim's Blessing",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/ultimate_scepter_2.png",
+   "category": "rare",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_ultimate_scepter",
+   "displayName": "Aghanim's Scepter",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/ultimate_scepter.png",
+   "category": "rare",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_arcane_boots",
+   "displayName": "Arcane Boots",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/arcane_boots.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_boots_of_bearing",
+   "displayName": "Boots of Bearing",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/boots_of_bearing.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_buckler",
+   "displayName": "Buckler",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/buckler.png",
+   "category": "rare",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_dagon",
+   "displayName": "Dagon",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/dagon.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_dagon_2",
+   "displayName": "Dagon",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/dagon_2.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_dagon_3",
+   "displayName": "Dagon",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/dagon_3.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_dagon_4",
+   "displayName": "Dagon",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/dagon_4.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_dagon_5",
+   "displayName": "Dagon",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/dagon_5.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_ancient_janggo",
+   "displayName": "Drum of Endurance",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/ancient_janggo.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_essence_distiller",
+   "displayName": "Essence Distiller",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/essence_distiller.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_cyclone",
+   "displayName": "Eul's Scepter of Divinity",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/cyclone.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": false,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_falcon_blade",
+   "displayName": "Falcon Blade",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/falcon_blade.png",
+   "category": "rare",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_force_staff",
+   "displayName": "Force Staff",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/force_staff.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": false,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_glimmer_cape",
+   "displayName": "Glimmer Cape",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/glimmer_cape.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": false,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_guardian_greaves",
+   "displayName": "Guardian Greaves",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/guardian_greaves.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_headdress",
+   "displayName": "Headdress",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/headdress.png",
+   "category": "rare",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_holy_locket",
+   "displayName": "Holy Locket",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/holy_locket.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "chargesOrConsumed",
+   "reason": null
+  },
+  {
+   "id": "item_hydras_breath",
+   "displayName": "Hydra's Breath",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/hydras_breath.png",
+   "category": "rare",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_mage_slayer",
+   "displayName": "Mage Slayer",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/mage_slayer.png",
+   "category": "rare",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_mekansm",
+   "displayName": "Mekansm",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/mekansm.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_necronomicon",
+   "displayName": "Necronomicon",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/necronomicon.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_necronomicon_2",
+   "displayName": "Necronomicon",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/necronomicon_2.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_necronomicon_3",
+   "displayName": "Necronomicon",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/necronomicon_3.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_octarine_core",
+   "displayName": "Octarine Core",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/octarine_core.png",
+   "category": "rare",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_orb_of_corrosion",
+   "displayName": "Orb of Corrosion",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/orb_of_corrosion.png",
+   "category": "rare",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_orchid",
+   "displayName": "Orchid Malevolence",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/orchid.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_devastator",
+   "displayName": "Parasma",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/devastator.png",
+   "category": "rare",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_pavise",
+   "displayName": "Pavise",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/pavise.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_pipe",
+   "displayName": "Pipe of Insight",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/pipe.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_refresher",
+   "displayName": "Refresher Orb",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/refresher.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_revenants_brooch",
+   "displayName": "Revenant's Brooch",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/revenants_brooch.png",
+   "category": "rare",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_ring_of_basilius",
+   "displayName": "Ring of Basilius",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/ring_of_basilius.png",
+   "category": "rare",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_rod_of_atos",
+   "displayName": "Rod of Atos",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/rod_of_atos.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_sheepstick",
+   "displayName": "Scythe of Vyse",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/sheepstick.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_solar_crest",
+   "displayName": "Solar Crest",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/solar_crest.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_specialists_array",
+   "displayName": "Specialist's Array",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/specialists_array.png",
+   "category": "rare",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_spirit_vessel",
+   "displayName": "Spirit Vessel",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/spirit_vessel.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_tranquil_boots",
+   "displayName": "Tranquil Boots",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/tranquil_boots.png",
+   "category": "rare",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_urn_of_shadows",
+   "displayName": "Urn of Shadows",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/urn_of_shadows.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": false,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_veil_of_discord",
+   "displayName": "Veil of Discord",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/veil_of_discord.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_vladmir",
+   "displayName": "Vladmir's Offering",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/vladmir.png",
+   "category": "rare",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_wind_waker",
+   "displayName": "Wind Waker",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/wind_waker.png",
+   "category": "rare",
+   "supported": true,
+   "experimental": true,
+   "signal": "cooldown",
+   "reason": null
+  },
+  {
+   "id": "item_wraith_pact",
+   "displayName": "Wraith Pact",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/wraith_pact.png",
+   "category": "rare",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_demon_edge",
+   "displayName": "Demon Edge",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/demon_edge.png",
+   "category": "secretShop",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_eagle",
+   "displayName": "Eaglesong",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/eagle.png",
+   "category": "secretShop",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_energy_booster",
+   "displayName": "Energy Booster",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/energy_booster.png",
+   "category": "secretShop",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_fluffy_hat",
+   "displayName": "Fluffy Hat",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/fluffy_hat.png",
+   "category": "secretShop",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_hyperstone",
+   "displayName": "Hyperstone",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/hyperstone.png",
+   "category": "secretShop",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_mystic_staff",
+   "displayName": "Mystic Staff",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/mystic_staff.png",
+   "category": "secretShop",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_platemail",
+   "displayName": "Platemail",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/platemail.png",
+   "category": "secretShop",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_point_booster",
+   "displayName": "Point Booster",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/point_booster.png",
+   "category": "secretShop",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_reaver",
+   "displayName": "Reaver",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/reaver.png",
+   "category": "secretShop",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_relic",
+   "displayName": "Sacred Relic",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/relic.png",
+   "category": "secretShop",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_talisman_of_evasion",
+   "displayName": "Talisman of Evasion",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/talisman_of_evasion.png",
+   "category": "secretShop",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_ultimate_orb",
+   "displayName": "Ultimate Orb",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/ultimate_orb.png",
+   "category": "secretShop",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  },
+  {
+   "id": "item_vitality_booster",
+   "displayName": "Vitality Booster",
+   "iconUrl": "https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/items/vitality_booster.png",
+   "category": "secretShop",
+   "supported": false,
+   "experimental": false,
+   "signal": null,
+   "reason": "Пассивный предмет — момента использования нет."
+  }
+ ]
+}

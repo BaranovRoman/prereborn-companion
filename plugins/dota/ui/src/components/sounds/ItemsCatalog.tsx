@@ -35,7 +35,7 @@ export function ItemsCatalog({ items, settings, onChooseFile, onPreview, onRemov
   const grouped = useMemo(() => {
     const byCategory = new Map<ItemCategory, TrackedItem[]>();
     for (const item of items) {
-      const category = categoryOf(item.id);
+      const category = categoryOf(item);
       const list = byCategory.get(category) ?? [];
       list.push(item);
       byCategory.set(category, list);
@@ -72,14 +72,14 @@ export function ItemsCatalog({ items, settings, onChooseFile, onPreview, onRemov
                   <div className="sound-grid">
                     {categoryItems.map((item) => {
                       const configured = settings.bindings.some((b) => b.eventId === item.id && b.kind === "itemUsed");
-                      const state = !item.supported ? "unsupported" : configured ? "configured" : "supported";
+                      const state = !item.supported ? "unsupported" : configured ? "configured" : item.experimental ? "experimental" : "supported";
                       return (
                         <button
                           key={item.id}
                           type="button"
                           role="listitem"
                           className={`sound-tile sound-tile--${state} ${item.id === selectedId ? "is-selected" : ""}`}
-                          title={item.displayName}
+                          title={item.experimental ? `${item.displayName} — экспериментально` : item.displayName}
                           onClick={() => setSelectedId(item.id)}
                         >
                           <img className="sound-tile__icon" src={item.iconUrl} alt="" width={44} height={33} loading="lazy" />
@@ -107,11 +107,12 @@ export function ItemsCatalog({ items, settings, onChooseFile, onPreview, onRemov
               <div>
                 <strong>{selectedItem.displayName}</strong>
                 <div className="items-catalog__inspector-category">
-                  <Badge tone="gold">{ITEM_CATEGORY_LABEL[categoryOf(selectedItem.id)]}</Badge>
+                  <Badge tone="gold">{ITEM_CATEGORY_LABEL[categoryOf(selectedItem)]}</Badge>
                 </div>
               </div>
             </div>
 
+            {selectedItem.experimental && <p className="items-catalog__experimental">Экспериментально: сигнал выбран по описанию предмета и ещё не подтверждён записью GSI.</p>}
             {selectedItem.supported ? (
               <SoundBindingRow
                 eventId={selectedItem.id}

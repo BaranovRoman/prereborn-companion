@@ -186,6 +186,18 @@ fn backend_identity(app:&tauri::AppHandle)->Result<(String,String),String>{
 fn resource_cache_ack(method:&companion_plugin_protocol::backend::Method,reply:&Value)->bool{
  reply.get("applied")==Some(&Value::Bool(true))||(*method==companion_plugin_protocol::backend::Method::Get&&reply.get("handled")==Some(&Value::Bool(false))&&reply.get("applied")==Some(&Value::Bool(false)))
 }
+fn link_target(raw:&str)->Result<tauri::Url,String>{
+ let url=tauri::Url::parse(raw).map_err(|_|"invalid_link")?;
+ if raw.len()>512||url.scheme()!="https"||url.host_str().is_none_or(|h|h.is_empty())||!url.username().is_empty()||url.password().is_some()||url.port().is_some(){return Err("invalid_link".into());}
+ Ok(url)
+}
+#[cfg(test)]mod link_tests{use super::*;
+ #[test]fn only_plain_https_links_are_accepted(){
+  assert_eq!(link_target("https://example.org/matches/9048839055").unwrap().host_str(),Some("example.org"));
+  for bad in ["http://example.org/","file:///C:/x","javascript:alert(1)","https://user:pw@example.org/","https://example.org:8443/","ftp://example.org/","not a url"]{assert!(link_target(bad).is_err(),"{bad}");}
+  assert!(link_target(&format!("https://example.org/{}","a".repeat(600))).is_err());
+ }
+}
 #[cfg(test)]mod resource_ack_tests{use super::*;use companion_plugin_protocol::backend::Method;
  #[test]fn an_uncached_read_is_not_an_acknowledgement_of_a_write(){
   let uncached=serde_json::json!({"handled":false,"applied":false});assert!(resource_cache_ack(&Method::Get,&uncached));
@@ -479,8 +491,36 @@ impl PluginManager{
    _=>Err("command_not_allowed".into()),
   }
  }
+ /// Generic external link for a plugin UI: https only, no credentials in the
+ /// URL, allowed only when the signed manifest lists `link.open`. The first
+ /// link to a host in a session is confirmed by the user in a core dialog;
+ /// the core never knows plugin-specific sites.
+ fn link_command(&self,id:&str,args:Value,expected_version:Option<&str>)->Result<Value,String>{
+  use tauri_plugin_dialog::{DialogExt,MessageDialogButtons};use tauri_plugin_opener::OpenerExt;
+  #[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Link{url:String}
+  let link:Link=serde_json::from_value(args).map_err(|_|"invalid_ui_arguments")?;
+  let url=link_target(&link.url)?;let host=url.host_str().ok_or("invalid_link")?.to_ascii_lowercase();
+  let (app,title,approved)={
+   let guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_ref().map_err(|e|e.clone())?;
+   let manifest=service.manifests.get(id).ok_or("not_installed")?;
+   if !manifest.permissions.iter().any(|p|p=="ui")||!manifest.ui_commands.iter().any(|c|c=="link.open"){return Err("command_not_allowed".into());}
+   if expected_version!=Some(manifest.version.as_str()){return Err("stale_ui_package".into());}
+   let (app,_)=service.native.as_ref().ok_or("plugin_transport_unavailable")?;
+   (app.clone(),manifest.name.clone(),service.approved_links.get(id).is_some_and(|hosts|hosts.contains(&host)))
+  };
+  if !approved{
+   let confirmed=app.dialog().message(format!("Плагин «{title}» открывает ссылку в браузере:\n\n{url}\n\nДругие ссылки на {host} в этом сеансе будут открываться без вопроса."))
+    .title("Открыть ссылку").buttons(MessageDialogButtons::OkCancelCustom("Открыть".into(),"Отмена".into())).blocking_show();
+   if !confirmed{return Err("link_cancelled".into());}
+   let mut guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_mut().map_err(|e|e.clone())?;
+   service.approved_links.entry(id.into()).or_default().insert(host);
+  }
+  app.opener().open_url(url.as_str(),None::<String>).map_err(|_|"link_open_failed")?;
+  Ok(serde_json::json!({"opened":true}))
+ }
  pub(super) fn ui_command(&self,id:&str,name:String,args:Value,expected_version:Option<&str>)->Result<Value,String>{
   if name.starts_with("host.")||name.len()>64||serde_json::to_vec(&args).map_err(|_|"invalid_ui_request")?.len()>8192{return Err("command_not_allowed".into());}
+  if name=="link.open"{return self.link_command(id,args,expected_version);}
   if matches!(name.as_str(),"asset.import"|"image.import"|"asset.preview"|"directory.pick"|"audio.receipt"|"obs.settings"|"obs.save"|"backend.request"|"backend.pending"|"backend.reconcile"){return self.asset_command(id,&name,args,expected_version);}
   let (host,process)={
    let mut guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_mut().map_err(|e|e.clone())?;

@@ -45,6 +45,10 @@ export function HistoryPanel({history,sync,active,reload}:{history:api.History|n
       <span>{m.rankedMode==="ranked"?"Рейтинг":m.rankedMode==="unranked"?"Обычный":"—"}</span>
       <span>{m.kills??"—"}/{m.deaths??"—"}/{m.assists??"—"}</span>
       <time>{new Date(m.startedAt).toLocaleString([], {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}</time>
+      <span className="history-row__links">{m.matchId&&/^\d+$/.test(m.matchId)?<>
+        <button className="link-button" onClick={()=>void api.invoke("link.open",{url:`https://www.dotabuff.com/matches/${m.matchId}`}).catch(()=>undefined)}>Dotabuff</button>
+        <button className="link-button" onClick={()=>void api.invoke("link.open",{url:`https://www.opendota.com/matches/${m.matchId}`}).catch(()=>undefined)}>OpenDota</button>
+      </>:null}</span>
       {m.state==="finalized"?<details><summary>Изменить</summary><div className="sound-binding-row__actions">
         {typeof m.detectedRatingDelta==="number"&&m.detectedRatingDelta!==0&&Math.abs(m.detectedRatingDelta*2)<=1000&&<button disabled={disabled} onClick={()=>void edit({kind:"match_delta",local_id:m.localId,delta:m.detectedRatingDelta!*2})}>MMR ×2</button>}
         {!!m.ratingDeltaCorrection&&<button disabled={disabled} onClick={()=>void edit({kind:"match_delta",local_id:m.localId,delta:null})}>Сбросить поправку MMR</button>}
