@@ -5,13 +5,12 @@ import type { MinimapCoverSettings, OverlayAnchor, OverlayLayoutDoc, OverlayWidg
 import { useGameplayReferenceBackground } from "../hooks/useGameplayReferenceBackground";
 import { useLocalOverlayPreviewReady } from "../hooks/useLocalOverlayPreviewReady";
 
-type DesignTab = "betweenMatches" | "draft" | "gameplay" | "postStream";
+// Two scenes, matching OBS: a draft is shown inside Between Matches.
+type DesignTab = "betweenMatches" | "gameplay";
 
 const TABS: { key: DesignTab; label: string }[] = [
   { key: "betweenMatches", label: "Между матчами" },
-  { key: "draft", label: "Драфт" },
   { key: "gameplay", label: "Игра" },
-  { key: "postStream", label: "Итоги" },
 ];
 
 const ANCHOR_LABEL: Record<OverlayAnchor, string> = {
@@ -105,12 +104,6 @@ export function DesignPage() {
   const [savedFlash, setSavedFlash] = useState(false);
   const [queueSettings, setQueueSettings] = useState<QueueSettingsDoc | null>(null);
   const [currentMmr, setCurrentMmr] = useState<number | null>(null);
-  // WK-157 - item 4 (editor/preview parity): dev-only forced Quiz phase for
-  // the preview iframe only (see BetweenMatchesScene.tsx's
-  // readPreviewQuizPhase/PREVIEW_QUIZ_FIXTURE) - never touches real
-  // round/score state, purely a `?previewQuizPhase=` query param on the same
-  // local renderer a real OBS Browser Source already points at.
-  const [previewQuizPhase, setPreviewQuizPhase] = useState<"live" | "question" | "reveal">("live");
   const referenceBackground = useGameplayReferenceBackground();
   const preview = useLocalOverlayPreviewReady(tab);
   const [pending,setPending]=useState<Awaited<ReturnType<typeof api.pendingSettings>>>(null);
@@ -133,8 +126,8 @@ export function DesignPage() {
       if (event.source !== frame?.contentWindow) return;
       if (event.data?.type === "prereborn-overlay-widget-change") {
         const { scene, widget, patch } = event.data;
-        if ((scene !== "draft" && scene !== "gameplay") || !["session", "recentMatches"].includes(widget) || !patch) return;
-        const sceneKey = scene as "draft" | "gameplay";
+        if (scene !== "gameplay" || !["session", "recentMatches"].includes(widget) || !patch) return;
+        const sceneKey = "gameplay" as const;
         const widgetKey = widget as "session" | "recentMatches";
         const widgetPatch = patch as Partial<OverlayWidgetLayout>;
         setLayout((current) => {
@@ -142,11 +135,6 @@ export function DesignPage() {
           const currentScene = current.scenes[sceneKey];
           return { ...current, scenes: { ...current.scenes, [sceneKey]: { ...currentScene, widgets: { ...currentScene.widgets, [widgetKey]: { ...currentScene.widgets[widgetKey], ...widgetPatch } } } } };
         });
-        setSavedFlash(false);
-        return;
-      }
-      if (event.data?.type === "prereborn-overlay-draft-text-change" && event.data.patch) {
-        setLayout((current) => current ? { ...current, draftProtection: { ...current.draftProtection, text: { ...current.draftProtection.text, ...event.data.patch } } } : current);
         setSavedFlash(false);
         return;
       }
@@ -202,12 +190,6 @@ export function DesignPage() {
     const scene = layout.scenes[editableScene];
     setSavedFlash(false);
     setLayout({ ...layout, scenes: { ...layout.scenes, [editableScene]: { ...scene, minimapCover: { ...scene.minimapCover, ...patch } } } });
-  };
-
-  const updateDraftText = (patch: Partial<OverlayLayoutDoc["draftProtection"]["text"]>) => {
-    if (!layout) return;
-    setSavedFlash(false);
-    setLayout({ ...layout, draftProtection: { ...layout.draftProtection, text: { ...layout.draftProtection.text, ...patch } } });
   };
 
   const handleSave = async () => {
@@ -266,7 +248,7 @@ export function DesignPage() {
               className="design-page__preview"
               sandbox="allow-scripts"
               referrerPolicy="no-referrer"
-              src={`http://127.0.0.1:3666/overlay?previewScene=${tab}&editor=1${tab === "betweenMatches" && previewQuizPhase !== "live" ? `&previewQuizPhase=${previewQuizPhase}` : ""}`}
+              src={`http://127.0.0.1:3666/overlay?previewScene=${tab}&editor=1`}
               onLoad={(event) => event.currentTarget.contentWindow?.postMessage({ type: "prereborn-overlay-layout-preview", layout, queueSettings, referenceBackground: tab === "gameplay" && referenceBackground.imageUrl ? { url: referenceBackground.imageUrl, opacity: referenceBackground.opacity } : null }, "*")}
               title="Предпросмотр локального оверлея"
             />
@@ -328,19 +310,6 @@ export function DesignPage() {
             </>
           )}
 
-          {!loading && tab === "draft" && layout && (
-            <>
-              <div className="design-page__widget-settings">
-                <h3>Защита драфта</h3>
-                <label className="design-page__field"><span>Режим</span><Select value={layout.draftProtection.mode} onChange={(event) => setLayout({ ...layout, draftProtection: { ...layout.draftProtection, mode: event.target.value as "off" | "cover" } })}><option value="off">Без защиты</option><option value="cover">Полная заглушка</option></Select></label>
-                <Checkbox label="Показывать свой текст" checked={layout.draftProtection.text.visible} onChange={(event) => updateDraftText({ visible: event.target.checked })} />
-                <label className="design-page__field"><span>Текст</span><Input value={layout.draftProtection.text.content} onChange={(event) => updateDraftText({ content: event.target.value })} /></label>
-                <p className="design-page__hint">Текст перемещается и масштабируется рамкой прямо в предпросмотре.</p>
-              </div>
-              <div className="design-page__actions"><Button variant="primary" onClick={() => void handleSave()} disabled={saving||!!pending}>{saving ? "Сохранение…" : "Сохранить"}</Button>{savedFlash && <span className="design-page__saved">Сохранено ✓</span>}</div>
-            </>
-          )}
-
           {!loading && tab === "betweenMatches" && queueSettings && (
             <>
               <div className="design-page__widget-settings"><h3>Канал и контент</h3>
@@ -360,40 +329,9 @@ export function DesignPage() {
                 <p className="design-page__hint">Избранные герои выбираются в разделе «Герои» (до трёх). Социальные ссылки сохраняются в существующих настройках аккаунта.</p>
                 <p className="design-page__hint">Twitch Chat, Recent Followers и DonationAlerts используют подключённые интеграции аккаунта и обновляются в локальном OBS renderer.</p>
               </div>
-              <div className="design-page__widget-settings">
-                <h3>Викторина для зрителей</h3>
-                <Checkbox
-                  label="Показывать викторину (Twitch Extension)"
-                  checked={queueSettings.widgets.viewerQuizEnabled}
-                  onChange={(event) => {
-                    setQueueSettings({ ...queueSettings, widgets: { ...queueSettings.widgets, viewerQuizEnabled: event.target.checked } });
-                    if (!event.target.checked) setPreviewQuizPhase("live");
-                  }}
-                />
-                <p className="design-page__hint">
-                  Интерактивная викторина между матчами через Twitch Extension. Пока работает
-                  нестабильно — по умолчанию выключена.
-                </p>
-                {queueSettings.widgets.viewerQuizEnabled && (
-                  <>
-                    <span className="design-page__field">Предпросмотр в редакторе</span>
-                    <div className="design-page__inline-actions">
-                      <Button variant={previewQuizPhase === "live" ? "primary" : "default"} onClick={() => setPreviewQuizPhase("live")}>Реальные данные</Button>
-                      <Button variant={previewQuizPhase === "question" ? "primary" : "default"} onClick={() => setPreviewQuizPhase("question")}>Вопрос</Button>
-                      <Button variant={previewQuizPhase === "reveal" ? "primary" : "default"} onClick={() => setPreviewQuizPhase("reveal")}>Раскрытие</Button>
-                    </div>
-                    <p className="design-page__hint">
-                      «Вопрос»/«Раскрытие» подставляют тестовые данные только в этом предпросмотре —
-                      реальный раунд/счёт зрителей не затрагиваются.
-                    </p>
-                  </>
-                )}
-              </div>
               <div className="design-page__actions"><Button variant="primary" onClick={() => void handleSave()} disabled={saving||!!pending}>{saving ? "Сохранение…" : "Сохранить"}</Button>{savedFlash && <span className="design-page__saved">Сохранено ✓</span>}</div>
             </>
           )}
-
-          {!loading && tab === "postStream" && <p className="design-page__hint">Итоги автоматически используют текущую локальную сессию и завершённые матчи.</p>}
 
           {error && <p className="app__error">Ошибка: {error}</p>}
         </aside>

@@ -4,13 +4,12 @@ use super::OverlayStateSnapshot;
 use companion_plugin_protocol::PackageBinding;
 use serde_json::Value;
 use sha2::{Digest,Sha256};
-use std::{io::{Read,Write},path::Path,sync::{Arc,Mutex,mpsc::{self,SyncSender,Receiver},atomic::{AtomicBool,AtomicUsize,Ordering}},time::Duration};
+use std::{io::{Read,Write},path::Path,sync::{Arc,Mutex,atomic::{AtomicBool,AtomicUsize,Ordering}},time::Duration};
 type Result<T>=std::result::Result<T,String>;
 const MAX_CLIENTS:usize=8;
 #[derive(Default)]
 struct Cache{state:Option<Arc<Vec<u8>>>,identity:Option<[u8;32]>,revision:u64,layout:Option<Value>,queue:Option<Value>}
-pub struct GeometryRequest{pub geometry:companion_dota_storage::local_runtime::host_execution::external_lifecycle::QuizGeometry,pub reply:SyncSender<Result<String>>}
-pub struct Server{geometry:Mutex<Receiver<GeometryRequest>>,http:Arc<tiny_http::Server>,cache:Arc<Mutex<Cache>>,closed:Arc<AtomicBool>,clients:Arc<AtomicUsize>}
+pub struct Server{http:Arc<tiny_http::Server>,cache:Arc<Mutex<Cache>>,closed:Arc<AtomicBool>,clients:Arc<AtomicUsize>}
 fn header(name:&str,value:&str)->tiny_http::Header{tiny_http::Header::from_bytes(name.as_bytes(),value.as_bytes()).unwrap()}
 fn reply(request:tiny_http::Request,status:u16,mime:&str,bytes:Vec<u8>){
  let _=request.respond(tiny_http::Response::from_data(bytes).with_status_code(status).with_header(header("Content-Type",mime)).with_header(header("Access-Control-Allow-Origin","*")).with_header(header("Cache-Control","no-store")).with_header(header("X-Content-Type-Options","nosniff")));
@@ -41,14 +40,13 @@ impl Server{
  fn start(data_root:&Path,address:&str,renderer:Arc<Vec<u8>>)->Result<Self>{
   let http=Arc::new(tiny_http::Server::http(address).map_err(|e|format!("overlay_bind_failed:os={}",e.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error).unwrap_or(0)))?);
   let cache=Arc::new(Mutex::new(Cache::default()));let closed=Arc::new(AtomicBool::new(false));let clients=Arc::new(AtomicUsize::new(0));
-  let (geometry_tx,geometry_rx)=mpsc::sync_channel(4);
-  let server=Self{geometry:Mutex::new(geometry_rx),http:http.clone(),cache:cache.clone(),closed:closed.clone(),clients:clients.clone()};let data_root=data_root.to_path_buf();
+  let server=Self{http:http.clone(),cache:cache.clone(),closed:closed.clone(),clients:clients.clone()};let data_root=data_root.to_path_buf();
   std::thread::spawn(move||while !closed.load(Ordering::SeqCst){
    let request=match http.recv_timeout(Duration::from_millis(100)){Ok(Some(r))=>r,Ok(None)=>continue,Err(_)=>{closed.store(true,Ordering::SeqCst);break;}};
    if closed.load(Ordering::SeqCst){break;}
    if clients.fetch_add(1,Ordering::SeqCst)>=MAX_CLIENTS{clients.fetch_sub(1,Ordering::SeqCst);reply(request,503,"application/json",br#"{"error":"overlay_client_limit"}"#.to_vec());continue;}
-   let (cache,closed,clients,renderer,root,geometry_tx)=(cache.clone(),closed.clone(),clients.clone(),renderer.clone(),data_root.clone(),geometry_tx.clone());
-   std::thread::spawn(move||{let _client=Client(clients);serve(request,&root,&renderer,&cache,&closed,&geometry_tx);});
+   let (cache,closed,clients,renderer,root)=(cache.clone(),closed.clone(),clients.clone(),renderer.clone(),data_root.clone());
+   std::thread::spawn(move||{let _client=Client(clients);serve(request,&root,&renderer,&cache,&closed);});
   });Ok(server)
  }
  pub fn publish(&self,state:&OverlayStateSnapshot,layout:Option<Value>,queue:Option<Value>)->Result<()>{
@@ -66,7 +64,6 @@ impl Server{
   if cache.identity!=Some(identity){cache.revision=cache.revision.checked_add(1).ok_or("overlay_revision_exhausted")?;cache.identity=Some(identity);}
   cache.state=Some(Arc::new(bytes));cache.layout=layout;cache.queue=queue;Ok(())
  }
- pub fn next_geometry(&self)->Option<GeometryRequest>{self.geometry.lock().ok()?.try_recv().ok()}
  pub fn clients(&self)->usize{self.clients.load(Ordering::SeqCst)}
  pub fn closed(&self)->bool{self.closed.load(Ordering::SeqCst)}
  pub fn stop(&self){self.closed.store(true,Ordering::SeqCst);self.http.unblock();}
@@ -74,33 +71,9 @@ impl Server{
 impl Drop for Server{fn drop(&mut self){self.stop();}}
 struct Client(Arc<AtomicUsize>);
 impl Drop for Client{fn drop(&mut self){self.0.fetch_sub(1,Ordering::SeqCst);}}
-fn serve(mut request:tiny_http::Request,root:&Path,renderer:&[u8],cache:&Mutex<Cache>,closed:&AtomicBool,geometry_tx:&SyncSender<GeometryRequest>){
+fn serve(request:tiny_http::Request,root:&Path,renderer:&[u8],cache:&Mutex<Cache>,closed:&AtomicBool){
  if request.url().len()>2048{reply(request,414,"application/json",vec![]);return;}
  let path=request.url().split('?').next().unwrap_or("").to_string();
- if request.method()==&tiny_http::Method::Post&&path=="/overlay/quiz-geometry"{
-  let origin=request.headers().iter().find(|h|h.field.equiv("Origin")).map(|h|h.value.as_str());
-  let content_type=request.headers().iter().find(|h|h.field.equiv("Content-Type")).map(|h|h.value.as_str().split(';').next().unwrap_or("").trim());
-  if origin.is_some_and(|origin|origin!="http://127.0.0.1:3666"&&origin!="http://localhost:3666")||content_type!=Some("application/json"){reply(request,403,"application/json",vec![]);return;}
-  if request.body_length().is_some_and(|len|len>6144){reply(request,413,"application/json",vec![]);return;}
-  let mut body=Vec::new();if request.as_reader().take(6145).read_to_end(&mut body).is_err()||body.len()>6144{reply(request,413,"application/json",vec![]);return;}
-  let geometry:companion_dota_storage::local_runtime::host_execution::external_lifecycle::QuizGeometry=match serde_json::from_slice(&body){Ok(value)=>value,Err(_)=>{reply(request,400,"application/json",vec![]);return;}};
-  if geometry.validate().is_err(){reply(request,400,"application/json",vec![]);return;}
-  let matches=cache.lock().ok().and_then(|cache|{
-   let state:Value=serde_json::from_slice(cache.state.as_ref()?).ok()?;
-   let quiz=state.get("quiz")?;let options=quiz.get("options")?.as_array()?;
-   Some(state.get("scene")?.as_str()==Some("betweenMatches")&&quiz.get("roundId")?.as_str()==Some(geometry.round_id.as_str())
-    &&cache.queue.as_ref()?.get("widgets")?.get("viewerQuizEnabled")?.as_bool()==Some(true)
-    &&geometry.interactive_regions.iter().all(|region|region.id==region.value&&options.iter().any(|option|option.get("id").and_then(Value::as_str)==Some(region.id.as_str()))))
-  }).unwrap_or(false);
-  if !matches{reply(request,409,"application/json",br#"{"error":"quiz_round_changed"}"#.to_vec());return;}
-  let(tx,rx)=mpsc::sync_channel(1);
-  if geometry_tx.try_send(GeometryRequest{geometry,reply:tx}).is_err(){reply(request,429,"application/json",br#"{"error":"quiz_geometry_queue_full"}"#.to_vec());return;}
-  // This is durable queue admission only, not a claim of backend delivery.
-  match rx.recv_timeout(Duration::from_secs(2)){
-   Ok(Ok(id))=>reply(request,202,"application/json",serde_json::to_vec(&serde_json::json!({"status":"recorded","operationId":id})).unwrap()),
-   _=>reply(request,503,"application/json",br#"{"error":"quiz_geometry_admission_unconfirmed"}"#.to_vec()),
-  }return;
- }
  if request.method()!=&tiny_http::Method::Get{reply(request,405,"application/json",vec![]);return;}
  if path=="/overlay/events"{sse(request,cache,closed);return;}
  let bytes=match path.as_str(){
@@ -133,7 +106,7 @@ mod tests{
  use super::*;use serde_json::json;
  fn snapshot()->OverlayStateSnapshot{OverlayStateSnapshot{
   scene:companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches,updated_at:"2026-10-16T00:00:00Z".into(),
-  session:Default::default(),layout_version:0,account:None,twitch_chat:None,overlay_visible:true,opendota_favorite_heroes:None,opendota_radar:None,quiz:None,
+  session:Default::default(),layout_version:0,account:None,twitch_chat:None,overlay_visible:true,draft_in_progress:false,opendota_favorite_heroes:None,opendota_radar:None,
  }}
  #[test]
  fn renderer_must_match_the_exact_launch_manifest_and_payload_and_cannot_escape_package(){
@@ -146,26 +119,6 @@ mod tests{
   let mut wrong=package.clone();wrong.manifest_hash="b".repeat(64);assert_eq!(renderer(root.path(),&executable,&wrong).unwrap_err(),"overlay_package_binding_mismatch");
   std::fs::write(root.path().join("ui/overlay/index.html"),b"tampered").unwrap();assert_eq!(renderer(root.path(),&executable,&package).unwrap_err(),"overlay_payload_checksum_mismatch");
   assert!(read(root.path(),"../secret",1024).is_err());
- }
- #[test]
- fn geometry_http_is_round_bound_and_reports_only_confirmed_queue_admission(){
-  use std::{io::{Read,Write},net::TcpStream};
-  let root=tempfile::tempdir().unwrap();let server=Server::start(root.path(),"127.0.0.1:0",Arc::new(b"renderer".to_vec())).unwrap();let address=server.http.server_addr().to_ip().unwrap();
-  let id=uuid::Uuid::new_v4().to_string();let mut state=snapshot();state.quiz=Some(json!({"roundId":id,"options":[{"id":"option-a"}]}));server.publish(&state,None,Some(json!({"widgets":{"viewerQuizEnabled":true}}))).unwrap();
-  let body=json!({"roundId":id,"interactiveRegions":[{"id":"option-a","value":"option-a","x":0.1,"y":0.2,"width":0.3,"height":0.1}]}).to_string();
-  let post=|body:String,origin:&str|{let mut stream=TcpStream::connect(address).unwrap();stream.set_read_timeout(Some(Duration::from_secs(4))).unwrap();write!(stream,"POST /overlay/quiz-geometry HTTP/1.1\r\nHost: localhost\r\nOrigin: {origin}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).unwrap();let mut response=String::new();stream.read_to_string(&mut response).unwrap();response};
-  assert!(post(body.clone(),"https://untrusted.test").starts_with("HTTP/1.1 403"));
-  assert!(post(body.replace(&id,&uuid::Uuid::new_v4().to_string()),"http://127.0.0.1:3666").starts_with("HTTP/1.1 409"));
-  assert!(server.next_geometry().is_none());
-  std::thread::scope(|scope|{
-   let response=scope.spawn(||post(body.clone(),"http://127.0.0.1:3666"));
-   let deadline=std::time::Instant::now()+Duration::from_secs(2);let queued=loop{if let Some(request)=server.next_geometry(){break request;}assert!(std::time::Instant::now()<deadline);std::thread::sleep(Duration::from_millis(5));};
-   assert_eq!(queued.geometry.round_id,id);
-   // Only the existing worker may supply this durable queue result. This
-   // handler test checks transport; storage admission has separate real SQL tests.
-   queued.reply.send(Ok("durable-outbox-id".into())).unwrap();let text=response.join().unwrap();assert!(text.starts_with("HTTP/1.1 202"));assert!(text.contains("recorded"));assert!(!text.contains("delivered"));
-  });
-  server.stop();
  }
  #[test]
  fn real_http_routes_use_only_published_projection_and_never_touch_history_or_arbitrary_paths(){

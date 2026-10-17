@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { AnchoredBox } from "./AnchoredBox";
 import { Scene } from "./Scene";
 import { AntiSnipeLayer } from "./AntiSnipeLayer";
-import { DraftProtectionLayer } from "./draft-protection/DraftProtectionLayer";
 import { RecentMatchesWidget } from "./widgets/RecentMatchesWidget";
 import { SessionWidget } from "./widgets/SessionWidget";
 import { BetweenMatchesScene } from "./between-matches/BetweenMatchesScene";
@@ -172,12 +171,14 @@ export function OverlayApp() {
   if (!editor && !snapshot.overlayVisible) return null;
 
   const { session } = snapshot;
-  const scene = readPreviewScene() ?? snapshot.scene;
-  const sceneLayout = scene === "draft" || scene === "gameplay" ? layout?.scenes[scene] : undefined;
+  // Two rendered scenes, like OBS: Gameplay, otherwise Between Matches
+  // (a draft is shown as a badge there; the stream summary scene is gone).
+  const scene: "betweenMatches" | "gameplay" = (readPreviewScene() ?? snapshot.scene) === "gameplay" ? "gameplay" : "betweenMatches";
+  const sceneLayout = scene === "gameplay" ? layout?.scenes[scene] : undefined;
   const sceneWidgets = sceneLayout?.widgets;
   const dimensions = resolveSceneDimensions(layout);
   const patchWidget = (key: "session" | "recentMatches", patch: Record<string, unknown>) => {
-    if (!layout || (scene !== "draft" && scene !== "gameplay")) return;
+    if (!layout || scene !== "gameplay") return;
     const next = {
       ...layout,
       scenes: {
@@ -208,7 +209,7 @@ export function OverlayApp() {
         twitchChat={snapshot.twitchChat}
         openDotaFavoriteHeroes={snapshot.opendotaFavoriteHeroes}
         openDotaRadar={snapshot.opendotaRadar}
-        quiz={snapshot.quiz}
+        draftInProgress={snapshot.draftInProgress === true}
       />
       {!connected && <div className="ov-anchor ov-anchor--top-right"><span className="ov-reconnecting">Переподключение…</span></div>}
     </>;
@@ -220,7 +221,6 @@ export function OverlayApp() {
       {editor && scene === "gameplay" && referenceBackground && <img className="ov-editor-reference" src={referenceBackground.url} alt="" style={{ opacity: referenceBackground.opacity }} />}
 
       {scene === "gameplay" && <AntiSnipeLayer settings={sceneLayout?.minimapCover} />}
-      {scene === "draft" && layout && <DraftProtectionLayer mode={layout.draftProtection.mode} text={layout.draftProtection.text} sceneWidth={dimensions.width} sceneHeight={dimensions.height} editable={isEditorPreview()} />}
 
       {scene === "gameplay" && (
         sceneWidgets ? (
@@ -252,13 +252,6 @@ export function OverlayApp() {
         }} />
       )}
 
-      {scene === "postStream" && (
-        <div className="ov-anchor ov-anchor--center">
-          <div className="ov-scene-title">{SCENE_LABEL[scene]}</div>
-          <SessionWidget session={session} big />
-          <RecentMatchesWidget matches={session.recentMatches} />
-        </div>
-      )}
 
       {!connected && <div className="ov-anchor ov-anchor--top-right"><span className="ov-reconnecting">Переподключение…</span></div>}
     </Scene>

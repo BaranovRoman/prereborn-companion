@@ -84,6 +84,8 @@ pub struct OverlayStateSnapshot {
     /// field here, so a toggle is pushed to an already-open Browser Source
     /// immediately, without a reload.
     pub overlay_visible: bool,
+    /// GSI reports hero selection/strategy while Between Matches is rendered.
+    pub draft_in_progress: bool,
     /// WK-148 - Between Matches OpenDota enrichment, populated in the
     /// background by opendota_overlay_cache.rs (this renderer has no Tauri
     /// IPC, see that module's doc comment) - `None` until the first
@@ -93,10 +95,4 @@ pub struct OverlayStateSnapshot {
     /// OpenDotaFavoriteHeroesResponse/OpenDotaProfileRadarResponse shapes.
     pub opendota_favorite_heroes: Option<serde_json::Value>,
     pub opendota_radar: Option<serde_json::Value>,
-    /// WK-116 - Between Matches quiz round state, populated by
-    /// quiz_overlay.rs's own background poll (same "opaque JSON pass-
-    /// through, no Tauri IPC" reasoning as the two fields above). `null`
-    /// whenever there is no active round - the renderer's own gate for
-    /// whether to mount the quiz board at all.
-    pub quiz: Option<serde_json::Value>,
 }

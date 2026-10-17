@@ -49,9 +49,9 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(m['permissions'],['ui','data.legacy','audio.play','obs.scene','overlay.publish','backend.access','chat.read'])
             self.assertEqual(m['uiFrameOrigins'],['http://127.0.0.1:3666']);self.assertEqual(m['icon'],'ui/icon.png');self.assertIn('ui/icon.png',m['files'])
             # The existing 0.5.94 OBS config keys and defaults, never invented names.
+            # Two OBS scenes; a draft is shown inside Between Matches.
             self.assertEqual({k:(v['legacyField'],v['defaultScene']) for k,v in m['obsBindings'].items()},{
-                'betweenMatches':('between_matches_scene','Dota — Между матчами'),'draft':('draft_scene','Dota — Драфт'),
-                'gameplay':('gameplay_scene','Dota — Игра'),'postStream':('post_stream_scene','Dota — Post Stream')})
+                'betweenMatches':('between_matches_scene','Dota — Между матчами'),'gameplay':('gameplay_scene','Dota — Игра')})
             self.assertLessEqual(len(m['backendResources']),16);self.assertFalse(any(c.startswith('host.') for c in m['uiCommands']))
             with zipfile.ZipFile(root/f"out/dota2-{manifest['version']}-windows-x86_64.zip") as archive:
                 for name,h in m['files'].items():
@@ -65,7 +65,7 @@ class PackageTests(unittest.TestCase):
         called|=set(re.findall(r'read<[^>]*>\("([a-z.]+)"',text))
         self.assertEqual(called,set(manifest['uiCommands']))
         worker=(p.ROOT/'plugins/dota/src/worker.rs').read_text(encoding='utf-8')
-        used=set(re.findall(r'resource:"([a-z-]+)"',worker))|set(re.findall(r'\("([a-z-]+)",\d+\)',worker))|set(re.findall(r'"(quiz-geometry|sync-event|gsi-state|commands)"',worker))
+        used=set(re.findall(r'resource:"([a-z-]+)"',worker))|set(re.findall(r'\("([a-z-]+)",\d+\)',worker))|set(re.findall(r'"(sync-event|gsi-state|commands)"',worker))
         used|=set(re.findall(r'(?:readBackendResource|read|save)(?:<[^>]*>)?\("([a-z-]+)"',text))
         self.assertEqual(used,set(manifest['backendResources']))
     def test_signing_key_inside_ui_is_rejected_before_signing(self):

@@ -118,14 +118,13 @@ describe("DesignPage", () => {
     expect(screen.getByText(/Recent Followers и DonationAlerts/)).toBeTruthy();
   });
 
-  it("keeps Draft limited to protection text editing without camera or scale controls", async () => {
+  it("offers only the two OBS scenes: Between Matches and Gameplay", async () => {
     mockedGet.mockResolvedValue(buildLayout());
     render(<DesignPage />);
     await waitFor(() => expect(screen.queryByText(/Загрузка/)).toBeNull());
-    fireEvent.click(screen.getByRole("tab", { name: "Драфт" }));
-    expect(screen.getByText("Защита драфта")).toBeTruthy();
-    expect(screen.queryByText("Камера в OBS")).toBeNull();
-    expect(screen.queryByText(/Точный масштаб/)).toBeNull();
+    expect(screen.getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Между матчами", "Игра"]);
+    expect(screen.queryByText("Защита драфта")).toBeNull();
+    expect(screen.queryByText("Викторина для зрителей")).toBeNull();
   });
 
   it("saves the FULL layout on Сохранить, preserving fields this editor doesn't understand", async () => {

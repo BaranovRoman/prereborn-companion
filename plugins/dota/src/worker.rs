@@ -137,8 +137,10 @@ impl Worker {
    if self.pending_sync.is_some(){return Err("backend_request_in_flight".into());}
    let Some(row)=self.history.as_mut().unwrap().pending_sync()?else{return self.enrichment_request();};
    let payload:Value=match serde_json::from_str(&row.payload){Ok(value)=>value,Err(_)=>{self.history.as_mut().unwrap().settle_sync(&row,"rejected")?;self.backend_error=Some("outbox_payload_invalid".into());return Ok(None);}};
-   let geometry=row.event_type=="quiz_geometry"&&row.entity_type=="overlay-geometry";
-   let request=Request{resource:if geometry{"quiz-geometry"}else{"sync-event"}.into(),operation_key:format!("sync:{}:{}",row.id,row.attempts),query:Default::default(),body:Some(if geometry{payload}else{json!({"eventId":row.id,"eventType":row.event_type,"payload":payload})})};
+   // The viewer quiz was removed: leftover geometry is closed with its own
+   // expiry receipt and never sent (activation retires the rest).
+   if row.entity_type=="overlay-geometry"{self.history.as_mut().unwrap().expire_quiz_geometry(None)?;return Ok(None);}
+   let request=Request{resource:"sync-event".into(),operation_key:format!("sync:{}:{}",row.id,row.attempts),query:Default::default(),body:Some(json!({"eventId":row.id,"eventType":row.event_type,"payload":payload}))};
    request.validate()?;self.pending_sync=Some(row);return Ok(Some(request));
   }
   self.account_request_sequence=self.account_request_sequence.checked_add(1).ok_or("backend_sequence_exhausted")?;
@@ -199,10 +201,8 @@ impl Worker {
   if !self.launch.capabilities.iter().any(|c|c=="overlay.publish"){return Ok(None);}
   let queue=crate::overlay::saved(&self.launch.data_root,"queue-settings.json",128*1024)?;
   let ids:Vec<String>=queue.as_ref().and_then(|v|v.get("favoriteHeroIds")).and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_u64).filter(|id|*id>0&&*id<=u32::MAX as u64).take(3).map(|id|id.to_string()).collect();
-  let quiz=queue.as_ref().and_then(|v|v.get("widgets")).and_then(|v|v.get("viewerQuizEnabled")).and_then(Value::as_bool)==Some(true)&&companion_dota_domain::broadcast_state::resolve(self.scene,self.stream_ended,self.show_summary)==companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches;
-  if !quiz{self.overlay_resources.remove("quiz-state");}
-  for (resource,seconds) in [("overlay-layout",60),("queue-settings",60),("favorite-heroes",90),("profile-radar",90),("quiz-state",2)]{
-   if resource=="favorite-heroes"&&ids.is_empty()||resource=="quiz-state"&&!quiz{continue;}
+  for (resource,seconds) in [("overlay-layout",60),("queue-settings",60),("favorite-heroes",90),("profile-radar",90)]{
+   if resource=="favorite-heroes"&&ids.is_empty(){continue;}
    if self.overlay_refresh.get(resource).is_some_and(|at|*at>std::time::Instant::now()){continue;}
    self.overlay_refresh.insert(resource.into(),std::time::Instant::now()+std::time::Duration::from_secs(seconds));
    self.account_request_sequence=self.account_request_sequence.checked_add(1).ok_or("backend_sequence_exhausted")?;
@@ -215,14 +215,7 @@ impl Worker {
   if let Some(body)=response.body.filter(|body|valid&&body.is_object()&&companion_plugin_protocol::backend::public_response(body)){
    if matches!(request.resource.as_str(),"overlay-layout"|"queue-settings"){
     if let Err(error)=crate::overlay::save_resource(&self.launch.data_root,&request.resource,&body){self.overlay_backend_error=Some(error);return Ok(());}
-   }else{
-    if request.resource=="quiz-state"{
-     let round=body.get("quiz").ok_or("quiz_state_invalid")?;
-     if !round.is_null()&&!round.get("roundId").is_some_and(Value::is_string){self.overlay_backend_error=Some("quiz_state_invalid".into());return Ok(());}
-     self.history.as_mut().ok_or("not_prepared")?.expire_quiz_geometry(round.get("roundId").and_then(Value::as_str))?;
-    }
-    self.overlay_resources.insert(request.resource.clone(),body);
-   }
+   }else{self.overlay_resources.insert(request.resource.clone(),body);}
    self.overlay_backend_error=None;self.last_overlay_at=None;
   }else{self.overlay_backend_error=Some(response.error.unwrap_or_else(||"overlay_backend_unavailable".into()));}
   Ok(())
@@ -235,7 +228,7 @@ impl Worker {
   }
   self.pending_backend=None;
   if self.obsolete_overlay_request.as_ref()==Some(&request.operation_key){self.obsolete_overlay_request=None;return Ok(());}
-  if matches!(request.resource.as_str(),"overlay-layout"|"queue-settings"|"favorite-heroes"|"profile-radar"|"quiz-state"){return self.overlay_backend_response(request,response);}
+  if matches!(request.resource.as_str(),"overlay-layout"|"queue-settings"|"favorite-heroes"|"profile-radar"){return self.overlay_backend_response(request,response);}
   if matches!(request.resource.as_str(),"gsi-state"|"commands"){return self.live_backend_response(request,response);}
   if request.resource=="account"{self.account_response(request,response)?;self.backend_updates=self.backend_updates.checked_add(1).ok_or("backend_sequence_exhausted")?;return Ok(());}
   if request.resource=="corrections"{
@@ -247,11 +240,10 @@ impl Worker {
    }else{self.backend_error=Some(response.error.unwrap_or_else(||"backend_corrections_unavailable".into()));}
    self.backend_updates=self.backend_updates.checked_add(1).ok_or("backend_sequence_exhausted")?;return Ok(());
   }
-  if !matches!(request.resource.as_str(),"sync-event"|"quiz-geometry"){return Err("backend_response_scope_mismatch".into());}
+  if request.resource!="sync-event"{return Err("backend_response_scope_mismatch".into());}
   let row=self.pending_sync.take().ok_or("backend_request_not_pending")?;
-  if (request.resource=="quiz-geometry")!=(row.event_type=="quiz_geometry"&&row.entity_type=="overlay-geometry")||request.operation_key!=format!("sync:{}:{}",row.id,row.attempts){return Err("backend_response_scope_mismatch".into());}
-  let geometry_confirmed=request.resource!="quiz-geometry"||response.body.as_ref().is_some_and(|body|body.get("ok")==Some(&Value::Bool(true))&&body.get("applied").is_some_and(Value::is_boolean));
-  let delivery=if response.error.is_none()&&response.status.is_some_and(|s|(200..300).contains(&s))&&geometry_confirmed{"delivered"}
+  if request.operation_key!=format!("sync:{}:{}",row.id,row.attempts){return Err("backend_response_scope_mismatch".into());}
+  let delivery=if response.error.is_none()&&response.status.is_some_and(|s|(200..300).contains(&s)){"delivered"}
    else if response.status.is_some_and(|s|(400..500).contains(&s)){"rejected"}
    else if response.error.as_deref().is_some_and(|e|matches!(e,"account_not_connected"|"backend_client_unavailable"|"backend_resource_denied"|"account_state_unavailable")){"retryable"}else{"unknown"};
   self.history.as_mut().ok_or("not_prepared")?.settle_sync(&row,delivery)?;
@@ -360,10 +352,6 @@ impl Worker {
     #[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Visibility{visible:bool}
     let request:Visibility=serde_json::from_value(args).map_err(|_|"invalid_overlay_visibility")?;self.overlay_visible=request.visible;self.publish_overlay()?;Ok(json!({"visible":self.overlay_visible}))
    },
-   "overlay.summary"=>{
-    #[derive(Deserialize)]#[serde(deny_unknown_fields)]struct Summary{show:bool}
-    let request:Summary=serde_json::from_value(args).map_err(|_|"invalid_overlay_summary")?;self.show_summary=request.show;self.publish_overlay()?;Ok(json!({"show":self.show_summary}))
-   },
    _=>Err("unsupported_overlay_command".into()),
   }
  }
@@ -422,6 +410,10 @@ impl Worker {
     for (host,internal) in [("audio.play","dota.sound.play"),("obs.scene","dota.obs.scene"),("overlay.publish","dota.overlay.update")]{if self.launch.capabilities.iter().any(|c|c==host){permissions.push(internal.into());}}
     if self.launch.capabilities.iter().any(|c|c=="backend.access"){permissions.push("backend.access".into());}
     self.history.as_mut().unwrap().activate(&proof,self.launch.package.clone(),permissions)?;
+    // The viewer quiz is gone: close leftover geometry with its expiry receipt.
+    if self.launch.capabilities.iter().any(|c|c=="overlay.publish")&&self.launch.capabilities.iter().any(|c|c=="backend.access"){
+     if let Err(error)=self.history.as_mut().unwrap().expire_quiz_geometry(None){let _=self.history.as_mut().unwrap().drain();return Err(error);}
+    }
     if let Err(error)=listener.start_admission(){let _=self.history.as_mut().unwrap().drain();return Err(error);}
     self.pipeline.reset();self.listener=Some(listener);self.overlay=overlay;self.last_overlay_at=None;self.last_lifecycle_at=None;self.last_watchdog_at=None;self.stream_ended=false;self.streaming=None;self.scene=companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches;self.last_error=None;
     if self.overlay.is_some(){let _=self.overlay_hotkey.start();}
@@ -442,16 +434,6 @@ impl Worker {
   Ok(())
  }
  fn poll(&mut self,context:PollContext)->Result<Value,String>{
-  // HTTP request threads never touch SQLite. The existing serialized worker
-  // admits each bounded geometry document and returns its durable outbox ID.
-  for _ in 0..4 {
-   let Some(request)=self.overlay.as_ref().and_then(|server|server.next_geometry())else{break;};
-   let result=if self.launch.capabilities.iter().any(|cap|cap=="backend.access"){
-    self.history.as_mut().ok_or_else(||"not_prepared".to_string()).and_then(|history|history.queue_quiz_geometry(&request.geometry))
-   }else{Err("capability_denied".into())};
-   if let Err(error)=&result{self.overlay_backend_error=Some(error.clone());}let _=request.reply.try_send(result);
-  }
-
   if self.overlay_hotkey.take_toggle()&&self.history.as_ref().is_some_and(History::active){self.overlay_visible=!self.overlay_visible;self.publish_overlay()?;}
   if let Some(receipt)=context.scene_receipt{let now=u64::try_from(chrono::Utc::now().timestamp_millis()).map_err(|_|"clock_unavailable")?;self.obs.receipt(receipt,now)?;}
   if self.overlay.as_ref().is_some_and(|s|s.closed()){return Err(self.close_after_error("overlay_listener_failed".into()));}
@@ -473,7 +455,7 @@ impl Worker {
   let before=self.processed;let mut result=self.frames();
   if let Ok(batch)=&mut result{
    let effect_context=self.effect_context();
-   let intent=if self.launch.capabilities.iter().any(|c|c=="obs.scene")&&self.history.as_ref().is_some_and(History::active){{let requested=self.requested_scene();self.obs.plan(context.scene_observation.as_ref(),requested,self.stream_ended,self.show_summary,effect_context.as_deref(),now_ms)?}}else{None};
+   let intent=if self.launch.capabilities.iter().any(|c|c=="obs.scene")&&self.history.as_ref().is_some_and(History::active){{let requested=self.requested_scene();self.obs.plan(context.scene_observation.as_ref(),requested,self.stream_ended,effect_context.as_deref(),now_ms)?}}else{None};
    batch["sceneIntent"]=serde_json::to_value(intent).map_err(|_|"obs_intent_encoding_failed")?;batch["status"]=self.status();
   }
   if result.is_ok()&&self.overlay.is_some()&&(before!=self.processed||self.last_overlay_at.is_none_or(|at|at.elapsed()>=std::time::Duration::from_secs(1))){
@@ -527,11 +509,11 @@ impl Worker {
   let layout=crate::overlay::saved(root,"overlay-layout.json",1024*1024)?;let queue=crate::overlay::saved(root,"queue-settings.json",128*1024)?;
   let account=if self.account.is_some(){self.account.clone()}else{crate::overlay::saved(root,"account-overlay-data.json",128*1024)?};
   let scene=companion_dota_domain::broadcast_state::resolve(self.scene,self.stream_ended,self.show_summary);
-  if self.launch.capabilities.iter().any(|cap|cap=="backend.access"){
-   let quiz=queue.as_ref().and_then(|q|q.get("widgets")).and_then(|w|w.get("viewerQuizEnabled")).and_then(Value::as_bool)==Some(true)&&scene==companion_dota_domain::broadcast_state::BroadcastState::BetweenMatches;
-   self.history.as_mut().ok_or("not_prepared")?.quiz_transition(quiz)?;
-  }
-  let snapshot=crate::overlay::OverlayStateSnapshot{scene,updated_at:chrono::Utc::now().to_rfc3339(),session:self.history.as_ref().ok_or("not_prepared")?.summary()?,layout_version:0,account,twitch_chat:self.chat.as_ref().filter(|chat|u64::try_from(chrono::Utc::now().timestamp_millis()).is_ok_and(|now|chat.fresh(now))).and_then(|chat|serde_json::to_value(&chat.data).ok()),overlay_visible:self.overlay_visible,opendota_favorite_heroes:self.overlay_resources.get("favorite-heroes").cloned(),opendota_radar:self.overlay_resources.get("profile-radar").cloned(),quiz:if queue.as_ref().and_then(|q|q.get("widgets")).and_then(|w|w.get("viewerQuizEnabled")).and_then(Value::as_bool)==Some(true){self.overlay_resources.get("quiz-state").and_then(|q|q.get("quiz")).cloned().filter(|v|!v.is_null())}else{None}};
+  // Two rendered scenes, matching OBS: a running draft is shown inside
+  // Between Matches; an ended stream renders Between Matches too.
+  let rendered=companion_dota_domain::obs_policy::resolve(self.scene,self.stream_ended);
+  let draft_in_progress=!self.stream_ended&&scene==companion_dota_domain::broadcast_state::BroadcastState::Draft;
+  let snapshot=crate::overlay::OverlayStateSnapshot{scene:rendered,draft_in_progress,updated_at:chrono::Utc::now().to_rfc3339(),session:self.history.as_ref().ok_or("not_prepared")?.summary()?,layout_version:0,account,twitch_chat:self.chat.as_ref().filter(|chat|u64::try_from(chrono::Utc::now().timestamp_millis()).is_ok_and(|now|chat.fresh(now))).and_then(|chat|serde_json::to_value(&chat.data).ok()),overlay_visible:self.overlay_visible,opendota_favorite_heroes:self.overlay_resources.get("favorite-heroes").cloned(),opendota_radar:self.overlay_resources.get("profile-radar").cloned()};
   server.publish(&snapshot,layout,queue)?;self.last_overlay_at=Some(std::time::Instant::now());Ok(())
  }
 }
@@ -554,7 +536,7 @@ mod tests {
   assert_eq!(worker.command("overlay.visibility",json!({"visible":false})).unwrap_err(),"capability_denied");
   worker.launch.capabilities.push("overlay.publish".into());
   assert_eq!(worker.command("overlay.visibility",json!({"visible":false})).unwrap()["visible"],false);
-  assert_eq!(worker.command("overlay.summary",json!({"show":true})).unwrap()["show"],true);
+  assert_eq!(worker.command("overlay.summary",json!({"show":true})).unwrap_err(),"unsupported_overlay_command","the stream summary scene was removed");
   assert!(worker.command("overlay.visibility",json!({"visible":true,"path":"arbitrary"})).is_err());
   assert_eq!(worker.status()["session"],Value::Null);assert_eq!(worker.status()["active"],false);
   assert!(worker.listener.is_none());assert!(worker.overlay.is_none());assert_eq!(std::fs::read_dir(root.path()).unwrap().count(),0);
@@ -668,7 +650,7 @@ mod tests {
   assert_eq!(worker.command("items.trace",json!({"offset":0})).unwrap()["total"],4,"nothing is recorded after stop");
   assert!(worker.command("items.trace",json!({"offset":5})).is_err());assert!(worker.history.is_none());
  }
- #[test]fn disabled_quiz_is_not_polled_and_failed_enrichment_keeps_the_last_actual_response(){
+ #[test]fn failed_enrichment_keeps_the_last_actual_response(){
   use companion_plugin_protocol::backend::Response;
   let root=tempfile::tempdir().unwrap();let mut worker=worker(root.path());worker.launch.capabilities.push("overlay.publish".into());
   for resource in ["overlay-layout","queue-settings","profile-radar"]{let request=worker.overlay_backend_request().unwrap().unwrap();assert_eq!(request.resource,resource);}
@@ -677,7 +659,6 @@ mod tests {
   let request=companion_plugin_protocol::backend::Request{resource:"profile-radar".into(),operation_key:"read:radar".into(),query:Default::default(),body:None};
   worker.overlay_backend_response(&request,Response::failed(&request,"backend_response_invalid")).unwrap();
   assert_eq!(worker.overlay_resources["profile-radar"]["axes"],json!([1,2]));
-  worker.overlay_resources.insert("quiz-state".into(),json!({"quiz":{"stale":true}}));worker.overlay_backend_request().unwrap();assert!(!worker.overlay_resources.contains_key("quiz-state"));
  }
  #[test]fn a_pending_host_request_keeps_the_same_identity_and_does_not_block_gsi_poll(){
   use companion_plugin_protocol::backend::{Request,Response};

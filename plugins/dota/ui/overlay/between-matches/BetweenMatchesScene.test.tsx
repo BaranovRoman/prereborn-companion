@@ -379,7 +379,7 @@ describe("BetweenMatchesScene", () => {
   // asserts BOTH that every widget is present AND that each lives in the
   // correct column (DOM parent), so a future placement drift fails a test
   // instead of only being caught by eyeballing a real broadcast.
-  it("renders Favorite Heroes + Recent Games + Player Radar + Twitch Chat + Community + Quiz simultaneously, each in its correct column", () => {
+  it("renders Favorite Heroes + Recent Games + Player Radar + Twitch Chat + Community simultaneously, each in its correct column", () => {
     const { container } = render(
       <BetweenMatchesScene
         session={{
@@ -414,18 +414,6 @@ describe("BetweenMatchesScene", () => {
           status: "ok", source: "opendota", combat: 62, farm: 74, support: 41, objectives: 19, flexibility: 55,
           fetchedAt: "2026-01-01T00:00:00Z",
         }}
-        quiz={{
-          roundId: "42", phase: "question", phaseEndsAt: new Date(Date.now() + 15_000).toISOString(),
-          category: "ПРЕДМЕТ", interactionType: "single_choice_text",
-          prompt: "Какой предмет усиливает регенерацию маны сильнее всего?",
-          options: [
-            { id: "1", label: "Arcane Boots", assetUrl: null },
-            { id: "2", label: "Power Treads", assetUrl: null },
-            { id: "3", label: "Aether Lens", assetUrl: null },
-            { id: "4", label: "Boots of Travel", assetUrl: null },
-          ],
-          correctOptionId: null, distribution: null, interactiveRegions: null, leaderboard: [],
-        }}
       />
     );
 
@@ -434,7 +422,6 @@ describe("BetweenMatchesScene", () => {
     const radar = screen.getByLabelText("Player radar");
     const chat = screen.getByLabelText("TWITCH CHAT");
     const community = screen.getByLabelText("COMMUNITY");
-    const quiz = screen.getByLabelText("QUIZ");
 
     // All six render at once - none of them silently drop out for another.
     expect(favoriteHeroes).toBeTruthy();
@@ -442,7 +429,6 @@ describe("BetweenMatchesScene", () => {
     expect(radar).toBeTruthy();
     expect(chat).toBeTruthy();
     expect(community).toBeTruthy();
-    expect(quiz).toBeTruthy();
 
     // The actual regression: Player Radar must share Favorite Heroes/Recent
     // Games' column (the middle .sideStack), never Twitch Chat/Community/
@@ -452,10 +438,9 @@ describe("BetweenMatchesScene", () => {
     expect(radar.parentElement).toBe(favoriteHeroes.parentElement);
     expect(radar.parentElement).not.toBe(chat.parentElement);
 
-    // Quiz stays with Chat/Community in the right column, as the 3rd widget
-    // there (not a 4th, now that Radar no longer also lives in this column).
-    expect(quiz.parentElement).toBe(chat.parentElement);
-    expect(quiz.parentElement).toBe(community.parentElement);
+    expect(chat.parentElement).toBe(community.parentElement);
+    // The viewer quiz was removed from the package renderer.
+    expect(screen.queryByLabelText("QUIZ")).toBeNull();
 
     // No clipping/scrolling on the scene root at the two required desktop
     // baselines (project CLAUDE.md) - jsdom doesn't lay out real pixels, so
@@ -466,99 +451,10 @@ describe("BetweenMatchesScene", () => {
     expect(scene).toBeTruthy();
   });
 
-  // WK-116 Phase 3 - real backend quiz state, replacing the Phase 0 mock/
-  // query-param wiring. The shared video must show only shared state - no
-  // per-viewer marker anywhere (see the correction: no "ТЫ: #17", no
-  // personal score/streak/selection distinguishable from another viewer's).
-  describe("quiz", () => {
-    const QUESTION_STATE: QuizRoundState = {
-      roundId: "42",
-      phase: "question",
-      phaseEndsAt: new Date(Date.now() + 15_000).toISOString(),
-      category: "ПРЕДМЕТ",
-      interactionType: "single_choice_text",
-      prompt: "Какой предмет усиливает регенерацию маны сильнее всего?",
-      options: [
-        { id: "1", label: "Arcane Boots", assetUrl: null },
-        { id: "2", label: "Power Treads", assetUrl: null },
-        { id: "3", label: "Aether Lens", assetUrl: null },
-        { id: "4", label: "Boots of Travel", assetUrl: null },
-      ],
-      correctOptionId: null,
-      distribution: null,
-      interactiveRegions: null,
-      leaderboard: [
-        { rank: 1, twitchViewerId: "u1", displayName: "quiz_lover", score: 400, streak: 2 },
-        { rank: 2, twitchViewerId: "u2", displayName: "dota_fan_92", score: 300, streak: 1 },
-      ],
-    };
-    const REVEAL_STATE: QuizRoundState = {
-      ...QUESTION_STATE,
-      phase: "reveal",
-      correctOptionId: "1",
-      distribution: { "1": 54, "2": 21, "3": 17, "4": 8 },
-    };
-
-    it("does not render a quiz board at all when there is no active round", () => {
-      render(<BetweenMatchesScene session={SESSION} settings={SETTINGS} quiz={null} />);
-      expect(screen.queryByLabelText("QUIZ")).toBeNull();
-    });
-
-    it("renders the real question/options during QUESTION, with no correct answer revealed", () => {
-      render(<BetweenMatchesScene session={SESSION} settings={SETTINGS} quiz={QUESTION_STATE} />);
-      expect(screen.getByLabelText("QUIZ")).toBeTruthy();
-      expect(screen.getByText(QUESTION_STATE.prompt)).toBeTruthy();
-      for (const option of QUESTION_STATE.options) {
-        expect(screen.getByText(option.label)).toBeTruthy();
-      }
-      // No percent/distribution figures rendered before reveal.
-      expect(screen.queryByText("54%")).toBeNull();
-    });
-
-    it("renders correctness/distribution/leaderboard only once the round is in REVEAL", () => {
-      render(<BetweenMatchesScene session={SESSION} settings={SETTINGS} quiz={REVEAL_STATE} />);
-      expect(screen.getByText("54%")).toBeTruthy();
-      expect(screen.getByText("quiz_lover")).toBeTruthy();
-      expect(screen.getByText("dota_fan_92")).toBeTruthy();
-    });
-
-    it("never renders any personalized/per-viewer marker in the shared video", () => {
-      const { container } = render(<BetweenMatchesScene session={SESSION} settings={SETTINGS} quiz={REVEAL_STATE} />);
-      const text = container.textContent ?? "";
-      // No "your rank", "you answered", a personal streak/score readout, or
-      // any viewer-id-shaped string leaking into the shared visual - only
-      // the shared TOP 5 (rank/displayName/score) is ever shown.
-      expect(text).not.toMatch(/ты[:\s]/i);
-      expect(text).not.toMatch(/your (rank|score|answer)/i);
-      expect(container.querySelector("[data-viewer-id]")).toBeNull();
-      expect(container.querySelector("[data-personal-selection]")).toBeNull();
-    });
-
-    // WK-157 item 2 - Quiz's approved position is between Chat and
-    // Community, not after both (bottom of .rightMain sat too close to
-    // Twitch's own player chrome on a real stream - see the WK-116
-    // follow-up task).
-    it("sits between Twitch Chat and Community in DOM order, not after both", () => {
-      render(<BetweenMatchesScene session={SESSION} settings={SETTINGS} quiz={QUESTION_STATE} />);
-      const rightMain = screen.getByLabelText("TWITCH CHAT").parentElement!;
-      const children = Array.from(rightMain.children).map((child) => child.getAttribute("aria-label"));
-      expect(children.indexOf("TWITCH CHAT")).toBeLessThan(children.indexOf("QUIZ"));
-      expect(children.indexOf("QUIZ")).toBeLessThan(children.indexOf("COMMUNITY"));
-    });
-
-    // WK-157 item 3 - "Viewer Quiz" setting (default OFF). Disabled must
-    // behave exactly like "no active round": no board, no reserved space,
-    // regardless of whether a real round happens to be in progress
-    // server-side.
-    it("does not render the quiz board when the Viewer Quiz setting is off, even with an active round", () => {
-      render(
-        <BetweenMatchesScene
-          session={SESSION}
-          settings={{ ...SETTINGS, widgets: { ...SETTINGS.widgets, viewerQuizEnabled: false } }}
-          quiz={QUESTION_STATE}
-        />
-      );
-      expect(screen.queryByLabelText("QUIZ")).toBeNull();
-    });
+  it("marks a running draft inside Between Matches only when the worker says so", () => {
+    const { rerender } = render(<BetweenMatchesScene session={SESSION} settings={SETTINGS} />);
+    expect(screen.queryByText("ИДЁТ ДРАФТ")).toBeNull();
+    rerender(<BetweenMatchesScene session={SESSION} settings={SETTINGS} draftInProgress />);
+    expect(screen.getByRole("status").textContent).toBe("ИДЁТ ДРАФТ");
   });
 });

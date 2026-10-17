@@ -194,3 +194,20 @@
   opacity: .022;
   pointer-events: none;
 }
+
+// Shown on top of Between Matches while GSI reports hero selection.
+.draftBadge {
+  position: absolute;
+  z-index: 5;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 22px;
+  border: 1px solid rgba(201, 86, 74, 0.7);
+  border-radius: 2px;
+  background: linear-gradient(135deg, rgba(64, 22, 20, 0.92), rgba(16, 10, 10, 0.92));
+  color: #f1d2c8;
+  font: 700 18px/1 Inter, Arial, sans-serif;
+  letter-spacing: 0.18em;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+}
