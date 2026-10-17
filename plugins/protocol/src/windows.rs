@@ -229,7 +229,11 @@ pub fn fence_current_host_children(generation:&str)->Result<(),String>{
         };let total=witness.total;
         for handle in witness.handles{
             let pid=GetProcessId(handle.as_raw_handle());if pid==0{return Err("host_children_exit_unproven".into());}if pid==GetCurrentProcessId()||!seen.insert(pid){continue;}
-            if WaitForSingleObject(handle.as_raw_handle(),0)!=WAIT_OBJECT_0&&TerminateProcess(handle.as_raw_handle(),1)==0&&WaitForSingleObject(handle.as_raw_handle(),0)!=WAIT_OBJECT_0{return Err("host_children_exit_unproven".into());}
+            // A child already exiting can refuse TerminateProcess (access
+            // denied) before it is signalled. That is not proof either way:
+            // keep its owned handle; the signalled+accounting check below and
+            // the deadline still decide.
+            if WaitForSingleObject(handle.as_raw_handle(),0)!=WAIT_OBJECT_0{let _=TerminateProcess(handle.as_raw_handle(),1);}
             handles.push(handle);if handles.len()>256{return Err("host_children_exit_unproven".into());}
         }
         let signalled=handles.iter().all(|h|WaitForSingleObject(h.as_raw_handle(),0)==WAIT_OBJECT_0);
