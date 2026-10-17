@@ -20,6 +20,10 @@ on:
         description: 'Optional PUBLIC signed candidate metadata for exact Windows install verification; never a private key'
         type: string
         default: ''
+      full_budget:
+        description: 'Run the eight-hour transport budget even if ledger/transport code is unchanged since the last release'
+        type: boolean
+        default: false
   # WK-145 - before this, build-windows only ran on workflow_dispatch or a
   # push to main/tags, so a PR touching apps/companion/src-tauri merged with
   # zero automated Rust build/test coverage (ci.yml only covers web/api).
@@ -171,8 +175,27 @@ jobs:
         shell: powershell
         run: ./scripts/companion-smoke-test.ps1
 
-      - name: Durable eight-hour transport budget (actual SQLite commits)
+      # The 15-minute budget exercises the transport ledger only. Every release
+      # tag was cut from a commit where it passed, so it re-runs only when that
+      # code (or its dependencies) changed since the latest release, or on demand.
+      - name: Decide whether the transport budget must run
+        id: budget
         if: github.event_name == 'workflow_dispatch' && inputs.validation_version != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE: ${{ inputs.full_budget }}
+        run: |
+          tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)
+          run=true
+          if [ "$FORCE" != "true" ] && [ -n "$tag" ] && git fetch --no-tags --depth=1 origin "refs/tags/$tag:refs/tags/$tag" \
+             && git diff --quiet "refs/tags/$tag" HEAD -- apps/companion/src-tauri/src/core/plugin_audio apps/companion/src-tauri/src/core/plugin_audio.rs apps/companion/src-tauri/src/core/obs_transport.rs apps/companion/src-tauri/src/core/backend_transport.rs apps/companion/src-tauri/tests plugins/protocol/src apps/companion/src-tauri/Cargo.lock apps/companion/src-tauri/Cargo.toml; then
+            run=false
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"; echo "Transport budget: run=$run (latest release $tag)"
+
+      - name: Durable eight-hour transport budget (actual SQLite commits)
+        if: github.event_name == 'workflow_dispatch' && inputs.validation_version != '' && steps.budget.outputs.run == 'true'
         shell: bash
         timeout-minutes: 60
         run: cargo test --locked --manifest-path apps/companion/src-tauri/Cargo.toml --test plugin_transport store::tests::eight_hour_transport_budget_uses_actual_admission_ack_and_sqlite_receipts -- --exact --ignored --nocapture --test-threads=1
@@ -462,9 +485,36 @@ jobs:
       # the script downloads its own portable Python. A hard step failure
       # like everything else in this job, not a silent skip. (WK-80 removed
       # the equivalent Piper build step that used to run here.)
+      # The Silero runtime/model only change when their build inputs change.
+      # Reuse the previous release's exact assets when the recorded input
+      # fingerprint matches and every zip matches its published sha256;
+      # otherwise build as before. (actions/cache is not shared across tags.)
+      - name: Reuse unchanged Silero assets from the previous release
+        id: silero-reuse
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          inputs=$(cat scripts/companion-build-silero-runtime.ps1 scripts/silero_sidecar.py scripts/companion-silero-smoke-phrase.txt | sha256sum | cut -d' ' -f1)
+          mkdir -p silero-dist
+          if gh release download --repo "$GITHUB_REPOSITORY" --pattern 'silero-*' --dir silero-prev \
+             && [ "$(cat silero-prev/silero-build-inputs.txt 2>/dev/null)" = "$inputs" ] \
+             && python -I -c "import hashlib,pathlib,sys;d=pathlib.Path('silero-prev');z=sorted(d.glob('*.zip'));assert len(z)==2;[sys.exit('sha mismatch '+f.name) for f in z if hashlib.sha256(f.read_bytes()).hexdigest()!=(d/(f.name+'.sha256')).read_text().split()[0]]"; then
+            cp silero-prev/*.zip silero-prev/*.zip.sha256 silero-dist/
+            echo "reused=true" >> "$GITHUB_OUTPUT"; echo "Reusing unchanged Silero assets ($inputs)"
+          else
+            echo "reused=false" >> "$GITHUB_OUTPUT"; echo "Silero inputs changed or previous assets unavailable: building"
+          fi
+          echo "$inputs" > silero-build-inputs.txt
+
       - name: Build + package Silero TTS runtime and model
+        if: steps.silero-reuse.outputs.reused != 'true'
         shell: powershell
         run: ./scripts/companion-build-silero-runtime.ps1
+
+      - name: Record Silero build-input fingerprint
+        shell: bash
+        run: mv silero-build-inputs.txt silero-dist/silero-build-inputs.txt
 
       - name: Generate updater manifest (latest.json)
         shell: powershell
@@ -529,6 +579,7 @@ jobs:
             latest.json
             silero-dist/*.zip
             silero-dist/*.sha256
+            silero-dist/silero-build-inputs.txt
 
       # WK-88 - notifies deploy-production.yml so the web download link
       # (scripts/resolve-companion-release.sh) picks up this release
