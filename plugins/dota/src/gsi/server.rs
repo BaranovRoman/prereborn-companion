@@ -85,9 +85,9 @@ mod tests {
   listener.start_admission().unwrap();send(&listener,body);wait(&listener,1);
   let frame=listener.next().unwrap();assert_eq!(frame.sequence,1);assert!(frame.observed_at_ms>0);
   assert!(!serde_json::to_string(&frame.snapshot).unwrap().contains("SENSITIVE_FIXTURE"));
-  send(&listener,"{\"items\":{\"stash6\":{}}}");wait(&listener,2);assert_eq!(listener.status().last_error,Some("invalid_item_slot"));
+  send(&listener,"{\"items\":{\"slot0\":[]}}");wait(&listener,2);assert_eq!(listener.status().last_error,Some("invalid_slot_signal"));
   send(&listener,body);wait(&listener,3);assert_eq!(listener.next().unwrap().sequence,2);
-  assert_eq!(listener.status().last_error,Some("invalid_item_slot"));assert_eq!(listener.status().rejected,1);
+  assert_eq!(listener.status().last_error,Some("invalid_slot_signal"));assert_eq!(listener.status().rejected,1);
  }
  #[test]
  fn bounded_queue_loss_closes_admission_instead_of_continuing_with_a_gap(){

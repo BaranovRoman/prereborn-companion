@@ -18,14 +18,18 @@ pub fn project(raw: &Value) -> Result<ReplayGsi, &'static str> {
         }
         Ok(Value::Object(result))
     }
-    fn signals(raw: &Value, slots: &[(&str, u8)], invalid: &'static str) -> Result<Value, &'static str> {
+    // Dota adds slot families between patches (a second neutral slot,
+    // preserved neutrals, ...). A key outside the known families is dropped,
+    // never projected and never fatal: it must not stop the whole package.
+    // Known keys keep strict value validation.
+    fn signals(raw: &Value, slots: &[(&str, u8)]) -> Result<Value, &'static str> {
         let map = raw.as_object().ok_or("invalid_slots")?;
-        if map.len() > 32 { return Err("too_many_slots"); }
+        if map.len() > 64 { return Err("too_many_slots"); }
         let mut result = serde_json::Map::new();
         for (key, value) in map {
             if !slots.iter().any(|(prefix, limit)| key.strip_prefix(prefix).is_some_and(|i|
                 i.parse::<u8>().is_ok_and(|n| n < *limit && i == n.to_string()))) {
-                return Err(invalid);
+                continue;
             }
             if !value.is_object() { return Err("invalid_slot_signal"); }
             result.insert(key.clone(), fields(value, &["name", "cooldown", "charges"])?);
@@ -44,11 +48,11 @@ pub fn project(raw: &Value) -> Result<ReplayGsi, &'static str> {
     }
     // Hero inventory/backpack, stash, TP and neutral slots are distinct GSI key families.
     // Keep the existing bounded ability envelope; never accept an item key as an ability.
-    for (name, slots, invalid) in [
-        ("items", &[("slot",9),("stash",6),("teleport",1),("neutral",1)][..], "invalid_item_slot"),
-        ("abilities", &[("ability",32)][..], "invalid_ability_slot"),
+    for (name, slots) in [
+        ("items", &[("slot",9),("stash",6),("teleport",1),("neutral",2)][..]),
+        ("abilities", &[("ability",32)][..]),
     ] {
-        if let Some(value) = raw.get(name).filter(|v| !v.is_null()) { result.insert(name.into(), signals(value, slots, invalid)?); }
+        if let Some(value) = raw.get(name).filter(|v| !v.is_null()) { result.insert(name.into(), signals(value, slots)?); }
     }
     if let Some(raw) = raw.get("couriers").filter(|v| !v.is_null()) {
         let couriers = raw.as_object().ok_or("invalid_couriers")?;
@@ -57,7 +61,7 @@ pub fn project(raw: &Value) -> Result<ReplayGsi, &'static str> {
         for (key, value) in couriers {
             if key.len() > 64 || !value.is_object() { return Err("invalid_courier"); }
             // Courier uses item0..5. Retain slot0..5 compatibility with existing replay fixtures.
-            if let Some(items) = value.get("items") { result_couriers.insert(format!("courier{}", result_couriers.len()), json!({"items": signals(items, &[("item",6),("slot",6)], "invalid_courier_item_slot")?})); }
+            if let Some(items) = value.get("items") { result_couriers.insert(format!("courier{}", result_couriers.len()), json!({"items": signals(items, &[("item",6),("slot",6)])?})); }
         }
         result.insert("couriers".into(), Value::Object(result_couriers));
     }
@@ -117,16 +121,24 @@ mod tests {
     }
 
     #[test]
-    fn rejects_unknown_noncanonical_out_of_range_and_cross_inventory_keys() {
-        for (section, keys, code) in [
-            ("items", &["slot9", "stash6", "teleport1", "neutral1", "item0", "ability0", "slot00", "stash-1", "slot", "slot256", "slot٠"][..], "invalid_item_slot"),
-            ("abilities", &["slot0", "item0", "ability32", "ability01", "ability-1"][..], "invalid_ability_slot"),
+    fn unknown_noncanonical_out_of_range_and_cross_inventory_keys_are_dropped_not_fatal() {
+        for (section, keys) in [
+            ("items", &["slot9", "stash6", "teleport1", "neutral2", "preserved_neutral6", "item0", "ability0", "slot00", "stash-1", "slot", "slot256", "slot٠"][..]),
+            ("abilities", &["slot0", "item0", "ability32", "ability01", "ability-1"][..]),
         ] {
-            for key in keys { let mut raw=fixture(); raw[section][*key]=json!({"name":"empty"}); assert_eq!(project(&raw).unwrap_err(),code,"{section}.{key}"); }
+            for key in keys {
+                let mut raw=fixture(); raw[section][*key]=json!({"name":"item_blink","cooldown":5});
+                let projected=serde_json::to_value(project(&raw).unwrap()).unwrap();
+                assert!(projected[section].get(*key).is_none(),"{section}.{key} must not be projected");
+            }
         }
+        // A second neutral slot is a real inventory slot.
+        let mut raw=fixture(); raw["items"]["neutral1"]=json!({"name":"item_mysterious_hat"});
+        assert_eq!(serde_json::to_value(project(&raw).unwrap()).unwrap()["items"]["neutral1"]["name"],"item_mysterious_hat");
         for key in ["item6", "stash0", "ability0", "item00", "item-1", "item", "item256"] {
             let mut raw=fixture();raw["couriers"]["SENSITIVE_FIXTURE"]["items"][key]=json!({});
-            assert_eq!(project(&raw).unwrap_err(),"invalid_courier_item_slot");
+            let projected=serde_json::to_value(project(&raw).unwrap()).unwrap();
+            assert!(projected["couriers"]["courier0"]["items"].get(key).is_none());
         }
         // Empty objects are valid empty slots, but collection/count/payload bounds remain.
         let mut raw=fixture();raw["items"]["stash5"]=json!({});assert!(project(&raw).is_ok());
@@ -134,7 +146,7 @@ mod tests {
         raw["items"]=json!({"stash0":null});assert_eq!(project(&raw).unwrap_err(),"invalid_slot_signal");
         raw["items"]=json!({"slot0":[]});assert_eq!(project(&raw).unwrap_err(),"invalid_slot_signal");
         raw["items"]=json!({"slot0":{"name":"x".repeat(129)}});assert_eq!(project(&raw).unwrap_err(),"invalid_projection_field");
-        raw["items"]=json!({});raw["abilities"]=Value::Object((0..33).map(|i|(format!("ability{i}"),json!({}))).collect());assert_eq!(project(&raw).unwrap_err(),"too_many_slots");
+        raw["items"]=json!({});raw["abilities"]=Value::Object((0..65).map(|i|(format!("ability{i}"),json!({}))).collect());assert_eq!(project(&raw).unwrap_err(),"too_many_slots");
     }
 
     #[test]

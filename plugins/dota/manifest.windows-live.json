@@ -3,7 +3,7 @@
   "id": "dota2",
   "name": "Dota 2",
   "description": "Игровые звуки по GSI, история матчей, OBS-сцены и оверлей для Dota 2. Устанавливается отдельно от Companion; подготовка backup и включение выполняются вручную.",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "platform": "windows",
   "arch": "x86_64",
   "minApi": 2,

@@ -6,7 +6,8 @@ interface TracePage { recording: boolean; total: number; dropped: number; events
 // Opt-in item diagnostic: what the plugin actually sees in GSI item slots
 // (appear / cooldown start / charges / removed), to classify items by real
 // signals instead of metadata. Nothing leaves the app unless copied.
-export function ItemTracePanel() {
+export function ItemTracePanel({ active, frames }: { active: boolean; frames: number }) {
+  const [startFrames, setStartFrames] = useState(0);
   const [state, setState] = useState<{ recording: boolean; total: number; dropped: number }>({ recording: false, total: 0, dropped: 0 });
   const [log, setLog] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
@@ -30,11 +31,13 @@ export function ItemTracePanel() {
     <p>Записывает только изменения в слотах предметов: появился, начался кулдаун, изменились заряды, исчез. Работает, пока плагин включён и Dota отправляет GSI.</p>
     <div className="sound-binding-row__actions">
       {!state.recording
-        ? <button onClick={() => void run(async () => { await api.invoke("items.trace.start", {}); setLog(""); await refresh(); })}>Начать запись</button>
+        ? <button onClick={() => void run(async () => { await api.invoke("items.trace.start", {}); setStartFrames(frames); setLog(""); await refresh(); })}>Начать запись</button>
         : <button onClick={() => void run(async () => { await api.invoke("items.trace.stop", {}); await refresh(); await load(); })}>Остановить</button>}
       <button disabled={!state.total} onClick={() => void run(load)}>Показать журнал</button>
       <button disabled={!log} onClick={() => { area.current?.focus(); area.current?.select(); void navigator.clipboard?.writeText(log).catch(() => undefined); }}>Выделить и скопировать</button>
     </div>
+    {!active && <p role="status">Плагин не активен: запись не получит событий, пока его не включить.</p>}
+    {active && state.recording && frames === startFrames && <p role="status">GSI-кадры от Dota пока не поступают. Проверьте, что конфиг GSI установлен (вкладка «Настройки») и Dota перезапущена после установки.</p>}
     {state.dropped > 0 && <p>Журнал заполнен, пропущено событий: {state.dropped}. Остановите и начните заново.</p>}
     {error && <p role="alert">{error}</p>}
     {log && <textarea ref={area} readOnly value={log} rows={10} aria-label="Журнал предметов" />}

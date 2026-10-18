@@ -38,7 +38,7 @@ export async function settings(): Promise<GameSoundSettings> {
 }
 export interface Status {
   overlay?:{running:boolean;clients:number};
-  overlayVisible?:boolean;showSummary?:boolean;
+  overlayVisible?:boolean;showSummary?:boolean;overlayHotkey?:{enabled:boolean;shortcut:string;registered:boolean;lastError:string|null};
   prepared: boolean; active: boolean; awaitingSession: boolean; session: string|null; epoch: number|null;
   lastError: string|null; processed: number; lastSequence: number|null;
   gsi: {received:number;accepted:number;rejected:number;dropped:number;lastError:string|null}|null;

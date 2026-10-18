@@ -59,7 +59,7 @@ export function Dota() {
   return <main>
     <header className="dota-bar">
       <nav aria-label="Разделы Dota">{[["heroes","Герои"],["items","Предметы"],["history","История"],["obs","OBS и сцены"],["overlay","Overlay"],["settings","Настройки"]].map(([key,title])=><button aria-current={tab===key?"page":undefined} key={key} onClick={()=>{setTab(key);setError(null);}}>{title}</button>)}</nav>
-      <p role="status">{statusError?"Состояние плагина не подтверждено":!status?"Подключение к плагину…":!status.active?"Плагин выключен — настройки доступны":status.awaitingSession?"Ожидание игровой сессии · звуки доступны и в опробовании героя":"Плагин работает"}{!statusError&&status?.gsi?` · ${status.processed} кадров`:""}</p>
+      <p role="status">{statusError?"Состояние плагина не подтверждено":!status?"Подключение к плагину…":!status.active?"Плагин выключен — настройки доступны":status.awaitingSession?"Ожидание игровой сессии · звуки доступны и в опробовании героя":"Плагин работает"}{!statusError&&status?.gsi?` · ${status.processed} кадров`:""}{!statusError&&status?.active&&status.overlayVisible===false?` · оверлей скрыт${status.overlayHotkey?.shortcut?` — ${status.overlayHotkey.shortcut}`:""}`:""}</p>
     </header>
     {(statusError||error||status?.lastError)&&<p role="alert">{statusError??error??status?.lastError}</p>}
     {status?.obsError&&<p role="alert">OBS: {status.obsError}. Выполнение игровых сцен не подтверждено.</p>}
@@ -72,7 +72,7 @@ export function Dota() {
           </>}</article>)}</div>
         {getHeroByInternalName(hero.id)&&<HeroStatistics key={hero.id} heroId={getHeroByInternalName(hero.id)!.id}/>}
       </section>:<HeroesPage favorites={favorites} soundSettings={settings} trackedHeroes={catalog.heroes} onSelectHero={id=>{const entry=getHeroById(id);const tracked=entry&&catalog.heroes.find(h=>h.id===`npc_dota_hero_${entry.name}`);if(tracked)setHero(tracked);}}/>)}
-      {tab==="items"&&<ItemTracePanel/>}
+      {tab==="items"&&<ItemTracePanel active={status?.active===true} frames={status?.processed??0}/>}
       {tab==="items"&&<ItemsCatalog items={catalog.items} settings={settings} onChooseFile={choose} onPreview={preview} onRemove={remove}/>}
       {tab==="history"&&<HistoryPanel history={history} sync={sync} active={status?.active===true} reload={async()=>{setHistory(await api.invoke<api.History>("history.summary"));setSync(await api.invoke<api.SyncStatus>("history.sync"));}}/>}
       {tab==="obs"&&<ObsPanel/>}
