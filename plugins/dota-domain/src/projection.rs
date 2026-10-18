@@ -40,7 +40,7 @@ pub fn project(raw: &Value) -> Result<ReplayGsi, &'static str> {
     for (name, allowed) in [
         ("player", &["activity", "team_name", "kills", "deaths", "assists"][..]),
         ("map", &["game_state", "matchid", "customgamename", "win_team"][..]),
-        ("hero", &["id"][..]),
+        ("hero", &["id", "health"][..]),
     ] {
         if let Some(value) = raw.get(name).filter(|v| !v.is_null()) {
             result.insert(name.into(), fields(value, allowed)?);

@@ -38,7 +38,7 @@ pub struct Map { pub game_state: Option<String>, pub matchid: Option<ScalarId>, 
 pub enum ScalarId { Text(String), Number(u64) }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Hero { pub id: Option<i64> }
+pub struct Hero { pub id: Option<i64>, #[serde(default, skip_serializing_if = "Option::is_none")] pub health: Option<i64> }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Signal { pub name: Option<String>, pub cooldown: Option<f64>, pub charges: Option<i64> }

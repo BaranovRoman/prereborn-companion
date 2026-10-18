@@ -235,7 +235,24 @@ pub struct PendingNote {
 /// on every hero-identity change - see that module - so a candidate can
 /// never leak diagnostics across a match boundary).
 #[derive(Debug, Clone, Default)]
-pub struct PendingConfirmations(HashMap<String, u64>);
+pub struct PendingConfirmations(HashMap<String, u64>, Option<(u64, i64)>);
+
+/// Blood Grenade costs the thrower health. Its last charge leaves no
+/// same-slot charge decrease, so a vanished last grenade counts as used only
+/// with that positive evidence: hero health dropped by at least the cast cost
+/// within a short window (other damage can make the drop larger; it cannot
+/// kill, so the cost is capped at health - 1; a little regeneration is
+/// tolerated). Selling, dropping or moving it costs no health. At exactly
+/// 1 HP there is no cost to see; that throw counts after the window if the
+/// grenade did not reappear anywhere (accepted risk: selling it at 1 HP).
+const BLOOD_GRENADE: &str = "item_blood_grenade";
+const BLOOD_GRENADE_HEALTH_COST: i64 = 75;
+const BLOOD_GRENADE_CONFIRM_WINDOW_MS: u64 = 1_000;
+fn hero_health(payload: &Value) -> Option<i64> { payload.get("hero")?.get("health")?.as_i64() }
+fn blood_grenade_cost_seen(health_before: i64, health_now: i64) -> bool {
+    let cost = BLOOD_GRENADE_HEALTH_COST.min(health_before - 1);
+    cost > 0 && health_before - health_now >= (cost - cost / 10).max(1)
+}
 
 impl PendingConfirmations {
     fn register_if_absent(&mut self, item_name: &str, now_ms: u64, notes: &mut Vec<PendingNote>) {
@@ -410,6 +427,9 @@ fn detect_item_events(
                         events.push(GameSoundEvent { kind: GameSoundEventKind::ItemUsed, id: previous_name.to_string() });
                     }
                 } else if !current_item_names.contains(previous_name) {
+                    if previous_name == BLOOD_GRENADE && prev_charges == Some(1) && pending.1.is_none() {
+                        if let Some(health) = hero_health(previous).filter(|h| *h > 0) { pending.1 = Some((now_ms, health)); }
+                    }
                     // Vanished from this slot and not observed anywhere
                     // else this tick either (a different/no item now here,
                     // or the slot itself is gone). No positive evidence of
@@ -430,6 +450,21 @@ fn detect_item_events(
         }
     }
 
+    if let Some((vanished_at, health_before)) = pending.1 {
+        let expired = now_ms.saturating_sub(vanished_at) > BLOOD_GRENADE_CONFIRM_WINDOW_MS;
+        if current_item_names.contains(BLOOD_GRENADE) {
+            pending.1 = None;
+        } else if expired {
+            pending.1 = None;
+            // At exactly 1 HP the throw has no observable cost (it cannot
+            // kill). By product decision it still counts once the window
+            // shows it was not moved anywhere.
+            if health_before == 1 { events.push(GameSoundEvent { kind: GameSoundEventKind::ItemUsed, id: BLOOD_GRENADE.to_string() }); }
+        } else if hero_health(current).is_some_and(|health| blood_grenade_cost_seen(health_before, health)) {
+            pending.1 = None;
+            events.push(GameSoundEvent { kind: GameSoundEventKind::ItemUsed, id: BLOOD_GRENADE.to_string() });
+        }
+    }
     resolve_pending(&current_item_names, now_ms, pending, notes);
 }
 

@@ -56,3 +56,56 @@ fn validate(input: &ReplayGsi) -> Result<(), String> {
     }
     Ok(())
 }
+#[cfg(test)]
+mod blood_grenade_capture_tests {
+    use super::*;
+    use serde_json::json;
+    // Real 0.2.5 item trace (hero demo, Techies): the grenade appears with
+    // 2 charges, then one use shows cooldown 0 -> 10 and charges 2 -> 1.
+    fn frame(items: serde_json::Value) -> crate::contracts::ReplayGsi {
+        crate::projection::project(&json!({"hero":{"id":105},"player":{"activity":"playing"},"map":{"game_state":"DOTA_GAMERULES_STATE_GAME_IN_PROGRESS"},"items":items})).unwrap()
+    }
+    /// Frames are (ms, slot0 item or None, stash0 item or None, hero health).
+    fn last_grenade(frames: &[(u64, Option<&str>, Option<&str>, i64)]) -> Vec<String> {
+        let mut replay = Replay::default();let mut signals = Vec::new();
+        for (i, (ms, slot, stash, health)) in frames.iter().enumerate() {
+            let item = |name: &Option<&str>| match name { Some(n) => json!({"name":n,"cooldown":0,"charges":1}), None => json!({"name":"empty"}) };
+            let raw = json!({"hero":{"id":105,"health":health},"map":{"game_state":"DOTA_GAMERULES_STATE_GAME_IN_PROGRESS"},"items":{"slot0":item(slot),"stash0":item(stash)}});
+            let result = replay.apply(crate::contracts::ReplayInput { sequence: i as u64 + 1, observed_at_ms: *ms, snapshot: crate::projection::project(&raw).unwrap(), context: Default::default(), match_context: None }).unwrap();
+            signals.extend(result.sound_signals.into_iter().map(|s| s.id));
+        }
+        signals
+    }
+    #[test]
+    fn the_last_grenade_counts_only_with_the_health_cost_as_positive_evidence() {
+        let g = Some("item_blood_grenade");
+        let used = vec!["item_blood_grenade".to_string()];
+        assert_eq!(last_grenade(&[(1000,g,None,600),(1100,None,None,525)]), used, "cost in the same frame");
+        assert_eq!(last_grenade(&[(1000,g,None,600),(1100,None,None,600),(1500,None,None,525)]), used, "cost in a later frame");
+        assert_eq!(last_grenade(&[(1000,g,None,600),(1100,None,None,410)]), used, "extra damage from enemies");
+        assert_eq!(last_grenade(&[(1000,g,None,600),(1100,None,None,530)]), used, "a little regeneration");
+        assert_eq!(last_grenade(&[(1000,g,None,2),(1100,None,None,1)]), used, "cannot kill: cost capped at health - 1");
+        assert!(last_grenade(&[(1000,g,None,600),(1100,None,None,600),(1600,None,None,600)]).is_empty(), "sold or dropped: no health cost");
+        assert!(last_grenade(&[(1000,g,None,600),(1100,None,None,590)]).is_empty(), "small chip damage is not the cost");
+        assert!(last_grenade(&[(1000,g,None,600),(1100,None,g,500)]).is_empty(), "moved to stash while taking damage");
+        assert!(last_grenade(&[(1000,g,None,600),(1100,None,None,600),(2300,None,None,500)]).is_empty(), "health lost after the window");
+        assert!(last_grenade(&[(1000,g,None,1),(1100,None,None,1)]).is_empty(), "at 1 HP nothing is decided before the window");
+        assert_eq!(last_grenade(&[(1000,g,None,1),(1100,None,None,1),(2200,None,None,1)]), used, "thrown at 1 HP counts once not moved");
+        assert!(last_grenade(&[(1000,g,None,1),(1100,None,None,1),(1500,None,g,1),(2200,None,g,1)]).is_empty(), "moved at 1 HP is not a throw");
+    }
+    #[test]
+    fn a_blood_grenade_use_from_the_real_trace_emits_one_item_signal() {
+        let mut replay = Replay::default();
+        let frames = [
+            json!({"slot0":{"name":"empty"},"teleport0":{"name":"item_tpscroll","cooldown":95,"charges":1}}),
+            json!({"slot0":{"name":"item_blood_grenade","cooldown":0,"charges":2},"teleport0":{"name":"item_tpscroll","cooldown":93,"charges":1}}),
+            json!({"slot0":{"name":"item_blood_grenade","cooldown":10,"charges":1},"teleport0":{"name":"item_tpscroll","cooldown":92,"charges":1}}),
+        ];
+        let mut signals = Vec::new();
+        for (i, items) in frames.into_iter().enumerate() {
+            let result = replay.apply(crate::contracts::ReplayInput { sequence: i as u64 + 1, observed_at_ms: (i as u64 + 1) * 1000, snapshot: frame(items), context: Default::default(), match_context: None }).unwrap();
+            signals.extend(result.sound_signals.into_iter().map(|s| s.id));
+        }
+        assert_eq!(signals, vec!["item_blood_grenade".to_string()]);
+    }
+}
