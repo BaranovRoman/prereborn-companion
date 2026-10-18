@@ -294,6 +294,12 @@ jobs:
           import json, os, pathlib, subprocess
           raw=os.environ['PUBLIC_METADATA']
           if len(raw.encode())>61440: raise SystemExit('Candidate metadata too large')
+          # The signed catalog grows with every release; workflow inputs are
+          # capped near 64 KiB, so metadata may arrive gzip+base64 ("gz:").
+          if raw.startswith('gz:'):
+            import base64, gzip
+            raw=gzip.decompress(base64.b64decode(raw[3:],validate=True)).decode('utf-8')
+            if len(raw.encode())>1048576: raise SystemExit('Candidate metadata too large')
           meta=json.loads(raw); source=str(meta['source_run'])
           if not source.isdigit(): raise SystemExit('Invalid source run')
           pathlib.Path('dota-public-metadata.json').write_text(raw,encoding='utf-8')
