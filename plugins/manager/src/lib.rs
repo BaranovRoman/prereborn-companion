@@ -102,6 +102,25 @@ pub fn safe_path(value: &str) -> Result<()> {
     }
     Ok(())
 }
+/// A live worker is enabled only by the explicit enable/autostart path, which
+/// activates it; registering it as enabled on install would show "enabled"
+/// with nothing running until the next restart. Dota keeps its manual gate.
+fn enabled_on_install(manifest: &Manifest) -> bool {
+    manifest.id != "dota2" && manifest.execution != ExecutionMode::Live
+}
+#[cfg(test)]
+mod install_default_tests {
+    use super::*;
+    #[test]
+    fn only_replay_packages_other_than_dota_start_enabled() {
+        let mut manifest: Manifest = serde_json::from_value(serde_json::json!({"schema":1,"id":"hello","name":"Hello","description":"t","version":"0.1.0","platform":"windows","arch":"x86_64","minApi":1,"maxApi":1,"executable":"bin/x.exe","ui":"ui/index.html","permissions":["ui"],"files":{}})).unwrap();
+        assert!(enabled_on_install(&manifest));
+        manifest.id = "dota2".into();
+        assert!(!enabled_on_install(&manifest));
+        manifest.id = "pubg".into(); manifest.execution = ExecutionMode::Live;
+        assert!(!enabled_on_install(&manifest));
+    }
+}
 fn valid_id(id: &str) -> Result<()> {
     if id.is_empty() || id.len() > 64 || !id.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-') {
         return Err("invalid_or_reserved_plugin_id".into());
@@ -379,7 +398,9 @@ impl Store {
                     if running { installed.pending = Some(version.clone()); }
                     else { installed.previous = Some(installed.active.clone()); installed.active = version.clone(); }
                     installed.last_error = None;
-                } else { registry.plugins.insert(id.clone(), Installed { active: version.clone(), enabled: id != "dota2", ..Installed::default() }); }
+                } else {
+                    registry.plugins.insert(id.clone(), Installed { active: version.clone(), enabled: enabled_on_install(&release.manifest), ..Installed::default() });
+                }
                 Ok(())
             }) { let _ = fs::remove_dir_all(destination); return Err(error); }
             self.prune(id);

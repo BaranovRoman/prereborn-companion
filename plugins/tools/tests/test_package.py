@@ -33,6 +33,23 @@ class PackageTests(unittest.TestCase):
             binary.write_bytes(b'changed')
             with self.assertRaisesRegex(ValueError,'CI payload differs'):
                 p.assemble(root,metadata,root/'damaged')
+    def test_pubg_candidate_reconstructs_from_its_own_artifact_layout(self):
+        with tempfile.TemporaryDirectory() as root:
+            root=pathlib.Path(root);ui=root/'pubg/ui/dist';(ui/'widget').mkdir(parents=True);(ui/'index.html').write_text('ui');(ui/'widget/index.html').write_text('widget');(ui/'icon.png').write_bytes(b'png')
+            binary=root/'target/release/companion-pubg-plugin.exe';binary.parent.mkdir(parents=True);binary.write_bytes(b'pubg fixture')
+            template=p.ROOT/'plugins/pubg/manifest.windows-live.json';version=json.loads(template.read_text())['version']
+            with patch.object(p,'sign',return_value='unit-test-placeholder'):
+                release=p.package(binary,ui,version,'windows','x86_64',root/'original',root/'key','https://github.com/example',template)
+            self.assertEqual(release['manifest']['id'],'pubg')
+            self.assertIn('ui/widget/index.html',release['manifest']['files'])
+            original=root/f'original/pubg-{version}-windows-x86_64.zip'
+            with zipfile.ZipFile(original) as archive:
+                meta={'release':release,'manifest_bytes':base64.b64encode(archive.read('manifest.json')).decode(),'manifest_signature':archive.read('manifest.minisig').decode(),'catalog_bytes':base64.b64encode(p.encode({'schema':1,'releases':[release]})).decode(),'catalog_signature':'unit-test-placeholder'}
+            metadata=root/'metadata.json';metadata.write_text(json.dumps(meta))
+            rebuilt=p.assemble(root,metadata,root/'rebuilt');self.assertEqual(original.read_bytes(),rebuilt.read_bytes())
+            meta['release']['manifest']['id']='other';meta['manifest_bytes']=base64.b64encode(p.encode(meta['release']['manifest'])).decode();metadata.write_text(json.dumps(meta))
+            with self.assertRaisesRegex(ValueError,'Unexpected candidate identity'):
+                p.assemble(root,metadata,root/'denied')
     def test_live_identity_protocol_and_file_hashes_preserved(self):
         with tempfile.TemporaryDirectory() as root:
             root=pathlib.Path(root);ui=root/'ui';ui.mkdir();(ui/'index.html').write_text('test');(ui/'icon.png').write_bytes(b'png')

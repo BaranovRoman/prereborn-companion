@@ -1,6 +1,7 @@
 packages:
   - "apps/*"
   - "plugins/dota/ui"
+  - "plugins/pubg/ui"
 
 allowBuilds:
   "@parcel/watcher": true

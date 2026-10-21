@@ -32,13 +32,22 @@ def write_archive(path, files):
             entry.compress_type = zipfile.ZIP_DEFLATED
             archive.writestr(entry, data)
 
+# Official Windows workers built by windows-release.yml candidate jobs:
+# id -> (executable name, candidate artifact directory holding ui/dist).
+CANDIDATES = {
+    'dota2': ('companion-dota-plugin.exe', 'dota'),
+    'pubg': ('companion-pubg-plugin.exe', 'pubg'),
+}
+
 def assemble(input_root, metadata, output):
     """Public signed metadata + exact CI bytes only; signing and launching are impossible here."""
     root = pathlib.Path(input_root).resolve(); meta = json.loads(pathlib.Path(metadata).read_text(encoding='utf-8'))
     manifest_bytes = base64.b64decode(meta['manifest_bytes'], validate=True)
     manifest = json.loads(manifest_bytes); release = meta['release']
-    if manifest != release['manifest'] or manifest['id'] != 'dota2' or manifest['platform'] != 'windows' or manifest['arch'] != 'x86_64' or manifest['executable'] != 'bin/companion-dota-plugin.exe':
+    known = CANDIDATES.get(manifest.get('id'))
+    if manifest != release['manifest'] or not known or manifest['platform'] != 'windows' or manifest['arch'] != 'x86_64' or manifest['executable'] != 'bin/' + known[0]:
         raise ValueError('Unexpected candidate identity')
+    executable, ui_dir = known
     if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', manifest['version']):
         raise ValueError('Invalid candidate version')
     files = {}
@@ -47,9 +56,9 @@ def assemble(input_root, metadata, output):
         if '\\' in name or ':' in name or name.startswith('/') or any(part in ('..', '.') for part in parts):
             raise ValueError('Unsafe payload path')
         if name == manifest['executable']:
-            path = root / 'target/release/companion-dota-plugin.exe'
+            path = root / 'target/release' / executable
         elif name.startswith('ui/'):
-            path = root / 'dota/ui/dist' / name[3:]
+            path = root / ui_dir / 'ui/dist' / name[3:]
         else:
             raise ValueError('Unexpected payload path')
         if path.is_symlink() or not path.resolve().is_relative_to(root):
@@ -60,7 +69,7 @@ def assemble(input_root, metadata, output):
         files[name] = data
     files['manifest.json'] = manifest_bytes; files['manifest.minisig'] = meta['manifest_signature'].encode()
     output = pathlib.Path(output); output.mkdir(parents=True, exist_ok=True)
-    archive = output / f"dota2-{manifest['version']}-windows-x86_64.zip"
+    archive = output / f"{manifest['id']}-{manifest['version']}-windows-x86_64.zip"
     write_archive(archive, files)
     if digest(archive.read_bytes()) != release['sha256']:
         archive.unlink(); raise ValueError('Reconstructed archive differs from signed candidate')

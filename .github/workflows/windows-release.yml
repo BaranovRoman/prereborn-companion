@@ -20,6 +20,14 @@ on:
         description: 'Optional PUBLIC signed candidate metadata for exact Windows install verification; never a private key'
         type: string
         default: ''
+      pubg_candidate:
+        description: 'Build standalone Windows PUBG worker/UI candidate only; no signing or publication'
+        type: boolean
+        default: false
+      pubg_candidate_metadata:
+        description: 'Optional PUBLIC signed PUBG candidate metadata for exact Windows install verification; never a private key'
+        type: string
+        default: ''
       full_budget:
         description: 'Run the eight-hour transport budget even if ledger/transport code is unchanged since the last release'
         type: boolean
@@ -51,7 +59,7 @@ jobs:
   # distribution (Actions artifacts require a GitHub login and expire - see
   # release-windows below for the actual public download source).
   build-windows:
-    if: ${{ !startsWith(github.ref, 'refs/tags/') && !inputs.signing_validation && !inputs.dota_candidate }}
+    if: ${{ !startsWith(github.ref, 'refs/tags/') && !inputs.signing_validation && !inputs.dota_candidate && !inputs.pubg_candidate }}
     runs-on: windows-latest
 
     steps:
@@ -335,6 +343,117 @@ jobs:
           path: |
             dota-artifact/
 
+  # WK-183 - same contract as dota-candidate for the PUBG worker: exact CI
+  # bytes, no signing here; the signed metadata round trip verifies install,
+  # update (when an older signed PUBG release exists) and tamper rejection.
+  pubg-candidate:
+    if: github.event_name == 'workflow_dispatch' && inputs.pubg_candidate && !inputs.dota_candidate && !inputs.signing_validation && github.ref == 'refs/heads/codex/plugin-runtime-prototype'
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: plugins
+      - run: pnpm install --frozen-lockfile
+        env:
+          CI: true
+      - name: Build independent PUBG executable
+        shell: bash
+        env:
+          RUSTFLAGS: '-C target-feature=+crt-static'
+        run: cargo build --locked --release --target x86_64-pc-windows-msvc --manifest-path plugins/Cargo.toml -p companion-pubg-plugin
+      - name: Worker unit, manifest and real-process IPC tests
+        shell: bash
+        env:
+          RUSTFLAGS: '-C target-feature=+crt-static'
+        run: cargo test --locked --release --target x86_64-pc-windows-msvc --manifest-path plugins/Cargo.toml -p companion-pubg-plugin -- --test-threads=1
+      - name: Build and test independent UI and OBS widget
+        shell: bash
+        run: |
+          pnpm --filter @prereborn/pubg-ui test
+          pnpm --filter @prereborn/pubg-ui build
+      - name: Inspect native dependencies and stage exact independent artifacts
+        shell: bash
+        run: |
+          python - <<'PY'
+          import pathlib, struct, shutil
+          binary=pathlib.Path('plugins/target/x86_64-pc-windows-msvc/release/companion-pubg-plugin.exe')
+          b=binary.read_bytes(); pe=struct.unpack_from('<I',b,0x3c)[0]; opt=pe+24
+          if b[pe:pe+4]!=b'PE\0\0' or struct.unpack_from('<H',b,opt)[0]!=0x20b: raise SystemExit('Expected PE64')
+          n=struct.unpack_from('<H',b,pe+6)[0]; size=struct.unpack_from('<H',b,pe+20)[0]; sections=[]
+          for i in range(n):
+            p=opt+size+i*40; vs,va,rs,rp=struct.unpack_from('<IIII',b,p+8); sections.append((va,max(vs,rs),rp))
+          def offset(rva):
+            for va,length,rp in sections:
+              if va<=rva<va+length: return rp+rva-va
+            raise ValueError('Unmapped PE RVA')
+          p=offset(struct.unpack_from('<I',b,opt+120)[0]); imports=[]
+          while any(struct.unpack_from('<IIIII',b,p)):
+            name=offset(struct.unpack_from('<I',b,p+12)[0]); imports.append(b[name:b.index(0,name)].decode()); p+=20
+          print('Independent worker imports:', ', '.join(imports))
+          if any(d.lower().startswith(('vcruntime','msvcp','msvcr','api-ms-win-crt')) or d.lower()=='ucrtbase.dll' for d in imports): raise SystemExit('Unexpected redistributable dependency')
+          target=pathlib.Path('pubg-artifact/target/release'); target.mkdir(parents=True)
+          shutil.copy2(binary,target/binary.name)
+          shutil.copytree('plugins/pubg/ui/dist','pubg-artifact/pubg/ui/dist')
+          PY
+      - name: Verify exact official signed package and catalog on Windows
+        if: inputs.pubg_candidate_metadata != ''
+        shell: bash
+        env:
+          PUBLIC_METADATA: ${{ inputs.pubg_candidate_metadata }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import base64, gzip, json, os, pathlib, re, subprocess, urllib.request
+          raw=os.environ['PUBLIC_METADATA']
+          if len(raw.encode())>61440: raise SystemExit('Candidate metadata too large')
+          if raw.startswith('gz:'):
+            raw=gzip.decompress(base64.b64decode(raw[3:],validate=True)).decode('utf-8')
+            if len(raw.encode())>1048576: raise SystemExit('Candidate metadata too large')
+          meta=json.loads(raw); source=str(meta['source_run'])
+          if not source.isdigit(): raise SystemExit('Invalid source run')
+          if meta['release']['manifest']['id']!='pubg': raise SystemExit('Expected a PUBG candidate')
+          pathlib.Path('pubg-public-metadata.json').write_text(raw,encoding='utf-8')
+          subprocess.run(['gh','run','download',source,'--repo',os.environ['GITHUB_REPOSITORY'],'--name','pubg-windows-candidate','--dir','pubg-exact-source'],check=True)
+          catalog=json.loads(base64.b64decode(meta['catalog_bytes'],validate=True)); candidate=meta['release']['manifest']['version']
+          key=lambda v:tuple(int(x) for x in v.split('.'))
+          older=[r for r in catalog['releases'] if r['manifest']['id']=='pubg' and r['manifest']['platform']=='windows' and r['manifest']['arch']=='x86_64' and re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',r['manifest']['version']) and key(r['manifest']['version'])<key(candidate)]
+          # The first PUBG release has nothing to update from.
+          if older:
+            previous=max(older,key=lambda r:key(r['manifest']['version']))
+            if not previous['url'].startswith('https://github.com/BaranovRoman/prereborn-companion-plugins/releases/download/'): raise SystemExit('Unexpected previous release URL')
+            pathlib.Path('pubg-previous').mkdir()
+            with urllib.request.urlopen(previous['url'],timeout=60) as response, open('pubg-previous/previous.zip','wb') as out: out.write(response.read(33554433))
+          PY
+          python plugins/tools/package.py assemble --input-root pubg-exact-source --metadata pubg-public-metadata.json --output pubg-signed-candidate
+          version=$(python -c "import json,re,sys;v=json.load(open('pubg-public-metadata.json'))['release']['manifest']['version'];sys.exit('Invalid candidate version') if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+',v) else print(v)")
+          previous=(); if [ -f pubg-previous/previous.zip ]; then previous=(pubg-previous/previous.zip); fi
+          cargo run --locked --release --manifest-path plugins/Cargo.toml -p companion-plugin-manager --example verify_candidate -- "pubg-signed-candidate/pubg-$version-windows-x86_64.zip" "pubg-signed-candidate/pubg-$version-windows-x86_64.release.json" pubg-signed-candidate/catalog.json pubg-signed-candidate/catalog.minisig "${previous[@]}"
+      - name: Upload verified signed staging candidate (no release/catalog publication)
+        if: inputs.pubg_candidate_metadata != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: verified-pubg-windows-candidate
+          retention-days: 14
+          if-no-files-found: error
+          path: pubg-signed-candidate/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pubg-windows-candidate
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            pubg-artifact/
+
   # Tag-triggered release - tag format: prereborn-vX.Y.Z (e.g.
   # prereborn-v0.2.1). Patches the version in package.json/tauri.conf.json
   # from the tag BEFORE building, so the bundle filename
@@ -349,7 +468,7 @@ jobs:
     concurrency:
       group: companion-stable-release
       cancel-in-progress: false
-    if: ${{ !inputs.dota_candidate && ((startsWith(github.ref, 'refs/tags/prereborn-v') && !(github.event_name == 'workflow_dispatch' && inputs.validation_version != '')) || (github.event_name == 'workflow_dispatch' && inputs.signing_validation && inputs.validation_version != '' && github.ref == 'refs/heads/codex/plugin-runtime-prototype')) }}
+    if: ${{ !inputs.dota_candidate && !inputs.pubg_candidate && ((startsWith(github.ref, 'refs/tags/prereborn-v') && !(github.event_name == 'workflow_dispatch' && inputs.validation_version != '')) || (github.event_name == 'workflow_dispatch' && inputs.signing_validation && inputs.validation_version != '' && github.ref == 'refs/heads/codex/plugin-runtime-prototype')) }}
     runs-on: windows-latest
     permissions:
       contents: write

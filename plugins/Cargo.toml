@@ -1,3 +1,3 @@
 [workspace]
-members = ["protocol", "hello", "manager", "dota-domain", "dota-storage", "dota"]
+members = ["protocol", "hello", "manager", "dota-domain", "dota-storage", "dota", "pubg"]
 resolver = "2"
