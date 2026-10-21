@@ -1,14 +1,13 @@
 ---
 name: ticket
 description: >
-  Take a Weeek ticket end-to-end: fetch it via MCP, move it to In Progress, branch off main,
-  implement it (via gsd-quick when this repo has GSD planning set up, otherwise directly), run
-  relevant checks, commit, push, open a GitHub draft PR, and write the PR URL back to the ticket
-  — then stop by default. Does NOT mark the PR ready for review or move the ticket to Review;
-  that's the separate `review-pr` skill, run later after a manual look at the diff/PR — UNLESS
-  the task prompt itself explicitly requires full delivery without approval (see "Delivery
-  policy" below), in which case it continues through merge and release. Use when the user says
-  "/ticket <id>", "/ticket WK-123", "work ticket 123", or pastes a Weeek task URL.
+  Take a Weeek ticket end-to-end through a production release: fetch it via MCP, move it to In
+  Progress, branch off the release branch, implement it (via gsd-quick when this repo has GSD
+  planning set up, otherwise directly), run checks, commit, push, open a PR, then deploy the API
+  and/or release Companion/plugins per AGENTS.MD "Ticket → Release", verify the release and
+  report. It stops at the PR only for the reasons in step 12 (e.g. the user said not to release,
+  or checks/CI fail). Use when the user says "/ticket <id>", "/ticket WK-123", "work ticket 123",
+  or pastes a Weeek task URL.
 allowed-tools:
   - Bash
   - Read
@@ -22,11 +21,11 @@ allowed-tools:
   - mcp__weeek__weeek_set_task_mr_link
 ---
 
-# /ticket — Weeek ticket → GSD → draft PR
+# /ticket — Weeek ticket → implementation → production release
 
 Pet-project flow: no workstreams, no wiki-sync, no per-phase review gates, no milestone path.
 One ticket = one branch = one implementation pass (`gsd-quick` where this repo has GSD planning
-set up, direct implementation otherwise) = one draft PR.
+set up, direct implementation otherwise) = one PR = one production release.
 
 ## Procedure
 
@@ -47,8 +46,9 @@ set up, direct implementation otherwise) = one draft PR.
    To-Do column: `mcp__weeek__weeek_move_task(task_id=ID, board_column_id=<in-progress id>)`. If it's
    already past To Do, leave it — never move a ticket backward.
 
-5. **Create the branch.** Resolve the default branch (`git symbolic-ref refs/remotes/origin/HEAD` or
-   fall back to `main`), then:
+5. **Create the branch.** `BASE` is the release branch named in AGENTS.MD ("How releases actually
+   ship here"), currently `codex/plugin-runtime-prototype`, not the stale `main`. Fall back to
+   `git symbolic-ref refs/remotes/origin/HEAD` only if AGENTS.MD names none. Then:
    ```bash
    git fetch origin "$BASE"
    git switch "$BRANCH" 2>/dev/null || git switch -c "$BRANCH" --no-track "origin/$BASE"
@@ -89,45 +89,35 @@ set up, direct implementation otherwise) = one draft PR.
     If it errors (e.g. no "МР"/MR custom field configured on this Weeek project), report that plainly
     and continue — it's not fatal.
 
-11. **Stop by default, unless the task's own delivery policy says otherwise (see below).** Report:
-    ticket summary, branch, PR URL, Weeek link-write result, and current board column. Do not mark
-    the PR ready and do not move the ticket to Review — that's `/review-pr`, run later once the
-    diff/PR has been looked at.
+11. **Release to production (default).** Follow AGENTS.MD → "Ticket → Release" and "How releases
+    actually ship here". With checks and CI green:
+    - **API/web changed** → put only those changes on a branch from `origin/main`, PR to `main`,
+      merge after CI, wait for `deploy-production.yml`, then confirm `/api/health` `releaseSha` is
+      the new commit. Always do this before any Companion release that depends on it.
+    - **Companion changed** → `gh pr ready`, merge the PR into the release branch, push the next
+      stable `prereborn-vX.Y.Z` tag on it. SemVer: minor for features, patch for fixes. Read the
+      current version from `latest.json` and the existing tags first. Then watch
+      `windows-release.yml` and verify the GitHub Release and the `latest.json` version.
+    - **Plugins changed** → publish the plugin package and catalog through their pipeline.
+    - **API-only ticket** → no Companion release.
+    Then move the ticket to the user-acceptance column (Review-like, e.g. `ревью`), not Done, and
+    report: versions, PR/CI/release links, verification results, and what the user should check
+    on production. Do not claim real Twitch/OBS/Dota behavior is verified without real testing.
+    The environment's permission prompts still apply. Ask through them; never work around them.
 
-## Delivery policy
-
-Using this skill is, by itself, never a reason to stop at the draft PR — the reason is the
-default in step 11. **An explicit delivery instruction in the task prompt takes precedence over
-that default.**
-
-If the task prompt itself explicitly requires taking the change through merge and release without
-waiting for approval (e.g. "if implementation is done, checks are green, and there's no blocker,
-merge and ship to production" / "don't stop at Draft PR"), and all of the following hold:
-
-- implementation is complete;
-- required local checks are green;
-- CI is green;
-- no blocker;
-- the task does not require visual/product approval;
-
-then skip step 11's default stop and continue instead: `gh pr ready` → verify CI → merge → cut the
-next release per this project's release process → verify the release → move the ticket to Done.
-
-Stop at the draft PR (step 11's default) instead whenever any of these hold, even if the task
-otherwise asked for full delivery:
-
-1. the user explicitly asked to stop at PR/review;
-2. the task requires visual/product approval;
-3. there's a blocker or an unresolved product/design decision;
-4. the change is risky and the task itself sets a manual gate;
-5. required checks or CI are not green;
-6. scope expanded beyond what's safe to resolve inside this task.
+12. **Stop at the PR instead of releasing** only when:
+    1. the user explicitly said not to release this ticket, or to stop at PR/review;
+    2. required checks or CI are failing;
+    3. a migration is unconfirmed;
+    4. there's a known critical regression;
+    5. there's a blocker or an unresolved product/design decision;
+    6. scope grew beyond what's safe to resolve inside this ticket.
+    In that case, report why and what is left.
 
 ## Guardrails
 
 - Status moves only ever advance; never move a ticket backward.
 - Never hardcode Weeek board/column IDs — always resolve via `weeek_list_board_columns` at runtime.
-- Never merge the PR and never mark it ready for review from this skill — unless the "Delivery
-  policy" section above applies; that explicit-instruction exception is the only one.
+- Merge/ready/tag only as part of step 11's release, and never with failing checks or CI.
 - If Weeek MCP is unavailable, ask the user to paste the ticket body and continue with the git/PR
   steps only (skip the board moves).
