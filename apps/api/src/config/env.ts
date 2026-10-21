@@ -54,6 +54,10 @@ const steamOpenidReturnUrl = process.env.STEAM_OPENID_RETURN_URL || null;
 // (services/dota-sync-service.ts). Ключ добавлен только чтобы поднять лимит
 // в будущем, если понадобится - без него всё работает.
 const openDotaApiKey = process.env.OPENDOTA_API_KEY || null;
+// WK-183 - PUBG Developer API key for the PUBG plugin's match history.
+// Optional like the other integration keys: unset means
+// /stream/integrations/pubg/matches answers `not_configured`, never a crash.
+const pubgApiKey = process.env.PUBG_API_KEY || null;
 const twitchClientId = process.env.TWITCH_CLIENT_ID || null;
 const twitchClientSecret = process.env.TWITCH_CLIENT_SECRET || null;
 const twitchRedirectUri = process.env.TWITCH_REDIRECT_URI || null;
@@ -135,6 +139,7 @@ export const env = {
     steamOpenidRealm,
     steamOpenidReturnUrl,
     openDotaApiKey,
+    pubgApiKey,
     twitchClientId,
     twitchClientSecret,
     twitchRedirectUri,
