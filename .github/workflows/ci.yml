@@ -34,6 +34,10 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      # Russian user-facing changelog: format of every file plus an entry for
+      # each plugin's manifest version (changelog/README.md).
+      - run: node --test scripts/changelog.test.mjs
+      - run: node scripts/changelog.mjs check
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @prereborn/api db:migrate
       - run: pnpm typecheck

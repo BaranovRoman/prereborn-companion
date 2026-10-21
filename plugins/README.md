@@ -136,6 +136,11 @@ Use the **separate planned** repository `BaranovRoman/prereborn-companion-plugin
 
 - Tag `hello-v<version>`: per-platform ZIPs from the independent package tool.
 - Tag `catalog-v1`: `catalog.json` and `catalog.minisig` at the fixed endpoint embedded in host.
+- Every plugin release needs a Russian user-facing entry for its version in
+  `changelog/plugins/<id>.md` ([format](../changelog/README.md)); the GitHub Release text comes
+  from `node scripts/changelog.mjs notes plugin <id> X.Y.Z`. CI requires the entry for the
+  version in each `manifest.windows-live.json`, and prereborn.ru/changelog shows it once that
+  version is in the published catalog.
 - Form/sign catalog locally from one or more `--release` inputs, verify packages/tests before
   upload. Upload matching catalog and signature as one reviewed publication operation.
 - Do not put `latest.json`, application installers or updater keys in this repository.

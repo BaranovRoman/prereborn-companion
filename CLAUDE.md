@@ -8,6 +8,15 @@ or green tests. Follow the "Ticket → Release (default task lifecycle)" section
 for both Claude and Codex sessions. Releases still go through the environment's normal permission
 prompts; don't work around them.
 
+## Changelog for every release
+
+Every Companion or plugin release (major, minor, patch) must ship with a Russian, user-facing
+changelog entry in `changelog/companion.md` or `changelog/plugins/<id>.md`, added in the ticket PR
+before the tag or publication. No commit messages, PR titles or ticket numbers in place of a
+description, nothing invented. A release without its entry is not finished, and CI /
+`windows-release.yml` reject it. Rules and format: "Обязательный changelog для каждого релиза" in
+[AGENTS.MD](AGENTS.MD) and [changelog/README.md](changelog/README.md).
+
 ## Weeek tasks
 
 When creating or reformatting tasks in Weeek for this project, follow the format defined in

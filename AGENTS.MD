@@ -192,6 +192,28 @@ production-релизы в рамках реализации тикетов.
 отдельного подтверждения на деплой, публикацию или изменение инструкций, запросить его штатным
 способом, а не обходить ограничение.
 
+### Обязательный changelog для каждого релиза
+
+Каждый релиз Prereborn Companion и любого плагина — major, minor и patch, включая мелкие
+исправления — обязательно сопровождается записью в истории изменений. Это часть релиза, а не
+отдельная задача: релиз без записи о своей версии не считается завершённым.
+
+- Где: `changelog/companion.md` для Companion, `changelog/plugins/<id>.md` для плагина (`<id>` из
+  `manifest.windows-live.json`). Формат и правила — [changelog/README.md](changelog/README.md).
+- Как: на русском языке, понятном обычному пользователю. Что нового, что улучшилось, какие ошибки
+  исправлены, нужно ли что-то сделать после обновления. Только реальные изменения релиза.
+- Нельзя: сообщения коммитов, названия PR и номера тикетов вместо описания; выдуманные изменения;
+  дописывание истории старых релизов по догадкам.
+- Когда: запись добавляется в PR тикета, вместе с изменением версии, до тега или публикации.
+- Проверки: CI (`node scripts/changelog.mjs check`) требует запись для версии каждого
+  `plugins/*/manifest.windows-live.json`; `windows-release.yml` не соберёт тег `prereborn-vX.Y.Z`
+  и `dota_candidate`/`pubg_candidate` без записи о версии.
+- Те же записи — текст GitHub Release (Companion: автоматически из `windows-release.yml`; плагин:
+  `gh release create ... --notes-file` из `node scripts/changelog.mjs notes plugin <id> X.Y.Z`) и
+  данные раздела https://prereborn.ru/changelog: сайт читает файлы из релизной ветки и показывает
+  запись, как только версия опубликована.
+- После релиза проверить, что запись видна на https://prereborn.ru/changelog (обновление до 10 минут).
+
 ### How releases actually ship here (verified 2026-10-21)
 
 - **Branches.** Companion work and releases live on `codex/plugin-runtime-prototype`; `main` is far
@@ -204,7 +226,8 @@ production-релизы в рамках реализации тикетов.
   that `git diff origin/main <release-branch> -- apps/api apps/web` contains nothing else.
   Verify with `curl https://prereborn.ru/api/health`: `releaseSha` must be the new `main` commit.
   Deploy the API before the Companion release that depends on it.
-- **Companion → users.** Push a stable `prereborn-vX.Y.Z` tag on the release branch.
+- **Companion → users.** Add the `changelog/companion.md` entry for X.Y.Z in the ticket PR first
+  (see "Обязательный changelog" above). Then push a stable `prereborn-vX.Y.Z` tag on the release branch.
   `windows-release.yml` takes the version from the tag, builds, signs, publishes the GitHub Release
   and `latest.json`, and verifies the assets. Before choosing the version, read the current
   production version from

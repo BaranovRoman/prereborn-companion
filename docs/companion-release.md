@@ -5,6 +5,11 @@ Companion is distributed as a Windows NSIS installer built by
 file for how a `prereborn-v*` tag turns into a GitHub Release). This doc
 covers what happens on the user's machine, not the CI build itself.
 
+Every release needs a Russian user-facing entry for its version in
+[`changelog/companion.md`](../changelog/README.md) before the tag is pushed:
+the workflow refuses the tag without it and publishes that entry as the
+GitHub Release text and on https://prereborn.ru/changelog.
+
 ## Supported flow
 
 There is no in-app auto-updater yet (tracked separately, WK-70). The
