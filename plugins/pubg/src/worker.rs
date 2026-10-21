@@ -441,6 +441,28 @@ mod tests {
     }
 
     #[test]
+    fn saved_nickname_survives_a_worker_restart_while_stopped_or_running() {
+        let root = tempfile::tempdir().unwrap();
+        // Stopped plugin: the UI-only worker still persists the settings.
+        let mut stopped = worker(root.path(), &CAPS);
+        let reply = stopped.command("settings.save", settings("New_Player")).unwrap();
+        assert_eq!(reply["settings"]["player"], "New_Player");
+        assert_eq!(reply["status"]["configured"], true);
+        drop(stopped);
+        let mut restarted = worker(root.path(), &CAPS);
+        assert_eq!(restarted.command("settings.get", json!({})).unwrap()["settings"]["player"], "New_Player");
+        // Running plugin: a save starts loading matches for the new nickname at once.
+        restarted.command("host.activate", json!({})).unwrap();
+        let first = restarted.backend_request().unwrap().unwrap();
+        restarted.backend_response(&first, ok(&first, page(json!([]), true))).unwrap();
+        restarted.command("settings.save", json!({"settings": {"player": "Second", "platform": "psn", "widget": {"enabled": false, "count": 5, "scale": 100, "backgroundOpacity": 70, "showHeaders": true}}})).unwrap();
+        let next = restarted.backend_request().unwrap().expect("immediate fetch after save");
+        assert_eq!((next.query["player"].as_str(), next.query["platform"].as_str()), ("Second", "psn"));
+        let again = worker(root.path(), &CAPS).command("settings.get", json!({})).unwrap();
+        assert_eq!((again["settings"]["player"].as_str(), again["settings"]["platform"].as_str()), (Some("Second"), Some("psn")));
+    }
+
+    #[test]
     fn a_damaged_settings_file_is_reported_not_fatal() {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join(crate::settings::FILE), b"not json").unwrap();

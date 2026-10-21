@@ -5,6 +5,9 @@ import { Widget } from "./widget/Widget";
 import { Badge, Button, Field, Input, Panel, RangeField, Select, SettingsGroup, SettingsRow, Switch } from "./components/ui";
 
 type Tab = "matches" | "settings" | "widget";
+type SaveResult = { ok: true } | { ok: false; error: string };
+const sameSettings = (a: api.Settings, b: api.Settings) => a.player === b.player && a.platform === b.platform
+  && (Object.keys(b.widget) as (keyof api.WidgetSettings)[]).every((key) => a.widget[key] === b.widget[key]);
 const TABS: [Tab, string][] = [["matches", "Матчи"], ["settings", "Игрок"], ["widget", "OBS-виджет"]];
 const time = (iso: string) => new Date(iso).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
 const date = (d: Date) => d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -41,13 +44,16 @@ export function Pubg() {
     return () => { disposed = true; window.clearInterval(timer); };
   }, []);
 
-  const save = useCallback(async (next: api.Settings) => {
-    setError(null);
+  // Saved only when the worker confirms it stored exactly what was asked;
+  // anything else is a failure the caller shows, never a silent reset.
+  const save = useCallback(async (next: api.Settings): Promise<SaveResult> => {
     try {
-      const result = await api.invoke<{ settings: api.Settings; status: api.Status }>("settings.save", { settings: next });
-      setSettings(result.settings); setStatus(result.status);
-      return true;
-    } catch (e) { setError(String(e)); return false; }
+      const result = await api.invoke<{ settings?: api.Settings; status?: api.Status }>("settings.save", { settings: next });
+      if (!result?.settings || !sameSettings(result.settings, next)) throw new Error("settings_not_confirmed");
+      setSettings(result.settings);
+      if (result.status) setStatus(result.status);
+      return { ok: true };
+    } catch (e) { return { ok: false, error: api.saveErrorText(e) }; }
   }, []);
 
   const tone = statusError ? "danger" : !status ? "default" : !status.active || !status.configured ? "warning" : "success";
@@ -70,7 +76,7 @@ export function Pubg() {
     </div>
     {!settings ? <p className="pubg-loading">Чтение настроек…</p> : <>
       {tab === "matches" && <MatchesView matches={matches} status={status} />}
-      {tab === "settings" && <PlayerView settings={settings} save={save} />}
+      {tab === "settings" && <PlayerView settings={settings} status={status} save={save} />}
       {tab === "widget" && <WidgetView settings={settings} status={status} matches={matches} save={save} />}
     </>}
   </main>;
@@ -105,43 +111,63 @@ function MatchesView({ matches, status }: { matches: api.Matches | null; status:
   </section>;
 }
 
-function PlayerView({ settings, save }: { settings: api.Settings; save: (s: api.Settings) => Promise<boolean> }) {
+// The plugin frame is sandboxed without allow-forms: a form submit never
+// fires there (WK-183 0.1.0 bug), so saving is an explicit click / Enter.
+function PlayerView({ settings, status, save }: { settings: api.Settings; status: api.Status | null; save: (s: api.Settings) => Promise<SaveResult> }) {
   const [player, setPlayer] = useState(settings.player);
   const [platform, setPlatform] = useState<api.Platform>(settings.platform);
-  const [saved, setSaved] = useState(false);
+  const [state, setState] = useState<{ kind: "idle" | "saving" | "saved" } | { kind: "failed"; error: string }>({ kind: "idle" });
   const valid = /^[A-Za-z0-9_-]{2,32}$/.test(player.trim());
   const dirty = player.trim() !== settings.player || platform !== settings.platform;
+  const saving = state.kind === "saving";
+  const submit = async () => {
+    if (!valid || !dirty || saving) return;
+    setState({ kind: "saving" });
+    const result = await save({ ...settings, player: player.trim(), platform });
+    // On failure the typed values stay in the fields.
+    setState(result.ok ? { kind: "saved" } : { kind: "failed", error: result.error });
+  };
+  const onEnter = (e: React.KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); void submit(); } };
+  const change = () => { if (state.kind !== "saving") setState({ kind: "idle" }); };
   return <section className="pubg-view">
     <div className="pubg-view__header"><div><h2>Игрок</h2><p>Ник и платформа для загрузки матчей через официальный PUBG API.</p></div></div>
     <Panel title="Аккаунт PUBG" description="Смена ника или платформы начинает отдельную историю.">
-      <form className="pubg-player" onSubmit={(e) => { e.preventDefault(); if (!valid || !dirty) return; void save({ ...settings, player: player.trim(), platform }).then(setSaved); }}>
+      <div className="pubg-player">
         <Field label="Игровой ник" hint="Как в игре, с учётом регистра">
-          <Input value={player} maxLength={32} autoComplete="off" spellCheck={false} aria-invalid={player !== "" && !valid} onChange={(e) => { setPlayer(e.target.value); setSaved(false); }} />
+          <Input value={player} maxLength={32} autoComplete="off" spellCheck={false} aria-invalid={player !== "" && !valid} disabled={saving}
+            onChange={(e) => { setPlayer(e.target.value); change(); }} onKeyDown={onEnter} />
         </Field>
         <Field label="Платформа">
-          <Select value={platform} onChange={(e) => { setPlatform(e.target.value as api.Platform); setSaved(false); }}>
+          <Select value={platform} disabled={saving} onChange={(e) => { setPlatform(e.target.value as api.Platform); change(); }} onKeyDown={onEnter}>
             {api.PLATFORMS.map(([value, title]) => <option key={value} value={value}>{title}</option>)}
           </Select>
         </Field>
         <div className="ui-button-row">
-          <Button type="submit" variant="primary" disabled={!valid || !dirty}>Сохранить</Button>
-          {saved && !dirty && <span className="ui-text-success" role="status">Сохранено</span>}
+          <Button type="button" variant="primary" disabled={!valid || !dirty || saving} onClick={() => void submit()}>{saving ? "Сохранение…" : "Сохранить"}</Button>
+          {state.kind === "saved" && !dirty && <span className="ui-text-success" role="status">
+            {!status?.active ? "Сохранено. Включите плагин на странице «Плагины», чтобы загружать матчи." : "Сохранено. Загружаем матчи…"}
+          </span>}
           {player !== "" && !valid && <span className="ui-text-danger">Латинские буквы, цифры, «_» и «-», от 2 до 32 символов.</span>}
         </div>
-      </form>
+        {state.kind === "failed" && <p className="ui-notice ui-notice--danger" role="alert">Не сохранено: {state.error}</p>}
+      </div>
     </Panel>
     <p className="ui-text-muted pubg-hint">Плагин не читает память игры и не взаимодействует с клиентом PUBG — только с публичной статистикой PUBG API через сервер Prereborn.</p>
   </section>;
 }
 
-function WidgetView({ settings, status, matches, save }: { settings: api.Settings; status: api.Status | null; matches: api.Matches | null; save: (s: api.Settings) => Promise<boolean> }) {
+function WidgetView({ settings, status, matches, save }: { settings: api.Settings; status: api.Status | null; matches: api.Matches | null; save: (s: api.Settings) => Promise<SaveResult> }) {
   const w = settings.widget;
   const [draft, setDraft] = useState(w);
+  const [failure, setFailure] = useState<string | null>(null);
   useEffect(() => setDraft(settings.widget), [settings.widget]);
   const commit = (patch: Partial<api.WidgetSettings>) => {
     const next = { ...settings.widget, ...patch };
-    setDraft(next);
-    void save({ ...settings, widget: next });
+    setDraft(next); setFailure(null);
+    void save({ ...settings, widget: next }).then((result) => {
+      // Show what is actually stored, and why the change did not apply.
+      if (!result.ok) { setDraft(settings.widget); setFailure(result.error); }
+    });
   };
   const slider = (key: "count" | "scale") => ({
     value: draft[key],
@@ -183,6 +209,7 @@ function WidgetView({ settings, status, matches, save }: { settings: api.Setting
           <code>{url}</code>
           <p className="ui-text-muted">Добавьте источник «Браузер» с этим адресом. Фон страницы прозрачный, обновление автоматическое.</p>
           {status?.widget.error && <p className="ui-text-danger" role="alert">Виджет не запущен: {status.widget.error}</p>}
+          {failure && <p className="ui-text-danger" role="alert">Настройка не сохранена: {failure}</p>}
         </div>
       </Panel>
       <Panel title="Предпросмотр" description={preview.length ? "Как сейчас выглядит виджет" : "Пример: в сессии ещё нет матчей"}>
