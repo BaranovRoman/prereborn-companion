@@ -55,6 +55,28 @@ describe("PluginsPage", () => {
     expect(screen.getByRole("button",{name:"Включить"}).hasAttribute("disabled")).toBe(true);
     expect(screen.queryByText(/Подготовка подтверждена worker/)).toBeNull();
   });
+  it("shows an unproven previous stop once, as a recovery state, and reports the recovery result", async () => {
+    view.apiVersion=2;view.installed=[{id:"dota2",manifest:{...manifest,id:"dota2",name:"Dota 2",minApi:2,maxApi:2,execution:"live"},installed:{active:"0.1.0",enabled:false,pending:null,previous:null},runtime:null,error:"previous_process_stop_unproven"}];
+    vi.mocked(api.action).mockImplementation(async()=>{view={...view,installed:view.installed.map(p=>({...p,error:null}))};});
+    render(<PluginsPage initialPluginId="dota2"/>);
+    await screen.findByText(/Требуется восстановление/);
+    expect(screen.getAllByText(/Остановка предыдущего процесса плагина не подтверждена/)).toHaveLength(1);
+    expect(screen.queryByText("previous_process_stop_unproven")).toBeNull();
+    fireEvent.click(screen.getByRole("button",{name:"Проверить остановку и восстановить"}));
+    await screen.findByText(/состояние восстановлено/);
+    expect(api.action).toHaveBeenCalledWith("dota2","recover");
+    await waitFor(()=>expect(screen.queryByText(/Остановка предыдущего процесса плагина не подтверждена/)).toBeNull());
+    expect(screen.queryByText(/Требуется восстановление/)).toBeNull();
+  });
+  it("shows a failed recovery's cause once without the technical stop chain", async () => {
+    view.apiVersion=2;view.installed=[{id:"dota2",manifest:{...manifest,id:"dota2",name:"Dota 2",minApi:2,maxApi:2,execution:"live"},installed:{active:"0.1.0",enabled:false,pending:null,previous:null},runtime:null,error:"previous_process_stop_unproven"}];
+    vi.mocked(api.action).mockImplementation(async()=>{view={...view,installed:view.installed.map(p=>({...p,error:"obs_fence_unconfirmed; stop: process_fence_unproven"}))};throw "obs_fence_unconfirmed; stop: process_fence_unproven";});
+    render(<PluginsPage initialPluginId="dota2"/>);
+    fireEvent.click(await screen.findByRole("button",{name:"Проверить остановку и восстановить"}));
+    await waitFor(()=>expect(screen.getAllByText(/Не получено подтверждение состояния OBS/)).toHaveLength(1));
+    expect(screen.getAllByRole("alert").filter(a=>a.textContent?.includes("stop:"))).toHaveLength(0);
+    expect(screen.getByText(/Требуется восстановление/)).toBeTruthy();
+  });
   it("installs from the in-app catalog and hides local diagnostics in user mode", async () => {
     render(<PluginsPage initialPluginId={view.installed.some((p) => p.id === "dota2") ? "dota2" : undefined} />);
     fireEvent.click(await screen.findByRole("button", { name: "Установить", exact: true }));
