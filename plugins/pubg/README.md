@@ -47,7 +47,9 @@ pnpm --filter @prereborn/pubg-ui build        # dist/ (UI) + dist/widget/index.h
 Same pipeline as the Dota plugin, with the PUBG inputs:
 
 1. Bump `version` in `Cargo.toml` and `manifest.windows-live.json` (the worker refuses a
-   mismatch; `tests/manifest.rs` checks it).
+   mismatch; `tests/manifest.rs` checks it), and add the Russian user-facing entry for that
+   version to `changelog/plugins/pubg.md` (`changelog/README.md`). CI and the candidate job fail
+   without it.
 2. `gh workflow run windows-release.yml --ref codex/plugin-runtime-prototype -f pubg_candidate=true`
    → artifact `pubg-windows-candidate` (exe + `pubg/ui/dist`).
 3. Locally: `package.py package --binary <exe> --ui <dist> --manifest-template plugins/pubg/manifest.windows-live.json
@@ -55,5 +57,6 @@ Same pipeline as the Dota plugin, with the PUBG inputs:
    then `package.py catalog` with every existing `catalog-v1` release plus the new one.
 4. Dispatch again with `-f pubg_candidate=true -f pubg_candidate_metadata=gz:<base64 gzip>`
    to verify the signed package and catalog on Windows.
-5. `gh release create pubg-vX.Y.Z` (zip + release.json) in `prereborn-companion-plugins`,
+5. `gh release create pubg-vX.Y.Z --notes-file <(node scripts/changelog.mjs notes plugin pubg X.Y.Z)`
+   (zip + release.json) in `prereborn-companion-plugins`,
    then upload `catalog.json` + `catalog.minisig` to `catalog-v1`.

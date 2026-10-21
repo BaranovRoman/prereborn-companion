@@ -254,6 +254,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
         env:
           CI: true
+      - name: Require a changelog entry for this plugin version (changelog/README.md)
+        shell: bash
+        run: node scripts/changelog.mjs check --plugin dota2 "$(node -p "require('./plugins/dota/manifest.windows-live.json').version")"
       - name: Build independent Dota executable
         shell: bash
         env:
@@ -366,6 +369,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
         env:
           CI: true
+      - name: Require a changelog entry for this plugin version (changelog/README.md)
+        shell: bash
+        run: node scripts/changelog.mjs check --plugin pubg "$(node -p "require('./plugins/pubg/manifest.windows-live.json').version")"
       - name: Build independent PUBG executable
         shell: bash
         env:
@@ -515,6 +521,16 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=prereborn-v$version" >> "$GITHUB_OUTPUT"
+
+      # A Companion release is not complete without its Russian user-facing
+      # changelog entry (changelog/README.md). Fails the tag before any build,
+      # and the same entry becomes the GitHub Release text below.
+      - name: Require changelog entry and render release notes
+        if: startsWith(github.ref, 'refs/tags/prereborn-v')
+        shell: bash
+        run: |
+          node scripts/changelog.mjs check --companion "${{ steps.version.outputs.version }}"
+          node scripts/changelog.mjs notes companion "${{ steps.version.outputs.version }}" > release-notes.md
 
       - name: Patch package.json / tauri.conf.json / Cargo.toml version from tag
         shell: bash
@@ -692,7 +708,7 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: "PreReborn Companion ${{ steps.version.outputs.version }}"
           draft: false
-          generate_release_notes: true
+          body_path: release-notes.md
           # Belt-and-suspenders alongside the verification step above: if
           # any glob below ever matched zero files, fail loud instead of
           # publishing a release missing an asset the updater/web depend on.

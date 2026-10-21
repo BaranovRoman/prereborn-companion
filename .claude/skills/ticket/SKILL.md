@@ -94,11 +94,20 @@ set up, direct implementation otherwise) = one PR = one production release.
     - **API/web changed** → put only those changes on a branch from `origin/main`, PR to `main`,
       merge after CI, wait for `deploy-production.yml`, then confirm `/api/health` `releaseSha` is
       the new commit. Always do this before any Companion release that depends on it.
+    - **Changelog first (any Companion or plugin release).** Before merging, the ticket PR must add
+      the Russian user-facing entry for the new version to `changelog/companion.md` or
+      `changelog/plugins/<id>.md` (format: `changelog/README.md`; check with
+      `node scripts/changelog.mjs check --companion X.Y.Z` / `--plugin <id> X.Y.Z`). No commit
+      messages or ticket numbers in it. A release without its entry is not finished, and the
+      workflows reject it.
     - **Companion changed** → `gh pr ready`, merge the PR into the release branch, push the next
       stable `prereborn-vX.Y.Z` tag on it. SemVer: minor for features, patch for fixes. Read the
       current version from `latest.json` and the existing tags first. Then watch
       `windows-release.yml` and verify the GitHub Release and the `latest.json` version.
-    - **Plugins changed** → publish the plugin package and catalog through their pipeline.
+    - **Plugins changed** → publish the plugin package and catalog through their pipeline; create
+      the plugin's GitHub Release with
+      `--notes-file <(node scripts/changelog.mjs notes plugin <id> X.Y.Z)`.
+    After the release, confirm the entry appears on https://prereborn.ru/changelog (within 10 min).
     - **API-only ticket** → no Companion release.
     Then move the ticket to the user-acceptance column (Review-like, e.g. `ревью`), not Done, and
     report: versions, PR/CI/release links, verification results, and what the user should check
