@@ -25,7 +25,7 @@ export function RecentMatchesWidget({ matches, settings, anchor = "top-left", be
   const growUp = anchor.startsWith("bottom");
 
   return (
-    <div className={styles.card}>
+    <div className={`${styles.card} ${styles.matchesCard}`}>
       <div className={`${styles.matchesList} ${growUp ? styles.matchesListGrowUp : styles.matchesListGrowDown}`}>
       {visible.map((match, index) => {
         const hero = getHeroById(match.heroId);
@@ -36,7 +36,7 @@ export function RecentMatchesWidget({ matches, settings, anchor = "top-left", be
         return (
           <div
             key={match.matchId ?? match.startedAt}
-            className={styles.matchRow}
+            className={`${styles.matchRow} ${match.result === "win" ? styles.matchRowWin : match.result === "loss" ? styles.matchRowLoss : ""}`}
             title={hero?.localizedName}
           >
             {/* Every finalized match keeps its position, ranked or not. */}
