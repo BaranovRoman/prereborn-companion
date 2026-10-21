@@ -162,7 +162,7 @@ pub fn run(){
  .build(tauri::generate_context!()).expect("error while building tauri application")
  .run(|app,event|{
   #[cfg(windows)]if let tauri::RunEvent::ExitRequested{api,..}=&event{if commands::updater_exit_in_progress(){api.prevent_exit();}}
-  if matches!(event,tauri::RunEvent::Exit){clips::stop(app);if let Some(manager)=app.try_state::<core::plugin_manager::PluginManager>(){manager.shutdown();}}
+  if matches!(event,tauri::RunEvent::Exit){backend::heartbeat::stop();clips::stop(app);if let Some(manager)=app.try_state::<core::plugin_manager::PluginManager>(){manager.shutdown();}}
  });
 }
 #[cfg(test)]

@@ -13,7 +13,7 @@ impl Resource{
   let path=if let Some(path)=self.path.strip_prefix("/stream/companion/"){path}
    else if self.method==Method::Get{self.path.strip_prefix("/stream/integrations/").ok_or("backend_resource_denied")?}
    else{return Err("backend_resource_denied".into());};
-  if path.is_empty()||self.path.len()>160||path.split('/').count()>6||path.split('/').any(|s|s.is_empty()||!(s=="{id}"||s.bytes().all(|b|b.is_ascii_lowercase()||b.is_ascii_digit()||b"-_".contains(&b)))||matches!(s,"auth"|"login"|"logout"|"refresh"|"token"|"tokens"|"credentials"|"connect"|"disconnect"|"callback"))
+  if path.is_empty()||self.path.len()>160||path.split('/').count()>6||path.split('/').any(|s|s.is_empty()||!(s=="{id}"||s.bytes().all(|b|b.is_ascii_lowercase()||b.is_ascii_digit()||b"-_".contains(&b)))||matches!(s,"auth"|"login"|"logout"|"refresh"|"token"|"tokens"|"credentials"|"connect"|"disconnect"|"callback"|"heartbeat"))
    ||self.max_request>8192||self.max_response==0||self.max_response>24576||self.query_keys.len()>8||self.query_keys.iter().collect::<BTreeSet<_>>().len()!=self.query_keys.len()||self.query_keys.iter().any(|k|!query_name(k))||self.path.matches("{id}").count()>1||(self.path.contains("{id}")&&(self.method!=Method::Get||!self.query_keys.iter().any(|k|k=="id"))){return Err("backend_resource_denied".into());}Ok(())
  }
  pub fn authorize(&self,request:&Request)->Result<(),String>{
@@ -54,7 +54,7 @@ pub fn public_response(value:&Value)->bool{
  fn resource()->Resource{Resource{path:"/stream/companion/account-settings".into(),method:Method::Get,query_keys:vec![],max_request:4,max_response:24576}}
  #[test]fn signature_scoped_resources_never_accept_a_url_secret_route_method_or_ungranted_query(){
   let request=Request{resource:"account".into(),operation_key:"account:1".into(),query:Default::default(),body:None};resource().authorize(&request).unwrap();
-  for path in ["https://evil.test","/auth/token","/stream/companion/../auth","/stream/companion/session/refresh","/stream/companion/account-settings?token=secret","/stream/companion//account-settings"]{let mut grant=resource();grant.path=path.into();assert!(grant.authorize(&request).is_err());}
+  for path in ["https://evil.test","/auth/token","/stream/companion/../auth","/stream/companion/session/refresh","/stream/companion/account-settings?token=secret","/stream/companion//account-settings","/stream/companion/heartbeat"]{let mut grant=resource();grant.path=path.into();assert!(grant.authorize(&request).is_err());}
   let mut injected=request.clone();injected.query.insert("url".into(),"https://evil.test".into());assert!(resource().authorize(&injected).is_err());
   let mut injected=request;injected.body=Some(serde_json::json!({}));assert!(resource().authorize(&injected).is_err());
  }
