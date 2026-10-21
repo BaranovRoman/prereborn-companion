@@ -108,6 +108,9 @@ breaks the app):
   rejects all browser origins, but does not crash the process.
 - `STEAM_OPENID_REALM`, `STEAM_OPENID_RETURN_URL`, `OPENDOTA_API_KEY` — Steam
   binding/OpenDota integration degrade to "not configured" when absent.
+- `PUBG_API_KEY` (secret, optional) — PUBG Developer API key for the PUBG plugin
+  (`/api/stream/integrations/pubg/matches`, WK-183). Absent means the route answers
+  `not_configured`; set it as the `PUBG_API_KEY` secret of the `production` environment.
 - `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_REDIRECT_URI`,
   `TWITCH_FRONTEND_ORIGIN` — Twitch integration degrades when absent at the
   API level. Secret (client ID/secret). The deploy workflow currently treats

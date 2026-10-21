@@ -144,6 +144,9 @@ jobs:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
           STREAM_JWT_SECRET: ${{ secrets.PRODUCTION_STREAM_JWT_SECRET }}
           OPENDOTA_API_KEY: ${{ secrets.OPENDOTA_API_KEY }}
+          # WK-183 - optional like OPENDOTA_API_KEY: unset means the PUBG
+          # plugin route answers `not_configured`, never a deploy failure.
+          PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
           TWITCH_CLIENT_ID: ${{ secrets.TWITCH_CLIENT_ID }}
           TWITCH_CLIENT_SECRET: ${{ secrets.TWITCH_CLIENT_SECRET }}
           DONATION_ALERTS_CLIENT_ID: ${{ secrets.DONATION_ALERTS_CLIENT_ID }}
@@ -197,6 +200,7 @@ jobs:
             printf 'STEAM_OPENID_REALM=https://prereborn.ru\n'
             printf 'STEAM_OPENID_RETURN_URL=https://prereborn.ru/api/stream/integrations/steam/callback\n'
             printf 'OPENDOTA_API_KEY=%s\n' "$OPENDOTA_API_KEY"
+            printf 'PUBG_API_KEY=%s\n' "$PUBG_API_KEY"
             printf 'TWITCH_CLIENT_ID=%s\n' "$TWITCH_CLIENT_ID"
             printf 'TWITCH_CLIENT_SECRET=%s\n' "$TWITCH_CLIENT_SECRET"
             printf 'TWITCH_REDIRECT_URI=https://prereborn.ru/api/stream/integrations/twitch/callback\n'
