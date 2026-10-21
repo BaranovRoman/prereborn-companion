@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Badge, Button } from "./ui";
+import { Badge, Button, Notice, Panel } from "./ui";
 import * as api from "../core/api";
 import type {
   DonationAlertsIntegrationStatus,
@@ -65,8 +65,8 @@ export function IntegrationsPanel() {
   }, [loadSteam, loadTwitch, loadDonationAlerts]);
 
   return (
-    <div className="integrations-panel">
-      <h2>Интеграции</h2>
+    <Panel className="integrations-panel" title="Интеграции" description="Аккаунты, которые Companion использует для чата, клипов и оверлея. Подключение открывается в браузере.">
+      <div className="integrations-panel__list">
 
       <ManagedIntegrationRow
         provider="Steam"
@@ -113,7 +113,8 @@ export function IntegrationsPanel() {
         onDisconnect={api.disconnectDonationAlerts}
         onReload={loadDonationAlerts}
       />
-    </div>
+      </div>
+    </Panel>
   );
 }
 
@@ -186,58 +187,47 @@ function ManagedIntegrationRow({
     }
   };
 
+  const connected = state.kind === "ready" && state.value.connected;
   return (
-    <section className="integrations-panel__row">
-      <div className="integrations-panel__row-header">
-        <span className="integrations-panel__provider">{provider}</span>
-        {state.kind === "ready" && (
-          <Badge tone={state.value.connected ? "success" : "default"}>
-            {state.value.connected ? "Подключено" : "Не подключено"}
-          </Badge>
-        )}
+    <section className="integrations-panel__row" aria-label={provider}>
+      <div className="integrations-panel__info">
+        <div className="integrations-panel__row-header">
+          <span className="integrations-panel__provider">{provider}</span>
+          {state.kind === "ready" && (
+            <Badge tone={connected ? "success" : "default"} dot={connected}>
+              {connected ? "Подключено" : "Не подключено"}
+            </Badge>
+          )}
+        </div>
+        {state.kind === "loading" && <p className="ui-text-muted">Загрузка…</p>}
+        {state.kind === "error" && <p className="ui-text-danger">{errorLabel}</p>}
+        {connected && identity && <p className="integrations-panel__identity">{identity}</p>}
+        {state.kind === "ready" && <p className="integrations-panel__hint">{connected ? hint : resolvedConnectHint}</p>}
       </div>
 
-      {state.kind === "loading" && <p className="matches-panel__empty">Загрузка…</p>}
-      {state.kind === "error" && <p className="app__error">{errorLabel}</p>}
-
-      {state.kind === "ready" && state.value.connected && (
-        <>
-          <p className="integrations-panel__identity">{identity}</p>
-          <p className="integrations-panel__hint">{hint}</p>
-          <div className="integrations-panel__actions">
-            {!confirmDisconnect ? (
-              <Button variant="ghost" onClick={() => setConfirmDisconnect(true)}>
-                {disconnectLabel}
-              </Button>
-            ) : (
-              <div className="integrations-panel__confirm">
-                <p className="integrations-panel__confirm-text">{disconnectWarning}</p>
-                <div className="integrations-panel__actions">
-                  <Button variant="ghost" onClick={() => setConfirmDisconnect(false)} disabled={disconnecting}>
-                    Отмена
-                  </Button>
-                  <Button variant="danger" onClick={() => void disconnect()} disabled={disconnecting}>
-                    {confirmLabel}
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        </>
+      {state.kind === "ready" && (
+        <div className="integrations-panel__actions">
+          {connected
+            ? !confirmDisconnect && <Button variant="ghost" onClick={() => setConfirmDisconnect(true)}>{disconnectLabel}</Button>
+            : <Button variant="primary" onClick={() => void connect()} disabled={connecting}>{connectLabel}</Button>}
+        </div>
       )}
 
-      {state.kind === "ready" && !state.value.connected && (
-        <>
-          <p className="integrations-panel__hint">{resolvedConnectHint}</p>
-          <div className="integrations-panel__actions">
-            <Button variant="primary" onClick={() => void connect()} disabled={connecting}>
-              {connectLabel}
-            </Button>
-          </div>
-        </>
+      {connected && confirmDisconnect && (
+        <div className="integrations-panel__confirm">
+          <Notice
+            tone="warning"
+            action={<div className="ui-button-row">
+              <Button variant="ghost" onClick={() => setConfirmDisconnect(false)} disabled={disconnecting}>Отмена</Button>
+              <Button variant="danger" onClick={() => void disconnect()} disabled={disconnecting}>{confirmLabel}</Button>
+            </div>}
+          >
+            {disconnectWarning}
+          </Notice>
+        </div>
       )}
 
-      {actionError && <p className="app__error">Ошибка: {actionError}</p>}
+      {actionError && <p className="integrations-panel__error ui-text-danger" role="alert">Ошибка: {actionError}</p>}
     </section>
   );
 }

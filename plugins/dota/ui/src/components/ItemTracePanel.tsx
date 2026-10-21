@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as api from "../api";
+import { Button } from "./ui";
 
 interface TracePage { recording: boolean; total: number; dropped: number; events: unknown[] }
 
@@ -26,20 +27,22 @@ export function ItemTracePanel({ active, frames }: { active: boolean; frames: nu
     while (events.length < total) { const page = await api.invoke<TracePage>("items.trace", { offset: events.length }); total = page.total; if (!page.events.length) break; events.push(...page.events); }
     setLog(events.map((event) => JSON.stringify(event)).join("\n"));
   };
-  return <details className="item-trace">
+  return <details className="ui-disclosure item-trace">
     <summary>Диагностика предметов {state.recording ? `· идёт запись (${state.total})` : state.total ? `· записано ${state.total}` : ""}</summary>
-    <p>Записывает только изменения в слотах предметов: появился, начался кулдаун, изменились заряды, исчез. Работает, пока плагин включён и Dota отправляет GSI.</p>
-    <div className="sound-binding-row__actions">
+    <div className="ui-disclosure__body">
+    <p className="ui-text-soft">Записывает только изменения в слотах предметов: появился, начался кулдаун, изменились заряды, исчез. Работает, пока плагин включён и Dota отправляет GSI.</p>
+    <div className="ui-button-row">
       {!state.recording
-        ? <button onClick={() => void run(async () => { await api.invoke("items.trace.start", {}); setStartFrames(frames); setLog(""); await refresh(); })}>Начать запись</button>
-        : <button onClick={() => void run(async () => { await api.invoke("items.trace.stop", {}); await refresh(); await load(); })}>Остановить</button>}
-      <button disabled={!state.total} onClick={() => void run(load)}>Показать журнал</button>
-      <button disabled={!log} onClick={() => { area.current?.focus(); area.current?.select(); void navigator.clipboard?.writeText(log).catch(() => undefined); }}>Выделить и скопировать</button>
+        ? <Button size="small" onClick={() => void run(async () => { await api.invoke("items.trace.start", {}); setStartFrames(frames); setLog(""); await refresh(); })}>Начать запись</Button>
+        : <Button size="small" variant="primary" onClick={() => void run(async () => { await api.invoke("items.trace.stop", {}); await refresh(); await load(); })}>Остановить</Button>}
+      <Button size="small" disabled={!state.total} onClick={() => void run(load)}>Показать журнал</Button>
+      <Button size="small" variant="ghost" disabled={!log} onClick={() => { area.current?.focus(); area.current?.select(); void navigator.clipboard?.writeText(log).catch(() => undefined); }}>Выделить и скопировать</Button>
     </div>
-    {!active && <p role="status">Плагин не активен: запись не получит событий, пока его не включить.</p>}
-    {active && state.recording && frames === startFrames && <p role="status">GSI-кадры от Dota пока не поступают. Проверьте, что конфиг GSI установлен (вкладка «Настройки») и Dota перезапущена после установки.</p>}
+    {!active && <p className="ui-text-muted">Плагин не активен: запись не получит событий, пока его не включить.</p>}
+    {active && state.recording && frames === startFrames && <p className="ui-text-danger">GSI-кадры от Dota пока не поступают. Проверьте, что конфиг GSI установлен (вкладка «Настройки») и Dota перезапущена после установки.</p>}
     {state.dropped > 0 && <p>Журнал заполнен, пропущено событий: {state.dropped}. Остановите и начните заново.</p>}
     {error && <p role="alert">{error}</p>}
-    {log && <textarea ref={area} readOnly value={log} rows={10} aria-label="Журнал предметов" />}
+    {log && <textarea className="ui-textarea item-trace__log" ref={area} readOnly value={log} rows={10} aria-label="Журнал предметов" />}
+    </div>
   </details>;
 }

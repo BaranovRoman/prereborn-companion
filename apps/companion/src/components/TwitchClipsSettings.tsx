@@ -3,7 +3,7 @@ import { DEFAULT_CLIP_SHORTCUT } from "../chat/hotkey-format";
 import { useTwitchClips } from "../clips/useTwitchClips";
 import type { ClipHistoryEntry, ClipsAccess, ClipsStatus } from "../core/contracts";
 import { HotkeyBindRow } from "./HotkeySettings";
-import { Button, Select, SettingsGroup, SettingsRow } from "./ui";
+import { Button, Notice, Panel, Select, SettingsGroup, SettingsRow } from "./ui";
 
 // WK-178 - Settings → «Клипы Twitch». Helix Create Clip really accepts a
 // 5..60 s `duration` (default 30), so the duration setting is a real one,
@@ -48,12 +48,15 @@ export function TwitchClipsSettingsView({
   const creating = status?.phase.kind === "creating";
 
   return (
-    <section className="clips-settings">
-      <h2>Клипы Twitch</h2>
+    <Panel
+      className="clips-settings"
+      title="Клипы Twitch"
+      description="Клип текущей трансляции через официальный Twitch API — без OBS и плагинов. Работает только во время эфира."
+    >
       <AccessNotice access={access} accessError={accessError} onReconnect={() => guard(reconnectTwitch)} />
 
       <HotkeyBindRow
-        enableDescription="Создать клип текущей трансляции, даже когда Companion свёрнут или открыта игра"
+        enableDescription="Создаёт клип, даже когда Companion свёрнут или открыта игра"
         bindLabel="Создать клип"
         status={status}
         busy={busy}
@@ -64,6 +67,7 @@ export function TwitchClipsSettingsView({
         <SettingsRow label="Длительность клипа" description="Последние секунды эфира до нажатия (Twitch: 5–60 с)">
           <Select
             aria-label="Длительность клипа"
+            className="clips-settings__duration"
             value={duration}
             disabled={busy}
             onChange={(event) => guard(() => updateDuration(Number(event.target.value)))}
@@ -73,61 +77,59 @@ export function TwitchClipsSettingsView({
         </SettingsRow>
       </SettingsGroup>
 
-      <div className="clips-settings__actions">
+      <div className="ui-button-row">
         <Button variant="primary" disabled={!status || creating} onClick={() => guard(createNow)}>
           {creating ? "Создаю клип…" : "Создать клип сейчас"}
         </Button>
       </div>
       <PhaseLine status={status} onReconnect={() => guard(reconnectTwitch)} />
-      {actionError && <p className="app__error">Ошибка: {actionError}</p>}
+      {actionError && <Notice tone="danger">Ошибка: {actionError}</Notice>}
 
-      <div className="clips-settings__history-header">
-        <h3>Последние клипы</h3>
-        {!!status?.history.length && (
-          <Button variant="ghost" size="small" disabled={busy} onClick={() => guard(clearHistory)}>Очистить</Button>
+      <div className="clips-settings__history">
+        <div className="clips-settings__history-header">
+          <h3>Последние клипы</h3>
+          {!!status?.history.length && (
+            <Button variant="ghost" size="small" disabled={busy} onClick={() => guard(clearHistory)}>Очистить историю</Button>
+          )}
+        </div>
+        {!status?.history.length ? (
+          <p className="ui-text-muted clips-settings__empty">Клипов пока нет. Они появятся здесь после создания через Companion.</p>
+        ) : (
+          <ol className="clips-history" aria-label="Последние клипы">
+            {status.history.map((clip) => (
+              <li key={clip.id} className="clips-history__item">
+                <div className="clips-history__meta">
+                  <strong title={clip.title ?? undefined}>{clip.title ?? "Без названия"}</strong>
+                  <span><time dateTime={clip.createdAt}>{formatTime(clip.createdAt)}</time> · <span className="clips-history__url" title={clip.url}>{clip.url}</span></span>
+                </div>
+                <div className="clips-history__actions">
+                  <Button size="small" onClick={() => guard(() => openClip(clip.id))}>Открыть</Button>
+                  <Button size="small" variant="ghost" onClick={() => copy(clip)}>
+                    {copiedId === clip.id ? "Скопировано" : "Копировать ссылку"}
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ol>
         )}
+        <p className="ui-text-muted clips-settings__footnote">Фрагмент выбирает Twitch. История хранится только на этом компьютере.</p>
       </div>
-      {!status?.history.length ? (
-        <p className="core-hint">Клипов пока нет. Они появятся здесь после создания через Companion.</p>
-      ) : (
-        <ol className="clips-history" aria-label="Последние клипы">
-          {status.history.map((clip) => (
-            <li key={clip.id} className="clips-history__item">
-              <div className="clips-history__meta">
-                <strong>{clip.title ?? "Без названия"}</strong>
-                <span>{formatTime(clip.createdAt)} · <span className="clips-history__url">{clip.url}</span></span>
-              </div>
-              <div className="clips-history__actions">
-                <Button size="small" onClick={() => guard(() => openClip(clip.id))}>Открыть</Button>
-                <Button size="small" variant="ghost" onClick={() => copy(clip)}>
-                  {copiedId === clip.id ? "Скопировано" : "Копировать ссылку"}
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ol>
-      )}
-      <p className="hotkey-settings__hint">
-        Клип создаётся для подключённого Twitch-канала через официальный Twitch API — без OBS и плагинов. Работает
-        только во время эфира; фрагмент выбирает Twitch. История хранится только на этом компьютере.
-      </p>
-    </section>
+    </Panel>
   );
 }
 
 function AccessNotice({ access, accessError, onReconnect }: { access: ClipsAccess | null; accessError: string | null; onReconnect: () => void }) {
-  if (accessError) return <p className="core-hint">Не удалось проверить доступ к клипам: {accessError}</p>;
+  if (accessError) return <Notice tone="warning">Не удалось проверить доступ к клипам: {accessError}</Notice>;
   if (!access) return null;
-  if (!access.configured) return <p className="app__error">Twitch-интеграция не настроена на сервере.</p>;
+  if (!access.configured) return <Notice tone="danger">Twitch-интеграция не настроена на сервере.</Notice>;
   if (!access.accountConnected) {
-    return <p className="core-hint">Twitch не подключён. Подключите его выше, в блоке «Интеграции».</p>;
+    return <Notice tone="warning">Twitch не подключён. Подключите его в блоке «Интеграции».</Notice>;
   }
   if (access.scopeGranted === false) {
     return (
-      <div className="clips-settings__notice" role="alert">
-        <p>Нет разрешения Twitch на создание клипов. Переподключите Twitch и подтвердите новый доступ.</p>
-        <Button variant="primary" size="small" onClick={onReconnect}>Переподключить Twitch</Button>
-      </div>
+      <Notice tone="danger" action={<Button variant="primary" size="small" onClick={onReconnect}>Переподключить Twitch</Button>}>
+        Нет разрешения Twitch на создание клипов. Переподключите Twitch и подтвердите новый доступ.
+      </Notice>
     );
   }
   return null;
@@ -136,14 +138,11 @@ function AccessNotice({ access, accessError, onReconnect }: { access: ClipsAcces
 function PhaseLine({ status, onReconnect }: { status: ClipsStatus | null; onReconnect: () => void }) {
   const phase = status?.phase;
   if (!phase || phase.kind === "idle") return null;
-  if (phase.kind === "creating") return <p role="status">Создаю клип… Twitch подтверждает его до 15 секунд.</p>;
-  if (phase.kind === "succeeded") {
-    return <p role="status" className="clips-settings__success">Клип создан: {phase.clip.title ?? phase.clip.url}</p>;
-  }
+  if (phase.kind === "creating") return <Notice>Создаю клип… Twitch подтверждает его до 15 секунд.</Notice>;
+  if (phase.kind === "succeeded") return <Notice tone="success">Клип создан: {phase.clip.title ?? phase.clip.url}</Notice>;
   return (
-    <div className="clips-settings__notice" role="alert">
-      <p>{phase.message}</p>
-      {phase.code === "reauth_required" && <Button size="small" onClick={onReconnect}>Переподключить Twitch</Button>}
-    </div>
+    <Notice tone="danger" action={phase.code === "reauth_required" ? <Button size="small" onClick={onReconnect}>Переподключить Twitch</Button> : undefined}>
+      {phase.message}
+    </Notice>
   );
 }

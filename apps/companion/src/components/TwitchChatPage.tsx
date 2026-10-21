@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { TwitchChatSession } from "../chat/useTwitchChatSession";
 import { openStreamSettings, type TwitchChatMessage } from "../core/api";
+import { Badge, Button, Notice } from "./ui";
 
 // WK-78 - polling, dedup, the TTS queue/playback and unread counting used to
 // live here and stopped the moment this page unmounted (e.g. switching to
@@ -73,50 +74,52 @@ export function TwitchChatPage({ session, onOpenChatSettings }: { session: Twitc
       ? "Twitch нужно переподключить, чтобы получать сообщения чата"
       : status.connected ? "Чат подключён" : "Восстанавливаем подключение…";
 
+  const speaking = isSpeaking();
   return <section className="chat-page">
-    <div className="chat-page__header">
-      <div><span className="section-heading__eyebrow">Не пропускайте зрителей</span><h2>Twitch-чат</h2><p>{status?.displayName ? `${status.displayName} · ${label}` : label}</p></div>
-      <span className={`connection-pill ${status?.connected ? "is-online" : ""} ${reauthRequired ? "is-warning" : ""}`}>
+    <div className="chat-page__status">
+      <Badge tone={status?.connected ? "success" : reauthRequired ? "warning" : "default"} dot>
         {status?.connected ? "На связи" : reauthRequired ? "Нужен повторный вход" : "Ожидание"}
-      </span>
+      </Badge>
+      <span className="ui-text-soft">{status?.displayName ? `${status.displayName} · ${label}` : label}</span>
       {/* Silent by design - see the WK-83 feature report: Companion's TTS is
           heard over Desktop Audio in OBS, so Skip must never itself make a
           sound. This is a purely visual note, never routed into any overlay. */}
       {showSkipToast && <span className="tts-skip-toast" aria-live="polite">Озвучка пропущена</span>}
     </div>
-    {(error || reconnectError) && <p className="app__error">Чат временно недоступен: {reconnectError ?? error}</p>}
-    {reauthRequired && <div className="chat-reauth-banner">
-      <p>Twitch нужно переподключить, чтобы получать сообщения чата. Это займёт минуту — откройте настройки и подключите Twitch заново.</p>
-      <button className="button" onClick={reconnectTwitch} disabled={reconnectPending}>Открыть настройки Twitch</button>
-    </div>}
+    {(error || reconnectError) && <Notice tone="danger">Чат временно недоступен: {reconnectError ?? error}</Notice>}
+    {reauthRequired && <Notice tone="warning" action={<Button size="small" variant="primary" onClick={reconnectTwitch} disabled={reconnectPending}>Открыть настройки Twitch</Button>}>
+      Twitch нужно переподключить, чтобы получать сообщения чата. Это займёт минуту — откройте настройки и подключите Twitch заново.
+    </Notice>}
     <div className="chat-layout">
       <div className="chat-stream">
-        <div className="chat-messages" ref={listRef} onScroll={onScroll} aria-live="polite">
+        <div className="chat-messages" ref={listRef} onScroll={onScroll} aria-live="polite" aria-label="Сообщения чата" tabIndex={0}>
           {!messages.length && <div className="chat-empty">
             {reauthRequired
               ? "Сообщения не поступают, пока Twitch не переподключён."
-              : status?.accountConnected ? "Новые сообщения появятся здесь." : "Подключите Twitch в веб-кабинете PreReborn."}
+              : status?.accountConnected ? "Новые сообщения появятся здесь." : "Подключите Twitch в Настройках → Интеграции."}
           </div>}
           {messages.map((message) => <article className="chat-message" key={message.id}>
-            <div><strong style={{ color: message.color || undefined }}>{message.author}</strong><time>{new Date(message.receivedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time></div>
-            <p>{message.text}</p>
+            <time dateTime={message.receivedAt}>{new Date(message.receivedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>
+            <p><strong style={{ color: message.color || undefined }}>{message.author}</strong><span>{message.text}</span></p>
           </article>)}
         </div>
         {unread > 0 && <button className="chat-latest" onClick={toLatest}>{unread} новых · К последним ↓</button>}
       </div>
       {/* WK-121 - runtime-only sidebar: TTS queue/status + skip/stop actions.
-          Every permanent preference moved to Settings → "Чат и TTS" - see
-          this component's top doc comment. */}
-      <aside className="chat-settings chat-settings--runtime">
-        <h3>TTS</h3>
-        <p className="chat-runtime-panel__status">
-          {!settings.ttsEnabled ? "Озвучка выключена" : isSpeaking() ? "Озвучивает…" : "Ожидание сообщений"}
-        </p>
-        <div className="tts-buttons">
-          <button className="button" onClick={skipTts} disabled={!isSpeaking()}>Пропустить текущую озвучку</button>
-          <button className="button" onClick={stopTts} disabled={!settings.ttsEnabled && !isSpeaking()}>Остановить и выключить TTS</button>
+          Every permanent preference lives in Озвучка - see this component's
+          top doc comment. */}
+      <aside className="chat-tts" aria-label="Озвучка чата">
+        <div className="chat-tts__header">
+          <h2>Озвучка</h2>
+          <Badge tone={!settings.ttsEnabled ? "default" : speaking ? "accent" : "success"} dot={settings.ttsEnabled}>
+            {!settings.ttsEnabled ? "Озвучка выключена" : speaking ? "Озвучивает…" : "Ожидание сообщений"}
+          </Badge>
         </div>
-        <button type="button" className="link-button" onClick={onOpenChatSettings}>Настройки чата и TTS →</button>
+        <div className="chat-tts__actions">
+          <Button onClick={skipTts} disabled={!speaking}>Пропустить текущую озвучку</Button>
+          <Button variant="danger" onClick={stopTts} disabled={!settings.ttsEnabled && !speaking}>Остановить и выключить TTS</Button>
+        </div>
+        <Button variant="link" className="chat-tts__settings" onClick={onOpenChatSettings}>Настройки чата и TTS →</Button>
       </aside>
     </div>
   </section>;

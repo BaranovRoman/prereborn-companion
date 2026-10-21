@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { GameSoundEventKind, ManagedSoundAsset, SoundBinding } from "../../services/dotaCompanionApi";
+import { Button } from "../ui";
 
 interface Props {
   eventId: string;
@@ -34,19 +35,19 @@ export function SoundBindingRow({ eventId, kind, binding, assets, onChooseFile, 
 
   return (
     <div className="sound-binding-row">
-      <span className="sound-binding-row__file">
-        {asset ? asset.originalName : "Звук не выбран"}
+      <span className={`sound-binding-row__file${asset ? "" : " is-empty"}`} title={asset?.originalName}>
+        <span aria-hidden="true">♪</span>{asset ? asset.originalName : "Звук не выбран"}
       </span>
       <div className="sound-binding-row__actions">
-        <button disabled={busy} onClick={() => void run(() => onChooseFile(eventId, kind))}>
+        <Button size="small" variant={asset ? "default" : "primary"} disabled={busy} onClick={() => void run(() => onChooseFile(eventId, kind))}>
           Выбрать файл
-        </button>
-        <button disabled={busy || !asset} onClick={() => void run(() => onPreview(asset!.id))}>
+        </Button>
+        <Button size="small" disabled={busy || !asset} onClick={() => void run(() => onPreview(asset!.id))}>
           Прослушать
-        </button>
-        <button disabled={busy || !asset} onClick={() => void run(() => onRemove(eventId))}>
+        </Button>
+        <Button size="small" variant="ghost" disabled={busy || !asset} onClick={() => void run(() => onRemove(eventId))}>
           Удалить звук
-        </button>
+        </Button>
       </div>
       {error && <p className="sound-binding-row__error">Ошибка: {error}</p>}
     </div>

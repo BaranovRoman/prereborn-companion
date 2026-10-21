@@ -1,4 +1,4 @@
-import { useCallback,useEffect, useState } from "react";
+import { useCallback,useEffect,useLayoutEffect,useRef,useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTwitchChatSession } from "../../chat/useTwitchChatSession";
 import { useOverallVolume } from "../../hooks/useOverallVolume";
@@ -12,10 +12,10 @@ import { HotkeySettings } from "../../components/HotkeySettings";
 import { IntegrationsPanel } from "../../components/IntegrationsPanel";
 import { TwitchChatPage } from "../../components/TwitchChatPage";
 import { TwitchClipsSettings } from "../../components/TwitchClipsSettings";
-import { ChatTtsSettings } from "../../components/settings/ChatTtsSettings";
+import { ChatTtsSettings, SpeechNotifications } from "../../components/settings/ChatTtsSettings";
 import { UpdateBanner } from "../../components/UpdateBanner";
 import { PluginsPage } from "../../pages/PluginsPage";
-import { Button } from "../../components/ui";
+import { Badge, Button, Notice, Panel, SettingsGroup, SettingsRow } from "../../components/ui";
 import { OutputSettings } from "./OutputSettings";
 import { ObsConnectionPage } from "./ObsConnectionPage";
 import { useHostStatus } from "./hostStatus";
@@ -24,11 +24,17 @@ import "../../components/ui/ui.css";
 import "./CoreShell.css";
 
 type Section="overview"|"chat"|"speech"|"obs"|"plugins"|"settings";
-const sections: {id:Section;label:string;symbol:string}[]=[
-  {id:"overview",label:"Обзор",symbol:"◫"},{id:"chat",label:"Чат",symbol:"☰"},
-  {id:"speech",label:"Озвучка",symbol:"◖"},{id:"obs",label:"OBS",symbol:"▣"},
-  {id:"plugins",label:"Плагины",symbol:"⊞"},{id:"settings",label:"Настройки",symbol:"⚙"},
+// `width` caps reading width per screen type; "fill" screens own the full
+// window height so their one inner list/iframe scrolls instead of the page.
+const sections: {id:Section;label:string;symbol:string;description:string;width:"narrow"|"wide"|"full";fill?:boolean}[]=[
+  {id:"overview",label:"Обзор",symbol:"◫",description:"Состояние сервисов и последние сообщения чата.",width:"wide"},
+  {id:"chat",label:"Чат",symbol:"☰",description:"Сообщения Twitch и управление озвучкой во время эфира.",width:"full",fill:true},
+  {id:"speech",label:"Озвучка",symbol:"◖",description:"Устройство вывода, голос озвучки и уведомления.",width:"wide"},
+  {id:"obs",label:"OBS",symbol:"▣",description:"Подключение к OBS WebSocket и разрешение автоматизации сцен.",width:"narrow"},
+  {id:"plugins",label:"Плагины",symbol:"⊞",description:"",width:"full"},
+  {id:"settings",label:"Настройки",symbol:"⚙",description:"Аккаунт, интеграции, горячие клавиши и системные параметры.",width:"wide"},
 ];
+const VOICE_REMINDERS_KEY="companion-system-voice-reminders-v1";
 export function CoreShell() {
   const {status,error,refresh}=useHostStatus();
   const {overallVolume,setOverallVolume}=useOverallVolume();
@@ -38,49 +44,101 @@ export function CoreShell() {
   const [diagnosticResult,setDiagnosticResult]=useState<string|null>(null);
   const [diagnosticError,setDiagnosticError]=useState<string|null>(null);
   const [diagnosticBusy,setDiagnosticBusy]=useState(false);
-  const [voiceNotifications,setVoiceNotifications]=useState(()=>{try{const raw=localStorage.getItem("companion-system-voice-reminders-v1");return raw==null||raw==="true";}catch{return true;}});
+  const [voiceNotifications,setVoiceNotifications]=useState(()=>{try{const raw=localStorage.getItem(VOICE_REMINDERS_KEY);return raw==null||raw==="true";}catch{return true;}});
   const synthesizeNotification=useCallback((text:string)=>synthesizeSileroTts(text,chat.settings.sileroVoice),[chat.settings.sileroVoice]);
   // Core never loads a game catalog, bindings, game hooks or a second Twitch queue.
   useManagedPluginAudio({enabled:true,eventName:"plugin-audio-play",fenceEvent:"plugin-audio-fence",fenceAckCommand:"plugin_audio_fence_ack",synthesize:synthesizeNotification,voiceNotificationsEnabled:voiceNotifications},overallVolume);
   useEffect(()=>{void updater.checkForUpdate();},[]); // same standard updater and signature verification
   const diagnostic=async(command:string)=>{if(diagnosticBusy)return;setDiagnosticBusy(true);setDiagnosticError(null);try{const result=await invoke<unknown>(command);setDiagnosticResult(typeof result==="string"?result:"Операция подтверждена приложением.");}catch(e){setDiagnosticError(String(e));}finally{setDiagnosticBusy(false);}};
   const connection=(state:string|undefined)=>state==="connected"?"Подключён":state==="recovering"||state==="reconnecting"?"Переподключение":state==="unavailable"?"Недоступен":"Ожидание подключения";
+  const tone=(state:string|undefined)=>state==="connected"?"success" as const:state==="unavailable"?"danger" as const:"warning" as const;
+  const setVoiceReminders=(enabled:boolean)=>{setVoiceNotifications(enabled);try{localStorage.setItem(VOICE_REMINDERS_KEY,String(enabled));}catch{/* The current preference remains applied if persistence is unavailable. */}};
+  // One scroll container (main); each section returns to where it was left.
+  const main=useRef<HTMLElement>(null);const scrollBySection=useRef<Partial<Record<Section,number>>>({});
+  const open=(next:Section)=>{if(main.current)scrollBySection.current[section]=main.current.scrollTop;setSection(next);};
+  useLayoutEffect(()=>{main.current?.scrollTo?.({top:scrollBySection.current[section]??0});},[section]);
+  const current=sections.find((s)=>s.id===section)!;
+  const ttsText=!chat.settings.ttsEnabled?"Выключена":chat.isSpeaking()?"Читает сообщение":"Ожидает сообщения";
   return <div className="companion-root">
     <aside className="companion-sidebar">
       <div className="companion-brand"><span aria-hidden="true">P</span><div><strong>PreReborn</strong><small>Companion</small></div></div>
-      <nav aria-label="Разделы приложения">{sections.map((item)=><button key={item.id} aria-current={section===item.id?"page":undefined} onClick={()=>setSection(item.id)}><span aria-hidden="true">{item.symbol}</span>{item.label}</button>)}</nav>
+      <nav aria-label="Разделы приложения">{sections.map((item)=><button key={item.id} title={item.label} aria-current={section===item.id?"page":undefined} onClick={()=>open(item.id)}><span aria-hidden="true">{item.symbol}</span>{item.label}</button>)}</nav>
       <p className="companion-version">{status?.companion_version?`Версия ${status.companion_version}`:"Проверка версии…"}</p>
     </aside>
-    <main className="companion-main">
+    <main className="companion-main" ref={main}>
+      <div className={`companion-page companion-page--${current.width}${current.fill?" companion-page--fill":""}`}>
       <UpdateBanner state={updater.state} onCheck={()=>void updater.checkForUpdate()} onInstall={()=>void updater.installUpdate()} onRestart={()=>void updater.restartToApply()} onDismiss={updater.dismiss}/>
       {/* No device-change prompt: a chosen device stays chosen; "system default" follows Windows silently. */}
       {/* Plugins render their own heading/toolbar; a second title only costs plugin UI height. */}
-      {section!=="plugins"&&<header className="companion-page-heading"><div><p className="core-eyebrow">COMPANION</p><h1>{sections.find((s)=>s.id===section)?.label}</h1></div></header>}
-      {error&&<p className="core-notice" role="alert">Состояние сервисов не получено: {error} <button onClick={()=>void refresh()}>Повторить</button></p>}
-      {section==="overview"&&<section className="core-overview">
-        <h2>Сервисы</h2>
-        <dl className="core-service-list">
-          <div><dt>Twitch</dt><dd>{chat.status?connection(chat.status.state):"Проверка подключения…"}{chat.status?.displayName&&` · ${chat.status.displayName}`}</dd></div>
-          <div><dt>Озвучка</dt><dd>{!chat.settings.ttsEnabled?"Выключена":chat.isSpeaking()?"Читает сообщение":"Ожидает сообщения"} · {chat.settings.ttsEngine==="silero"?"Silero":"Системный голос"}</dd></div>
-          <div><dt>OBS</dt><dd>{connection(status?.obs_state)}{status?.obs_streaming===true?" · Трансляция идёт":status?.obs_streaming===false?" · Трансляция не запущена":""}</dd></div>
-        </dl>
-        {chat.error&&<p role="alert">{chat.error}</p>}
-        <div className="core-actions"><Button onClick={()=>setSection("chat")}>Открыть чат</Button><Button onClick={()=>setSection("speech")}>Настроить озвучку</Button><Button onClick={()=>setSection("plugins")}>Библиотека плагинов</Button></div>
-        <section className="core-recent"><h2>Последние сообщения</h2>{chat.status?.messages.length?<ol>{chat.status.messages.slice(-5).map((m)=><li key={m.id}><strong>{m.author}</strong><p>{m.text}</p></li>)}</ol>:<p className="core-hint">Сообщений пока нет. Проверьте подключение Twitch или откройте чат.</p>}</section>
-      </section>}
-      {section==="chat"&&<TwitchChatPage session={chat} onOpenChatSettings={()=>setSection("speech")}/>}
-      {section==="speech"&&<div className="core-settings-stack"><OutputSettings session={chat} output={output} volume={overallVolume} onVolume={setOverallVolume}/><section className="core-settings-group"><h2>Чат и озвучка</h2><ChatTtsSettings session={chat}/></section><section className="core-settings-group"><h2>Голосовые уведомления плагинов</h2><label><input type="checkbox" checked={voiceNotifications} onChange={event=>{const enabled=event.target.checked;setVoiceNotifications(enabled);try{localStorage.setItem("companion-system-voice-reminders-v1",String(enabled));}catch{/* The current preference remains applied if persistence is unavailable. */}}}/> Разрешить голосовые уведомления</label><p>Используется выбранный голос Silero. Уведомления не добавляются в очередь сообщений Twitch.</p></section></div>}
+      {section!=="plugins"&&<header className="companion-page-heading"><div><h1>{current.label}</h1>{current.description&&<p>{current.description}</p>}</div>
+        {section==="overview"&&<Button onClick={()=>open("plugins")}>Библиотека плагинов</Button>}</header>}
+      {error&&<Notice tone="danger" action={<Button size="small" onClick={()=>void refresh()}>Повторить</Button>}>Состояние сервисов не получено: {error}</Notice>}
+      {section==="overview"&&<div className="core-overview">
+        <div className="service-grid" aria-label="Сервисы">
+          <section className="service-card">
+            <header><h2>Twitch</h2><Badge tone={chat.status?tone(chat.status.state):"default"} dot>{chat.status?connection(chat.status.state):"Проверка…"}</Badge></header>
+            <p>{chat.status?connection(chat.status.state):"Проверка подключения…"}{chat.status?.displayName&&` · ${chat.status.displayName}`}</p>
+            <Button size="small" onClick={()=>open("chat")}>Открыть чат</Button>
+          </section>
+          <section className="service-card">
+            <header><h2>Озвучка</h2><Badge tone={chat.settings.ttsEnabled?"success":"default"} dot={chat.settings.ttsEnabled}>{chat.settings.ttsEnabled?"Включена":"Выключена"}</Badge></header>
+            <p>{ttsText} · {chat.settings.ttsEngine==="silero"?"Silero":"Системный голос"}</p>
+            <Button size="small" onClick={()=>open("speech")}>Настроить озвучку</Button>
+          </section>
+          <section className="service-card">
+            <header><h2>OBS</h2><Badge tone={tone(status?.obs_state)} dot>{connection(status?.obs_state)}</Badge></header>
+            <p>{status?.obs_streaming===true?"Трансляция идёт":status?.obs_streaming===false?"Трансляция не запущена":"Состояние трансляции неизвестно"} · {status?.obs_config.enabled?"автоматизация разрешена":"автоматизация выключена"}</p>
+            <Button size="small" onClick={()=>open("obs")}>Настройки OBS</Button>
+          </section>
+        </div>
+        {chat.error&&<Notice tone="danger">{chat.error}</Notice>}
+        <Panel title="Последние сообщения" aside={<Button variant="ghost" size="small" onClick={()=>open("chat")}>Весь чат →</Button>}>
+          {chat.status?.messages.length?<ol className="recent-messages">{chat.status.messages.slice(-6).map((m)=><li key={m.id}><strong style={{color:m.color||undefined}}>{m.author}</strong><span>{m.text}</span></li>)}</ol>
+            :<p className="ui-text-muted">Сообщений пока нет. Проверьте подключение Twitch или откройте чат.</p>}
+        </Panel>
+      </div>}
+      {section==="chat"&&<TwitchChatPage session={chat} onOpenChatSettings={()=>open("speech")}/>}
+      {section==="speech"&&<div className="core-columns">
+        <div className="core-column">
+          <OutputSettings session={chat} output={output} volume={overallVolume} onVolume={setOverallVolume}/>
+          <Panel title="Уведомления"><SpeechNotifications session={chat} voiceNotifications={voiceNotifications} onVoiceNotifications={setVoiceReminders}/></Panel>
+        </div>
+        <div className="core-column">
+          <Panel title="Озвучка чата" description="Чтение сообщений Twitch вслух. Пропуск и остановка — на экране «Чат» и по горячей клавише."><ChatTtsSettings session={chat}/></Panel>
+        </div>
+      </div>}
       {section==="obs"&&<ObsConnectionPage status={status} refresh={refresh}/>}
       {section==="plugins"&&<PluginsPage/>}
-      {section==="settings"&&<div className="core-settings-stack">
-        <section className="core-settings-group"><AccountForm/></section>
-        <section className="core-settings-group"><IntegrationsPanel/></section>
-        <section className="core-settings-group"><TwitchClipsSettings/></section>
-        <section className="core-settings-group"><AutostartSetting state={autostart.state} busy={autostart.busy} onChange={(enabled)=>void autostart.setAutostart(enabled)}/></section>
-        <section className="core-settings-group"><HotkeySettings status={chat.skipHotkeyStatus} busy={chat.skipHotkeyBusy} onUpdate={chat.updateSkipHotkey}/></section>
-        <section className="core-settings-group"><h2>Обновления</h2><p>Используется стандартный подписанный updater Companion.</p><Button onClick={()=>void updater.checkForUpdate()} disabled={updater.state.phase==="checking"}>Проверить обновления</Button></section>
-        <section className="core-settings-group"><h2>Диагностика</h2><div className="core-actions"><Button disabled={diagnosticBusy} onClick={()=>void diagnostic("open_logs_folder")}>Открыть папку логов</Button><Button disabled={diagnosticBusy} onClick={()=>void diagnostic("diagnostics_start")}>Начать диагностику</Button><Button disabled={diagnosticBusy} onClick={()=>void diagnostic("diagnostics_stop")}>Остановить диагностику</Button><Button disabled={diagnosticBusy} onClick={()=>void diagnostic("diagnostics_export")}>Экспортировать диагностику</Button></div>{diagnosticBusy&&<p role="status">Выполняется…</p>}{diagnosticError&&<p role="alert">{diagnosticError}</p>}{diagnosticResult&&<p role="status">{diagnosticResult}</p>}<p className="core-hint">Технические сведения расширения доступны на его странице.</p></section>
+      {section==="settings"&&<div className="core-columns">
+        <div className="core-column">
+          <AccountForm/>
+          <IntegrationsPanel/>
+          <Panel title="Система">
+            <SettingsGroup>
+              <AutostartSetting state={autostart.state} busy={autostart.busy} onChange={(enabled)=>void autostart.setAutostart(enabled)}/>
+              <SettingsRow label="Обновления" description={`Стандартный подписанный updater Companion.${status?.companion_version?` Установлена версия ${status.companion_version}.`:""}`}>
+                <Button onClick={()=>void updater.checkForUpdate()} disabled={updater.state.phase==="checking"}>{updater.state.phase==="checking"?"Проверка…":"Проверить обновления"}</Button>
+              </SettingsRow>
+            </SettingsGroup>
+          </Panel>
+        </div>
+        <div className="core-column">
+          <TwitchClipsSettings/>
+          <Panel title="Горячие клавиши" description="Глобальные сочетания работают, даже когда Companion свёрнут в трей. Клавиша клипа — в блоке «Клипы Twitch»."><HotkeySettings status={chat.skipHotkeyStatus} busy={chat.skipHotkeyBusy} onUpdate={chat.updateSkipHotkey}/></Panel>
+          <Panel className="ui-panel--quiet" title="Диагностика" description="Технические данные для разбора проблем. Сведения расширений — на странице плагина.">
+            <div className="ui-button-row">
+              <Button size="small" disabled={diagnosticBusy} onClick={()=>void diagnostic("diagnostics_start")}>Начать диагностику</Button>
+              <Button size="small" disabled={diagnosticBusy} onClick={()=>void diagnostic("diagnostics_stop")}>Остановить диагностику</Button>
+              <Button size="small" disabled={diagnosticBusy} onClick={()=>void diagnostic("diagnostics_export")}>Экспортировать диагностику</Button>
+              <Button size="small" variant="ghost" disabled={diagnosticBusy} onClick={()=>void diagnostic("open_logs_folder")}>Открыть папку логов</Button>
+            </div>
+            {diagnosticBusy&&<p className="ui-text-muted" role="status">Выполняется…</p>}
+            {diagnosticError&&<Notice tone="danger">{diagnosticError}</Notice>}
+            {diagnosticResult&&<Notice tone="success">{diagnosticResult}</Notice>}
+          </Panel>
+        </div>
       </div>}
+      </div>
     </main>
   </div>;
 }

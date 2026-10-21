@@ -12,6 +12,8 @@ import { HeroesPage } from "./components/HeroesPage";
 import { useFavoriteHeroes } from "./hooks/useFavoriteHeroes";
 import "./heroes.css";
 import { OverlayPanel } from "./components/OverlayPanel";
+import { View } from "./components/View";
+import { Badge, Button, Panel, RangeField, SettingsGroup, SettingsRow, Switch } from "./components/ui";
 
 export function Dota() {
   const [tab,setTab] = useState("heroes"); const favorites = useFavoriteHeroes(); const [hero,setHero] = useState<TrackedHero|null>(null);
@@ -56,44 +58,85 @@ export function Dota() {
     const asset=settings?.assets.find(a=>a.id===assetId);if(!asset)throw new Error("sound_asset_missing");
     await api.invoke("asset.preview",{fileName:asset.fileName,volume:settings!.masterVolume});
   };
-  return <main>
+  const tabs:[string,string][]=[["heroes","Герои"],["items","Предметы"],["history","История"],["obs","OBS и сцены"],["overlay","Overlay"],["settings","Настройки"]];
+  const tone=statusError?"danger":!status?"default":!status.active?"warning":"success";
+  return <main className="dota">
     <header className="dota-bar">
-      <nav aria-label="Разделы Dota">{[["heroes","Герои"],["items","Предметы"],["history","История"],["obs","OBS и сцены"],["overlay","Overlay"],["settings","Настройки"]].map(([key,title])=><button aria-current={tab===key?"page":undefined} key={key} onClick={()=>{setTab(key);setError(null);}}>{title}</button>)}</nav>
-      <p role="status">{statusError?"Состояние плагина не подтверждено":!status?"Подключение к плагину…":!status.active?"Плагин выключен — настройки доступны":status.awaitingSession?"Ожидание игровой сессии · звуки доступны и в опробовании героя":"Плагин работает"}{!statusError&&status?.gsi?` · ${status.processed} кадров`:""}{!statusError&&status?.active&&status.overlayVisible===false?` · оверлей скрыт${status.overlayHotkey?.shortcut?` — ${status.overlayHotkey.shortcut}`:""}`:""}</p>
+      <nav className="ui-tabs" aria-label="Разделы Dota">{tabs.map(([key,title])=><button className={`ui-tabs__tab${tab===key?" is-active":""}`} aria-current={tab===key?"page":undefined} key={key} onClick={()=>{setTab(key);setError(null);window.scrollTo?.({top:0});}}>{title}</button>)}</nav>
+      <p className={`dota-bar__status dota-bar__status--${tone}`} role="status"><span aria-hidden="true" className="dota-bar__dot"/>{statusError?"Состояние плагина не подтверждено":!status?"Подключение к плагину…":!status.active?"Плагин выключен — настройки доступны":status.awaitingSession?"Ожидание игровой сессии · звуки доступны и в опробовании героя":"Плагин работает"}{!statusError&&status?.gsi?` · ${status.processed} кадров`:""}{!statusError&&status?.active&&status.overlayVisible===false?` · оверлей скрыт${status.overlayHotkey?.shortcut?` — ${status.overlayHotkey.shortcut}`:""}`:""}</p>
     </header>
-    {(statusError||error||status?.lastError)&&<p role="alert">{statusError??error??status?.lastError}</p>}
-    {status?.obsError&&<p role="alert">OBS: {status.obsError}. Выполнение игровых сцен не подтверждено.</p>}
-    {!catalog||!settings?<p role="status">Чтение каталога и сохранённых настроек…</p>:<>
-      {tab==="heroes"&&(hero?<section><button onClick={()=>setHero(null)}>← Все герои</button><h2>{hero.displayName}</h2>
-        <div className="abilities">{hero.abilities.map(ability=><article key={ability.id}><img src={ability.iconUrl} alt="" width={56} height={56}/><h3>{ability.displayName}</h3>
-          {ability.status==="unsupported"?<p>Автоматическое событие не поддерживается{ability.reason?`: ${ability.reason}`:""}</p>:<>
-            {ability.status==="experimental"&&<p>Экспериментальное событие{ability.reason?`: ${ability.reason}`:""}</p>}
-            <SoundBindingRow eventId={ability.id} kind="abilityCast" masterVolume={settings.masterVolume} binding={settings.bindings.find(b=>b.eventId===ability.id)} assets={settings.assets} onChooseFile={choose} onPreview={preview} onRemove={remove}/>
-          </>}</article>)}</div>
-        {getHeroByInternalName(hero.id)&&<HeroStatistics key={hero.id} heroId={getHeroByInternalName(hero.id)!.id}/>}
+    <div className="dota-alerts">
+      {(statusError||error||status?.lastError)&&<p className="ui-notice ui-notice--danger" role="alert">{statusError??error??status?.lastError}</p>}
+      {status?.obsError&&<p className="ui-notice ui-notice--warning" role="alert">OBS: {status.obsError}. Выполнение игровых сцен не подтверждено.</p>}
+    </div>
+    {!catalog||!settings?<p className="dota-loading">Чтение каталога и сохранённых настроек…</p>:<>
+      {tab==="heroes"&&(hero?<section className="dota-view hero-detail">
+        <div className="dota-view__header"><div className="hero-detail__title"><Button variant="ghost" onClick={()=>setHero(null)}>← Все герои</Button><h2>{hero.displayName}</h2></div></div>
+        <div className="hero-detail__body">
+          <div className="abilities">{hero.abilities.map(ability=><article key={ability.id} className={`ability-card ability-card--${ability.status}`}>
+            <header><img src={ability.iconUrl} alt="" width={48} height={48}/><div><h3>{ability.displayName}</h3>{ability.status==="experimental"&&<Badge tone="warning">Экспериментально</Badge>}</div></header>
+            {ability.status==="unsupported"?<p className="ability-card__note">Автоматическое событие не поддерживается{ability.reason?`: ${ability.reason}`:""}</p>:<>
+              {ability.status==="experimental"&&ability.reason&&<p className="ability-card__note">{ability.reason}</p>}
+              <SoundBindingRow eventId={ability.id} kind="abilityCast" masterVolume={settings.masterVolume} binding={settings.bindings.find(b=>b.eventId===ability.id)} assets={settings.assets} onChooseFile={choose} onPreview={preview} onRemove={remove}/>
+            </>}</article>)}</div>
+          {getHeroByInternalName(hero.id)&&<HeroStatistics key={hero.id} heroId={getHeroByInternalName(hero.id)!.id}/>}
+        </div>
       </section>:<HeroesPage favorites={favorites} soundSettings={settings} trackedHeroes={catalog.heroes} onSelectHero={id=>{const entry=getHeroById(id);const tracked=entry&&catalog.heroes.find(h=>h.id===`npc_dota_hero_${entry.name}`);if(tracked)setHero(tracked);}}/>)}
-      {tab==="items"&&<ItemTracePanel active={status?.active===true} frames={status?.processed??0}/>}
-      {tab==="items"&&<ItemsCatalog items={catalog.items} settings={settings} onChooseFile={choose} onPreview={preview} onRemove={remove}/>}
+      {tab==="items"&&<section className="dota-view">
+        <View title="Предметы" description="Звук при использовании предмета. Выберите предмет в каталоге — настройки появятся справа."/>
+        <ItemTracePanel active={status?.active===true} frames={status?.processed??0}/>
+        <ItemsCatalog items={catalog.items} settings={settings} onChooseFile={choose} onPreview={preview} onRemove={remove}/>
+      </section>}
       {tab==="history"&&<HistoryPanel history={history} sync={sync} active={status?.active===true} reload={async()=>{setHistory(await api.invoke<api.History>("history.summary"));setSync(await api.invoke<api.SyncStatus>("history.sync"));}}/>}
       {tab==="obs"&&<ObsPanel/>}
       {tab==="overlay"&&<OverlayPanel active={status?.active===true&&!statusError} visible={status?.overlayVisible!==false} reload={async()=>{setStatus(await api.invoke<api.Status>("status"));setStatusError(null);}}/>}
-      {tab==="settings"&&<section><h2>Звуковые реакции</h2><label><input type="checkbox" checked={settings.enabled} disabled={busy} onChange={e=>{void run(()=>api.invoke("sound.master",{enabled:e.target.checked,volume:settings.masterVolume})).catch(()=>{});}}/> Включены</label>
-        <label>Громкость <input type="range" min="0" max="100" defaultValue={settings.masterVolume} disabled={busy} onPointerUp={e=>{void run(()=>api.invoke("sound.master",{enabled:settings.enabled,volume:Number(e.currentTarget.value)})).catch(()=>{});}} onKeyUp={e=>{if(e.key.startsWith("Arrow"))void run(()=>api.invoke("sound.master",{enabled:settings.enabled,volume:Number(e.currentTarget.value)})).catch(()=>{});}}/></label>
-        <p>Звуки используют выбранное в Companion устройство вывода. OBS и трансляция для них не требуются. Удаление привязки сохраняет загруженный файл.</p>
-        <h2>Подключение Dota GSI</h2>
-        <p>{gsi?.found?`Dota найдена: ${gsi.path}`:gsi?"Установка Dota не найдена автоматически.":"Поиск установки Dota…"}</p>
-        {gsi?.found&&<p>{gsi.installed?"Файл GSI найден. Получение кадров проверяется отдельно.":"Файл GSI ещё не создан."}</p>}
-        <div className="sound-binding-row__actions">
-          <button disabled={busy} onClick={()=>{void run(async()=>setGsi(await api.invoke<api.GsiInstallation>("directory.pick"))).catch(()=>{});}}>Выбрать папку Dota</button>
-          <button disabled={busy||!gsi?.found} onClick={()=>{void run(async()=>setGsi(await api.invoke<api.GsiInstallation>("gsi.install"))).catch(()=>{});}}>Настроить GSI</button>
-        </div><p>После изменения GSI перезапустите Dota. Адрес приёма остаётся 127.0.0.1:3665; OBS overlay — 127.0.0.1:3666/overlay.</p>
-        <details><summary>Диагностика Dota</summary>
-          <p>Состояние OBS stream: {status?.streaming==null?"неизвестно":status.streaming?"идёт трансляция":"трансляция остановлена"}. {status?.backendError?`Backend: ${status.backendError}`:""} {status?.overlayBackendError?`Overlay backend: ${status.overlayBackendError}`:""}</p>
-          <p>Обработано GSI: {status?.processed??0} · обнаружено звуковых событий: {status?.detectedSounds??0} · подготовлено запросов: {status?.plannedSounds??0} · отброшено при смене контекста: {status?.droppedSoundIntents??0}.</p>
-          <p>Последний результат аудио ядра: {audioReceipt?.receipt?.status??"нет подтверждённого admission"}. queued/playing и отправка события не подтверждают завершение воспроизведения.</p>
-          <pre>{JSON.stringify({worker:status,audio:audioReceipt},null,2)}</pre>
+      {tab==="settings"&&<section className="dota-view">
+        <View title="Настройки" description="Звуковые реакции и подключение игры."/>
+        <div className="dota-columns">
+          <Panel title="Звуковые реакции" description="Звуки используют выбранное в Companion устройство вывода. OBS и трансляция для них не требуются.">
+            <SoundMaster settings={settings} busy={busy} onSave={(enabled,volume)=>{void run(()=>api.invoke("sound.master",{enabled,volume})).catch(()=>{});}}/>
+            <p className="ui-text-muted dota-hint">Удаление привязки сохраняет загруженный файл.</p>
+          </Panel>
+          <Panel title="Подключение Dota GSI" description="Dota отправляет состояние игры в плагин через Game State Integration."
+            aside={<Badge tone={gsi?.installed?"success":gsi?.found?"warning":"default"} dot>{gsi?.installed?"GSI настроен":gsi?.found?"GSI не настроен":"Dota не найдена"}</Badge>}>
+            <div className="gsi-state">
+              <p>{gsi?.found?`Dota найдена: ${gsi.path}`:gsi?"Установка Dota не найдена автоматически.":"Поиск установки Dota…"}</p>
+              {gsi?.found&&<p className="ui-text-muted">{gsi.installed?"Файл GSI найден. Получение кадров проверяется отдельно.":"Файл GSI ещё не создан."}</p>}
+            </div>
+            <div className="ui-button-row">
+              <Button variant={gsi?.found&&!gsi.installed?"primary":"default"} disabled={busy||!gsi?.found} onClick={()=>{void run(async()=>setGsi(await api.invoke<api.GsiInstallation>("gsi.install"))).catch(()=>{});}}>Настроить GSI</Button>
+              <Button disabled={busy} onClick={()=>{void run(async()=>setGsi(await api.invoke<api.GsiInstallation>("directory.pick"))).catch(()=>{});}}>Выбрать папку Dota</Button>
+            </div>
+            <p className="ui-text-muted dota-hint">После изменения GSI перезапустите Dota. Адрес приёма — 127.0.0.1:3665; OBS overlay — 127.0.0.1:3666/overlay.</p>
+          </Panel>
+        </div>
+        <details className="ui-disclosure dota-diagnostics"><summary>Диагностика Dota</summary>
+          <div className="ui-disclosure__body">
+            <p>Состояние OBS stream: {status?.streaming==null?"неизвестно":status.streaming?"идёт трансляция":"трансляция остановлена"}. {status?.backendError?`Backend: ${status.backendError}`:""} {status?.overlayBackendError?`Overlay backend: ${status.overlayBackendError}`:""}</p>
+            <p>Обработано GSI: {status?.processed??0} · обнаружено звуковых событий: {status?.detectedSounds??0} · подготовлено запросов: {status?.plannedSounds??0} · отброшено при смене контекста: {status?.droppedSoundIntents??0}.</p>
+            <p>Последний результат аудио ядра: {audioReceipt?.receipt?.status??"нет подтверждённого admission"}. queued/playing и отправка события не подтверждают завершение воспроизведения.</p>
+            <pre className="ui-code">{JSON.stringify({worker:status,audio:audioReceipt},null,2)}</pre>
+          </div>
         </details>
       </section>}
     </>}
   </main>;
+}
+
+// Volume is committed when the drag/arrow key ends (one worker write per
+// adjustment), while the number beside the slider follows the thumb.
+function SoundMaster({settings,busy,onSave}:{settings:GameSoundSettings;busy:boolean;onSave:(enabled:boolean,volume:number)=>void}){
+  const [volume,setVolume]=useState(settings.masterVolume);
+  useEffect(()=>setVolume(settings.masterVolume),[settings.masterVolume]);
+  return <SettingsGroup>
+    <SettingsRow label="Звуковые реакции" description="Звуки способностей и предметов во время игры">
+      <Switch aria-label="Звуковые реакции включены" checked={settings.enabled} disabled={busy} onChange={e=>onSave(e.target.checked,settings.masterVolume)}/>
+    </SettingsRow>
+    <SettingsRow label="Громкость" description="Общая громкость звуков Dota">
+      <span className="dota-volume"><RangeField aria-label="Громкость" display={`${volume}%`} min={0} max={100} value={volume} disabled={busy}
+        onChange={e=>setVolume(Number(e.target.value))}
+        onPointerUp={e=>onSave(settings.enabled,Number(e.currentTarget.value))}
+        onKeyUp={e=>{if(e.key.startsWith("Arrow"))onSave(settings.enabled,Number(e.currentTarget.value));}}/></span>
+    </SettingsRow>
+  </SettingsGroup>;
 }

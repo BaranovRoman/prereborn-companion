@@ -28,3 +28,13 @@ export function Slider({
     />
   );
 }
+
+/** Slider with its current value printed beside it. */
+export function RangeField({ display, ...rest }: Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & { display: string }) {
+  return (
+    <span className="ui-range">
+      <Slider {...rest} />
+      <span className="ui-range__value" aria-hidden="true">{display}</span>
+    </span>
+  );
+}

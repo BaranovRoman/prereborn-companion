@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { AccountStatus } from "../core/contracts";
 import type { ErrorDescription } from "../utils/errorDescription";
 import { describeAuthError } from "../utils/authErrorCopy";
-import { Button, Input, Tooltip } from "./ui";
+import { Badge, Button, Field, Input, Panel, Tooltip } from "./ui";
 import * as api from "../core/api";
 
 // WK-122 §7 - replaces CompanionTokenForm (the opaque copy/paste-from-website
@@ -72,31 +72,34 @@ export function AccountForm({ compact = false }: Props) {
     }
   };
 
+  const title = compact ? undefined : "Аккаунт PreReborn";
   if (!status) {
     return (
-      <section className="account-form">
-        {!compact && <h2>Аккаунт</h2>}
-        <p className="matches-panel__empty">Загрузка…</p>
-      </section>
+      <Panel className="account-form" title={title}>
+        <p className="ui-text-muted">Загрузка…</p>
+      </Panel>
     );
   }
 
   return (
-    <section className="account-form">
-      {!compact && <h2>Аккаунт</h2>}
-
+    <Panel
+      className="account-form"
+      title={title}
+      description={mode === "login" ? "Войдите с тем же email и паролем, что и на сайте PreReborn." : undefined}
+      aside={status.connected && mode === "view" ? <Badge tone={status.method === "legacy_token" ? "warning" : "success"} dot>{status.method === "legacy_token" ? "Устаревший вход" : "Подключено"}</Badge> : undefined}
+    >
       {status.connected && mode === "view" && (
         <div className="account-form__connected">
-          <p className="account-form__identity">
-            {status.email ?? "Companion подключён"}
-          </p>
-          <p className="account-form__status">
-            {status.method === "legacy_token"
-              ? "Подключено (устаревший способ, всё ещё работает)."
-              : "Подключено."}
-          </p>
-          <div className="account-form__actions">
-            <Button variant="ghost" onClick={() => setMode("login")} disabled={busy}>
+          <div className="account-form__identity">
+            <strong>{status.email ?? "Companion подключён"}</strong>
+            <span className="ui-text-muted">
+              {status.method === "legacy_token"
+                ? "Подключено устаревшим способом — он всё ещё работает."
+                : "Companion использует этот аккаунт для интеграций и оверлея."}
+            </span>
+          </div>
+          <div className="ui-button-row">
+            <Button variant={status.method === "legacy_token" ? "primary" : "default"} onClick={() => setMode("login")} disabled={busy}>
               {status.method === "legacy_token" ? "Войти через аккаунт" : "Переподключить"}
             </Button>
             <Button variant="danger" onClick={() => void handleLogout()} disabled={busy}>
@@ -107,50 +110,50 @@ export function AccountForm({ compact = false }: Props) {
       )}
 
       {mode === "login" && (
-        <div className="account-form__login">
-          <p className="account-form__hint">
-            Войдите с тем же email и паролем, что и на сайте PreReborn.
-          </p>
-          <Input
-            type="email"
-            autoComplete="username"
-            placeholder="Email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-          <Input
-            type="password"
-            autoComplete="current-password"
-            placeholder="Пароль"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void handleLogin();
-            }}
-          />
-          <div className="account-form__actions">
+        <form className="account-form__login" onSubmit={(event) => { event.preventDefault(); void handleLogin(); }}>
+          <Field label="Email">
+            <Input
+              type="email"
+              autoComplete="username"
+              placeholder="Email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </Field>
+          <Field label="Пароль">
+            <Input
+              type="password"
+              autoComplete="current-password"
+              placeholder="Пароль"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </Field>
+          <div className="ui-button-row">
+            <Button type="submit" variant="primary" disabled={busy || !email.trim() || !password}>
+              Войти
+            </Button>
             {status.connected && (
               <Button variant="ghost" onClick={() => setMode("view")} disabled={busy}>
                 Отмена
               </Button>
             )}
-            <Button variant="primary" onClick={() => void handleLogin()} disabled={busy || !email.trim() || !password}>
-              Войти
-            </Button>
           </div>
-        </div>
+        </form>
       )}
 
       {error && (
-        <p className="app__error">
-          <strong>{error.title}.</strong> {error.message}
-          {error.detail && (
-            <Tooltip content={error.detail}>
-              <span className="error-detail-trigger" aria-label="Технические детали"> ⓘ</span>
-            </Tooltip>
-          )}
+        <p className="ui-notice ui-notice--danger" role="alert">
+          <span className="ui-notice__body">
+            <strong>{error.title}.</strong> {error.message}
+            {error.detail && (
+              <Tooltip content={error.detail}>
+                <span className="error-detail-trigger" aria-label="Технические детали"> ⓘ</span>
+              </Tooltip>
+            )}
+          </span>
         </p>
       )}
-    </section>
+    </Panel>
   );
 }

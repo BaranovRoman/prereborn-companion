@@ -1,5 +1,5 @@
 import type { AutostartState } from "../hooks/useAutostart";
-import { Checkbox } from "./ui";
+import { SettingsRow, Switch } from "./ui";
 
 interface Props {
   state: AutostartState;
@@ -15,21 +15,17 @@ export function AutostartSetting({ state, busy, onChange }: Props) {
   const disabled = busy || state.phase === "loading";
 
   return (
-    <section className="autostart-setting">
-      <h2>Автозапуск с Windows</h2>
-      <Checkbox
-        className="autostart-setting__toggle"
+    <SettingsRow
+      label="Запускать вместе с Windows"
+      description="Companion откроется свёрнутым в трей при следующем входе в Windows."
+      status={state.phase === "error" ? <span className="ui-text-danger" role="alert">Не удалось изменить автозапуск: {state.message}</span> : undefined}
+    >
+      <Switch
+        aria-label="Запускать Companion вместе с Windows"
         checked={checked}
         disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
-        label="Запускать Companion вместе с Windows"
       />
-      <p className="autostart-setting__hint">
-        Companion откроется свёрнутым в трей при следующем входе в Windows.
-      </p>
-      {state.phase === "error" && (
-        <p className="app__error">Не удалось изменить автозапуск: {state.message}</p>
-      )}
-    </section>
+    </SettingsRow>
   );
 }

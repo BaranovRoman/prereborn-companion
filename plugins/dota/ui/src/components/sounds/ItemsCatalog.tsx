@@ -98,11 +98,10 @@ export function ItemsCatalog({ items, settings, onChooseFile, onPreview, onRemov
 
       <aside className="items-catalog__inspector" aria-label="Информация о предмете">
         {!selectedItem ? (
-          <p className="heroes-grid__empty">Выберите предмет слева.</p>
+          <p className="ui-text-muted">Выберите предмет в каталоге.</p>
         ) : (
           <>
-            <h3 className="items-catalog__inspector-title">Информация</h3>
-            <div className="items-catalog__inspector-item">
+                        <div className="items-catalog__inspector-item">
               <img className="items-catalog__inspector-icon" src={selectedItem.iconUrl} alt="" width={64} height={48} />
               <div>
                 <strong>{selectedItem.displayName}</strong>
@@ -125,7 +124,7 @@ export function ItemsCatalog({ items, settings, onChooseFile, onPreview, onRemov
                 onRemove={onRemove}
               />
             ) : (
-              <p className="items-catalog__unsupported">
+              <p className="items-catalog__unsupported ui-text-muted">
                 Автоматическое событие пока не поддерживается{selectedItem.reason ? `: ${selectedItem.reason}` : "."}
               </p>
             )}
