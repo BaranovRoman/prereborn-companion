@@ -1,0 +1,173 @@
+// WK-188 - tokens mirror the Companion design system (components/ui/ui.css)
+// so the public site and the app read as one product.
+.site {
+  --void: #0f1013;
+  --well: #14161b;
+  --panel: #1a1d23;
+  --raised: #23272f;
+  --edge: #353a45;
+  --edge-soft: #272b33;
+  --text: #e8eaee;
+  --text-soft: #b3b9c5;
+  --text-muted: #8a91a0;
+  --accent: #a4b8fb;
+  --accent-hover: #bfcdff;
+  --accent-ink: #0f1013;
+  --accent-soft: rgba(164, 184, 251, 0.14);
+  --success: #92cba8;
+  --success-soft: rgba(146, 203, 168, 0.12);
+  --danger: #efa9a9;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --gutter: clamp(16px, 4vw, 40px);
+  --content: 1200px;
+
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--void);
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+
+  a { color: inherit; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
+  h1, h2, h3, p { margin: 0; }
+}
+
+.skip {
+  position: absolute;
+  left: 16px;
+  top: -48px;
+  z-index: 10;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--accent-ink) !important;
+  font-weight: 600;
+  text-decoration: none;
+  &:focus { top: 12px; }
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  border-bottom: 1px solid var(--edge-soft);
+  background: rgba(15, 16, 19, 0.86);
+  backdrop-filter: blur(12px);
+}
+
+.headerInner,
+.footerInner {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  width: 100%;
+  max-width: calc(var(--content) + 2 * var(--gutter));
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+.headerInner { height: 64px; }
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: auto;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 16px;
+  white-space: nowrap;
+  img { border-radius: 8px; }
+  small { margin-left: 2px; color: var(--text-muted); font-size: 14px; font-weight: 500; }
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  a {
+    padding: 6px 10px;
+    border-radius: var(--radius);
+    color: var(--text-soft);
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+    white-space: nowrap;
+    &:hover { color: var(--text); background: var(--panel); }
+  }
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 22px;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--raised);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 0.15s, border-color 0.15s;
+  &:hover { background: #2b303a; }
+}
+
+.buttonPrimary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink) !important;
+  &:hover { border-color: var(--accent-hover); background: var(--accent-hover); }
+}
+
+.buttonSmall {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 14px;
+}
+
+.main { flex: 1; }
+
+.footer {
+  margin-top: 96px;
+  border-top: 1px solid var(--edge-soft);
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.footerInner {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding-top: 28px;
+  padding-bottom: 28px;
+  nav { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+  a { text-decoration: none; &:hover { color: var(--text); } }
+}
+
+@media (max-width: 760px) {
+  .navSection { display: none; }
+  .headerInner { gap: 8px; }
+  .brand small { display: none; }
+}
+
+// Phones: the hero carries the download CTA, the header keeps navigation only.
+@media (max-width: 560px) {
+  .headerDownload { display: none; }
+}
+
+@media (max-width: 380px) {
+  .nav a { padding: 6px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button { transition: none; }
+}

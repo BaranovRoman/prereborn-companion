@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { UsageStats, collectionCaption, parsePublicUsageStats } from "./UsageStats";
 
@@ -13,7 +13,7 @@ describe("UsageStats", () => {
   it("shows the three public aggregates from the API", async () => {
     const fetch = mockFetch(respond(200, full));
     render(<UsageStats />);
-    expect(await screen.findByText("Зарегистрировано пользователей")).toBeTruthy();
+    expect(await screen.findByText("56")).toBeTruthy();
     expect(fetch).toHaveBeenCalledWith("/api/public/usage-stats", expect.anything());
     const values = screen.getAllByRole("definition").map((node) => node.textContent);
     expect(values).toEqual([new Intl.NumberFormat("ru-RU").format(1234), "56", "789"]);
@@ -23,7 +23,7 @@ describe("UsageStats", () => {
   it("shows real values immediately while history is short, with the collection start date", async () => {
     mockFetch(respond(200, { ...full, activeUsers7d: 3, activeUsers30d: 3, trackingSince: "2026-10-21", generatedAt: "2026-10-22T09:00:00.000Z" }));
     render(<UsageStats />);
-    expect((await region()).textContent).toContain("Статистика собирается с 21 октября 2026 г.");
+    expect(await screen.findByText(/Статистика собирается с 21 октября 2026 г\./)).toBeTruthy();
     expect(screen.getAllByRole("definition").map((node) => node.textContent)).toEqual([new Intl.NumberFormat("ru-RU").format(1234), "3", "3"]);
   });
 
@@ -31,12 +31,19 @@ describe("UsageStats", () => {
     ["API error", respond(503, { error: "Статистика временно недоступна" })],
     ["malformed payload", respond(200, { registeredUsers: 5 })],
     ["network failure", () => Promise.reject(new TypeError("Failed to fetch"))],
-  ])("renders nothing (never zeros) on %s", async (_label, impl) => {
-    const fetch = mockFetch(impl);
+  ])("says the stats are unavailable (never zeros) on %s", async (_label, impl) => {
+    mockFetch(impl);
+    render(<UsageStats />);
+    expect(await screen.findByText("Статистика Companion сейчас недоступна.")).toBeTruthy();
+    expect(screen.queryAllByRole("definition").map((node) => node.textContent?.trim()).filter(Boolean)).toEqual([]);
+    expect((await region()).textContent).toBe("Статистика Companion сейчас недоступна.");
+  });
+
+  it("shows no numbers while loading", () => {
+    mockFetch(() => new Promise(() => {}));
     const { container } = render(<UsageStats />);
-    await waitFor(() => expect(fetch).toHaveBeenCalled());
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(container.innerHTML).toBe("");
+    expect(screen.getByRole("region", { name: "Статистика Companion" }).getAttribute("aria-busy")).toBe("true");
+    expect([...container.querySelectorAll("dd")].map((node) => node.textContent)).toEqual(["", "", ""]);
   });
 });
 

@@ -4,7 +4,7 @@ import { StreamDownloadPage } from "@/components/pages/stream/download";
 export const metadata: Metadata = {
     title: "Скачать",
     description:
-        "Desktop-приложение для Windows, передающее состояние матча Dota 2 в стрим-оверлей.",
+        "Prereborn Companion для Windows: Twitch-чат с озвучкой, клипы, подключение к OBS и игровые плагины.",
     robots: { index: false, follow: false },
 };
 

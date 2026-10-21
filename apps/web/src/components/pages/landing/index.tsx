@@ -1,4 +1,132 @@
-"use client";
-import Image from "next/image"; import Link from "next/link"; import { useEffect } from "react"; import { usePageReady } from "@/shared/ui/route-transition/usePageReady"; import { UsageStats } from "./UsageStats"; import styles from "./index.module.scss";
-const capabilities=[["Overlay для эфира","Очередь, драфт и матч в одном Browser Source для OBS."],["Защита от stream-snipe","Скрытие миникарты и чувствительных частей интерфейса в нужный момент."],["Companion и GSI","Desktop Companion получает состояние Dota 2 и передаёт его в Web."],["Автоматизация OBS","Переключение сопоставленных сцен между паузой, драфтом и игрой."],["Настройка оформления","Раскладка виджетов, камера, размеры сцены и предпросмотр поверх HUD."],["Интеграции стрима","Steam, Twitch-чат и TTS доступны в кабинете там, где они настроены."]];
-export const LandingPage=()=>{const {ready}=usePageReady(600);useEffect(()=>{ready()},[ready]);return <main className={styles.page}><header className={styles.header}><Link href="/" className={styles.brand}><Image src="/logo-new.png" alt="" width={48} height={48}/><span>PreReborn</span></Link><nav><a href="#how">Как это работает</a><Link href="/stream/login">Войти</Link><Link className={styles.navCta} href="/stream/register">Начать</Link></nav></header><section className={styles.hero}><div><span className={styles.eyebrow}>Dota 2 · Stream Companion</span><h1>Матч меняется.<br/>Оформление следует за ним.</h1><p>PreReborn связывает Dota 2, стрим-оверлей и OBS: показывает нужные данные зрителям, закрывает лишнее и переключает сцены по состоянию игры.</p><div className={styles.actions}><Link className={styles.primary} href="/stream/register">Настроить свой стрим</Link><Link className={styles.secondary} href="/stream/login">У меня есть аккаунт</Link></div><small>Companion находится в beta. Доступная сборка и честный статус установки показываются после входа.</small></div><div className={styles.preview}><div className={styles.previewHead}><span className={styles.liveDot}/>Готовность эфира</div><div className={styles.previewScene}><span>Текущая сцена</span><strong>Dota — Игра</strong></div><div className={styles.flow}><span>Dota 2</span><b>→</b><span>Companion</span><b>→</b><span>OBS</span></div><div className={styles.previewGrid}><div><small>GSI</small><strong>Данные поступают</strong></div><div><small>Overlay</small><strong>Browser Source</strong></div></div></div></section><UsageStats/><section className={styles.value}><span>Для Dota-стримеров</span><p>Меньше ручных переключений во время матча. Больше контроля над тем, что видит зритель.</p></section><section className={styles.capabilities}><div className={styles.sectionHeading}><span>Возможности</span><h2>Один тракт от игры до эфира</h2></div><div className={styles.cards}>{capabilities.map(([title,text],i)=><article key={title}><span>0{i+1}</span><h3>{title}</h3><p>{text}</p></article>)}</div></section><section id="how" className={styles.how}><div className={styles.sectionHeading}><span>Первый запуск</span><h2>Понятный путь до готового OBS</h2></div><ol><li><b>1</b><div><strong>Создайте аккаунт</strong><p>Кабинет и настройки доступны только вам.</p></div></li><li><b>2</b><div><strong>Свяжите Companion</strong><p>Скопируйте одноразово показанный токен в desktop-приложение.</p></div></li><li><b>3</b><div><strong>Проверьте Dota и OBS</strong><p>Onboarding покажет фактические статусы и безопасный тест сцены.</p></div></li></ol></section><section className={styles.finalCta}><span>Готовы собрать первый эфир?</span><h2>Начните в кабинете стримера</h2><p>После входа вы увидите текущую доступность Companion и реальные шаги настройки.</p><Link className={styles.primary} href="/stream/register">Создать аккаунт</Link></section><footer><span>PreReborn Companion</span><span>Beta · Dota 2 streamer toolkit</span></footer></main>};
+import Image from "next/image";
+import Link from "next/link";
+import type { ChangelogItem } from "@/entities/changelog/load";
+import type { PluginCatalogResult } from "@/entities/plugin-catalog";
+import { DownloadButton, PublicShell } from "@/components/public-site/PublicShell";
+import { ChangelogCard } from "@/components/pages/changelog/ChangelogCard";
+import { DOTA_COMPANION_VERSION } from "@/shared/config/dota-companion";
+import { PluginCard } from "./PluginCard";
+import { UsageStats } from "./UsageStats";
+import styles from "./index.module.scss";
+
+// WK-188 - public landing of Prereborn Companion. Capabilities are the ones
+// the published Companion exposes (apps/companion core shell on the release
+// branch); plugins, versions and updates come from published data only.
+const features = [
+  ["Twitch-чат", "Сообщения канала в приложении: последние — на «Обзоре», весь чат — на отдельном экране. Twitch подключается через браузер, без ручных токенов."],
+  ["Озвучка сообщений", "Чат читается вслух локальным голосом Silero, который работает офлайн, или системным голосом Windows. Ссылки и явный спам пропускаются, озвучку можно пропустить горячей клавишей."],
+  ["Словарь произношений", "Свои правила, как читать слова и ники, — для всех или для конкретного зрителя. Результат можно проверить и прослушать, сообщения в чате не меняются."],
+  ["Клипы Twitch", "Клип текущей трансляции одной клавишей, даже когда открыта игра. Длительность — от 5 до 60 секунд, ссылка приходит уведомлением."],
+  ["Подключение к OBS", "Companion подключается к OBS по WebSocket и показывает, идёт ли трансляция. Сцены переключаются плагинами, только если вы разрешили автоматизацию."],
+  ["Игровые плагины", "Игровые функции — отдельные плагины из библиотеки внутри Companion. Ставьте только нужные: пакеты подписаны и обновляются из официального каталога."],
+] as const;
+
+const steps = [
+  ["Скачайте и установите", <>Установщик для Windows. Дальше Companion обновляется сам — через встроенный подписанный updater.</>],
+  ["Войдите и подключите Twitch", <>Войдите аккаунтом Prereborn (нет аккаунта — <Link href="/stream/register">зарегистрируйтесь</Link>), затем «Настройки → Интеграции → Twitch». Авторизация откроется в браузере.</>],
+  ["Настройте озвучку, клипы и OBS", <>Выберите голос и устройство вывода, задайте клавишу клипа и при необходимости подключите OBS WebSocket.</>],
+  ["Установите игровые плагины", <>В разделе «Плагины» выберите нужные. Каждый плагин можно запускать вместе с Companion.</>],
+] as const;
+
+type LandingPageProps = { catalog: PluginCatalogResult; highlight: ChangelogItem | null };
+
+export const LandingPage = ({ catalog, highlight }: LandingPageProps) => (
+  <PublicShell>
+    <section className={styles.hero} aria-labelledby="hero-title">
+      <div className={styles.heroText}>
+        <p className={styles.eyebrow}>Приложение для стримеров · Windows</p>
+        <h1 id="hero-title">Prereborn Companion</h1>
+        <p className={styles.lead}>
+          Twitch-чат с озвучкой сообщений, клипы по горячей клавише, подключение к OBS и игровые плагины — статистика матчей, игровые события и виджеты для эфира.
+        </p>
+        <div className={styles.actions}>
+          <DownloadButton />
+          <a className={styles.secondary} href="#features">Возможности и плагины</a>
+        </div>
+        <p className={styles.meta}>
+          {DOTA_COMPANION_VERSION ? <>Версия {DOTA_COMPANION_VERSION} · </> : null}Windows x64 · <Link href="/changelog">Что нового</Link>
+        </p>
+      </div>
+      <figure className={styles.heroShot}>
+        <Image src="/landing/companion-chat.webp" alt="Окно Prereborn Companion: Twitch-чат и панель управления озвучкой" width={1920} height={1200} priority sizes="(max-width: 1280px) 100vw, 1200px" />
+      </figure>
+    </section>
+
+    <UsageStats />
+
+    <section id="features" className={styles.section} aria-labelledby="features-title">
+      <div className={styles.heading}>
+        <h2 id="features-title">Что умеет Companion</h2>
+        <p>Основное — в самом приложении. Всё, что связано с конкретной игрой, — в плагинах.</p>
+      </div>
+      <div className={styles.features}>
+        {features.map(([title, text]) => (
+          <article key={title} className={styles.feature}>
+            <h3>{title}</h3>
+            <p>{text}</p>
+          </article>
+        ))}
+      </div>
+      <div className={styles.shots}>
+        <figure>
+          <Image src="/landing/companion-speech.webp" alt="Раздел «Озвучка»: устройство вывода, голос и словарь произношений" width={1920} height={1200} sizes="(max-width: 900px) 100vw, 600px" />
+          <figcaption>Озвучка: голос, громкость и словарь произношений</figcaption>
+        </figure>
+        <figure>
+          <Image src="/landing/companion-settings.webp" alt="Раздел «Настройки»: аккаунт, интеграции и клипы Twitch" width={1920} height={1200} sizes="(max-width: 900px) 100vw, 600px" />
+          <figcaption>Настройки: интеграции и клипы Twitch</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="plugins" className={styles.section} aria-labelledby="plugins-title">
+      <div className={styles.heading}>
+        <h2 id="plugins-title">Игровые плагины</h2>
+        <p>Список берётся из официального каталога — того же, из которого плагины устанавливает Companion. Установка: Companion → «Плагины».</p>
+      </div>
+      {catalog.ok && catalog.plugins.length ? (
+        <ul className={styles.plugins}>
+          {catalog.plugins.map((plugin) => <PluginCard key={plugin.id} plugin={plugin} />)}
+        </ul>
+      ) : (
+        <p className={styles.notice} role="status">
+          {catalog.ok ? "В каталоге пока нет плагинов." : "Не удалось загрузить каталог плагинов. Актуальный список всегда есть в Companion, в разделе «Плагины»."}
+        </p>
+      )}
+    </section>
+
+    <section id="start" className={styles.section} aria-labelledby="start-title">
+      <div className={styles.heading}>
+        <h2 id="start-title">Как начать</h2>
+      </div>
+      <ol className={styles.steps}>
+        {steps.map(([title, text], index) => (
+          <li key={title}>
+            <span className={styles.stepNumber} aria-hidden="true">{index + 1}</span>
+            <h3>{title}</h3>
+            <p>{text}</p>
+          </li>
+        ))}
+      </ol>
+    </section>
+
+    {highlight ? (
+      <section className={styles.section} aria-labelledby="update-title">
+        <div className={styles.headingRow}>
+          <h2 id="update-title">Последнее обновление</h2>
+          <Link className={styles.more} href="/changelog">Вся история обновлений →</Link>
+        </div>
+        <ChangelogCard item={highlight} headingLevel={3} />
+      </section>
+    ) : null}
+
+    <section className={styles.final} aria-labelledby="final-title">
+      <h2 id="final-title">Попробуйте Companion на своём эфире</h2>
+      <p>Последняя стабильная версия для Windows. Следующие обновления придут прямо в приложение.</p>
+      <div className={styles.actions}>
+        <DownloadButton />
+        <Link className={styles.secondary} href="/stream/login">Уже есть аккаунт — войти</Link>
+      </div>
+    </section>
+  </PublicShell>
+);
