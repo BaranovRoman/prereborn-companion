@@ -162,11 +162,48 @@ export const resolveSpokenUsername = (
   overrides[username.trim().toLowerCase()] ??
   normalizeUsernameForSpeech(username);
 
-// Matches runs of "ха"/"ах"/"хи" syllables (3+ repeats, the shape of
-// Cyrillic laughter) and Latin "ha"/"he" laughter, case-insensitively.
-// Deliberately does NOT match "гг"/"ггг" ("good game") - a distinct Dota
-// chat convention, not laughter.
-const LAUGHTER_PATTERN = /(?:ха|ах|хи|hah?a?|he)(?:[\s,]*(?:ха|ах|хи|hah?a?|he)){2,}/giu;
+// WK-184 - laughter is matched as a whole word made only of laughter
+// syllables ("ахаха", "ХАХАХАХ", "ахааахах", "хихихи", "ahahah"), never as a
+// fragment inside another word - the old syllable-run pattern turned
+// "рахахаха" into "рха-хаа" and skipped the short "ахаха"/"ахах". It takes
+// two "х" runs after an opening "а" ("ахах"), otherwise two full syllables
+// ("хаха"), so the interjections "ах", "аха", "ха", "хах", "хех" stay as
+// they are. The spoken form keeps the opening "а" and at most three
+// syllables: Silero reads "аха-ха-ха" as laughter, while a raw 12-letter run
+// comes out as a mumbled string of syllables. "гг" ("good game") is a Dota
+// chat convention, not laughter, and is not matched.
+const LAUGHTER_WORDS: { pattern: RegExp; syllable: string; run: RegExp; full: RegExp }[] = [
+  { pattern: /(?<![\p{L}\p{N}])а*(?:х+а+)+х*(?![\p{L}\p{N}])/giu, syllable: "ха", run: /х+/giu, full: /х+а+/giu },
+  { pattern: /(?<![\p{L}\p{N}])a*(?:h+a+)+h*(?![\p{L}\p{N}])/giu, syllable: "ха", run: /h+/giu, full: /h+a+/giu },
+  { pattern: /(?<![\p{L}\p{N}])(?:х+и+)+х*(?![\p{L}\p{N}])/giu, syllable: "хи", run: /х+/giu, full: /х+и+/giu },
+  { pattern: /(?<![\p{L}\p{N}])(?:х+е+)+х*(?![\p{L}\p{N}])/giu, syllable: "хе", run: /х+/giu, full: /х+е+/giu },
+];
+const MAX_LAUGHTER_SYLLABLES = 3;
+const speakLaughter = (text: string): string =>
+  LAUGHTER_WORDS.reduce((current, { pattern, syllable, run, full }) => current.replace(pattern, (word) => {
+    const opensWithVowel = /^[аa]/iu.test(word);
+    const syllables = word.match(run)?.length ?? 0;
+    if (syllables < 2 || (!opensWithVowel && (word.match(full)?.length ?? 0) < 2)) return word;
+    const spoken = Array(Math.min(syllables, MAX_LAUGHTER_SYLLABLES)).fill(syllable).join("-");
+    return opensWithVowel ? `а${spoken}` : spoken;
+  }), text);
+
+// WK-184 - "+" must be rewritten, not passed through: it is in Silero's
+// symbol whitelist as the STRESS marker (checked on the real v5_5_ru model:
+// "+двадцать пять" synthesizes exactly like "двадцать пять", and "два + два"
+// like "два два" with a pause), so "+25" and "2 + 2" lost the plus silently.
+// A "+" between two Cyrillic letters is left alone - that is the stress mark
+// itself ("з+амок"), e.g. inside a user's own pronunciation. A run ("+++")
+// is read once.
+const PLUS_RUN = /\++/gu;
+const CYRILLIC_LETTER = /[а-яё]/iu;
+const speakPlus = (text: string): string =>
+  text.replace(PLUS_RUN, (run, offset: number) => {
+    const before = text[offset - 1] ?? "";
+    const after = text[offset + run.length] ?? "";
+    if (run.length === 1 && CYRILLIC_LETTER.test(before) && CYRILLIC_LETTER.test(after)) return run;
+    return " плюс ";
+  });
 // Any run of 2+ punctuation marks from this set: a uniform run ("!!!",
 // "...") collapses to one mark, a mixed run ("?!?!", "!?!") collapses to
 // its first two marks so a genuine "?!" survives.
@@ -339,10 +376,11 @@ const normalizeCodeLikeToken = (token: string): string =>
     .map((piece) => (/^\d+$/.test(piece) ? numberToRussianWords(piece) : speakLatinPiece(piece)))
     .join(" ");
 
+// Laughter runs before MIXED_TOKEN, which would otherwise spell "HAHA" out
+// letter by letter as an acronym; "+" runs before it so "+25" keeps its
+// number intact for the cardinal conversion.
 export const normalizeMessageForSpeech = (text: string): string =>
-  text
-    .replace(EMOJI_PATTERN, " ")
-    .replace(LAUGHTER_PATTERN, "ха-ха")
+  speakPlus(speakLaughter(text.replace(EMOJI_PATTERN, " ")))
     .replace(MIXED_TOKEN, normalizeCodeLikeToken)
     .replace(EXCESSIVE_PUNCTUATION, (run) => (/^(.)\1*$/.test(run) ? run[0] : run.slice(0, 2)))
     .replace(/(.)\1{2,}/gu, "$1$1")

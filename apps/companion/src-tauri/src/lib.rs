@@ -153,6 +153,8 @@ pub fn run(){
  core::plugin_manager::plugins_install,
  core::plugin_manager::plugins_cancel,
  core::plugin_manager::plugins_action,
+ core::plugin_manager::plugins_set_autostart,
+ core::plugin_manager::plugins_autostart,
  core::plugin_manager::plugins_command,
  core::plugin_audio::plugin_audio_ack,
  core::plugin_audio::plugin_audio_fence_ack

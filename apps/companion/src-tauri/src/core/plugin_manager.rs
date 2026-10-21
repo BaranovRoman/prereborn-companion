@@ -29,6 +29,9 @@ pub struct PluginManager {
     service: Arc<Mutex<Result<Service, String>>>,
     transfer: Arc<Mutex<Transfer>>, cancel: Arc<AtomicBool>, busy: Arc<AtomicBool>,
     shutting_down: Arc<AtomicBool>,
+    /// Startup autostart runs once per process: a WebView reload must not
+    /// restart a plugin the user disabled by hand in this session.
+    autostarted: Arc<AtomicBool>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,6 +57,17 @@ impl Service {
         self.manifests.insert(id.to_string(), manifest); self.errors.remove(id);
         Ok(())
     }
+    /// The manual "enable" path. Autostart reuses it unchanged, so it passes
+    /// the same recovery, fencing and preparation gates and grants nothing
+    /// the manifest and the user's existing settings do not already allow.
+    fn enable(&mut self, id: &str) -> Result<(), String> {
+        if self.manifests.get(id).is_some_and(|m|m.execution==packages::ExecutionMode::Live){self.enable_worker(id)} else { self.store.enable(id, true).and_then(|_| self.start(id)) }
+    }
+    /// Already doing its job: an activated worker or a running replay child.
+    fn active(&self, id: &str) -> bool {
+        if self.manifests.get(id).is_some_and(|m|m.execution==packages::ExecutionMode::Live){return self.workers.get(id).is_some_and(|w|w.is_active());}
+        self.running(id)
+    }
     fn stop(&mut self, id: &str) -> Result<(), String> {
         if self.workers.contains_key(id){return self.stop_worker(id);}
         if let Some((_,audio))=&self.native{if audio.process(id)?.is_some_and(|p|p.phase!=super::plugin_audio::store::ProcessPhase::Stopped){return Err("previous_process_stop_unproven".into());}}
@@ -69,7 +83,7 @@ impl Service {
 impl PluginManager {
     pub(crate) fn stopping(&self)->bool{self.shutting_down.load(Ordering::SeqCst)}
     fn unavailable(error: String) -> Self {
-        Self { service: Arc::new(Mutex::new(Err(error))), transfer: Arc::new(Mutex::new(Transfer::default())), cancel: Arc::new(AtomicBool::new(false)), busy: Arc::new(AtomicBool::new(false)), shutting_down: Arc::new(AtomicBool::new(false)) }
+        Self { service: Arc::new(Mutex::new(Err(error))), transfer: Arc::new(Mutex::new(Transfer::default())), cancel: Arc::new(AtomicBool::new(false)), busy: Arc::new(AtomicBool::new(false)), shutting_down: Arc::new(AtomicBool::new(false)), autostarted: Arc::new(AtomicBool::new(false)) }
     }
     pub fn open(root: PathBuf) -> Self {
         let service = (|| {
@@ -90,7 +104,7 @@ impl PluginManager {
             }
             Ok(service)
         })();
-        Self { service: Arc::new(Mutex::new(service)), transfer: Arc::new(Mutex::new(Transfer::default())), cancel: Arc::new(AtomicBool::new(false)), busy: Arc::new(AtomicBool::new(false)), shutting_down: Arc::new(AtomicBool::new(false)) }
+        Self { service: Arc::new(Mutex::new(service)), transfer: Arc::new(Mutex::new(Transfer::default())), cancel: Arc::new(AtomicBool::new(false)), busy: Arc::new(AtomicBool::new(false)), shutting_down: Arc::new(AtomicBool::new(false)), autostarted: Arc::new(AtomicBool::new(false)) }
     }
     pub fn restore(&self) {
         if let Ok(mut guard) = self.service.lock() {
@@ -213,7 +227,7 @@ impl PluginManager {
             "open"=>service.open_worker(id),
             "recover"=>service.recover_worker(id),
             "start" => service.start(id), "stop" => service.stop(id),
-            "enable" => { if service.manifests.get(id).is_some_and(|m|m.execution==packages::ExecutionMode::Live){service.enable_worker(id)} else { service.store.enable(id, true).and_then(|_| service.start(id)) } },
+            "enable" => service.enable(id),
             "disable" => service.stop(id).and_then(|_|service.store.enable(id, false)),
             "remove" => service.stop(id).and_then(|_| service.store.remove(id)).map(|_| { service.hosts.remove(id); service.manifests.remove(id); }),
             "rollback" => { if service.running(id) { Err("stop_before_rollback".into()) } else { service.store.activate(id).and_then(|_| service.store.rollback(id)).map(|_| { if let Ok(m) = service.store.manifest(id, &service.store.installed()[id].active) { service.manifests.insert(id.to_string(), m); } }) } },
@@ -223,6 +237,61 @@ impl PluginManager {
         result
         })();
         self.finish(&result);result
+    }
+    /// Only the registry flag changes: no process, permission or OBS setting.
+    pub fn set_autostart(&self, id: &str, enabled: bool) -> Result<(), String> {
+        let mut guard = self.service.lock().map_err(|_| locked())?; let service = guard.as_mut().map_err(|e| e.clone())?;
+        service.store.set_autostart(id, enabled)
+    }
+    /// Starts every plugin with "start with Companion" on, once per process,
+    /// after the frontend can answer audio fences. An interrupted previous
+    /// session is recovered first through the normal gates; a plugin whose
+    /// recovery stays blocked fails its own start and keeps that reason.
+    pub fn autostart(&self) -> Vec<(String, Result<(), String>)> {
+        if self.autostarted.swap(true, Ordering::SeqCst) { return Vec::new(); }
+        self.recover_interrupted();
+        self.autostart_with(|service, id| service.enable(id))
+    }
+    fn autostart_with(&self, mut start: impl FnMut(&mut Service, &str) -> Result<(), String>) -> Vec<(String, Result<(), String>)> {
+        let ids: Vec<String> = match self.service.lock() {
+            Ok(guard) => match guard.as_ref() { Ok(service) => service.store.installed().into_iter().filter(|(_, p)| p.autostart).map(|(id, _)| id).collect(), Err(_) => return Vec::new() },
+            Err(_) => return Vec::new(),
+        };
+        let mut results = Vec::new();
+        // Sequential and isolated: one plugin's failure is recorded on that
+        // plugin and never blocks the next one or Companion itself.
+        for id in ids {
+            if self.shutting_down.load(Ordering::SeqCst) { break; }
+            let result = self.autostart_one(&id, &mut start);
+            if let Ok(guard) = self.service.lock() { if let Ok(service) = guard.as_ref() { if let Some((app, _)) = &service.native {
+                let line = match &result { Ok(()) => format!("[plugins] {id}: started with Companion."), Err(error) => format!("[plugins] {id}: autostart failed: {error}") };
+                crate::storage::append_rolling_log(app, &line);
+            } } }
+            results.push((id, result));
+        }
+        results
+    }
+    fn autostart_one(&self, id: &str, start: &mut impl FnMut(&mut Service, &str) -> Result<(), String>) -> Result<(), String> {
+        // The startup catalog refresh may hold the operation slot; wait for
+        // it instead of racing it, but never forever.
+        let deadline = std::time::Instant::now() + Duration::from_secs(120);
+        loop {
+            match self.begin(Some(id.into()), "autostart") {
+                Ok(()) => break,
+                Err(error) if error == "transfer_in_progress" && std::time::Instant::now() < deadline => std::thread::sleep(Duration::from_millis(250)),
+                Err(error) => return Err(error),
+            }
+        }
+        let result = (|| {
+            let mut guard = self.service.lock().map_err(|_| locked())?; let service = guard.as_mut().map_err(|e| e.clone())?;
+            if self.shutting_down.load(Ordering::SeqCst) { return Err("plugin_manager_stopping".into()); }
+            // Turned off or removed while waiting, or already running: nothing to do.
+            if !service.store.installed().get(id).is_some_and(|p| p.autostart) || service.active(id) { return Ok(()); }
+            let result = start(service, id);
+            match &result { Ok(_) => { service.errors.remove(id); }, Err(e) => { service.errors.insert(id.to_string(), e.clone()); } }
+            result
+        })();
+        self.finish(&result); result
     }
     pub fn command(&self, id: &str, name: String, args: Value, expected_version:Option<&str>) -> Result<Value, String> {
         self.ui_command(id,name,args,expected_version)
@@ -332,6 +401,19 @@ pub async fn plugins_action(app: tauri::AppHandle, id: String, action: String) -
     tauri::async_runtime::spawn_blocking(move || manager.action(&id, &action)).await.map_err(|e| e.to_string())?
 }
 #[tauri::command]
+pub async fn plugins_set_autostart(app: tauri::AppHandle, id: String, enabled: bool) -> Result<(), String> {
+    let manager = app.try_state::<PluginManager>().ok_or("plugin_manager_unavailable")?.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || manager.set_autostart(&id, enabled)).await.map_err(|e| e.to_string())?
+}
+/// Called by the frontend once its audio-fence listener is registered.
+/// Returns immediately; progress and per-plugin errors show in the view.
+#[tauri::command]
+pub fn plugins_autostart(app: tauri::AppHandle) -> Result<(), String> {
+    let manager = app.try_state::<PluginManager>().ok_or("plugin_manager_unavailable")?.inner().clone();
+    std::thread::spawn(move || { manager.autostart(); });
+    Ok(())
+}
+#[tauri::command]
 pub async fn plugins_command(app: tauri::AppHandle, id: String, name: String, args: Value,expected_version:Option<String>) -> Result<Value, String> {
     let manager = app.try_state::<PluginManager>().ok_or("plugin_manager_unavailable")?.inner().clone();
     tauri::async_runtime::spawn_blocking(move || manager.command(&id, name, args,expected_version.as_deref())).await.map_err(|e| e.to_string())?
@@ -340,7 +422,7 @@ pub async fn plugins_command(app: tauri::AppHandle, id: String, name: String, ar
 mod tests {
     use super::*;
     fn fixture_manager(root:PathBuf,key:&str)->PluginManager {
-        PluginManager{service:Arc::new(Mutex::new(Ok(Service{store:Store::open(root,key).unwrap(),catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None,workers:Default::default(),native:None,native_error:None,approved_links:Default::default()}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default()}
+        PluginManager{service:Arc::new(Mutex::new(Ok(Service{store:Store::open(root,key).unwrap(),catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None,workers:Default::default(),native:None,native_error:None,approved_links:Default::default()}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default(),autostarted:Default::default()}
     }
     #[test] fn cancel_does_not_wait_for_stalled_network_read() {
         let (tx, rx) = mpsc::sync_channel(2);
@@ -379,6 +461,89 @@ mod tests {
         assert!(manager.service.lock().unwrap().as_ref().unwrap().hosts.is_empty());
         assert!(manager.service.lock().unwrap().as_ref().unwrap().workers.is_empty());
     }
+    fn registry_manager(dir:&tempfile::TempDir,plugins:&str)->PluginManager{
+        let root=dir.path().join("plugins");std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("registry.json"),format!(r#"{{"schema":1,"plugins":{{{plugins}}}}}"#)).unwrap();
+        fixture_manager(root,TRUSTED_KEY)
+    }
+    const THREE:&str=r#""alpha":{"active":"0.1.0","previous":null,"pending":null,"enabled":false,"autostart":true},"beta":{"active":"0.2.0","previous":null,"pending":null,"enabled":false,"autostart":true},"gamma":{"active":"0.3.0","previous":null,"pending":null,"enabled":false}"#;
+    #[test] fn autostart_starts_every_opted_in_plugin_and_one_failure_does_not_block_the_rest(){
+        let dir=tempfile::tempdir().unwrap();let manager=registry_manager(&dir,THREE);
+        let mut calls=Vec::new();
+        let results=manager.autostart_with(|_,id|{calls.push(id.to_string());if id=="alpha"{Err("worker_activation_unconfirmed".into())}else{Ok(())}});
+        assert_eq!(calls,["alpha","beta"],"gamma never opted in");
+        assert_eq!(results[0],("alpha".into(),Err("worker_activation_unconfirmed".into())));
+        assert_eq!(results[1],("beta".into(),Ok(())));
+        let view=manager.view();
+        let row=|id:&str|view.installed.iter().find(|r|r.id==id).unwrap();
+        assert_eq!(row("alpha").error.as_deref(),Some("worker_activation_unconfirmed"));
+        assert!(row("beta").error.is_none());
+        assert!(row("alpha").installed.autostart,"a failed start keeps the user's choice");
+        assert!(!view.transfer.busy,"the operation slot is released after autostart");
+        assert!(manager.action("gamma","rollback").is_err()&&!manager.view().transfer.busy);
+    }
+    #[test] fn autostart_runs_once_per_process_through_the_real_enable_path(){
+        let dir=tempfile::tempdir().unwrap();let manager=registry_manager(&dir,THREE);
+        // No package files exist: the real start fails per plugin, never the app.
+        let first=manager.autostart();
+        assert_eq!(first.iter().map(|(id,_)|id.as_str()).collect::<Vec<_>>(),["alpha","beta"]);
+        assert!(first.iter().all(|(_,r)|r.is_err()));
+        assert!(manager.view().error.is_none());
+        assert!(manager.autostart().is_empty(),"a WebView reload must not start plugins again");
+    }
+    #[test] fn autostart_waits_for_the_startup_operation_and_respects_a_toggle_made_meanwhile(){
+        let dir=tempfile::tempdir().unwrap();let manager=registry_manager(&dir,THREE);
+        manager.begin(None,"catalog").unwrap();
+        let other=manager.clone();
+        let waiter=std::thread::spawn(move||{let mut calls=Vec::new();other.autostart_with(|_,id|{calls.push(id.to_string());Ok(())});calls});
+        std::thread::sleep(Duration::from_millis(400));
+        manager.set_autostart("alpha",false).unwrap();
+        manager.finish(&Ok(()));
+        assert_eq!(waiter.join().unwrap(),["beta"]);
+    }
+    #[test] fn toggling_autostart_changes_only_that_flag(){
+        let dir=tempfile::tempdir().unwrap();let manager=registry_manager(&dir,THREE);
+        let before=serde_json::to_value(manager.view().installed).unwrap();
+        manager.set_autostart("gamma",true).unwrap();manager.set_autostart("alpha",false).unwrap();
+        let mut after=serde_json::to_value(manager.view().installed).unwrap();
+        assert_eq!(after[2]["installed"]["autostart"],true);assert!(after[0]["installed"].get("autostart").is_none());
+        after[2]["installed"].as_object_mut().unwrap().remove("autostart");
+        let mut expected=before.clone();expected[0]["installed"].as_object_mut().unwrap().remove("autostart");
+        assert_eq!(after,expected,"enabled, versions, errors and runtime stay untouched");
+        {let guard=manager.service.lock().unwrap();let service=guard.as_ref().unwrap();
+        assert!(service.hosts.is_empty()&&service.workers.is_empty(),"no process is opened by the toggle");}
+        assert_eq!(manager.set_autostart("missing",true).unwrap_err(),"not_installed");
+        // Persisted with the registry, so it survives a restart.
+        drop(manager);let reopened=fixture_manager(dir.path().join("plugins"),TRUSTED_KEY);
+        assert!(reopened.view().installed.iter().find(|r|r.id=="gamma").unwrap().installed.autostart);
+    }
+    #[test] fn autostart_starts_a_real_signed_plugin_once_and_never_a_second_instance(){
+        // Runs where the official signed Hello package was prepared locally
+        // (plugins/tools/package.py); the orchestration tests above run everywhere.
+        let package=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../plugins/packages/hello-0.1.0-macos-aarch64.zip");
+        if std::env::consts::OS!="macos"||std::env::consts::ARCH!="aarch64"||!package.is_file(){return;}
+        let dir=tempfile::tempdir().unwrap();let root=dir.path().join("plugins");
+        let manager=PluginManager::open(root.clone());
+        manager.install("hello","0.1.0",Some(package)).unwrap();
+        manager.action("hello","disable").unwrap();manager.set_autostart("hello",true).unwrap();
+        manager.shutdown();drop(manager);
+        // Next launch: the registry restore leaves a disabled plugin stopped; autostart starts it.
+        let manager=PluginManager::open(root.clone());manager.restore();
+        assert!(manager.view().installed[0].runtime.is_none());
+        assert_eq!(manager.autostart(),vec![("hello".to_string(),Ok(()))]);
+        assert_eq!(manager.view().installed[0].runtime.as_ref().unwrap().phase,Phase::Running);
+        assert_eq!(manager.command("hello","greet".into(),serde_json::json!({"text":"autostart"}),None).unwrap()["text"],"Hello, autostart!");
+        let mut calls=0;assert_eq!(manager.autostart_with(|_,_|{calls+=1;Ok(())}),vec![("hello".to_string(),Ok(()))]);
+        assert_eq!(calls,0,"an already running plugin is not started again");
+        assert_eq!(manager.action("hello","start").unwrap_err(),"already_running");
+        // Manual disable stops it for this session and keeps the setting.
+        manager.action("hello","disable").unwrap();
+        let row=&manager.view().installed[0];
+        assert!(row.installed.autostart&&!row.installed.enabled);
+        assert_ne!(row.runtime.as_ref().unwrap().phase,Phase::Running);
+        manager.action("hello","remove").unwrap();manager.shutdown();drop(manager);
+        assert!(PluginManager::open(root).view().installed.is_empty(),"removal drops the setting with the plugin");
+    }
     #[test]
     #[ignore = "requires the locally prepared official signed Hello package; run explicitly after packaging"]
     fn signed_hello_lifecycle_restores_without_touching_core() {
@@ -415,5 +580,5 @@ mod tests {
 #[cfg(test)]
 pub(crate) fn fixture_installed(root:PathBuf,key:&str,release:&Release,bytes:&[u8])->PluginManager {
     let mut store=Store::open(root,key).unwrap();store.install(bytes,release,false,&AtomicBool::new(false)).unwrap();
-    PluginManager{service:Arc::new(Mutex::new(Ok(Service{store,catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None,workers:Default::default(),native:None,native_error:None,approved_links:Default::default()}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default()}
+    PluginManager{service:Arc::new(Mutex::new(Ok(Service{store,catalog:Catalog{schema:1,releases:vec![]},hosts:Default::default(),manifests:Default::default(),errors:Default::default(),catalog_error:None,workers:Default::default(),native:None,native_error:None,approved_links:Default::default()}))),transfer:Default::default(),cancel:Default::default(),busy:Default::default(),shutting_down:Default::default(),autostarted:Default::default()}
 }

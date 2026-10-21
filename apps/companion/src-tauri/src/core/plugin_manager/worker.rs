@@ -15,6 +15,7 @@ impl ProcessGrant for Pin{
 }
 #[derive(Clone)]
 pub(super) struct WorkerProcess{ui_backend:Arc<Mutex<()>>,obs_querying:Arc<AtomicBool>,backend_io:Arc<Mutex<super::super::backend_transport::PendingRequest>>,pin:Pin,binding:ProcessBinding,epoch:u64,root:PathBuf,active:bool,polling:Arc<AtomicBool>,effect_context:Arc<Mutex<Option<Option<String>>>>,scene_receipt:Arc<Mutex<Option<companion_plugin_protocol::obs::SceneReceipt>>>,scene_observation:Arc<Mutex<Option<companion_plugin_protocol::obs::SceneObservation>>>}
+impl WorkerProcess{pub(super) fn is_active(&self)->bool{self.active}}
 struct Task{worker:WorkerProcess,host:PluginHost,app:tauri::AppHandle,audio:Arc<HostAudio>}
 struct PollGuard(Arc<AtomicBool>);
 impl Drop for PollGuard{fn drop(&mut self){self.0.store(false,Ordering::SeqCst);}}

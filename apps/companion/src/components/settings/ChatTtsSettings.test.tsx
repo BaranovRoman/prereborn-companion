@@ -16,6 +16,7 @@ function buildSession(overrides: Partial<TwitchChatSession> = {}): TwitchChatSes
     previewBusy: false,
     previewError: null,
     previewSileroVoice: vi.fn(),
+    previewSpeech: vi.fn(),
     updateSetting: vi.fn(),
     stopTts: vi.fn(),
     isSpeaking: () => false,

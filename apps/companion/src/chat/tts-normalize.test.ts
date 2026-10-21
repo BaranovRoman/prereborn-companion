@@ -174,8 +174,60 @@ describe("normalizeMessageForSpeech", () => {
   });
 
   it("shortens long laughter", () => {
-    expect(normalizeMessageForSpeech("хахахахахаха ну ты даёшь")).toBe("ха-ха ну ты даёшь");
-    expect(normalizeMessageForSpeech("ахахах ахах ахах")).toBe("ха-ха");
+    expect(normalizeMessageForSpeech("хахахахахаха ну ты даёшь")).toBe("ха-ха-ха ну ты даёшь");
+    expect(normalizeMessageForSpeech("ахахах ахах ахах")).toBe("аха-ха-ха аха-ха аха-ха");
+  });
+
+  // WK-184
+  describe("laughter", () => {
+    it.each([
+      ["ахаха", "аха-ха"],
+      ["ахах", "аха-ха"],
+      ["ахахахах", "аха-ха-ха"],
+      ["ахахахахахах", "аха-ха-ха"],
+      ["АХАХАХА", "аха-ха-ха"],
+      ["ахааааахаха", "аха-ха-ха"],
+      ["хаха", "ха-ха"],
+      ["хахаха", "ха-ха-ха"],
+      ["ХаХаХаХаХаХаХа", "ха-ха-ха"],
+      ["хихихи", "хи-хи-хи"],
+      ["хехе", "хе-хе"],
+      ["hahaha", "ха-ха-ха"],
+      ["AHAHAHA", "аха-ха-ха"],
+    ])("speaks %s as %s", (input, spoken) => {
+      expect(normalizeMessageForSpeech(input)).toBe(spoken);
+    });
+
+    it("keeps the rest of the message and the laughter itself", () => {
+      expect(normalizeMessageForSpeech("ахахахахахах ну ты и тащер, ахаха!")).toBe("аха-ха-ха ну ты и тащер, аха-ха!");
+      expect(normalizeMessageForSpeech("ну ахахах")).toBe("ну аха-ха-ха");
+    });
+
+    it.each(["рахахаха", "махаха", "хахатушки", "захохотал", "приехал", "хохма", "аха", "ах", "ха", "хах", "хех?", "ах ах ах", "ха-ха", "ахха"])(
+      "leaves %s alone (not a laughter word, or already readable)",
+      (input) => expect(normalizeMessageForSpeech(input)).toBe(input),
+    );
+  });
+
+  describe("plus sign", () => {
+    it("reads + before a number and between operands", () => {
+      expect(normalizeMessageForSpeech("+25")).toBe("плюс двадцать пять");
+      expect(normalizeMessageForSpeech("+25 ммр")).toBe("плюс двадцать пять ммр");
+      expect(normalizeMessageForSpeech("2 + 2")).toBe("два плюс два");
+      expect(normalizeMessageForSpeech("2+2")).toBe("два плюс два");
+      expect(normalizeMessageForSpeech("+")).toBe("плюс");
+      expect(normalizeMessageForSpeech("+++ согласен")).toBe("плюс согласен");
+      expect(normalizeMessageForSpeech("ставлю + в чат")).toBe("ставлю плюс в чат");
+    });
+
+    it("keeps Silero's stress mark between Cyrillic letters", () => {
+      expect(normalizeMessageForSpeech("з+амок")).toBe("з+амок");
+    });
+
+    it("does not disturb other numbers or punctuation", () => {
+      expect(normalizeMessageForSpeech("25 минут, ок?")).toBe("двадцать пять минут, ок?");
+      expect(normalizeMessageForSpeech("-25")).toBe("-двадцать пять");
+    });
   });
 
   it("does not touch gg/well-played shorthand (not laughter)", () => {

@@ -50,6 +50,12 @@ pub struct Installed {
     pub active: String, pub previous: Option<String>, pub pending: Option<String>, pub enabled: bool,
     #[serde(default)]
     pub last_error: Option<String>,
+    /// "Start with Companion". Independent of `enabled` (a manual disable
+    /// keeps it) and of every plugin permission. Absent means off, and an off
+    /// value is never written, so registries without opt-in stay byte-for-byte
+    /// readable by Companion versions that predate the field.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub autostart: bool,
 }
 impl Catalog {
     /// Keep the signed catalog intact; offer one compatible version per id.
@@ -404,6 +410,11 @@ impl Store {
     }
     pub fn enable(&mut self, id: &str, enabled: bool) -> Result<()> {
         self.transaction(|registry| { registry.plugins.get_mut(id).ok_or("not_installed")?.enabled = enabled; Ok(()) })
+    }
+    /// Stored with the plugin's registry entry, so `remove` drops it and a
+    /// reinstall starts with autostart off again.
+    pub fn set_autostart(&mut self, id: &str, autostart: bool) -> Result<()> {
+        self.transaction(|registry| { registry.plugins.get_mut(id).ok_or("not_installed")?.autostart = autostart; Ok(()) })
     }
     pub fn remove(&mut self, id: &str) -> Result<()> {
         valid_id(id)?;

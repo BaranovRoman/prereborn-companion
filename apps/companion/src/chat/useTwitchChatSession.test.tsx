@@ -288,6 +288,63 @@ describe("useTwitchChatSession", () => {
     });
   });
 
+  // WK-184
+  describe("pronunciation dictionary and speech preview", () => {
+    // These tests change the engine/voice/rules; later describes must not inherit them.
+    let saved: string | null = null;
+    beforeEach(() => { saved = localStorage.getItem("companion-twitch-chat-settings-v1"); });
+    afterEach(() => {
+      cleanup();
+      if (saved === null) localStorage.removeItem("companion-twitch-chat-settings-v1");
+      else localStorage.setItem("companion-twitch-chat-settings-v1", saved);
+    });
+    it("keeps dictionary rules across app restarts and drops corrupted ones", async () => {
+      const rule = { id: "r1", source: "кек", spoken: "кэк", enabled: true, scope: { kind: "user", login: "roma", userId: "7" } };
+      let session: TwitchChatSession | undefined;
+      const first = render(<Harness showChat={false} onSession={(s) => { session = s; }} />);
+      await waitFor(() => expect(session).toBeDefined());
+      session!.updateSetting("pronunciationRules", [rule as never]);
+      await waitFor(() => expect(JSON.parse(localStorage.getItem("companion-twitch-chat-settings-v1")!).pronunciationRules).toEqual([rule]));
+      first.unmount();
+      const stored = JSON.parse(localStorage.getItem("companion-twitch-chat-settings-v1")!);
+      localStorage.setItem("companion-twitch-chat-settings-v1", JSON.stringify({ ...stored, pronunciationRules: [...stored.pronunciationRules, { id: 5 }, "junk"] }));
+      session = undefined;
+      render(<Harness showChat={false} onSession={(s) => { session = s; }} />);
+      await waitFor(() => expect(session).toBeDefined());
+      expect(session!.settings.pronunciationRules).toEqual([rule]);
+    });
+
+    it("plays preview text through Silero with the selected voice", async () => {
+      vi.spyOn(window.HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+      vi.mocked(synthesizeSileroTts).mockReset().mockResolvedValue(btoa("bytes"));
+      let session: TwitchChatSession | undefined;
+      render(<Harness showChat={false} onSession={(s) => { session = s; }} />);
+      await waitFor(() => expect(session).toBeDefined());
+      session!.updateSetting("sileroVoice", "baya");
+      await waitFor(() => expect(session!.settings.sileroVoice).toBe("baya"));
+      session!.previewSpeech("хэзэ плюс двадцать пять");
+      await waitFor(() => expect(synthesizeSileroTts).toHaveBeenCalledWith("хэзэ плюс двадцать пять", "baya"));
+    });
+
+    it("plays preview text through the system voice when it is selected", async () => {
+      const speak = vi.fn();
+      class Utterance { lang = ""; volume = 1; onend: (() => void) | null = null; onerror: (() => void) | null = null; constructor(public text: string) {} }
+      vi.stubGlobal("SpeechSynthesisUtterance", Utterance);
+      Object.defineProperty(window, "speechSynthesis", { configurable: true, value: { speak, cancel: vi.fn() } });
+      vi.mocked(synthesizeSileroTts).mockReset();
+      let session: TwitchChatSession | undefined;
+      render(<Harness showChat={false} onSession={(s) => { session = s; }} />);
+      await waitFor(() => expect(session).toBeDefined());
+      session!.updateSetting("ttsEngine", "system");
+      await waitFor(() => expect(session!.settings.ttsEngine).toBe("system"));
+      session!.previewSpeech("два плюс два");
+      expect(speak).toHaveBeenCalledTimes(1);
+      expect(speak.mock.calls[0][0]).toMatchObject({ text: "два плюс два", lang: "ru-RU" });
+      expect(synthesizeSileroTts).not.toHaveBeenCalled();
+      vi.unstubAllGlobals();
+    });
+  });
+
   // WK-83 - global "skip current TTS" hotkey (src-tauri/src/hotkeys.rs).
   describe("skipTts", () => {
     const enableSilero = async (getSession: () => TwitchChatSession) => {
