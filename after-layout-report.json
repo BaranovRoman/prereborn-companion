@@ -1,0 +1,132 @@
+[
+  {
+    "shot": "empty-1920x1080-overview",
+    "scrollers": [],
+    "horizontal": false
+  },
+  {
+    "shot": "empty-1920x1080-chat",
+    "scrollers": [],
+    "horizontal": false
+  },
+  {
+    "shot": "empty-1920x1080-speech",
+    "scrollers": [],
+    "horizontal": false
+  },
+  {
+    "shot": "empty-1920x1080-obs",
+    "scrollers": [],
+    "horizontal": false
+  },
+  {
+    "shot": "empty-1920x1080-plugins",
+    "scrollers": [],
+    "horizontal": false
+  },
+  {
+    "shot": "empty-1920x1080-settings",
+    "scrollers": [
+      "companion-main"
+    ],
+    "horizontal": false
+  },
+  {
+    "shot": "errors-1920x1080-overview",
+    "scrollers": [],
+    "horizontal": false
+  },
+  {
+    "shot": "errors-1920x1080-chat",
+    "scrollers": [
+      "chat-messages"
+    ],
+    "horizontal": false
+  },
+  {
+    "shot": "errors-1920x1080-speech",
+    "scrollers": [],
+    "horizontal": false
+  },
+  {
+    "shot": "errors-1920x1080-obs",
+    "scrollers": [],
+    "horizontal": false
+  },
+  {
+    "shot": "errors-1920x1080-plugins",
+    "scrollers": [],
+    "horizontal": false
+  },
+  {
+    "shot": "errors-1920x1080-dota-heroes",
+    "scrollers": [],
+    "horizontal": false,
+    "plugin": {
+      "scrollers": [
+        "document"
+      ],
+      "horizontal": false
+    }
+  },
+  {
+    "shot": "errors-1920x1080-dota-items",
+    "scrollers": [],
+    "horizontal": false,
+    "plugin": {
+      "scrollers": [
+        "document"
+      ],
+      "horizontal": false
+    }
+  },
+  {
+    "shot": "errors-1920x1080-dota-history",
+    "scrollers": [],
+    "horizontal": false,
+    "plugin": {
+      "scrollers": [
+        "document"
+      ],
+      "horizontal": false
+    }
+  },
+  {
+    "shot": "errors-1920x1080-dota-obs",
+    "scrollers": [],
+    "horizontal": false,
+    "plugin": {
+      "scrollers": [],
+      "horizontal": false
+    }
+  },
+  {
+    "shot": "errors-1920x1080-dota-overlay",
+    "scrollers": [],
+    "horizontal": false,
+    "plugin": {
+      "scrollers": [
+        "document"
+      ],
+      "horizontal": false
+    }
+  },
+  {
+    "shot": "errors-1920x1080-dota-settings",
+    "scrollers": [],
+    "horizontal": false,
+    "plugin": {
+      "scrollers": [
+        "ui-code"
+      ],
+      "horizontal": false
+    }
+  },
+  {
+    "shot": "errors-1920x1080-settings",
+    "scrollers": [
+      "companion-main"
+    ],
+    "horizontal": false
+  }
+]
