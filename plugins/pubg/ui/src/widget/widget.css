@@ -1,0 +1,26 @@
+/* OBS widget (and its preview in the plugin UI). Sizes are in em so the
+   scale setting resizes the whole table without layout jumps. */
+.pubg-widget {
+  --pubg-widget-scale: 1;
+  --pubg-widget-bg: .7;
+  font: 600 calc(16px * var(--pubg-widget-scale))/1.25 "Inter", "Segoe UI", system-ui, sans-serif;
+  color: #f2f4f7;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: rgba(12, 14, 18, var(--pubg-widget-bg));
+  border-radius: .5em;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .65);
+}
+.pubg-widget th, .pubg-widget td { padding: .32em .75em; text-align: right; white-space: nowrap; }
+.pubg-widget th:first-child, .pubg-widget td:first-child { text-align: left; }
+.pubg-widget th {
+  font-size: .68em; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  /* 1.1em of the smaller header font = the body cells' .75em edge. */
+  color: rgba(242, 244, 247, .62); padding: 1em 1.1em .5em;
+}
+.pubg-widget tbody tr + tr td { border-top: 1px solid rgba(255, 255, 255, .08); }
+.pubg-widget__map { min-width: 6.5em; font-weight: 500; }
+.pubg-widget__place--win { color: #f5c542; }
+.pubg-widget__place--top { color: #8fd694; }

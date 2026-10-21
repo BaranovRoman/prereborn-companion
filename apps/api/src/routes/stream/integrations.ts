@@ -12,6 +12,7 @@ import {
     getOpenDotaHeroStatsController,
     getOpenDotaProfileRadarController,
 } from "../../controllers/stream/opendota.js";
+import { getPubgMatchesController } from "../../controllers/stream/pubg.js";
 import { authenticateStreamUser } from "../../middleware/stream-auth.js";
 import { steamCallbackRateLimiter } from "../../middleware/rate-limit.js";
 import {
@@ -86,6 +87,10 @@ streamIntegrationsRouter.get(
     authenticateStreamUser,
     getOpenDotaFavoriteHeroesController
 );
+
+// WK-183 - the installed PUBG plugin's match history (signed manifest
+// resource "matches"); the PUBG API key never leaves the backend.
+streamIntegrationsRouter.get("/pubg/matches", authenticateStreamUser, getPubgMatchesController);
 
 streamIntegrationsRouter.get("/twitch", authenticateStreamUser, getTwitchStatusController);
 streamIntegrationsRouter.get("/twitch/connect", authenticateStreamUser, connectTwitchController);

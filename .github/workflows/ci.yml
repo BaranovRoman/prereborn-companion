@@ -43,3 +43,26 @@ jobs:
       - run: pnpm --filter @prereborn/companion test
       - run: pnpm --filter @prereborn/web exec playwright install --with-deps chromium
       - run: pnpm --filter @prereborn/web test:e2e
+
+  # WK-183 - the PUBG plugin package: worker (unit, manifest, real-process
+  # IPC), the manager's install defaults, packaging tool and UI/widget. The
+  # Windows release build of the same crate runs in windows-release.yml.
+  pubg-plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: plugins
+      - run: cargo test --locked --manifest-path plugins/Cargo.toml -p companion-pubg-plugin
+      - run: cargo test --locked --manifest-path plugins/Cargo.toml -p companion-plugin-manager --lib
+      - run: python3 -m unittest discover -s plugins/tools/tests
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @prereborn/pubg-ui test
+      - run: pnpm --filter @prereborn/pubg-ui build

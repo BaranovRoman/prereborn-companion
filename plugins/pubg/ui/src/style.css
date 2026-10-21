@@ -1,0 +1,51 @@
+/* PUBG package UI (WK-183). Tokens and controls come from Companion's
+   ui.css, compiled into this bundle; only PUBG layout lives here. Same
+   frame as the Dota package: sticky tab bar, one document scroll. */
+:root { --pubg-bar-h: 56px; font-family: var(--font-sans); font-size: var(--fs-md); line-height: 1.5; color: var(--ui-text); background: var(--ui-void); -webkit-font-smoothing: antialiased; }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--ui-void); overflow-x: hidden; }
+button, input, select, textarea { font: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h2, h3, p { margin: 0; }
+h2 { font-size: var(--fs-xl); font-weight: 600; line-height: 1.3; }
+
+.pubg { display: flex; flex-direction: column; gap: var(--space-4); min-height: 100vh; padding: 0 2px var(--space-8); }
+.pubg-bar { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-4); min-height: var(--pubg-bar-h); padding: var(--space-3) 0; background: var(--ui-void); border-bottom: 1px solid var(--ui-edge-soft); }
+.pubg-bar__status { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--ui-text-soft); font-size: var(--fs-sm); }
+.pubg-bar__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ui-text-muted); flex-shrink: 0; }
+.pubg-bar__status--success .pubg-bar__dot { background: var(--success); }
+.pubg-bar__status--warning .pubg-bar__dot { background: var(--warning); }
+.pubg-bar__status--danger { color: var(--danger); }
+.pubg-bar__status--danger .pubg-bar__dot { background: var(--danger); }
+.pubg-alerts { display: grid; gap: var(--space-2); }
+.pubg-alerts:empty { display: none; }
+.pubg-loading, .pubg-hint { color: var(--ui-text-muted); font-size: var(--fs-sm); }
+
+.pubg-view { display: grid; gap: var(--space-4); min-width: 0; }
+.pubg-view__header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-3) var(--space-4); }
+.pubg-view__header p { margin-top: 4px; color: var(--ui-text-soft); font-size: var(--fs-sm); }
+.pubg-columns { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: var(--space-4); align-items: start; }
+
+/* Matches: compact rows like the Dota history, no cards. */
+.pubg-matches { display: grid; border: 1px solid var(--ui-edge-soft); border-radius: var(--radius); background: var(--ui-panel); }
+.pubg-match { display: grid; grid-template-columns: minmax(120px, 220px) 80px 96px 88px minmax(140px, 240px) 128px minmax(84px, 1fr); align-items: center; gap: var(--space-3); min-height: 40px; padding: 6px var(--space-4); border-bottom: 1px solid var(--ui-edge-soft); }
+.pubg-match:last-child { border-bottom: 0; }
+.pubg-match--head { min-height: 34px; color: var(--ui-text-muted); font-size: var(--fs-xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.pubg-match strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.pubg-match > span, .pubg-match time { color: var(--ui-text-soft); font-size: var(--fs-sm); white-space: nowrap; }
+.pubg-match > .pubg-match__num, .pubg-match > .pubg-match__place { color: var(--ui-text); font-variant-numeric: tabular-nums; }
+.pubg-match > .pubg-match__place--win { color: var(--warning); font-weight: 600; }
+.pubg-match > .pubg-match__place--top { color: var(--success); }
+.pubg-match > :last-child { justify-self: end; }
+@media (max-width: 760px) {
+  .pubg-match { grid-template-columns: minmax(0, 1fr) 64px 72px 72px 84px; }
+  .pubg-match > .pubg-match__mode, .pubg-match time { display: none; }
+}
+
+.pubg-player { display: grid; gap: var(--space-3); max-width: 420px; }
+.pubg-range { display: block; width: 260px; max-width: 100%; }
+.pubg-url { display: grid; gap: 4px; margin-top: var(--space-4); font-size: var(--fs-sm); }
+.pubg-url > span { color: var(--ui-text-muted); font-size: var(--fs-xs); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.pubg-url code { justify-self: start; padding: 4px 8px; border-radius: 6px; background: var(--ui-raised); font-family: var(--font-mono); user-select: all; overflow-wrap: anywhere; }
+.pubg-preview { display: flex; align-items: flex-start; min-height: 160px; padding: var(--space-4); border-radius: var(--radius); overflow: auto;
+  background: repeating-conic-gradient(#2a2e36 0 25%, #20232a 0 50%) 0 0 / 16px 16px; }

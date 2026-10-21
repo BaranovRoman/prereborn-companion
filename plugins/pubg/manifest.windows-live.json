@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "id": "pubg",
+  "name": "PUBG",
+  "description": "История матчей PUBG через официальный PUBG API: карта, место, убийства и урон. Каждый запуск Companion — новая сессия; необязательный OBS-виджет с матчами сессии.",
+  "version": "0.1.0",
+  "platform": "windows",
+  "arch": "x86_64",
+  "minApi": 2,
+  "maxApi": 2,
+  "executable": "bin/companion-pubg-plugin.exe",
+  "ui": "ui/index.html",
+  "execution": "live",
+  "author": "Prereborn",
+  "icon": "ui/icon.png",
+  "permissions": [
+    "ui",
+    "data.private",
+    "backend.access",
+    "overlay.publish"
+  ],
+  "uiCommands": [
+    "matches",
+    "refresh",
+    "settings.get",
+    "settings.save",
+    "status"
+  ],
+  "backendResources": {
+    "matches": {
+      "path": "/stream/integrations/pubg/matches",
+      "method": "GET",
+      "queryKeys": [
+        "platform",
+        "player",
+        "limit"
+      ],
+      "maxRequest": 0,
+      "maxResponse": 24576
+    }
+  },
+  "files": {}
+}
