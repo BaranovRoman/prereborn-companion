@@ -125,3 +125,26 @@ export const solitaireRateLimiter = rateLimit({
         "Слишком много отправок результата. Попробуйте позже."
     ),
 });
+
+// WK-186 - Companion heartbeat and public usage stats, see env.ts.
+export const companionHeartbeatRateLimiter = rateLimit({
+    windowMs: env.companionHeartbeatRateLimit.windowMs,
+    limit: env.companionHeartbeatRateLimit.max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: rateLimitedResponse(
+        "TOO_MANY_HEARTBEATS",
+        "Слишком много запросов. Попробуйте позже."
+    ),
+});
+
+export const publicUsageStatsRateLimiter = rateLimit({
+    windowMs: env.publicUsageStatsRateLimit.windowMs,
+    limit: env.publicUsageStatsRateLimit.max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: rateLimitedResponse(
+        "TOO_MANY_STATS_REQUESTS",
+        "Слишком много запросов. Попробуйте позже."
+    ),
+});
