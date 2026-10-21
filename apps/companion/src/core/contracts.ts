@@ -75,3 +75,34 @@ export interface DonationAlertsIntegrationStatus {
   configured: boolean;
   displayName?: string;
 }
+
+// WK-178 - Twitch clip hotkey (src-tauri/src/clips.rs).
+export interface ClipHistoryEntry {
+  id: string;
+  url: string;
+  editUrl: string | null;
+  title: string | null;
+  durationSeconds: number | null;
+  createdAt: string;
+}
+export type ClipPhase =
+  | { kind: "idle" }
+  | { kind: "creating"; startedAt: string }
+  | { kind: "succeeded"; clip: ClipHistoryEntry }
+  | { kind: "failed"; code: string; message: string };
+export interface ClipsStatus {
+  enabled: boolean;
+  shortcut: string;
+  registered: boolean;
+  lastError: string | null;
+  durationSeconds: number;
+  phase: ClipPhase;
+  history: ClipHistoryEntry[];
+}
+export interface ClipsAccess {
+  configured: boolean;
+  accountConnected: boolean;
+  // null = Twitch couldn't confirm the token's scopes right now.
+  scopeGranted: boolean | null;
+  duration: { min: number; max: number; default: number };
+}

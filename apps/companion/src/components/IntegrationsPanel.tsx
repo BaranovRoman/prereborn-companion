@@ -92,9 +92,9 @@ export function IntegrationsPanel() {
         identity={twitch.kind === "ready" && twitch.value.connected
           ? twitch.value.displayName ?? twitch.value.login ?? "Twitch подключён"
           : null}
-        hint="Используется для: чата и озвучки сообщений (TTS)."
+        hint="Используется для: чата, озвучки сообщений (TTS) и клипов по горячей клавише."
         errorLabel="Не удалось получить статус Twitch."
-        disconnectWarning="Чат и озвучка сообщений (TTS) станут недоступны до повторного подключения."
+        disconnectWarning="Чат, озвучка сообщений (TTS) и клипы станут недоступны до повторного подключения."
         onConnect={api.connectTwitch}
         onDisconnect={api.disconnectTwitch}
         onReload={loadTwitch}

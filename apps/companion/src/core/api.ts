@@ -61,3 +61,16 @@ export const disconnectSteam = () => invoke<void>("disconnect_steam");
 export const getDonationAlertsIntegrationStatus = () => invoke<import("./contracts").DonationAlertsIntegrationStatus>("get_donation_alerts_integration_status");
 export const connectDonationAlerts = () => invoke<void>("connect_donation_alerts");
 export const disconnectDonationAlerts = () => invoke<void>("disconnect_donation_alerts");
+
+// WK-178 - Twitch clip hotkey (see src-tauri/src/clips.rs). Progress of a
+// clip started by the global hotkey arrives as "clips://state" events.
+export const CLIPS_STATE_EVENT = "clips://state";
+export const getClipsStatus = () => invoke<import("./contracts").ClipsStatus>("get_clips_status");
+export const getClipsAccess = () => invoke<import("./contracts").ClipsAccess>("get_clips_access");
+export const setClipsHotkey = (enabled: boolean, shortcut: string) =>
+  invoke<import("./contracts").ClipsStatus>("set_clips_hotkey", { enabled, shortcut });
+export const setClipDuration = (durationSeconds: number) =>
+  invoke<import("./contracts").ClipsStatus>("set_clip_duration", { durationSeconds });
+export const createClipNow = () => invoke<boolean>("create_clip_now");
+export const openClip = (id: string) => invoke<void>("open_clip", { id });
+export const clearClipsHistory = () => invoke<import("./contracts").ClipsStatus>("clear_clips_history");

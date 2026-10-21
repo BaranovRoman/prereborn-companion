@@ -1,4 +1,5 @@
 mod backend;
+mod clips;
 mod commands;
 mod core;
 mod diagnostics;
@@ -30,6 +31,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             "quit" => {
                 silero::stop(app);
                 hotkeys::stop(app);
+                clips::stop(app);
                 if let Some(manager)=app.try_state::<core::plugin_manager::PluginManager>(){manager.shutdown();}
                 app.exit(0);
             }
@@ -77,9 +79,10 @@ pub fn run(){
  .plugin(tauri_plugin_opener::init()).plugin(tauri_plugin_dialog::init())
  .plugin(tauri_plugin_updater::Builder::new().build()).plugin(tauri_plugin_process::init())
  .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+ .plugin(tauri_plugin_notification::init())
  .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent,Some(vec!["--hidden"])))
  .plugin(tauri_plugin_window_state::Builder::default().with_state_flags(tauri_plugin_window_state::StateFlags::SIZE|tauri_plugin_window_state::StateFlags::POSITION|tauri_plugin_window_state::StateFlags::MAXIMIZED).build())
- .manage(AppState::new()).manage(diagnostics::DiagnosticsState::new()).manage(silero::SileroState::new()).manage(hotkeys::HotkeysState::new())
+ .manage(AppState::new()).manage(diagnostics::DiagnosticsState::new()).manage(silero::SileroState::new()).manage(hotkeys::HotkeysState::new()).manage(clips::ClipsState::new())
  .setup(|app|{
   let handle=app.handle().clone();storage::init(&handle)?;
   handle.state::<AppState>().0.lock().unwrap().core.log_dir=Some(storage::logs_root(&handle).to_string_lossy().into());
@@ -95,7 +98,7 @@ pub fn run(){
   match native{Ok(audio)=>{if let Err(error)=manager.attach_worker_host(handle.clone(),audio){manager.transport_unavailable(error);}else{manager.consume_workers();}},Err(error)=>{storage::append_rolling_log(&handle,&format!("Plugin transport unavailable: {error}"));manager.transport_unavailable(error);}}
   let config=handle.config().app.windows.first().ok_or("main_window_configuration_missing")?;
   tauri::WebviewWindowBuilder::from_config(app,config)?.visible(!launched_hidden(std::env::args())).build()?;
-  silero::init(&handle);hotkeys::init(&handle);backend::init(handle.clone());obs::init(handle.clone());diagnostics::recover_last_session(&handle);
+  silero::init(&handle);hotkeys::init(&handle);clips::init(&handle);backend::init(handle.clone());obs::init(handle.clone());diagnostics::recover_last_session(&handle);
   storage::append_rolling_log(&handle,"PreReborn Companion core starting up.");build_tray(&handle)?;Ok(())
  })
  .on_window_event(|window,event|{if let WindowEvent::CloseRequested{api,..}=event{let _=window.hide();api.prevent_close();}})
@@ -128,6 +131,13 @@ pub fn run(){
  commands::diagnostics_trace_tts_frontend,
  commands::get_skip_hotkey_status,
  commands::set_skip_hotkey,
+ commands::get_clips_status,
+ commands::get_clips_access,
+ commands::set_clips_hotkey,
+ commands::set_clip_duration,
+ commands::create_clip_now,
+ commands::open_clip,
+ commands::clear_clips_history,
  commands::diagnostics_export,
  commands::clear_log,
  commands::save_obs_config,
@@ -144,7 +154,7 @@ pub fn run(){
  .build(tauri::generate_context!()).expect("error while building tauri application")
  .run(|app,event|{
   #[cfg(windows)]if let tauri::RunEvent::ExitRequested{api,..}=&event{if commands::updater_exit_in_progress(){api.prevent_exit();}}
-  if matches!(event,tauri::RunEvent::Exit){if let Some(manager)=app.try_state::<core::plugin_manager::PluginManager>(){manager.shutdown();}}
+  if matches!(event,tauri::RunEvent::Exit){clips::stop(app);if let Some(manager)=app.try_state::<core::plugin_manager::PluginManager>(){manager.shutdown();}}
  });
 }
 #[cfg(test)]

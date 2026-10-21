@@ -1,7 +1,7 @@
 use tauri::{AppHandle,Manager,State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
-use crate::{backend,storage,obs,diagnostics::{self,DiagnosticsStatusSnapshot},hotkeys::{self,SkipHotkeyStatus},silero::{self,SileroStatus,SileroVoice},state::{AppState,StatusSnapshot,DEFAULT_WEB_ORIGIN}};
+use crate::{backend,clips::{self,ClipsStatus},storage,obs,diagnostics::{self,DiagnosticsStatusSnapshot},hotkeys::{self,SkipHotkeyStatus},silero::{self,SileroStatus,SileroVoice},state::{AppState,StatusSnapshot,DEFAULT_WEB_ORIGIN}};
 #[cfg(windows)]
 static UPDATER_EXIT_IN_PROGRESS:std::sync::atomic::AtomicBool=std::sync::atomic::AtomicBool::new(false);
 #[cfg(windows)]
@@ -25,7 +25,7 @@ pub async fn check_companion_update(window:tauri::WebviewWindow)->Result<Option<
             UPDATER_EXIT_IN_PROGRESS.store(true,std::sync::atomic::Ordering::SeqCst);
             let result=audio.retire_host_for_stock_updater(||{
                 if let Some(manager)=exit_app.try_state::<crate::core::plugin_manager::PluginManager>(){manager.shutdown();}
-                crate::silero::stop(&exit_app);crate::hotkeys::stop(&exit_app);
+                crate::silero::stop(&exit_app);crate::hotkeys::stop(&exit_app);crate::clips::stop(&exit_app);
                 for window in exit_app.webview_windows().into_values(){window.destroy().map_err(|_|"updater_webview_stop_unproven".to_string())?;}
                 Ok(())
             });
@@ -227,6 +227,45 @@ pub fn get_skip_hotkey_status(app: AppHandle) -> SkipHotkeyStatus {
 #[tauri::command]
 pub fn set_skip_hotkey(app: AppHandle, enabled: bool, shortcut: String) -> Result<SkipHotkeyStatus, String> {
     hotkeys::set_skip_hotkey(&app, enabled, shortcut)
+}
+
+// WK-178 - Twitch clip hotkey (see clips.rs). A press arrives through the
+// global shortcut itself; the UI follows progress via "clips://state".
+#[tauri::command]
+pub fn get_clips_status(app: AppHandle) -> ClipsStatus {
+    clips::status(&app)
+}
+
+#[tauri::command]
+pub async fn get_clips_access(app: AppHandle) -> Result<serde_json::Value, String> {
+    clips::access(&app).await
+}
+
+#[tauri::command]
+pub fn set_clips_hotkey(app: AppHandle, enabled: bool, shortcut: String) -> Result<ClipsStatus, String> {
+    clips::set_hotkey(&app, enabled, shortcut)
+}
+
+#[tauri::command]
+pub fn set_clip_duration(app: AppHandle, duration_seconds: f64) -> Result<ClipsStatus, String> {
+    clips::set_duration(&app, duration_seconds)
+}
+
+/// Same path as the hotkey; false when a clip is already being created.
+#[tauri::command]
+pub fn create_clip_now(app: AppHandle) -> bool {
+    clips::trigger(&app)
+}
+
+#[tauri::command]
+pub fn open_clip(app: AppHandle, id: String) -> Result<(), String> {
+    let url = clips::clip_url(&app, &id)?;
+    app.opener().open_url(url, None::<String>).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn clear_clips_history(app: AppHandle) -> Result<ClipsStatus, String> {
+    clips::clear_history(&app)
 }
 
 #[tauri::command]
