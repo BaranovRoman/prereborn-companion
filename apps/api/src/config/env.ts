@@ -235,6 +235,30 @@ export const env = {
             isTest ? 20 : 20
         ),
     },
+    // WK-186 - Companion heartbeat (~1 per 15 min per running client) and
+    // the public read-only usage stats endpoint. IP-keyed backstops only:
+    // the heartbeat upsert is idempotent per account per day and the stats
+    // are cached server-side, so neither limit protects data integrity.
+    companionHeartbeatRateLimit: {
+        windowMs: parseIntEnv(
+            process.env.COMPANION_HEARTBEAT_RATE_LIMIT_WINDOW_MS,
+            isTest ? 1000 : 15 * 60 * 1000
+        ),
+        max: parseIntEnv(
+            process.env.COMPANION_HEARTBEAT_RATE_LIMIT_MAX,
+            isTest ? 20 : 30
+        ),
+    },
+    publicUsageStatsRateLimit: {
+        windowMs: parseIntEnv(
+            process.env.PUBLIC_USAGE_STATS_RATE_LIMIT_WINDOW_MS,
+            isTest ? 1000 : 60 * 1000
+        ),
+        max: parseIntEnv(
+            process.env.PUBLIC_USAGE_STATS_RATE_LIMIT_MAX,
+            isTest ? 20 : 30
+        ),
+    },
     // WK-116 Phase 4 - per-viewer answer submissions, not per-streamer
     // companion updates - each is JWT-authenticated (one real viewer per
     // token) but this is still IP-keyed defense-in-depth against a

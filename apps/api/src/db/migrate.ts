@@ -704,6 +704,28 @@ export const createTables = async (): Promise<void> => {
         ON quiz_viewer_scores(stream_session_id, score DESC, updated_at ASC);
     `);
 
+        // WK-186 - Companion usage stats. One row per account per UTC day,
+        // upserted by the Companion heartbeat (see
+        // services/usage-stats-service.ts) - not one row per request, so
+        // storage is bounded by accounts x days no matter how often a
+        // client pings. `last_seen_at` is the latest heartbeat of that day
+        // and drives the rolling 24h/7d/30d windows; `activity_date` drives
+        // the calendar-day average DAU. Rows older than the retention
+        // window are pruned by the service. Definitions:
+        // docs/analytics/companion-usage-stats.md.
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS companion_activity_days (
+        stream_user_id INTEGER NOT NULL REFERENCES stream_users(id) ON DELETE CASCADE,
+        activity_date DATE NOT NULL,
+        last_seen_at TIMESTAMPTZ NOT NULL,
+        PRIMARY KEY (stream_user_id, activity_date)
+      );
+      CREATE INDEX IF NOT EXISTS idx_companion_activity_days_date
+        ON companion_activity_days(activity_date);
+      CREATE INDEX IF NOT EXISTS idx_companion_activity_days_last_seen
+        ON companion_activity_days(last_seen_at);
+    `);
+
         await client.query("COMMIT");
     } catch (error) {
         await client.query("ROLLBACK");

@@ -7,6 +7,8 @@ import { streamIntegrationsRouter } from "./routes/stream/integrations.js";
 import { streamCompanionRouter } from "./routes/stream/companion.js";
 import { streamExtensionRouter } from "./routes/stream/extension.js";
 import { adminUsersRouter } from "./routes/admin/users.js";
+import { adminUsageStatsRouter } from "./routes/admin/usage-stats.js";
+import { publicRouter } from "./routes/public.js";
 import { corsOptions } from "./config/cors.js";
 import { securityHeaders } from "./config/security-headers.js";
 import { requestId } from "./middleware/request-id.js";
@@ -26,6 +28,8 @@ app.use("/api/stream/integrations", streamIntegrationsRouter);
 app.use("/api/stream/companion", streamCompanionRouter);
 app.use("/api/stream/extension", streamExtensionRouter);
 app.use("/api/admin/users", adminUsersRouter);
+app.use("/api/admin/usage-stats", adminUsageStatsRouter);
+app.use("/api/public", publicRouter);
 app.get("/api/health", async (_req, res) => {
   try {
     await pool.query("SELECT 1");

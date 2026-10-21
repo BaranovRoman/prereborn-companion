@@ -28,9 +28,19 @@ import {
     postSyncEventController,
 } from "../../controllers/stream/sync.js";
 import { authenticateCompanionSession } from "../../middleware/authenticate-companion-token.js";
-import { streamCompanionRateLimiter } from "../../middleware/rate-limit.js";
+import { companionHeartbeatRateLimiter, streamCompanionRateLimiter } from "../../middleware/rate-limit.js";
+import { postCompanionHeartbeatController } from "../../controllers/usage-stats.js";
 
 export const streamCompanionRouter = Router();
+
+// WK-186 - usage stats heartbeat (Companion only; see
+// docs/analytics/companion-usage-stats.md).
+streamCompanionRouter.post(
+    "/heartbeat",
+    companionHeartbeatRateLimiter,
+    authenticateCompanionSession,
+    postCompanionHeartbeatController
+);
 
 streamCompanionRouter.get(
     "/twitch-chat",
