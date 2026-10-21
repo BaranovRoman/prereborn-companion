@@ -34,7 +34,7 @@ export const donationAlertsCallbackController = async (req: Request, res: Respon
     const config = getDonationAlertsConfig();
     if (!config) return res.status(503).send("DonationAlerts integration is not configured");
     const redirect = (status: string) => {
-        const url = new URL("/stream", config.frontendOrigin);
+        const url = new URL("/account", config.frontendOrigin);
         url.searchParams.set("donationAlerts", status);
         res.redirect(url.toString());
     };

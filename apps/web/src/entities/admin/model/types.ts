@@ -9,6 +9,23 @@ export interface AdminUserSummary {
     companionOnline: boolean;
     companionLastSeenAt: string | null;
     activeSessionStartedAt: string | null;
+    // WK-189 - Companion heartbeat activity (WK-186 definitions).
+    lastCompanionActivityAt: string | null;
+    activeDays30d: number;
+    legacyTokenConfigured: boolean;
+    isAdmin: boolean;
+}
+
+export type AdminUserSort = "created_desc" | "created_asc" | "activity_desc" | "email_asc";
+
+// GET /api/admin/usage-stats (WK-186), the fields the users screen shows.
+export interface AdminUsageStats {
+    registeredUsers: number;
+    dau: number;
+    wau: number;
+    mau: number;
+    trackingSince: string | null;
+    generatedAt: string;
 }
 
 export interface AdminUserListResult {

@@ -1,15 +1,37 @@
+// WK-189 - /admin users screen inside the public shell (tokens from .site).
 .page {
-    width: min(1200px, calc(100% - 40px));
+    width: 100%;
+    max-width: calc(var(--content) + 2 * var(--gutter));
     margin: 0 auto;
-    padding: 32px 0 48px;
+    padding: clamp(40px, 6vh, 72px) var(--gutter) 0;
 }
+
+.header { margin-bottom: 24px; }
 
 .title {
-    color: inherit;
+    margin-bottom: 8px !important;
+    font-size: clamp(30px, 3vw, 40px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
 }
 
-.alert {
-    margin-bottom: 16px;
+.lead { color: var(--text-soft); }
+
+.stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    margin: 0 0 28px;
+}
+
+.stat {
+    padding: 18px 20px;
+    border: 1px solid var(--edge-soft);
+    border-radius: var(--radius-lg);
+    background: var(--panel);
+    dt { color: var(--text-muted); font-size: 14px; }
+    dd { margin: 4px 0 0; font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; }
 }
 
 .search {
@@ -17,8 +39,21 @@
     margin-bottom: 16px;
 }
 
+.email {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
 .table {
-    :global(a) {
-        color: #70b9c7;
-    }
+    :global(a) { color: var(--accent); }
+    :global(.ant-table-cell) { font-variant-numeric: tabular-nums; }
+}
+
+.muted { color: var(--text-muted); }
+.error { margin-bottom: 16px !important; color: var(--danger); }
+
+@media (max-width: 640px) {
+    .stats { grid-template-columns: 1fr; }
 }

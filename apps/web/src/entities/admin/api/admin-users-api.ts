@@ -1,7 +1,9 @@
 import { adminApiClient } from "./admin-client";
 import type {
+    AdminUsageStats,
     AdminUserDetail,
     AdminUserListResult,
+    AdminUserSort,
     AdminStreamSession,
 } from "../model/types";
 
@@ -10,14 +12,21 @@ export const adminUsersApi = {
         page: number;
         pageSize: number;
         query?: string;
+        sort?: AdminUserSort;
     }): Promise<AdminUserListResult> => {
         const { data } = await adminApiClient.get<AdminUserListResult>("/users", {
             params: {
                 page: params.page,
                 pageSize: params.pageSize,
                 q: params.query || undefined,
+                sort: params.sort,
             },
         });
+        return data;
+    },
+
+    usageStats: async (): Promise<AdminUsageStats> => {
+        const { data } = await adminApiClient.get<AdminUsageStats>("/usage-stats");
         return data;
     },
 

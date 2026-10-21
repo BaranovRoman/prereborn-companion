@@ -3,6 +3,12 @@ import { findStreamUserById } from "../services/stream-user-service.js";
 import { logger } from "../utils/logger.js";
 import { env } from "../config/env.js";
 
+// WK-189 - one definition of "administrator" for both the guard below and
+// GET /account/me's isAdmin flag (which only decides whether the site shows
+// the /admin link - the guard is what actually protects the data).
+export const isAdminEmail = (email: string): boolean =>
+    env.adminEmails.includes(email.trim().toLowerCase());
+
 // Должен идти ПОСЛЕ authenticateStreamUser (нужен req.streamUserId). Нет
 // отдельной роли/таблицы - администратор определяется allowlist'ом email
 // в env.adminEmails (см. config/env.ts). Обычный аутентифицированный
@@ -15,7 +21,7 @@ export const requireAdmin = async (
 ) => {
     try {
         const user = await findStreamUserById(req.streamUserId as string);
-        if (!user || !env.adminEmails.includes(user.email)) {
+        if (!user || !isAdminEmail(user.email)) {
             return res.status(403).json({ error: "Доступ запрещён" });
         }
         next();

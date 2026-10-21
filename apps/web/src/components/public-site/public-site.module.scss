@@ -91,7 +91,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  a {
+  a, .navButton {
     padding: 6px 10px;
     border-radius: var(--radius);
     color: var(--text-soft);
@@ -101,6 +101,22 @@
     white-space: nowrap;
     &:hover { color: var(--text); background: var(--panel); }
   }
+}
+
+// WK-189 - "Выйти" is an action, not a link, but reads like the links around it.
+.navButton {
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  &:disabled { opacity: 0.6; cursor: default; }
+}
+
+// Holds the account links' place while the client-side session is checked.
+.navPending {
+  display: inline-block;
+  width: 150px;
+  height: 32px;
 }
 
 .button {
@@ -151,6 +167,7 @@
   padding-bottom: 28px;
   nav { display: flex; flex-wrap: wrap; gap: 8px 20px; }
   a { text-decoration: none; &:hover { color: var(--text); } }
+  .navButton { padding: 0; color: inherit; font-size: inherit; &:hover { color: var(--text); } }
 }
 
 @media (max-width: 760px) {
@@ -165,7 +182,7 @@
 }
 
 @media (max-width: 380px) {
-  .nav a { padding: 6px; }
+  .nav a, .nav .navButton { padding: 6px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

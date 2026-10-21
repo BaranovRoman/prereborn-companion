@@ -16,12 +16,10 @@ export interface StreamUser {
     onboardingCompletedAt: string | null;
 }
 
-// Ответ POST /account/me/companion-token/regenerate - единственное место,
-// где сырой токен вообще появляется на клиенте. Не сохраняется нигде,
-// кроме показа пользователю один раз (companion-panel.tsx).
-export interface RegenerateCompanionTokenResult {
-    token: string;
-    companionTokenCreatedAt: string;
+// GET /account/me also says whether the account is on the admin allowlist -
+// only used to show the /admin link; the backend guards /api/admin itself.
+export interface AccountUser extends StreamUser {
+    isAdmin: boolean;
 }
 
 export interface StreamAuthResponse {

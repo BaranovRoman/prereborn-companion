@@ -12,6 +12,7 @@ import {
     isCompanionOnline,
     type CompanionState,
 } from "./stream-companion-service.js";
+import { isAdminEmail } from "../middleware/require-admin.js";
 
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 50;
@@ -19,6 +20,15 @@ const MAX_PAGE_SIZE = 50;
 // запроса, а не только LIMIT выдачи, чтобы ILIKE не строил бессмысленно
 // длинный паттерн из вставленного пользователем текста.
 const MAX_QUERY_LENGTH = 100;
+
+// WK-189 - whitelisted ORDER BY clauses; the client only ever picks a key.
+export const ADMIN_USER_SORTS = {
+    created_desc: "u.created_at DESC, u.id DESC",
+    created_asc: "u.created_at ASC, u.id ASC",
+    activity_desc: "a.last_activity_at DESC NULLS LAST, u.created_at DESC",
+    email_asc: "u.email ASC",
+} as const;
+export type AdminUserSort = keyof typeof ADMIN_USER_SORTS;
 
 export interface AdminUserSummary {
     id: string;
@@ -31,6 +41,12 @@ export interface AdminUserSummary {
     companionOnline: boolean;
     companionLastSeenAt: string | null;
     activeSessionStartedAt: string | null;
+    // WK-189 - Companion usage from the WK-186 heartbeat
+    // (companion_activity_days), the same source as the public stats.
+    lastCompanionActivityAt: string | null;
+    activeDays30d: number;
+    legacyTokenConfigured: boolean;
+    isAdmin: boolean;
 }
 
 export interface AdminUserListResult {
@@ -49,6 +65,9 @@ interface AdminUserListRow {
     companion_last_seen_at: Date | null;
     twitch_display_name: string | null;
     active_session_started_at: Date | null;
+    companion_token_configured: boolean;
+    last_activity_at: Date | null;
+    active_days_30d: number | null;
     total_count: string;
 }
 
@@ -62,6 +81,7 @@ export const listAdminUsers = async (params: {
     page?: number;
     pageSize?: number;
     query?: string;
+    sort?: AdminUserSort;
 }): Promise<AdminUserListResult> => {
     const page = Math.max(1, Math.floor(params.page ?? 1));
     const pageSize = Math.min(
@@ -71,6 +91,7 @@ export const listAdminUsers = async (params: {
     const rawQuery = (params.query ?? "").trim().slice(0, MAX_QUERY_LENGTH);
     const likePattern = rawQuery ? `%${escapeLikePattern(rawQuery)}%` : null;
     const offset = (page - 1) * pageSize;
+    const orderBy = ADMIN_USER_SORTS[params.sort ?? "created_desc"];
 
     // Один запрос вместо LIST + COUNT (COUNT(*) OVER() в том же проходе) и
     // JOIN вместо запроса per-user - иначе список из N строк дал бы N+1 к
@@ -85,12 +106,22 @@ export const listAdminUsers = async (params: {
             u.companion_last_seen_at,
             t.display_name AS twitch_display_name,
             s.started_at AS active_session_started_at,
+            u.companion_token_hash IS NOT NULL AS companion_token_configured,
+            a.last_activity_at,
+            a.active_days_30d,
             COUNT(*) OVER() AS total_count
          FROM stream_users u
          LEFT JOIN stream_twitch_links t ON t.stream_user_id = u.id
          LEFT JOIN stream_sessions s ON s.stream_user_id = u.id AND s.ended_at IS NULL
+         LEFT JOIN (
+            SELECT stream_user_id,
+                   MAX(last_seen_at) AS last_activity_at,
+                   COUNT(*) FILTER (WHERE last_seen_at > NOW() - INTERVAL '30 days')::int AS active_days_30d
+              FROM companion_activity_days
+             GROUP BY stream_user_id
+         ) a ON a.stream_user_id = u.id
          WHERE $1::text IS NULL OR u.email ILIKE $1 ESCAPE '\\'
-         ORDER BY u.created_at DESC
+         ORDER BY ${orderBy}
          LIMIT $2 OFFSET $3`,
         [likePattern, pageSize, offset]
     );
@@ -114,6 +145,12 @@ export const listAdminUsers = async (params: {
         activeSessionStartedAt: row.active_session_started_at
             ? row.active_session_started_at.toISOString()
             : null,
+        lastCompanionActivityAt: row.last_activity_at
+            ? row.last_activity_at.toISOString()
+            : null,
+        activeDays30d: row.active_days_30d ?? 0,
+        legacyTokenConfigured: row.companion_token_configured,
+        isAdmin: isAdminEmail(row.email),
     }));
 
     const total = result.rows[0] ? Number(result.rows[0].total_count) : 0;

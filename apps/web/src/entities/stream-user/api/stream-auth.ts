@@ -1,11 +1,7 @@
 import { streamApiClient } from "./stream-client";
-import { getStreamRefreshToken, setStreamTokens } from "../lib/tokens";
-import type {
-    RegenerateCompanionTokenResult,
-    StreamAuthResponse,
-    StreamGameMode,
-    StreamUser,
-} from "../model/types";
+import { clearStreamTokens, getStreamRefreshToken, setStreamTokens } from "../lib/tokens";
+import { notifySessionChanged } from "../lib/session-events";
+import type { AccountUser, StreamAuthResponse, StreamUser } from "../model/types";
 
 export const streamAuthApi = {
     register: async (
@@ -17,6 +13,7 @@ export const streamAuthApi = {
             { email, password }
         );
         setStreamTokens(data.accessToken, data.refreshToken);
+        notifySessionChanged();
         return data;
     },
 
@@ -29,6 +26,7 @@ export const streamAuthApi = {
             { email, password }
         );
         setStreamTokens(data.accessToken, data.refreshToken);
+        notifySessionChanged();
         return data;
     },
 
@@ -50,49 +48,32 @@ export const streamAuthApi = {
         }
     },
 
+    // WK-189 - revokes the refresh token server-side, then always clears the
+    // local session and tells every mounted header/page about it.
     logout: async (): Promise<void> => {
         const refreshToken = getStreamRefreshToken();
-        if (!refreshToken) return;
-        await streamApiClient.post("/auth/logout", { refreshToken }).catch(() => {
-            // Токен уже мог быть отозван/истёк - локальный logout всё равно
-            // должен пройти, поэтому ошибку сети/сервера здесь не пробрасываем.
-        });
+        if (refreshToken) {
+            await streamApiClient.post("/auth/logout", { refreshToken }).catch(() => {
+                // Токен уже мог быть отозван/истёк - локальный logout всё равно
+                // должен пройти, поэтому ошибку сети/сервера здесь не пробрасываем.
+            });
+        }
+        clearStreamTokens();
+        notifySessionChanged();
     },
 
-    getMe: async (): Promise<StreamUser> => {
-        const { data } = await streamApiClient.get<StreamUser>(
+    getMe: async (): Promise<AccountUser> => {
+        const { data } = await streamApiClient.get<AccountUser>(
             "/account/me"
         );
         return data;
     },
 
-    regenerateToken: async (): Promise<StreamUser> => {
-        const { data } = await streamApiClient.post<StreamUser>(
-            "/account/me/regenerate-token"
-        );
-        return data;
-    },
-
-    setGameMode: async (gameMode: StreamGameMode): Promise<StreamUser> => {
-        const { data } = await streamApiClient.patch<StreamUser>(
-            "/account/me/game-mode",
-            { gameMode }
-        );
-        return data;
-    },
-
-    completeOnboarding: async (): Promise<StreamUser> => {
-        const { data } = await streamApiClient.post<StreamUser>("/account/me/onboarding/complete");
-        return data;
-    },
-
-    // Возвращает сырой companion-токен - показывается пользователю ровно
-    // один раз (companion-panel.tsx), дальше нигде не хранится и не
-    // запрашивается заново (backend его и не может отдать повторно - хранит
-    // только хэш).
-    regenerateCompanionToken: async (): Promise<RegenerateCompanionTokenResult> => {
-        const { data } = await streamApiClient.post<RegenerateCompanionTokenResult>(
-            "/account/me/companion-token/regenerate"
+    // WK-189 - revokes the legacy static Companion token (no new one is
+    // issued: the current Companion signs in with email and password).
+    revokeCompanionToken: async (): Promise<StreamUser> => {
+        const { data } = await streamApiClient.delete<StreamUser>(
+            "/account/me/companion-token"
         );
         return data;
     },

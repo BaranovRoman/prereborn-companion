@@ -1,15 +1,6 @@
-import type { Metadata } from "next";
-import { OverlayEditorPage } from "@/components/pages/stream/overlay-editor";
+import { redirect } from "next/navigation";
 
-// Тот же паттерн, что и app/stream/page.tsx - целиком клиентская
-// авторизованная страница, статический prerender ей не нужен.
-export const dynamic = "force-dynamic";
-
-export const metadata: Metadata = {
-    title: "Раскладка оверлея — Stream",
-    robots: { index: false, follow: false },
-};
-
+// WK-189 - overlay layout is edited in the Dota 2 plugin inside Companion.
 export default function StreamOverlayEditor() {
-    return <OverlayEditorPage />;
+  redirect("/account");
 }

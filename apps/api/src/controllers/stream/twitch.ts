@@ -46,7 +46,7 @@ export const twitchCallbackController = async (req: Request, res: Response) => {
     const config = getTwitchConfig();
     if (!config) return res.status(503).send("Twitch integration is not configured");
     const redirect = (status: string, reason?: string) => {
-        const url = new URL("/stream", config.frontendOrigin);
+        const url = new URL("/account", config.frontendOrigin);
         url.searchParams.set("twitch", status);
         if (reason) url.searchParams.set("reason", reason);
         res.redirect(url.toString());
