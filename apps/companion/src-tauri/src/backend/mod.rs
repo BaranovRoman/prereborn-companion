@@ -3,6 +3,7 @@ use std::time::{Duration,Instant};
 use tauri::{AppHandle,Emitter,Manager,Runtime};
 use crate::state::{AppState,DEFAULT_BACKEND_URL};
 use crate::storage;
+pub mod heartbeat;
 const REQUEST_TIMEOUT:Duration=Duration::from_secs(5);
 pub const MAX_RETRY_ATTEMPT:u32=5;
 pub(crate) fn plugin_request(app:&AppHandle,resource:&companion_plugin_protocol::backend::Resource,request:&companion_plugin_protocol::backend::Request)->companion_plugin_protocol::backend::Response{
@@ -102,7 +103,8 @@ pub(crate) fn record_connectivity<R: Runtime>(app: &AppHandle<R>, operation: &st
 
 pub fn init(app:AppHandle){
  {let state=app.state::<AppState>();let mut inner=state.0.lock().unwrap();inner.core.companion_token=storage::load_companion_token(&app);inner.obs_config=storage::load_obs_config(&app);}
- start_session_refresher(app);
+ start_session_refresher(app.clone());
+ heartbeat::start(app);
 }
 const SESSION_REFRESH_INTERVAL: Duration = Duration::from_secs(30 * 60);
 
