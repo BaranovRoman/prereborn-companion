@@ -125,7 +125,7 @@ test.describe("account page and legacy routes", () => {
     test("guest opening /account is sent to login and comes back", async ({ page }) => {
         await mockApi(page, plain);
         await page.goto("/account");
-        await expect(page).toHaveURL(/\/stream\/login\?next=\/account$/);
+        await page.waitForURL(/\/stream\/login\?next=\/account$/);
         await page.getByLabel("Email").fill(plain.email);
         await page.getByLabel("Пароль").fill("password-123");
         await page.getByRole("button", { name: "Войти" }).click();
