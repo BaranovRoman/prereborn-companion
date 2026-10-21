@@ -36,3 +36,15 @@ export function apiStatusText(code: string | null): string | null {
     default: return "PUBG API сейчас недоступен. Повторим автоматически.";
   }
 }
+
+// A failed settings.save, in words the streamer can act on.
+export function saveErrorText(error: unknown): string {
+  const code = String(error instanceof Error ? error.message : error);
+  if (code.includes("invalid_player_name")) return "некорректный ник.";
+  if (code.includes("invalid_platform")) return "неизвестная платформа.";
+  if (code.includes("plugin_data_write_failed") || code.includes("plugin_data_invalid")) return "не удалось записать файл настроек плагина.";
+  if (code.includes("plugin_request_timeout")) return "плагин не ответил. Попробуйте ещё раз.";
+  if (code.includes("plugin_host_not_ready") || code.includes("not_running") || code.includes("not_installed")) return "плагин недоступен. Откройте его заново на странице «Плагины».";
+  if (code.includes("settings_not_confirmed")) return "плагин не подтвердил сохранение.";
+  return code.slice(0, 300);
+}
