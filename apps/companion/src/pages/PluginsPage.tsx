@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { Button, Input } from "../components/ui";
+import { Badge, Button, Checkbox, Field, Input, Notice } from "../components/ui";
 import * as api from "../plugins/api";
 import { greeting } from "../plugins/helloBridge";
 import { ready as uiReady, request as uiRequest, UI_VERSION } from "../../../../plugins/protocol/ui";
@@ -53,41 +53,48 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
   // banner and the controls drop an identical copy.
   const pluginAlert = selected && (selected.error || selected.runtime?.lastError) ? api.errorText(selected.error ?? selected.runtime?.lastError) : null;
   const pageAlert = error ?? (view?.error ? api.errorText(view.error) : null);
-  const installButton = (r: api.Release) => {
+  const isCompatible = (r: api.Release) => r.manifest.minApi <= (view?.apiVersion ?? 1) && r.manifest.maxApi >= 1
+    && (r.manifest.execution !== "live" || r.manifest.minApi >= 2);
+  const installButton = (r: api.Release, variant: "default" | "primary" = "default") => {
     const installed = view?.installed.find((p) => p.id === r.manifest.id);
     const current = installed?.installed.active === r.manifest.version || installed?.installed.pending === r.manifest.version;
-    const compatible = r.manifest.minApi <= (view?.apiVersion ?? 1) && r.manifest.maxApi >= 1
-      && (r.manifest.execution !== "live" || r.manifest.minApi >= 2);
+    const compatible = isCompatible(r);
     return <div className="plugin-actions">
-      {!compatible && <p role="status">Несовместимая версия API</p>}
-      <Button disabled={disabled || current || !compatible} onClick={() => void run(() => api.install(r.manifest.id, r.manifest.version))}>{current ? "Установлен" : installed ? "Обновить" : "Установить"}</Button>
+      <Button variant={variant} disabled={disabled || current || !compatible} onClick={() => void run(() => api.install(r.manifest.id, r.manifest.version))}>{current ? "Установлен" : installed ? `Обновить до ${r.manifest.version}` : "Установить"}</Button>
       {view?.localInstallAllowed && <Button disabled={disabled || current || !compatible || !local.trim()} onClick={() => void run(() => api.install(r.manifest.id, r.manifest.version, local.trim()))}>Установить локальный подписанный пакет</Button>}
+      {!compatible && <Badge tone="warning">Несовместимая версия API</Badge>}
     </div>;
   };
+  // An installed plugin is not listed again in the catalog; a different
+  // catalog version of it is offered on its own card instead.
+  const updatesFor = (id: string) => view?.catalog.filter((r) => r.manifest.id === id && r.manifest.version !== view.installed.find((p) => p.id === id)?.installed.active && r.manifest.version !== view.installed.find((p) => p.id === id)?.installed.pending) ?? [];
+  const available = view?.catalog.filter((r) => !view.installed.some((p) => p.id === r.manifest.id)) ?? [];
+  const stateTone = (p: api.Installed) => api.needsRecovery(p) || p.runtime?.phase === "failed" ? "danger" as const : !p.installed.enabled ? "default" as const : p.runtime?.phase === "running" ? "success" as const : "warning" as const;
   return <section className="page-content plugin-library" aria-label="Плагины">
-    {!selected && <header className="plugin-library__heading">
-      <div><h2>Плагины</h2><p>Устанавливайте только нужные расширения Companion.</p></div>
+    {!selected && <header className="companion-page-heading">
+      <div><h1>Плагины</h1><p>Устанавливайте только нужные расширения Companion. Каждый плагин работает в изолированном окружении.</p></div>
       <Button disabled={disabled} onClick={() => void run(api.refresh)}>Обновить каталог</Button>
     </header>}
-    {pageAlert && pageAlert !== pluginAlert && <p role="alert">{pageAlert}</p>}
-    {!view && !error && <p role="status">Загрузка библиотеки…</p>}
-    {view?.catalogError && <p role="status">{api.errorText(view.catalogError)} Установленные плагины доступны независимо от каталога.</p>}
+    {pageAlert && pageAlert !== pluginAlert && <Notice tone="danger">{pageAlert}</Notice>}
+    {!view && !error && <p className="ui-text-muted" role="status">Загрузка библиотеки…</p>}
+    {view?.catalogError && <Notice tone="warning">{api.errorText(view.catalogError)} Установленные плагины доступны независимо от каталога.</Notice>}
     {view?.transfer.busy && <div className="plugin-transfer" role="status">
       {["activation","operation","file_selection"].includes(view.transfer.stage) ? <p>Выполняется ручная операция плагина…</p> : <>
         <p>{view.transfer.stage === "verify_install" ? "Проверка и установка" : "Загрузка"}: {Math.round(view.transfer.received / 1024)} КБ</p>
         <progress value={view.transfer.total ? view.transfer.received : undefined} max={view.transfer.total ?? 1} />
-        <Button onClick={() => void api.cancel().catch((e) => setError(api.errorText(e)))}>Отменить загрузку</Button>
+        <Button size="small" onClick={() => void api.cancel().catch((e) => setError(api.errorText(e)))}>Отменить загрузку</Button>
       </>}
     </div>}
-    {view?.transfer.error && !error && api.errorText(view.transfer.error) !== pluginAlert && <p role="alert">{api.errorText(view.transfer.error)}</p>}
-    {opened && !selected && <Button onClick={() => setOpened(null)}>Все плагины</Button>}
-    {opened && view && !selected && <p role="status">Плагин больше не установлен. Пользовательские данные сохранены.</p>}
+    {view?.transfer.error && !error && api.errorText(view.transfer.error) !== pluginAlert && <Notice tone="danger">{api.errorText(view.transfer.error)}</Notice>}
+    {opened && !selected && <div><Button variant="ghost" onClick={() => setOpened(null)}>← Все плагины</Button></div>}
+    {opened && view && !selected && <Notice>Плагин больше не установлен. Пользовательские данные сохранены.</Notice>}
     {selected ? <article className="plugin-detail">
       <div className="plugin-toolbar">
-        <Button onClick={() => setOpened(null)}>Все плагины</Button>
+        <Button variant="ghost" aria-label="Все плагины" onClick={() => setOpened(null)}>← Все плагины</Button>
+        <span className="plugin-toolbar__divider" aria-hidden="true" />
         <PluginIcon plugin={selected} />
         <div className="plugin-toolbar__title"><h2>{selected.manifest?.name ?? selected.id}</h2>
-          <span>v{selected.installed.active} · {api.stateText(selected)}{selected.manifest?.author ? ` · ${selected.manifest.author}` : ""}</span></div>
+          <span><Badge tone={stateTone(selected)} dot>{api.stateText(selected)}</Badge> v{selected.installed.active}{selected.manifest?.author ? ` · ${selected.manifest.author}` : ""}</span></div>
         {selected.manifest?.execution === "live" ? <WorkerControls key={`controls-${selected.id}-${selected.installed.active}`} plugin={selected} disabled={disabled} run={run} shown={pluginAlert} /> : <div className="plugin-actions">
           <Button disabled={disabled} onClick={() => void run(() => api.action(selected.id, selected.installed.enabled ? "disable" : "enable"))}>{selected.installed.enabled ? "Отключить" : "Включить"}</Button>
           {selected.installed.enabled && selected.runtime?.phase !== "running" && <Button disabled={disabled} onClick={() => void run(() => api.action(selected.id, "start"))}>Запустить</Button>}
@@ -95,44 +102,58 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
           {selected.installed.previous && <Button disabled={disabled || selected.runtime?.phase === "running"} onClick={() => void run(() => api.action(selected.id, "rollback"))}>Откатить на {selected.installed.previous}</Button>}
         </div>}
         {view?.catalog.filter((r) => r.manifest.id === selected.id && r.manifest.version !== selected.installed.active).map((r) => <div key={r.manifest.version}>{installButton(r)}</div>)}
+        <details className="ui-disclosure plugin-about"><summary>О плагине</summary>
+          <div className="plugin-about__body">
+            <p>{selected.manifest?.description}</p>
+            <small className="ui-text-muted">При удалении пользовательские данные сохраняются. Включение только вручную: после перезапуска приложение не запускает live-плагин автоматически.</small>
+            <div className="plugin-actions"><Button variant="danger" size="small" disabled={disabled} onClick={() => void run(() => api.action(selected.id, "remove"))}>Удалить</Button></div>
+            {(selected.transport!=null||selected.error)&&<pre className="ui-code">{JSON.stringify({error:selected.error,runtime:selected.runtime,transport:selected.transport},null,2)}</pre>}
+          </div>
+        </details>
       </div>
-      {selected.installed.pending && <div className="plugin-controls" role="status">
-        <span>Установлена версия {selected.installed.pending}; сейчас работает {selected.installed.active}.</span>
-        <Button variant="primary" disabled={disabled} onClick={() => void run(async () => { const enabled = selected.installed.enabled; await api.action(selected.id, "stop"); if (enabled) await api.action(selected.id, "enable"); })}>Перезапустить на {selected.installed.pending}</Button>
-      </div>}
-      {pluginAlert && <p role="alert">{pluginAlert}</p>}
-      <details className="plugin-about"><summary>О плагине и диагностика</summary>
-        <p>{selected.manifest?.description}</p>
-        <div className="plugin-actions"><Button variant="danger" disabled={disabled} onClick={() => void run(() => api.action(selected.id, "remove"))}>Удалить</Button></div>
-        <small>При удалении пользовательские данные сохраняются. Включение только вручную: после перезапуска приложение не запускает live-плагин автоматически.</small>
-        {(selected.transport!=null||selected.error)&&<pre>{JSON.stringify({error:selected.error,runtime:selected.runtime,transport:selected.transport},null,2)}</pre>}
-      </details>
+      {selected.installed.pending && <Notice action={<Button size="small" variant="primary" disabled={disabled} onClick={() => void run(async () => { const enabled = selected.installed.enabled; await api.action(selected.id, "stop"); if (enabled) await api.action(selected.id, "enable"); })}>Перезапустить на {selected.installed.pending}</Button>}>
+        Установлена версия {selected.installed.pending}; сейчас работает {selected.installed.active}.
+      </Notice>}
+      {pluginAlert && <Notice tone="danger">{pluginAlert}</Notice>}
       {((selected.manifest?.execution === "live" && selected.manifest.minApi>=2)|| (selected.installed.enabled && selected.runtime?.phase === "running")) && <PluginUI key={`ui-${selected.id}-${selected.installed.active}`} plugin={selected} />}
-      {selected.manifest?.execution !== "live" && !selected.installed.enabled && <p>Чтобы открыть интерфейс этого плагина, включите его отдельным действием.</p>}
+      {selected.manifest?.execution !== "live" && !selected.installed.enabled && <p className="ui-text-muted">Чтобы открыть интерфейс этого плагина, включите его отдельным действием.</p>}
     </article> : !opened && <>
-      <h3>Установленные</h3>
-      {view && view.installed.length === 0 && <p>Плагины ещё не установлены.</p>}
-      <div className="plugin-grid" aria-label="Установленные плагины">
-        {view?.installed.map((p) => <article className="plugin-card" key={p.id}>
-          <PluginIcon plugin={p} />
-          <h4>{p.manifest?.name ?? p.id}</h4><p>{p.manifest?.description ?? "Метаданные установленного пакета недоступны."}</p>
-          <p>Версия {p.installed.active} · {api.stateText(p)}</p>
-          <small>{p.manifest?.author ? `Автор: ${p.manifest.author}` : "Автор не указан в манифесте."}</small>
-          {(p.error || p.runtime?.lastError) && <p role="alert">{api.errorText(p.error ?? p.runtime?.lastError)}</p>}
-          <Button disabled={disabled} onClick={() => setOpened(p.id)}>Открыть</Button>
-        </article>)}
-      </div>
-      <h3>Каталог</h3>
-      {view && view.catalog.length === 0 && <p>{view.catalogError ? "Каталог сейчас недоступен. Установленные плагины показаны выше." : "В каталоге нет пакетов для этой системы."}</p>}
-      <div className="plugin-grid" aria-label="Каталог плагинов">
-        {view?.catalog.map((r) => <article className="plugin-card" key={`${r.manifest.id}-${r.manifest.version}`}>
-          <span className="plugin-icon" aria-hidden="true">{r.manifest.name.slice(0, 1)}</span>
-          <h4>{r.manifest.name}</h4><p>{r.manifest.description}</p><p>Версия {r.manifest.version}</p>
-          <small>{r.manifest.author ? `Автор: ${r.manifest.author}` : "Автор не указан в манифесте."}</small>{installButton(r)}
-        </article>)}
-      </div>
+      <section className="plugin-section">
+        <h2>Установленные</h2>
+        {view && view.installed.length === 0 && <p className="ui-text-muted">Плагины ещё не установлены. Выберите нужные в каталоге ниже.</p>}
+        <div className="plugin-grid" aria-label="Установленные плагины">
+          {view?.installed.map((p) => <article className="plugin-card" key={p.id}>
+            <header className="plugin-card__header">
+              <PluginIcon plugin={p} />
+              <div className="plugin-card__title"><h3>{p.manifest?.name ?? p.id}</h3><span>v{p.installed.active}{p.manifest?.author ? ` · ${p.manifest.author}` : ""}</span></div>
+              <Badge tone={stateTone(p)} dot>{api.stateText(p)}</Badge>
+            </header>
+            <p className="plugin-card__description">{p.manifest?.description ?? "Метаданные установленного пакета недоступны."}</p>
+            {(p.error || p.runtime?.lastError) && <p className="plugin-card__error" role="alert">{api.errorText(p.error ?? p.runtime?.lastError)}</p>}
+            <footer className="plugin-card__footer">
+              <Button variant="primary" disabled={disabled} onClick={() => setOpened(p.id)}>Открыть</Button>
+              {updatesFor(p.id).map((r) => <div key={r.manifest.version}>{installButton(r)}</div>)}
+            </footer>
+          </article>)}
+        </div>
+      </section>
+      <section className="plugin-section">
+        <h2>Каталог</h2>
+        {view && view.catalog.length === 0 && <p className="ui-text-muted">{view.catalogError ? "Каталог сейчас недоступен. Установленные плагины показаны выше." : "В каталоге нет пакетов для этой системы."}</p>}
+        {view && view.catalog.length > 0 && available.length === 0 && <p className="ui-text-muted">Все плагины из каталога уже установлены.</p>}
+        <div className="plugin-grid" aria-label="Каталог плагинов">
+          {available.map((r) => <article className="plugin-card" key={`${r.manifest.id}-${r.manifest.version}`}>
+            <header className="plugin-card__header">
+              <span className="plugin-icon" aria-hidden="true">{r.manifest.name.slice(0, 1)}</span>
+              <div className="plugin-card__title"><h3>{r.manifest.name}</h3><span>v{r.manifest.version}{r.manifest.author ? ` · ${r.manifest.author}` : ""}</span></div>
+            </header>
+            <p className="plugin-card__description">{r.manifest.description}</p>
+            <footer className="plugin-card__footer">{installButton(r)}</footer>
+          </article>)}
+        </div>
+      </section>
     </>}
-    {view?.localInstallAllowed && <details><summary>Диагностика установки</summary><label>Путь к пакету для разработки (проверки подписи обязательны)<Input value={local} onChange={(e) => setLocal(e.target.value)} /></label></details>}
+    {view?.localInstallAllowed && <details className="ui-disclosure"><summary>Диагностика установки</summary><div className="ui-disclosure__body"><Field label="Путь к пакету для разработки (проверки подписи обязательны)"><Input value={local} onChange={(e) => setLocal(e.target.value)} /></Field></div></details>}
   </section>;
 }
 
@@ -152,17 +173,17 @@ function WorkerControls({ plugin, disabled, run, shown }: { plugin: api.Installe
     }catch(e){setFailure(api.errorText(e));}finally{inFlight.current=false;setPending(null);}});
   };
   return <section className="plugin-controls" aria-label="Управление плагином" aria-busy={pending!==null}>
-    {!compatible&&<p role="status">Установленный пакет использует старый API. Для запуска установите совместимое обновление из каталога.</p>}
+    {!compatible&&<Notice tone="warning">Установленный пакет использует старый API. Для запуска установите совместимое обновление из каталога.</Notice>}
     {compatible&&!plugin.installed.enabled&&!prepared&&<div className="plugin-prepare">
-      <label><input type="checkbox" checked={confirmed} disabled={disabled||pending!==null} onChange={e=>setConfirmed(e.target.checked)}/>Разрешаю первую подготовку хранилища (backup проверяется, файлы сохраняются)</label>
+      <Checkbox checked={confirmed} disabled={disabled||pending!==null} onChange={e=>setConfirmed(e.target.checked)} label="Разрешаю первую подготовку хранилища" hint="Backup проверяется, файлы сохраняются"/>
       <Button disabled={disabled||pending!==null||!confirmed} onClick={()=>void execute("prepare")}>Подготовить backup и миграцию</Button>
     </div>}
     <div className="plugin-actions">
       <Button variant={plugin.installed.enabled?undefined:"primary"} disabled={disabled||pending!==null||!compatible||(!plugin.installed.enabled&&!prepared)} onClick={()=>void execute(plugin.installed.enabled?"disable":"enable")}>{plugin.installed.enabled?"Отключить":"Включить"}</Button>
       {compatible&&(plugin.error||api.needsRecovery(plugin))&&<Button disabled={disabled||pending!==null} onClick={()=>void execute("recover")}>Проверить остановку и восстановить</Button>}
     </div>
-    {pending&&<p role="status">{pending==="prepare"?"Проверка пакета, backup и подготовка хранилища…":"Ожидаем подтверждение native-команды…"}</p>}
-    {result&&<p role="status">{result}</p>}{failure&&failure!==shown&&<p role="alert">{failure}</p>}
+    {pending&&<p className="plugin-controls__line ui-text-muted" role="status">{pending==="prepare"?"Проверка пакета, backup и подготовка хранилища…":"Ожидаем подтверждение native-команды…"}</p>}
+    {result&&<p className="plugin-controls__line ui-text-success" role="status">{result}</p>}{failure&&failure!==shown&&<p className="plugin-controls__line ui-text-danger" role="alert">{failure}</p>}
   </section>;
 }
 
@@ -214,17 +235,12 @@ function PluginUI({ plugin }: { plugin: api.Installed }) {
     frame.current?.contentWindow?.postMessage({type:"plugin-host-probe",version:UI_VERSION},"*");
     return () => { disposed = true; window.clearTimeout(timeout); window.removeEventListener("message", handler); };
   }, [plugin.id,plugin.installed.active,policy,legacy]);
-  const [height, setHeight] = useState(560);
-  useLayoutEffect(() => {
-    const fit = () => { const top = frame.current?.getBoundingClientRect().top ?? 0; setHeight(Math.max(480, Math.floor(window.innerHeight - top - 16))); };
-    fit(); window.addEventListener("resize", fit);
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit); observer?.observe(document.body);
-    return () => { window.removeEventListener("resize", fit); observer?.disconnect(); };
-  }, []);
   const relative = plugin.manifest?.ui.replace(/^ui\//, "") ?? "index.html";
-  return <div>{error && <p role="alert">{error}</p>}
+  // The frame fills the rest of the window (CSS flex); the plugin document is
+  // the only thing that scrolls, never the Companion page around it.
+  return <div className="plugin-frame">{error && <Notice tone="danger">{error}</Notice>}
     <iframe ref={frame} title={plugin.manifest?.name ?? plugin.id} sandbox="allow-scripts" referrerPolicy="no-referrer"
       onLoad={() => frame.current?.contentWindow?.postMessage({type:"plugin-host-probe",version:UI_VERSION},"*")}
-      src={pluginAsset(plugin.id, plugin.installed.active, relative)} style={{ width: "100%", height }} />
+      src={pluginAsset(plugin.id, plugin.installed.active, relative)} />
   </div>;
 }

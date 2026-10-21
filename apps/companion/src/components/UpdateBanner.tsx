@@ -1,4 +1,5 @@
 import type { UpdaterState } from "../hooks/useUpdater";
+import { Button } from "./ui";
 
 interface Props {
   state: UpdaterState;
@@ -35,8 +36,8 @@ export function UpdateBanner({ state, onCheck, onInstall, onRestart, onDismiss }
           {state.notes && <p className="update-banner__notes">{state.notes}</p>}
         </div>
         <div className="update-banner__actions">
-          <button className="button button--primary" onClick={onInstall}>Установить</button>
-          <button className="button" onClick={onDismiss}>Позже</button>
+          <Button variant="primary" size="small" onClick={onInstall}>Установить</Button>
+          <Button variant="ghost" size="small" onClick={onDismiss}>Позже</Button>
         </div>
       </section>
     );
@@ -59,7 +60,7 @@ export function UpdateBanner({ state, onCheck, onInstall, onRestart, onDismiss }
       <section className="update-banner update-banner--available">
         <strong>Обновление {state.version} готово к установке</strong>
         <div className="update-banner__actions">
-          <button className="button button--primary" onClick={onRestart}>Перезапустить</button>
+          <Button variant="primary" size="small" onClick={onRestart}>Перезапустить</Button>
         </div>
       </section>
     );
@@ -70,8 +71,8 @@ export function UpdateBanner({ state, onCheck, onInstall, onRestart, onDismiss }
     <section className="update-banner update-banner--error">
       <span>Не удалось обновить Companion: {state.message}</span>
       <div className="update-banner__actions">
-        <button className="button" onClick={onCheck}>Повторить</button>
-        <button className="button" onClick={onDismiss}>Закрыть</button>
+        <Button size="small" onClick={onCheck}>Повторить</Button>
+        <Button variant="ghost" size="small" onClick={onDismiss}>Закрыть</Button>
       </div>
     </section>
   );

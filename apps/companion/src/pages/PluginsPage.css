@@ -1,33 +1,38 @@
-.plugin-library { min-width: 0; }
-.plugin-library__heading { display: flex; flex-wrap: wrap; gap: 16px; align-items: start; justify-content: space-between; margin-bottom: 24px; }
-.plugin-library__heading h2 { margin-bottom: 6px; }
-.plugin-library__heading p { margin-bottom: 0; color: var(--muted); }
-.plugin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); gap: 16px; margin-bottom: 32px; }
-.plugin-card { min-width: 0; display: flex; flex-direction: column; align-items: start; gap: 12px; padding: 20px; border: 1px solid var(--ui-edge-soft); border-radius: 10px; background: var(--ui-well); }
-.plugin-card h4, .plugin-card p { margin: 0; overflow-wrap: anywhere; }
-.plugin-card h4 { font-size: 17px; }
-.plugin-card p { color: var(--muted); }
-.plugin-card small { color: var(--ui-text-soft); }
-.plugin-card > .ui-button, .plugin-card > .plugin-actions { margin-top: auto; }
-.plugin-icon { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 9px; border: 1px solid var(--ui-edge-soft); background: var(--ui-panel); font-size: 20px; font-weight: 600; }
+.plugin-library { display: flex; flex-direction: column; gap: var(--space-5); flex: 1; min-width: 0; min-height: 0; }
+.plugin-section { display: grid; gap: var(--space-3); }
+.plugin-section > h2 { color: var(--ui-text-soft); font-size: var(--fs-sm); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+.plugin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--space-4); }
+.plugin-grid:empty { display: none; }
+.plugin-card { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; padding: var(--space-5); border: 1px solid var(--ui-edge-soft); border-radius: var(--radius-lg); background: var(--ui-panel); transition: border-color 120ms ease; }
+.plugin-card:hover { border-color: var(--ui-edge); }
+.plugin-card__header { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-3); }
+.plugin-card__title { display: grid; min-width: 0; }
+.plugin-card__title h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-lg); }
+.plugin-card__title span { color: var(--ui-text-muted); font-size: var(--fs-sm); }
+/* Long descriptions stay readable cards: three lines, full text on the plugin page. */
+.plugin-card__description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; color: var(--ui-text-soft); font-size: var(--fs-sm); line-height: 1.55; }
+.plugin-card__error { color: var(--danger); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.plugin-card__footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: auto; padding-top: var(--space-1); }
+.plugin-icon { display: grid; place-items: center; flex-shrink: 0; width: 40px; height: 40px; border: 1px solid var(--ui-edge-soft); border-radius: 10px; background: var(--ui-raised); font-size: 18px; font-weight: 600; }
 img.plugin-icon { object-fit: cover; padding: 0; }
-.plugin-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.plugin-detail { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
-.plugin-detail > p { margin: 0; }
-.plugin-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; }
-.plugin-toolbar__title { min-width: 0; margin-right: auto; }
-.plugin-toolbar__title h2 { margin: 0; font-size: 18px; }
-.plugin-toolbar__title span { color: var(--muted); font-size: 13px; }
-.plugin-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.plugin-controls > p { margin: 0; }
-.plugin-prepare { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.plugin-prepare label { display: flex; align-items: center; gap: 8px; color: var(--muted); }
-.plugin-about { margin: 0 !important; }
-.plugin-about summary { cursor: pointer; color: var(--muted); font-size: 13px; }
-.plugin-about > * + * { margin-top: 10px; }
-.plugin-about small { display: block; color: var(--muted); }
-.plugin-about pre { max-height: 240px; overflow: auto; font-size: 12px; }
-.plugin-detail iframe { display: block; width: 100%; border: 1px solid var(--ui-edge-soft); border-radius: 8px; background: var(--ui-well); }
-.plugin-transfer { padding: 16px; margin-block: 16px; border: 1px solid var(--ui-edge-soft); border-radius: 8px; }
-.plugin-transfer progress { width: 100%; margin-bottom: 12px; }
-.plugin-library details { margin-block: 20px; }
+.plugin-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+
+/* Opened plugin: compact host toolbar, then the plugin frame fills the rest. */
+.plugin-detail { display: flex; flex-direction: column; gap: var(--space-3); flex: 1; min-width: 0; min-height: 0; }
+.plugin-toolbar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.plugin-toolbar .ui-button--ghost { padding-inline: var(--space-2); }
+.plugin-toolbar__divider { width: 1px; height: 24px; background: var(--ui-edge-soft); }
+.plugin-toolbar__title { display: grid; gap: 2px; min-width: 0; margin-right: auto; }
+.plugin-toolbar__title h2 { font-size: var(--fs-xl); line-height: 1.2; }
+.plugin-toolbar__title > span { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); color: var(--ui-text-muted); font-size: var(--fs-sm); }
+.plugin-controls { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.plugin-controls__line { flex-basis: 100%; font-size: var(--fs-sm); text-align: right; }
+.plugin-prepare { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); }
+.plugin-about > summary { min-height: var(--control-h); padding: 0 var(--space-2); }
+.plugin-about[open] .plugin-about__body { position: absolute; top: calc(100% + 4px); right: 0; z-index: 5; display: grid; gap: var(--space-3); width: min(520px, 100%); padding: var(--space-4); border: 1px solid var(--ui-edge); border-radius: var(--radius); background: var(--ui-panel); box-shadow: 0 12px 32px rgba(0, 0, 0, .5); }
+.plugin-about__body p { color: var(--ui-text-soft); }
+.plugin-frame { display: flex; flex-direction: column; gap: var(--space-2); flex: 1; min-height: 420px; }
+/* Seamless: no frame chrome, same surface as the app, so the plugin reads as part of Companion. */
+.plugin-frame iframe { display: block; flex: 1; width: 100%; min-height: 0; border: 0; border-top: 1px solid var(--ui-edge-soft); background: var(--ui-void); color-scheme: dark; }
+.plugin-transfer { display: grid; gap: var(--space-2); padding: var(--space-4); border: 1px solid var(--ui-edge-soft); border-radius: var(--radius); background: var(--ui-panel); }
+.plugin-transfer progress { width: 100%; accent-color: var(--accent); }

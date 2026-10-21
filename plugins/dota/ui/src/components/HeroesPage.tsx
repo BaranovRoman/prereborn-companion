@@ -136,9 +136,9 @@ export function HeroesPage({ favorites, soundSettings, trackedHeroes, onSelectHe
   }, []);
 
   return (
-    <div className="heroes-page">
-      <header className="heroes-page__header">
-        <div><h2>Герои</h2><p>Все герои Dota 2 — начните печатать для поиска, способности и звуки назначаются прямо здесь.</p></div>
+    <div className="heroes-page dota-view">
+      <header className="heroes-page__header dota-view__header">
+        <div><h2>Герои</h2><p>Начните печатать имя героя для поиска. Число на портрете — сколько способностей уже со звуком.</p></div>
         {favoriteHeroes.length > 0 ? (
             <section className="hero-favorites-strip" aria-label="Избранные герои">
               <h3 className="hero-favorites-strip__title">★ Избранные</h3>
@@ -222,7 +222,7 @@ export function HeroesPage({ favorites, soundSettings, trackedHeroes, onSelectHe
           })}
         </div>
       </div>
-      {favorites.error && <p className="app__error">Ошибка: {favorites.error}</p>}
+      {favorites.error && <p className="ui-notice ui-notice--danger" role="alert">Ошибка: {favorites.error}</p>}
     </div>
   );
 }

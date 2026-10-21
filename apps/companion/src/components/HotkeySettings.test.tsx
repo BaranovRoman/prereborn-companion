@@ -13,8 +13,8 @@ afterEach(cleanup);
 describe("HotkeySettings", () => {
   it("shows the default shortcut when no status is loaded yet", () => {
     render(<HotkeySettings status={null} busy={false} onUpdate={vi.fn()} />);
-    expect(screen.getByText(/CommandOrControl\+Alt\+F10/)).toBeTruthy();
-    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(false);
+    expect(screen.getByRole("button", { name: /Ctrl\+Alt\+F10/ })).toBeTruthy();
+    expect((screen.getByRole("switch") as HTMLInputElement).checked).toBe(false);
   });
 
   it("reflects the current enabled/shortcut status", () => {
@@ -25,8 +25,8 @@ describe("HotkeySettings", () => {
         onUpdate={vi.fn()}
       />
     );
-    expect((screen.getByRole("checkbox") as HTMLInputElement).checked).toBe(true);
-    expect(screen.getByText(/Ctrl\+Alt\+F9/)).toBeTruthy();
+    expect((screen.getByRole("switch") as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole("button", { name: /Ctrl\+Alt\+F9/ })).toBeTruthy();
   });
 
   it("flags an enabled-but-unregistered shortcut", () => {
@@ -49,7 +49,7 @@ describe("HotkeySettings", () => {
         onUpdate={onUpdate}
       />
     );
-    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("switch"));
     expect(onUpdate).toHaveBeenCalledWith(true, "Ctrl+Alt+F9");
   });
 
@@ -75,8 +75,8 @@ describe("HotkeySettings", () => {
         onUpdate={onUpdate}
       />
     );
-    fireEvent.click(screen.getByRole("button", { name: "Ctrl+Alt+F9" }));
-    expect(screen.getByRole("button", { name: /Нажмите клавиши/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Ctrl\+Alt\+F9/ }));
+    expect(screen.getByRole("button", { name: /нажмите сочетание/ })).toBeTruthy();
 
     fireEvent.keyDown(window, { code: "F11", key: "F11" });
 
@@ -92,11 +92,11 @@ describe("HotkeySettings", () => {
         onUpdate={onUpdate}
       />
     );
-    fireEvent.click(screen.getByRole("button", { name: "Ctrl+Alt+F9" }));
+    fireEvent.click(screen.getByRole("button", { name: /Ctrl\+Alt\+F9/ }));
     fireEvent.keyDown(window, { code: "Escape", key: "Escape" });
 
     expect(onUpdate).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Ctrl+Alt+F9" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Ctrl\+Alt\+F9/ })).toBeTruthy();
   });
 
   it("disables controls while busy", () => {
@@ -107,8 +107,8 @@ describe("HotkeySettings", () => {
         onUpdate={vi.fn()}
       />
     );
-    expect((screen.getByRole("checkbox") as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Ctrl+Alt+F9" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("switch") as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: /Ctrl\+Alt\+F9/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("shows a lastError from status even without a local recording error", () => {
@@ -126,8 +126,8 @@ describe("HotkeySettings", () => {
     it("keeps recording and defaults separate from the TTS shortcut",()=>{
       const skip=vi.fn();const other=vi.fn().mockResolvedValue(undefined);
       render(<><HotkeySettings status={{enabled:true,shortcut:"Ctrl+Alt+F9",registered:true,lastError:null}} busy={false} onUpdate={skip}/><HotkeyBindRow enableDescription="Другое действие" bindLabel="Другая клавиша" status={{enabled:true,shortcut:"Ctrl+Alt+F12",registered:true,lastError:null}} busy={false} defaultShortcut="Ctrl+Alt+F11" onUpdate={other}/></>);
-      fireEvent.click(screen.getByRole("button",{name:"Ctrl+Alt+F12"}));
-      expect(screen.getByRole("button",{name:"Ctrl+Alt+F9"})).toBeTruthy();
+      fireEvent.click(screen.getByRole("button",{name:/Ctrl\+Alt\+F12/}));
+      expect(screen.getByRole("button",{name:/Ctrl\+Alt\+F9/})).toBeTruthy();
       fireEvent.keyDown(window,{code:"F10",key:"F10"});expect(other).toHaveBeenCalledWith(true,expect.stringContaining("F10"));expect(skip).not.toHaveBeenCalled();
       fireEvent.click(screen.getAllByRole("button",{name:"Сбросить по умолчанию"})[1]);expect(other).toHaveBeenCalledWith(true,"Ctrl+Alt+F11");
     });

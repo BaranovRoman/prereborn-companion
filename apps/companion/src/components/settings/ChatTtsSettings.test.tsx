@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ChatTtsSettings } from "./ChatTtsSettings";
+import { ChatTtsSettings, SpeechNotifications } from "./ChatTtsSettings";
 import { DEFAULT_CHAT_SETTINGS } from "../../chat/chat-model";
 import type { TwitchChatSession } from "../../chat/useTwitchChatSession";
 
@@ -59,7 +59,7 @@ describe("ChatTtsSettings", () => {
 
   it("toggling notification sound calls updateSetting('soundEnabled', ...)", () => {
     const session = buildSession();
-    render(<ChatTtsSettings session={session} />);
+    render(<SpeechNotifications session={session} voiceNotifications onVoiceNotifications={vi.fn()} />);
     fireEvent.click(screen.getByLabelText("Звук нового сообщения"));
     expect(session.updateSetting).toHaveBeenCalledWith("soundEnabled", true);
   });
@@ -74,9 +74,9 @@ describe("ChatTtsSettings", () => {
 
   it("only shows Silero voice picker when TTS is enabled and engine is silero", () => {
     render(<ChatTtsSettings session={buildSession({ settings: { ...DEFAULT_CHAT_SETTINGS, ttsEnabled: false } })} />);
-    expect(screen.queryByText("Голос")).toBeNull();
+    expect(screen.queryByLabelText("Голос Silero")).toBeNull();
 
     render(<ChatTtsSettings session={buildSession({ settings: { ...DEFAULT_CHAT_SETTINGS, ttsEnabled: true, ttsEngine: "silero" } })} />);
-    expect(screen.getByText("Голос")).toBeTruthy();
+    expect(screen.getByLabelText("Голос Silero")).toBeTruthy();
   });
 });

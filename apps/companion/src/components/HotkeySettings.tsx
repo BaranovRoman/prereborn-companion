@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
-import { DEFAULT_SKIP_SHORTCUT, shortcutFromKeyboardEvent } from "../chat/hotkey-format";
+import { useCallback, useState } from "react";
+import { DEFAULT_SKIP_SHORTCUT } from "../chat/hotkey-format";
 import type { SkipHotkeyStatus } from "../core/contracts";
-import { Checkbox, SettingsGroup, SettingsRow } from "./ui";
+import { HotkeyField, SettingsGroup, SettingsRow, Switch } from "./ui";
 
 // A hotkey status rendered by the reusable recorder is the
 // exact same shape - a structural interface, not a union of the two
@@ -23,76 +23,43 @@ interface RowProps {
   onUpdate: (enabled: boolean, shortcut: string) => Promise<void>;
 }
 
-// WK-135 - extracted from the single-hotkey component this used to be, so a
-// second, independent hotkey (overlay show/hide) can reuse the exact same
-// recording/reset/enable behavior (see the module comment below) without
-// duplicating it. Own local recording/error state per instance - two
-// hotkeys must not share one recording session.
+// WK-135 - one hotkey's enable switch + shortcut editor, shared by every
+// global hotkey (TTS skip, Twitch clips, Dota overlay). Own local error state
+// per instance - two hotkeys must not share one recording session (WK-180:
+// the recording itself lives in the shared HotkeyField).
 export function HotkeyBindRow({ enableDescription, bindLabel, status, busy, defaultShortcut, onUpdate }: RowProps) {
-  const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!recording) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      event.preventDefault();
-      if (event.code === "Escape") { setRecording(false); return; }
-      const shortcut = shortcutFromKeyboardEvent(event);
-      if (!shortcut) return; // lone modifier, or an unmodified non-function key - keep waiting
-      setRecording(false);
-      onUpdate(true, shortcut).catch((cause) => setError(String(cause)));
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [recording, onUpdate]);
-
-  const toggleEnabled = (enabled: boolean) => {
+  const apply = useCallback((enabled: boolean, shortcut: string) => {
     setError(null);
-    onUpdate(enabled, status?.shortcut ?? defaultShortcut).catch((cause) => setError(String(cause)));
-  };
-  const resetToDefault = () => {
-    setError(null);
-    onUpdate(true, defaultShortcut).catch((cause) => setError(String(cause)));
-  };
+    onUpdate(enabled, shortcut).catch((cause) => setError(String(cause)));
+  }, [onUpdate]);
 
-  const fieldsDisabled = busy || recording;
-
+  const failed = !!status?.enabled && !status.registered;
+  const problem = error ?? status?.lastError;
   return (
-    <>
-      <SettingsGroup>
-        <SettingsRow label="Включить горячую клавишу" description={enableDescription}>
-          <Checkbox checked={status?.enabled ?? false} disabled={busy} onChange={(event) => toggleEnabled(event.target.checked)} />
-        </SettingsRow>
-        <SettingsRow
+    <SettingsGroup>
+      <SettingsRow label={bindLabel} description={enableDescription}>
+        <Switch aria-label={`Горячая клавиша «${bindLabel}»`} checked={status?.enabled ?? false} disabled={busy} onChange={(event) => apply(event.target.checked, status?.shortcut ?? defaultShortcut)} />
+      </SettingsRow>
+      <SettingsRow
+        label="Сочетание клавиш"
+        description="Нажмите на поле и затем нужные клавиши"
+        status={failed || problem ? <>
+          {failed && <span className="ui-text-danger">Не удалось зарегистрировать</span>}
+          {problem && <span className="ui-text-danger">Не удалось применить горячую клавишу: {problem}</span>}
+        </> : undefined}
+      >
+        <HotkeyField
           label={bindLabel}
-          description={status?.enabled && !status?.registered ? "Не удалось зарегистрировать" : "Комбинация клавиш"}
-        >
-          <div className="hotkey-keybind-group">
-            <button
-              type="button"
-              className={`hotkey-keybind${recording ? " is-recording" : ""}`}
-              disabled={fieldsDisabled}
-              onClick={() => { setError(null); setRecording(true); }}
-            >
-              {recording ? "Нажмите клавиши… (Esc)" : (status?.shortcut ?? defaultShortcut)}
-            </button>
-            <button
-              type="button"
-              className="hotkey-keybind__reset"
-              title="Сбросить по умолчанию"
-              aria-label="Сбросить по умолчанию"
-              disabled={fieldsDisabled}
-              onClick={resetToDefault}
-            >
-              ↺
-            </button>
-          </div>
-        </SettingsRow>
-      </SettingsGroup>
-      {(error || status?.lastError) && (
-        <p className="app__error">Не удалось применить горячую клавишу: {error ?? status?.lastError}</p>
-      )}
-    </>
+          shortcut={status?.shortcut ?? defaultShortcut}
+          defaultShortcut={defaultShortcut}
+          disabled={busy}
+          invalid={failed || !!problem}
+          onChange={(shortcut) => apply(true, shortcut)}
+          onReset={() => apply(true, defaultShortcut)}
+        />
+      </SettingsRow>
+    </SettingsGroup>
   );
 }
 
@@ -110,30 +77,16 @@ interface Props {
 // cancel, reset-to-default), just relocated to Настройки - hotkeys aren't
 // chat-specific, they're a general Companion setting that happened to live
 // next to TTS controls only because that's where the feature originally
-// shipped (WK-93).
-//
-// The shortcut is a
-// compact key-binding field (`.hotkey-keybind`) that IS the click target
-// for recording, with a separate small reset icon beside it, laid out as a
-// settings row - not a status paragraph + a text button.
+// shipped (WK-93). Rendered inside Settings → «Горячие клавиши».
 export function HotkeySettings({ status, busy, onUpdate }: Props) {
   return (
-    <section className="hotkey-settings">
-      <h2>Горячие клавиши</h2>
-      <HotkeyBindRow
-        enableDescription="Пропустить озвучку текущего сообщения чата"
-        bindLabel="Пропустить озвучку"
-        status={status}
-        busy={busy}
-        defaultShortcut={DEFAULT_SKIP_SHORTCUT}
-        onUpdate={onUpdate}
-      />
-      <p className="hotkey-settings__hint">
-        Работает даже когда Companion свёрнут в трей или фокус в другом приложении. Останавливает
-        текущую озвучку немедленно и переходит к следующему сообщению очереди; сама очередь не очищается, TTS не
-        выключается. Никаких звуков при пропуске не воспроизводится.
-      </p>
-
-    </section>
+    <HotkeyBindRow
+      enableDescription="Останавливает текущую озвучку и переходит к следующему сообщению. Работает, даже когда Companion свёрнут или открыта игра; очередь не очищается."
+      bindLabel="Пропустить озвучку"
+      status={status}
+      busy={busy}
+      defaultShortcut={DEFAULT_SKIP_SHORTCUT}
+      onUpdate={onUpdate}
+    />
   );
 }

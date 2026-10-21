@@ -1,9 +1,9 @@
 /* Heroes screen ported unchanged from Companion 0.5.94 (App.css); tokens it
    used that the package theme does not define are scoped here. */
 .heroes-page { --font-title: "Reaver", "Forum", "Times New Roman", serif; --ui-raised: #262b2c; --ui-red-hover: #98504a; --ui-well: #101415; }
-.heroes-page__header { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.heroes-page__header { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
 .heroes-page__header h2 { margin: 0 0 4px; }
-.heroes-page__header p { margin: 0; color: var(--ui-text-soft); }
+.heroes-page__header p { margin: 4px 0 0; color: var(--ui-text-soft); font-size: var(--fs-sm); }
 /* WK-116 - Dota-style hero portrait grid, ported from apps/web's Favorite
    Heroes picker (queue-widgets-panel.module.scss's `.heroGrid`/`.heroTile`
    - see HeroesGrid.tsx's doc comment). `auto-fill` instead of web's fixed
@@ -13,7 +13,7 @@
    overlay) matches web's recipe closely. */
 .attribute-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; }
 .attribute-column { min-width: 0; }
-.attribute-column h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; color: var(--ui-text-soft); font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.attribute-column h3 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; color: var(--ui-text-soft); font-size: var(--fs-xs); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .attribute-column h3 img { width: 18px; height: 18px; object-fit: contain; filter: drop-shadow(0 1px 4px rgba(0, 0, 0, .65)); }
 @media (max-width: 1300px) {
   .attribute-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -141,7 +141,8 @@
    the visual top offset without adding back any flow height. */
 .hero-search-overlay {
   position: sticky;
-  top: 0;
+  /* WK-180 - below the plugin's sticky tab bar. */
+  top: var(--dota-bar-h, 0px);
   height: 0;
   overflow: visible;
   z-index: 5;

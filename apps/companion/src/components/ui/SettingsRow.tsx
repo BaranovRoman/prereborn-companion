@@ -17,15 +17,21 @@ export function SettingsGroup({ title, children }: SettingsGroupProps) {
 export interface SettingsRowProps {
   label: ReactNode;
   description?: ReactNode;
+  /** Live state of this setting (e.g. "Не удалось зарегистрировать"). */
+  status?: ReactNode;
+  /** Control under the text instead of at the right (wide controls). */
+  stacked?: boolean;
   children: ReactNode;
 }
 
-export function SettingsRow({ label, description, children }: SettingsRowProps) {
+// One setting: name, explanation, status on the left; its control on the right.
+export function SettingsRow({ label, description, status, stacked, children }: SettingsRowProps) {
   return (
-    <div className="ui-settings-row">
+    <div className={`ui-settings-row${stacked ? " ui-settings-row--stacked" : ""}`}>
       <div className="ui-settings-row__label">
-        <strong>{label}</strong>
-        {description && <span>{description}</span>}
+        <span className="ui-settings-row__title">{label}</span>
+        {description && <span className="ui-settings-row__description">{description}</span>}
+        {status && <span className="ui-settings-row__status">{status}</span>}
       </div>
       <div className="ui-settings-row__control">{children}</div>
     </div>

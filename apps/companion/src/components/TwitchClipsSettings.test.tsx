@@ -82,7 +82,7 @@ describe("TwitchClipsSettings (WK-178)", () => {
     vi.mocked(api.setClipsHotkey).mockResolvedValue({ ...baseStatus, enabled: false, registered: false });
     render(<TwitchClipsSettings />);
     await screen.findByText("F8");
-    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("switch"));
     expect(api.setClipsHotkey).toHaveBeenCalledWith(false, "F8");
   });
 

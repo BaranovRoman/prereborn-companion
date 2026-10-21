@@ -213,8 +213,8 @@ export function HeroStatistics({heroId}:{heroId:number}){
   try{setFavorites(await saveFavoriteHeroes(next));}catch(e){setError(String(e));}finally{setBusy(false);}
  };
  return <section className="hero-statistics">{error&&<p role="alert">{error}</p>}
-  <button disabled={busy||favorites===null} onClick={()=>void toggle()}>{favorites?.includes(heroId)?"Убрать из избранного":"Добавить в избранное"}</button>
+  <Button size="small" variant={favorites?.includes(heroId)?"ghost":"default"} disabled={busy||favorites===null} onClick={()=>void toggle()}>{favorites?.includes(heroId)?"Убрать из избранного":"Добавить в избранное"}</Button>
   <HeroStatsPanel stats={local}/><HeroOpenDotaPanel stats={stats} insights={insights} onOpenIntegrations={()=>setInfo(true)}/>
-  {info&&<p>Привяжите Steam в Companion → Настройки → Интеграции. Затем откройте героя заново.</p>}
+  {info&&<p className="ui-text-muted">Привяжите Steam в Companion → Настройки → Интеграции. Затем откройте героя заново.</p>}
  </section>;
 }

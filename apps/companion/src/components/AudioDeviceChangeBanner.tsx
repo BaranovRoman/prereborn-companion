@@ -1,3 +1,5 @@
+import { Button } from "./ui";
+
 interface Props {
   toLabel: string | null;
   onSwitch: () => void;
@@ -22,8 +24,8 @@ export function AudioDeviceChangeBanner({ toLabel, onSwitch, onKeep }: Props) {
         <p className="update-banner__notes">Переключить TTS/алерты Companion на это устройство?</p>
       </div>
       <div className="update-banner__actions">
-        <button className="button button--primary" onClick={onSwitch}>Переключить</button>
-        <button className="button" onClick={onKeep}>Оставить текущее</button>
+        <Button variant="primary" size="small" onClick={onSwitch}>Переключить</Button>
+        <Button variant="ghost" size="small" onClick={onKeep}>Оставить текущее</Button>
       </div>
     </section>
   );
