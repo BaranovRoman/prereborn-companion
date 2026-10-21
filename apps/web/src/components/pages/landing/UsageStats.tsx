@@ -37,18 +37,44 @@ export const collectionCaption = ({ trackingSince, generatedAt }: PublicUsageSta
   return `Статистика собирается с ${formatDay.format(since)}`;
 };
 
+const LABELS = ["Зарегистрировано пользователей", "Активны за 7 дней", "Активны за 30 дней"] as const;
+
+// WK-188 - "loading" keeps the block's height (no layout jump); "error" says
+// so in words instead of disappearing or showing zeros.
+type State = { status: "loading" } | { status: "error" } | { status: "ready"; stats: PublicUsageStats };
+
 export const UsageStats = () => {
-  const [stats, setStats] = useState<PublicUsageStats | null>(null);
+  const [state, setState] = useState<State>({ status: "loading" });
   useEffect(() => {
     const controller = new AbortController();
     fetch("/api/public/usage-stats", { signal: controller.signal })
       .then((res) => (res.ok ? res.json() : null))
-      .then((body) => setStats(parsePublicUsageStats(body)))
-      .catch(() => setStats(null));
+      .then((body) => {
+        const stats = parsePublicUsageStats(body);
+        setState(stats ? { status: "ready", stats } : { status: "error" });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setState({ status: "error" });
+      });
     return () => controller.abort();
   }, []);
-  if (!stats) return null;
-  const items: [string, number][] = [["Зарегистрировано пользователей", stats.registeredUsers], ["Активны за 7 дней", stats.activeUsers7d], ["Активны за 30 дней", stats.activeUsers30d]];
-  const caption = collectionCaption(stats);
-  return <section className={styles.stats} aria-label="Статистика Companion"><dl>{items.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{formatCount.format(value)}</dd></div>)}</dl><small>Активность считается по запускам desktop-приложения Companion.{caption ? ` ${caption}` : ""}</small></section>;
+  if (state.status === "error") {
+    return <section className={styles.stats} aria-label="Статистика Companion"><small role="status">Статистика Companion сейчас недоступна.</small></section>;
+  }
+  const stats = state.status === "ready" ? state.stats : null;
+  const values = stats ? [stats.registeredUsers, stats.activeUsers7d, stats.activeUsers30d] : null;
+  const caption = stats ? collectionCaption(stats) : null;
+  return (
+    <section className={styles.stats} aria-label="Статистика Companion" aria-busy={!stats}>
+      <dl>
+        {LABELS.map((label, index) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            {values ? <dd>{formatCount.format(values[index])}</dd> : <dd aria-hidden="true"><span className={styles.statsPlaceholder} /></dd>}
+          </div>
+        ))}
+      </dl>
+      <small>Активность считается по запускам desktop-приложения Companion.{caption ? ` ${caption}` : ""}</small>
+    </section>
+  );
 };

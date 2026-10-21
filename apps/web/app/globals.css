@@ -45,6 +45,12 @@ body {
 }
 a { color: inherit; }
 
+/* WK-188 - public pages (PublicShell) paint the Companion background up to the edges. */
+html:has(.publicSite),
+html:has(.publicSite) body {
+  background: #0f1013;
+}
+
 html.obsOverlayRoute,
 body.obsOverlayRoute,
 body.obsOverlayRoute .appContent {

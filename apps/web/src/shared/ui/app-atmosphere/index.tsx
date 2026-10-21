@@ -14,7 +14,10 @@ const ignoreDebugState: (state: RedFogDebugState) => void = () => {};
 export const AppAtmosphere = () => {
     const pathname = usePathname();
     const isOverlay = pathname.startsWith("/overlay/");
-    const ownsBackground = pathname === "/stream/queue" || isOverlay;
+    // WK-188 - the public site (landing, /changelog) has its own flat Companion
+    // background; skipping the WebGL fog there also keeps the landing light.
+    const isPublicSite = pathname === "/" || pathname === "/changelog";
+    const ownsBackground = pathname === "/stream/queue" || isOverlay || isPublicSite;
 
     useEffect(() => {
         document.documentElement.classList.toggle("obsOverlayRoute", isOverlay);
