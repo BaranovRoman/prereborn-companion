@@ -157,7 +157,7 @@ describe("IntegrationsPanel - Twitch (native connect/disconnect)", () => {
     expect(twitchSection.queryByRole("button", { name: /сайте/ })).toBeNull();
 
     fireEvent.click(twitchSection.getByRole("button", { name: "Отключить" }));
-    expect(twitchSection.getByText(/Чат и озвучка сообщений \(TTS\) станут недоступны/)).toBeTruthy();
+    expect(twitchSection.getByText(/Чат, озвучка сообщений \(TTS\) и клипы станут недоступны/)).toBeTruthy();
     expect(mockedDisconnectTwitch).not.toHaveBeenCalled();
 
     mockedTwitchStatus.mockResolvedValue(NOT_CONNECTED_TWITCH);

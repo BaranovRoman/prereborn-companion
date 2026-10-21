@@ -82,4 +82,19 @@ input::placeholder,textarea::placeholder { color:var(--ui-text-muted); }
 .ui-badge { display:inline-flex; padding:3px 7px; background:var(--ui-raised); border-radius:5px; font-size:12px; color:var(--muted); }
 .page-content { min-width:0; }
 @media(max-width:950px) { .companion-root{grid-template-columns:172px minmax(0,1fr)} .companion-sidebar{padding-inline:9px} .companion-main{padding:24px 22px} .chat-layout{grid-template-columns:minmax(0,1fr)} .chat-settings--runtime{margin-top:12px} }
+/* WK-178 - Клипы Twitch */
+.clips-settings { display:grid; gap:12px; min-width:0; }
+.clips-settings h2,.clips-settings h3 { margin:0; }
+.clips-settings h3 { font-size:14px; }
+.clips-settings__actions { display:flex; gap:8px; flex-wrap:wrap; }
+.clips-settings__notice { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius); background:var(--raised); }
+.clips-settings__notice p { margin:0; }
+.clips-settings__success { color:var(--success); overflow-wrap:anywhere; }
+.clips-settings__history-header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; }
+.clips-history { list-style:none; margin:0; padding:0; display:grid; gap:6px; }
+.clips-history__item { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 12px; background:var(--ui-void); border:1px solid var(--border); border-radius:var(--radius); min-width:0; }
+.clips-history__meta { display:grid; min-width:0; }
+.clips-history__meta strong,.clips-history__meta > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.clips-history__meta > span { color:var(--muted); font-size:12px; }
+.clips-history__actions { display:flex; gap:6px; flex-shrink:0; }
 @media(max-width:650px) { .companion-root{grid-template-columns:130px minmax(0,1fr)} .companion-brand{padding-inline:3px;gap:7px} .companion-brand strong{font-size:12px} .companion-brand>span{width:25px;height:28px} .companion-sidebar nav button{gap:7px;padding:10px 7px;font-size:12px} .companion-main{padding:20px 14px} .core-service-list>div{grid-template-columns:1fr;gap:5px} .core-form-grid{grid-template-columns:1fr} .core-settings-group{padding:16px} }

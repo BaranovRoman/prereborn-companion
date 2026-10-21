@@ -12,6 +12,8 @@
 // to already be bound in Dota (which mostly uses unmodified letters/Alt-
 // click) or OBS (user-configurable, rarely defaults to a modified F-key).
 export const DEFAULT_SKIP_SHORTCUT = "CommandOrControl+Alt+F10";
+// Mirrors DEFAULT_CLIP_SHORTCUT in src-tauri/src/clips.rs (WK-178).
+export const DEFAULT_CLIP_SHORTCUT = "F8";
 
 
 

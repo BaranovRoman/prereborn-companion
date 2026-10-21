@@ -11,6 +11,7 @@ import { AutostartSetting } from "../../components/AutostartSetting";
 import { HotkeySettings } from "../../components/HotkeySettings";
 import { IntegrationsPanel } from "../../components/IntegrationsPanel";
 import { TwitchChatPage } from "../../components/TwitchChatPage";
+import { TwitchClipsSettings } from "../../components/TwitchClipsSettings";
 import { ChatTtsSettings } from "../../components/settings/ChatTtsSettings";
 import { UpdateBanner } from "../../components/UpdateBanner";
 import { PluginsPage } from "../../pages/PluginsPage";
@@ -74,6 +75,7 @@ export function CoreShell() {
       {section==="settings"&&<div className="core-settings-stack">
         <section className="core-settings-group"><AccountForm/></section>
         <section className="core-settings-group"><IntegrationsPanel/></section>
+        <section className="core-settings-group"><TwitchClipsSettings/></section>
         <section className="core-settings-group"><AutostartSetting state={autostart.state} busy={autostart.busy} onChange={(enabled)=>void autostart.setAutostart(enabled)}/></section>
         <section className="core-settings-group"><HotkeySettings status={chat.skipHotkeyStatus} busy={chat.skipHotkeyBusy} onUpdate={chat.updateSkipHotkey}/></section>
         <section className="core-settings-group"><h2>Обновления</h2><p>Используется стандартный подписанный updater Companion.</p><Button onClick={()=>void updater.checkForUpdate()} disabled={updater.state.phase==="checking"}>Проверить обновления</Button></section>
