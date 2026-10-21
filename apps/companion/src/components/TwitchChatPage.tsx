@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { TwitchChatSession } from "../chat/useTwitchChatSession";
 import { openStreamSettings, type TwitchChatMessage } from "../core/api";
+import { ChatOverlayControls } from "../chat-overlay/ChatOverlayControls";
+import type { ChatOverlayControl } from "../chat-overlay/useChatOverlay";
 
 // WK-78 - polling, dedup, the TTS queue/playback and unread counting used to
 // live here and stopped the moment this page unmounted (e.g. switching to
@@ -13,7 +15,7 @@ import { openStreamSettings, type TwitchChatMessage } from "../core/api";
 // same session instance, not a second copy of the state). This screen keeps
 // only runtime concerns: the message stream, Twitch connection state, and
 // the skip/stop TTS actions - a working runtime screen, not a settings form.
-export function TwitchChatPage({ session, onOpenChatSettings }: { session: TwitchChatSession; onOpenChatSettings: () => void }) {
+export function TwitchChatPage({ session, onOpenChatSettings, overlay }: { session: TwitchChatSession; onOpenChatSettings: () => void; overlay?: ChatOverlayControl }) {
   const {
     status, error, unread, settings, stopTts, isSpeaking, setViewerAtBottom, markRead,
     skipTts, lastSkipAt,
@@ -117,6 +119,7 @@ export function TwitchChatPage({ session, onOpenChatSettings }: { session: Twitc
           <button className="button" onClick={stopTts} disabled={!settings.ttsEnabled && !isSpeaking()}>Остановить и выключить TTS</button>
         </div>
         <button type="button" className="link-button" onClick={onOpenChatSettings}>Настройки чата и TTS →</button>
+        {overlay && <ChatOverlayControls overlay={overlay} />}
       </aside>
     </div>
   </section>;

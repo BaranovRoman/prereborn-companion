@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "chat-overlay",
+  "description": "WK-179 Twitch chat overlay window: receive chat events, move and resize itself",
+  "windows": ["chat-overlay"],
+  "permissions": [
+    "core:event:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging"
+  ]
+}

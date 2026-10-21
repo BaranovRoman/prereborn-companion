@@ -14,6 +14,15 @@ export interface TwitchChatMessage {
   badges: string[];
   messageType: string;
   receivedAt: string;
+  // WK-179 - EventSub message fragments (text/emote/cheermote/mention).
+  // Optional: the API doesn't forward them yet; the chat overlay falls back
+  // to plain text plus third-party emote matching without them.
+  fragments?: TwitchChatFragment[];
+}
+export interface TwitchChatFragment {
+  type: string;
+  text: string;
+  emote?: { id: string } | null;
 }
 export type TwitchChatState = "connected" | "reconnecting" | "reauth_required" | "unavailable";
 export interface TwitchChatStatus {

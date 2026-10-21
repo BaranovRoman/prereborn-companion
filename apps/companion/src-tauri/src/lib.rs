@@ -1,4 +1,5 @@
 mod backend;
+mod chat_overlay;
 mod clips;
 mod commands;
 mod core;
@@ -88,7 +89,7 @@ pub fn run(){
  .plugin(tauri_plugin_notification::init())
  .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent,Some(vec!["--hidden"])))
  .plugin(tauri_plugin_window_state::Builder::default().with_state_flags(tauri_plugin_window_state::StateFlags::SIZE|tauri_plugin_window_state::StateFlags::POSITION|tauri_plugin_window_state::StateFlags::MAXIMIZED).build())
- .manage(AppState::new()).manage(diagnostics::DiagnosticsState::new()).manage(silero::SileroState::new()).manage(hotkeys::HotkeysState::new()).manage(clips::ClipsState::new())
+ .manage(AppState::new()).manage(diagnostics::DiagnosticsState::new()).manage(silero::SileroState::new()).manage(hotkeys::HotkeysState::new()).manage(clips::ClipsState::new()).manage(chat_overlay::ChatOverlayState::default())
  .setup(|app|{
   let handle=app.handle().clone();storage::init(&handle)?;
   handle.state::<AppState>().0.lock().unwrap().core.log_dir=Some(storage::logs_root(&handle).to_string_lossy().into());
@@ -126,6 +127,10 @@ pub fn run(){
  commands::account_login,
  commands::account_logout,
  commands::get_twitch_chat,
+ chat_overlay::chat_overlay_open,
+ chat_overlay::chat_overlay_close,
+ chat_overlay::chat_overlay_set_click_through,
+ chat_overlay::chat_overlay_status,
  commands::diagnostics_get_status,
  commands::diagnostics_start,
  commands::diagnostics_stop,

@@ -1,6 +1,7 @@
 import { useCallback,useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTwitchChatSession } from "../../chat/useTwitchChatSession";
+import { useChatOverlay } from "../../chat-overlay/useChatOverlay";
 import { useOverallVolume } from "../../hooks/useOverallVolume";
 import { useAudioOutputDevice } from "../../hooks/useAudioOutputDevice";
 import { useAutostart } from "../../hooks/useAutostart";
@@ -33,6 +34,7 @@ export function CoreShell() {
   const {status,error,refresh}=useHostStatus();
   const {overallVolume,setOverallVolume}=useOverallVolume();
   const chat=useTwitchChatSession(overallVolume);
+  const chatOverlay=useChatOverlay(chat.status);
   const output=useAudioOutputDevice();const autostart=useAutostart();const updater=useUpdater();
   const [section,setSection]=useState<Section>("overview");
   const [diagnosticResult,setDiagnosticResult]=useState<string|null>(null);
@@ -68,7 +70,7 @@ export function CoreShell() {
         <div className="core-actions"><Button onClick={()=>setSection("chat")}>Открыть чат</Button><Button onClick={()=>setSection("speech")}>Настроить озвучку</Button><Button onClick={()=>setSection("plugins")}>Библиотека плагинов</Button></div>
         <section className="core-recent"><h2>Последние сообщения</h2>{chat.status?.messages.length?<ol>{chat.status.messages.slice(-5).map((m)=><li key={m.id}><strong>{m.author}</strong><p>{m.text}</p></li>)}</ol>:<p className="core-hint">Сообщений пока нет. Проверьте подключение Twitch или откройте чат.</p>}</section>
       </section>}
-      {section==="chat"&&<TwitchChatPage session={chat} onOpenChatSettings={()=>setSection("speech")}/>}
+      {section==="chat"&&<TwitchChatPage session={chat} onOpenChatSettings={()=>setSection("speech")} overlay={chatOverlay}/>}
       {section==="speech"&&<div className="core-settings-stack"><OutputSettings session={chat} output={output} volume={overallVolume} onVolume={setOverallVolume}/><section className="core-settings-group"><h2>Чат и озвучка</h2><ChatTtsSettings session={chat}/></section><section className="core-settings-group"><h2>Голосовые уведомления плагинов</h2><label><input type="checkbox" checked={voiceNotifications} onChange={event=>{const enabled=event.target.checked;setVoiceNotifications(enabled);try{localStorage.setItem("companion-system-voice-reminders-v1",String(enabled));}catch{/* The current preference remains applied if persistence is unavailable. */}}}/> Разрешить голосовые уведомления</label><p>Используется выбранный голос Silero. Уведомления не добавляются в очередь сообщений Twitch.</p></section></div>}
       {section==="obs"&&<ObsConnectionPage status={status} refresh={refresh}/>}
       {section==="plugins"&&<PluginsPage/>}

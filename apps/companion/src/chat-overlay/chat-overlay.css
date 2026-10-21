@@ -1,0 +1,61 @@
+/* WK-179 - chat overlay window. Loaded only by ChatOverlayApp, never by the
+   main window: html/body must stay transparent so the game shows through. */
+html, body, #root { margin:0; height:100%; background:transparent; overflow:hidden; }
+
+.chat-overlay {
+  box-sizing:border-box; height:100%; display:flex; flex-direction:column; position:relative;
+  font-size:var(--overlay-font-size); line-height:1.35; color:#fff;
+  border:1px solid transparent; border-radius:6px;
+  user-select:none; -webkit-user-select:none;
+}
+.chat-overlay.is-editing { border:1px dashed rgba(255,255,255,.55); }
+.chat-overlay__handle {
+  flex:none; padding:5px 10px; cursor:move; font:600 12px/1.4 system-ui, sans-serif;
+  color:#fff; background:rgba(145,70,255,.85); border-radius:5px 5px 0 0;
+}
+.chat-overlay__list {
+  flex:1; min-height:0; overflow-y:auto; padding:8px 10px; scrollbar-width:none;
+  display:flex; flex-direction:column; gap:4px;
+}
+.chat-overlay__list::-webkit-scrollbar { display:none; }
+.chat-overlay__list > :first-child { margin-top:auto; }
+.chat-overlay__empty { margin:0; opacity:.75; font-size:.85em; }
+.chat-overlay__line { margin:0; overflow-wrap:anywhere; }
+.chat-overlay__author { font-weight:700; }
+.chat-overlay__emote { height:1.75em; vertical-align:middle; margin:-.3em .05em; }
+.chat-overlay__badge {
+  display:inline-grid; place-items:center; width:1.15em; height:1.15em; margin-right:.25em;
+  border-radius:3px; font:700 .7em/1 system-ui, sans-serif; vertical-align:.15em; color:#fff;
+}
+.chat-overlay__badge--broadcaster { background:#e91916; }
+.chat-overlay__badge--moderator { background:#00ad03; }
+.chat-overlay__badge--vip { background:#e005b9; }
+.chat-overlay__badge--subscriber { background:#8205b4; }
+.chat-overlay__grip {
+  position:absolute; right:0; bottom:0; width:18px; height:18px; padding:0; border:0; cursor:nwse-resize;
+  background:linear-gradient(135deg, transparent 50%, rgba(255,255,255,.7) 50%); border-radius:0 0 5px 0;
+}
+
+/* Plain: Twitch-like dark cards. */
+.chat-overlay--plain { font-family:"Inter", "Segoe UI", system-ui, sans-serif; }
+.chat-overlay--plain .chat-overlay__list { background:rgba(14,14,16,var(--overlay-bg-alpha)); }
+.chat-overlay--plain .chat-overlay__line {
+  padding:3px 8px; border-radius:6px; background:rgba(24,24,27,calc(var(--overlay-bg-alpha) * .9 + .25));
+}
+
+/* WoW-styled: imitates the look of a custom chat channel line in the game's
+   chat frame - "[Twitch] [Name]: text", outlined text, faint black wash. Uses
+   no Blizzard art or fonts and never mimics GM/system messages. */
+.chat-overlay--wow { font-family:"Friz Quadrata TT", "Trebuchet MS", "Arial Narrow", sans-serif; }
+.chat-overlay--wow .chat-overlay__list {
+  background:linear-gradient(rgba(0,0,0,var(--overlay-bg-alpha)), rgba(0,0,0,var(--overlay-bg-alpha)));
+}
+.chat-overlay--wow .chat-overlay__line {
+  color:#ffc0c0;
+  text-shadow:1px 1px 0 #000, -1px 1px 0 #000, 1px -1px 0 #000, -1px -1px 0 #000;
+}
+.chat-overlay--wow .chat-overlay__channel { color:#b98cff; margin-right:.3em; }
+.chat-overlay--wow .chat-overlay__author { font-weight:400; }
+.chat-overlay--wow .chat-overlay__badge { text-shadow:none; }
+.chat-overlay--wow .is-moderator .chat-overlay__text { color:#9fdcff; }
+.chat-overlay--wow .is-broadcaster .chat-overlay__text { color:#ffd27a; }

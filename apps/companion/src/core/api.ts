@@ -74,3 +74,11 @@ export const setClipDuration = (durationSeconds: number) =>
 export const createClipNow = () => invoke<boolean>("create_clip_now");
 export const openClip = (id: string) => invoke<void>("open_clip", { id });
 export const clearClipsHistory = () => invoke<import("./contracts").ClipsStatus>("clear_clips_history");
+
+// WK-179 - Twitch chat overlay window (src-tauri/src/chat_overlay.rs).
+export interface ChatOverlayStatus { open: boolean; clickThrough: boolean }
+export const getChatOverlayStatus = () => invoke<ChatOverlayStatus>("chat_overlay_status");
+export const openChatOverlay = () => invoke<ChatOverlayStatus>("chat_overlay_open");
+export const closeChatOverlay = () => invoke<ChatOverlayStatus>("chat_overlay_close");
+export const setChatOverlayClickThrough = (enabled: boolean) =>
+  invoke<ChatOverlayStatus>("chat_overlay_set_click_through", { enabled });

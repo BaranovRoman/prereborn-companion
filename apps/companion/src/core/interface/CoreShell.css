@@ -98,3 +98,8 @@ input::placeholder,textarea::placeholder { color:var(--ui-text-muted); }
 .clips-history__meta > span { color:var(--muted); font-size:12px; }
 .clips-history__actions { display:flex; gap:6px; flex-shrink:0; }
 @media(max-width:650px) { .companion-root{grid-template-columns:130px minmax(0,1fr)} .companion-brand{padding-inline:3px;gap:7px} .companion-brand strong{font-size:12px} .companion-brand>span{width:25px;height:28px} .companion-sidebar nav button{gap:7px;padding:10px 7px;font-size:12px} .companion-main{padding:20px 14px} .core-service-list>div{grid-template-columns:1fr;gap:5px} .core-form-grid{grid-template-columns:1fr} .core-settings-group{padding:16px} }
+.chat-overlay-controls { display:grid; gap:10px; margin-top:18px; padding-top:16px; border-top:1px solid var(--border); }
+.chat-overlay-controls h3 { margin:0; }
+.chat-overlay-controls p { margin:0; color:var(--muted); }
+.chat-overlay-controls label { display:grid; gap:6px; }
+.chat-overlay-controls__styles { display:flex; flex-wrap:wrap; gap:6px 16px; }
