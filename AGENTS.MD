@@ -143,6 +143,77 @@ For implementation tasks:
 
 If manual UAT is explicitly deferred for the current workstream, automated validation and self-review may proceed to the configured pre-manual-review workflow gate without waiting for manual verification.
 
+## Ticket → Release (default task lifecycle)
+
+По умолчанию завершение реализации тикета включает полный production-релиз.
+
+Стандартный жизненный цикл задачи:
+
+Ticket → Implementation → Tests → CI → Production Release → Production Verification → Report.
+
+Создание коммита, PR или успешное прохождение тестов не считается завершением задачи.
+
+После реализации тикета агент самостоятельно:
+
+- выполняет тесты и необходимые проверки;
+- исправляет обнаруженные проблемы;
+- развёртывает backend/API первым, если изменения требуют этого;
+- выпускает stable Companion через штатный подписанный updater, если изменён Companion;
+- публикует совместимые пакеты и каталог плагинов, если изменены плагины;
+- проверяет опубликованные артефакты и доступность обновлений;
+- обновляет статус тикета и прикладывает ссылки на PR, CI и релиз;
+- предоставляет краткий отчёт с результатами и инструкцией для пользовательской проверки на production.
+
+Отдельное подтверждение на публикацию релиза не требуется. Пользователь заранее разрешает
+production-релизы в рамках реализации тикетов.
+
+Если тикет затрагивает только API, не нужно искусственно выпускать новую версию Companion. Если
+меняется только плагин, достаточно релиза плагина и обновления каталога, если это поддерживается
+архитектурой.
+
+Версионирование должно соответствовать SemVer:
+
+- patch — исправления;
+- minor — новая функциональность;
+- major — несовместимые изменения после стабилизации публичного API;
+- для версий 0.x архитектурные изменения оформляются как minor, а не маскируются patch.
+
+Не публиковать релиз при проваленных обязательных проверках, неподтверждённых миграциях или
+известной критической регрессии.
+
+Автоматические проверки не заменяют ручную приёмку. После релиза задача получает статус ожидания
+пользовательской проверки, если такая стадия существует. Не объявлять функциональность проверенной
+на реальном Twitch, OBS или Dota без соответствующего тестирования.
+
+Если пользователь явно попросил не публиковать релиз для конкретной задачи, это указание имеет
+приоритет.
+
+Это правило не отменяет механизмы разрешений среды выполнения: если инструмент или среда требуют
+отдельного подтверждения на деплой, публикацию или изменение инструкций, запросить его штатным
+способом, а не обходить ограничение.
+
+### How releases actually ship here (verified 2026-10-21)
+
+- **Branches.** Companion work and releases live on `codex/plugin-runtime-prototype`; `main` is far
+  behind it. Branch tickets off the release branch and target PRs there. Do not merge the release
+  branch into `main` wholesale.
+- **API/web → production.** `deploy-production.yml` deploys only a CI-verified commit on `main`
+  (on CI success, or on the `companion-released` dispatch). So API/web changes reach production
+  only by landing on `main`: put just those `apps/api`/`apps/web` changes on a branch from
+  `origin/main`, open a PR to `main`, merge once CI passes, and wait for the deploy. First check
+  that `git diff origin/main <release-branch> -- apps/api apps/web` contains nothing else.
+  Verify with `curl https://prereborn.ru/api/health`: `releaseSha` must be the new `main` commit.
+  Deploy the API before the Companion release that depends on it.
+- **Companion → users.** Push a stable `prereborn-vX.Y.Z` tag on the release branch.
+  `windows-release.yml` takes the version from the tag, builds, signs, publishes the GitHub Release
+  and `latest.json`, and verifies the assets. Before choosing the version, read the current
+  production version from
+  `https://github.com/BaranovRoman/prereborn-companion/releases/latest/download/latest.json`
+  and the existing tags. Never publish a test NSIS, RC or validation build in place of a stable
+  release.
+- **Weeek.** The project has no PR/МР custom field, so writing the MR link fails. Put the PR, CI and
+  release links in the report instead.
+
 ## Research workflow
 
 Research/discovery/audit tasks must leave a durable result in `docs/research/<topic>.md`,

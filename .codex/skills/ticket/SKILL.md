@@ -1,17 +1,17 @@
 ---
 name: "ticket"
 description: >
-  Take a Weeek ticket end-to-end: fetch it via MCP, move it to In Progress, branch off main,
-  run a short GSD plan ($gsd-quick) to implement it, run relevant checks, commit, push, open a
-  GitHub draft PR, and write the PR URL back to the ticket — then stop. Does NOT mark the PR
-  ready for review or move the ticket to Review; that's the separate `review-pr` skill, run
-  later after a manual look at the diff/PR. Use when the user says "/ticket <id>", "$ticket
-  WK-123", "work ticket 123", or pastes a Weeek task URL.
+  Take a Weeek ticket end-to-end through a production release: fetch it via MCP, move it to In
+  Progress, branch off the release branch, implement it ($gsd-quick), run checks, commit, push,
+  open a PR, then deploy the API and/or release Companion/plugins per AGENTS.MD "Ticket →
+  Release", verify the release and report. It stops at the PR only for the reasons in step 12
+  (e.g. the user said not to release, or checks/CI fail). Use when the user says "/ticket <id>",
+  "$ticket WK-123", "work ticket 123", or pastes a Weeek task URL.
 metadata:
-  short-description: "Weeek ticket -> GSD -> draft PR"
+  short-description: "Weeek ticket -> implementation -> production release"
 ---
 
-# ticket — Weeek ticket → GSD → draft PR
+# ticket — Weeek ticket → implementation → production release
 
 - This skill is invoked by mentioning `$ticket`. Treat all user text after `$ticket` as the ticket
   reference (bare number, `WK-123`, or a Weeek task URL).
@@ -20,7 +20,7 @@ metadata:
   user's reply — do not guess and continue (see gsd-help's adapter notes for the general pattern).
 
 Pet-project flow: no workstreams, no wiki-sync, no per-phase review gates, no milestone path.
-One ticket = one branch = one `$gsd-quick` run = one draft PR.
+One ticket = one branch = one `$gsd-quick` run = one PR = one production release.
 
 ## Procedure
 
@@ -43,8 +43,9 @@ One ticket = one branch = one `$gsd-quick` run = one draft PR.
    `board_column_id=<in-progress id>`. If it's already past To Do, leave it — never move a ticket
    backward.
 
-5. **Create the branch.** Resolve the default branch (`git symbolic-ref refs/remotes/origin/HEAD` or
-   fall back to `main`), then:
+5. **Create the branch.** `BASE` is the release branch named in AGENTS.MD ("How releases actually
+   ship here"), currently `codex/plugin-runtime-prototype`, not the stale `main`. Fall back to
+   `git symbolic-ref refs/remotes/origin/HEAD` only if AGENTS.MD names none. Then:
    ```bash
    git fetch origin "$BASE"
    git switch "$BRANCH" 2>/dev/null || git switch -c "$BRANCH" --no-track "origin/$BASE"
@@ -81,15 +82,36 @@ One ticket = one branch = one `$gsd-quick` run = one draft PR.
     `mr_url=<pr url>`. If it errors (e.g. no "МР"/MR custom field configured on this Weeek project),
     report that plainly and continue — it's not fatal.
 
-11. **Stop.** Report: ticket summary, branch, PR URL, Weeek link-write result, and current board
-    column. Do not mark the PR ready and do not move the ticket to Review — that's `review-pr`,
-    run later once the diff/PR has been looked at.
+11. **Release to production (default).** Follow AGENTS.MD → "Ticket → Release" and "How releases
+    actually ship here". With checks and CI green:
+    - **API/web changed** → put only those changes on a branch from `origin/main`, PR to `main`,
+      merge after CI, wait for `deploy-production.yml`, then confirm `/api/health` `releaseSha` is
+      the new commit. Always do this before any Companion release that depends on it.
+    - **Companion changed** → `gh pr ready`, merge the PR into the release branch, push the next
+      stable `prereborn-vX.Y.Z` tag on it. SemVer: minor for features, patch for fixes. Read the
+      current version from `latest.json` and the existing tags first. Then watch
+      `windows-release.yml` and verify the GitHub Release and the `latest.json` version.
+    - **Plugins changed** → publish the plugin package and catalog through their pipeline.
+    - **API-only ticket** → no Companion release.
+    Then move the ticket to the user-acceptance column (Review-like, e.g. `ревью`), not Done, and
+    report: versions, PR/CI/release links, verification results, and what the user should check
+    on production. Do not claim real Twitch/OBS/Dota behavior is verified without real testing.
+    The environment's permission prompts still apply. Ask through them; never work around them.
+
+12. **Stop at the PR instead of releasing** only when:
+    1. the user explicitly said not to release this ticket, or to stop at PR/review;
+    2. required checks or CI are failing;
+    3. a migration is unconfirmed;
+    4. there's a known critical regression;
+    5. there's a blocker or an unresolved product/design decision;
+    6. scope grew beyond what's safe to resolve inside this ticket.
+    In that case, report why and what is left.
 
 ## Guardrails
 
 - Status moves only ever advance; never move a ticket backward.
 - Never hardcode Weeek board/column IDs — always resolve via the "list board columns" tool at
   runtime.
-- Never merge the PR and never mark it ready for review from this skill.
+- Merge/ready/tag only as part of step 11's release, and never with failing checks or CI.
 - If the weeek MCP server is unavailable, ask the user to paste the ticket body and continue with
   the git/PR steps only (skip the board moves).

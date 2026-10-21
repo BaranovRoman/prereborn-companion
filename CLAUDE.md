@@ -1,5 +1,13 @@
 # Project Instructions
 
+## Ticket → Release
+
+A ticket is finished only when it is released to production and verified, not at a commit, PR,
+or green tests. Follow the "Ticket → Release (default task lifecycle)" section and the
+"How releases actually ship here" notes in [AGENTS.MD](AGENTS.MD). They are the source of truth
+for both Claude and Codex sessions. Releases still go through the environment's normal permission
+prompts; don't work around them.
+
 ## Weeek tasks
 
 When creating or reformatting tasks in Weeek for this project, follow the format defined in
