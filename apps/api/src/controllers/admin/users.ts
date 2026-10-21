@@ -1,8 +1,10 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import {
+    ADMIN_USER_SORTS,
     listAdminUsers,
     getAdminUserDetail,
+    type AdminUserSort,
 } from "../../services/admin-user-service.js";
 import {
     endActiveSession,
@@ -18,12 +20,15 @@ const listQuerySchema = z.object({
     page: z.coerce.number().int().positive().optional(),
     pageSize: z.coerce.number().int().positive().optional(),
     q: z.string().optional(),
+    sort: z
+        .enum(Object.keys(ADMIN_USER_SORTS) as [AdminUserSort, ...AdminUserSort[]])
+        .optional(),
 });
 
 export const listUsersController = async (req: Request, res: Response) => {
     try {
-        const { page, pageSize, q } = listQuerySchema.parse(req.query);
-        const result = await listAdminUsers({ page, pageSize, query: q });
+        const { page, pageSize, q, sort } = listQuerySchema.parse(req.query);
+        const result = await listAdminUsers({ page, pageSize, query: q, sort });
         res.json(result);
     } catch (error) {
         if (error instanceof z.ZodError) {

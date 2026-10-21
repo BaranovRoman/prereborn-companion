@@ -7,6 +7,7 @@ import Link from "next/link";
 import Image from "next/image";
 import axios from "axios";
 import { streamAuthApi } from "@/entities/stream-user/api/stream-auth";
+import { safeNextPath } from "@/entities/stream-user/lib/session-events";
 import { usePageReady } from "@/shared/ui/route-transition/usePageReady";
 import styles from "../stream-auth.module.scss";
 
@@ -26,8 +27,7 @@ const extractErrorMessage = (error: unknown, fallback: string): string => {
 export const StreamLoginPage = () => {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const rawNext = searchParams.get("next");
-    const next = rawNext?.startsWith("/stream") && !rawNext.startsWith("//") ? rawNext : "/stream";
+    const next = safeNextPath(searchParams.get("next"));
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [messageApi, contextHolder] = message.useMessage();
 
@@ -75,7 +75,7 @@ export const StreamLoginPage = () => {
                 </div>
                 {searchParams.get("reason") === "session-expired" && <div className={styles.sessionNotice}>Сессия истекла или была отозвана. Войдите снова.</div>}
                 <p className={styles.subtitle}>
-                    Управляйте стримом, матчами и виджетами оверлея в одном месте.
+                    Тот же email и пароль используются для входа в Companion.
                 </p>
 
                 <Form
@@ -123,7 +123,7 @@ export const StreamLoginPage = () => {
                             disabled={isSubmitting}
                             className={styles.submitButton}
                         >
-                            Войти в Companion
+                            Войти
                         </Button>
                     </Form.Item>
                 </Form>

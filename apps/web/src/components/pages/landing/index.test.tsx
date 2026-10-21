@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChangelogItem } from "@/entities/changelog/load";
 
 vi.mock("next/font/google", () => ({ Inter: () => ({ className: "inter" }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), refresh: vi.fn(), push: vi.fn() }) }));
 vi.mock("@/shared/config/dota-companion", () => ({
   DOTA_COMPANION_VERSION: "9.8.7",
   DOTA_COMPANION_DOWNLOAD_URL: "https://github.com/BaranovRoman/prereborn-companion/releases/download/prereborn-v9.8.7/PreReborn.Companion_9.8.7_x64-setup.exe",
@@ -49,9 +50,9 @@ describe("LandingPage", () => {
     expect(screen.getByRole("link", { name: "Вся история обновлений →" }).getAttribute("href")).toBe("/changelog");
   });
 
-  it("keeps the existing auth routes reachable", () => {
+  it("keeps the existing auth routes reachable", async () => {
     render(<LandingPage catalog={{ ok: true, plugins }} highlight={null} />);
-    expect(screen.getAllByRole("link", { name: "Войти" })[0].getAttribute("href")).toBe("/stream/login");
+    expect((await screen.findAllByRole("link", { name: "Войти" }))[0].getAttribute("href")).toBe("/stream/login");
     expect(screen.getByRole("link", { name: "зарегистрируйтесь" }).getAttribute("href")).toBe("/stream/register");
   });
 });

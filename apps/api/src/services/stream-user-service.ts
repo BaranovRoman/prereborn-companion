@@ -235,6 +235,22 @@ export const regenerateCompanionToken = async (
     return { user: toStreamUser(row), token: rawToken };
 };
 
+// WK-189 - revokes the legacy static companion token without issuing a new
+// one. Companion versions that still authenticate with it stop being
+// accepted immediately; email/password sessions (the current Companion
+// sign-in) are unaffected - they never use this column.
+export const revokeCompanionToken = async (id: string): Promise<StreamUser | null> => {
+    const result = await pool.query<Omit<StreamUserRow, "password_hash">>(
+        `UPDATE stream_users
+         SET companion_token_hash = NULL, companion_token_created_at = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING ${PUBLIC_COLUMNS}`,
+        [id]
+    );
+    return result.rows[0] ? toStreamUser(result.rows[0]) : null;
+};
+
 // Единственный способ определить владельца companion-токена -
 // PUT /api/stream/companion/gsi-state (middleware/authenticate-companion-token.ts).
 // Намеренно не тащит email/password_hash - тот же принцип, что и

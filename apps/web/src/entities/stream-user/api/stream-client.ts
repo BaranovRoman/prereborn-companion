@@ -1,4 +1,5 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
+import { isProtectedPath, notifySessionChanged } from "../lib/session-events";
 import {
     clearStreamTokens,
     getStreamAccessToken,
@@ -92,9 +93,14 @@ streamApiClient.interceptors.response.use(
                 return streamApiClient(config);
             }
             clearStreamTokens();
-            if (typeof window !== "undefined") {
-                const next = window.location.pathname.startsWith("/stream") ? window.location.pathname : "/stream";
-                window.location.assign("/stream/login?reason=session-expired&next=" + encodeURIComponent(next));
+            notifySessionChanged();
+            // WK-189 - only pages that require a session send the user to
+            // the login form; on the public landing/changelog an expired
+            // session just turns the header back into "Войти".
+            if (typeof window !== "undefined" && isProtectedPath(window.location.pathname)) {
+                window.location.assign(
+                    "/stream/login?reason=session-expired&next=" + encodeURIComponent(window.location.pathname)
+                );
             }
         }
 

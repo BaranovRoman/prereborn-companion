@@ -107,7 +107,7 @@ export const steamCallbackController = async (req: Request, res: Response) => {
     }
 
     const redirectWithStatus = (status: string, reason?: string) => {
-        const url = new URL(`${config.realm}/stream`);
+        const url = new URL(`${config.realm}/account`);
         url.searchParams.set("steam", status);
         if (reason) url.searchParams.set("reason", reason);
         res.redirect(url.toString());

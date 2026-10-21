@@ -60,3 +60,11 @@ active in 7 days and active in 30 days as soon as the API returns them, with rea
 day one. Until `trackingSince` is 30 days back, the caption reads "Статистика собирается с
 <date>", so short-history 7d/30d numbers aren't read as a full observation window. While
 loading or on any error, the block isn't rendered at all (never zeros).
+
+## Admin users screen (WK-189)
+
+`/admin` on prereborn.ru (admins only; `requireAdmin` on `/api/admin/*`) shows the same three
+numbers from `GET /api/admin/usage-stats` (`registeredUsers`, `wau`, `mau`) above a per-account
+table. Its "Последняя активность Companion" is `MAX(last_seen_at)` and "Дней за 30" is the
+number of `companion_activity_days` rows in the last 30 days for that account, from the same
+heartbeat table, so the table and the summary can't disagree.

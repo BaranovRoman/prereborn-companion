@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { adminUsersApi } from "../api/admin-users-api";
-import type { AdminUserSummary } from "../model/types";
+import type { AdminUserSort, AdminUserSummary } from "../model/types";
 
 const PAGE_SIZE = 20;
 // Не бьём API на каждое нажатие клавиши - ждём паузу в наборе (см. задачу:
@@ -14,18 +14,22 @@ interface AdminUsersState {
     total: number;
     loading: boolean;
     error: string | null;
+    // 401/403 from the backend guard, so the page can say why it is empty.
+    errorStatus: number | null;
 }
 
 export const useAdminUsers = () => {
     const [rawQuery, setRawQuery] = useState("");
     const [debouncedQuery, setDebouncedQuery] = useState("");
     const [page, setPage] = useState(1);
+    const [sort, setSortState] = useState<AdminUserSort>("created_desc");
     const [refreshToken, setRefreshToken] = useState(0);
     const [state, setState] = useState<AdminUsersState>({
         users: [],
         total: 0,
         loading: true,
         error: null,
+        errorStatus: null,
     });
 
     useEffect(() => {
@@ -44,6 +48,11 @@ export const useAdminUsers = () => {
         setPage(1);
     };
 
+    const setSort = (value: AdminUserSort) => {
+        setSortState(value);
+        setPage(1);
+    };
+
     // Только .then/.catch пишут в state (loading:false выставляется здесь
     // же) - без синхронного "loading:true" перед запросом, как и в
     // use-steam-integration.ts/use-twitch-integration.ts: таблица просто
@@ -52,7 +61,7 @@ export const useAdminUsers = () => {
         let cancelled = false;
 
         adminUsersApi
-            .list({ page, pageSize: PAGE_SIZE, query: debouncedQuery })
+            .list({ page, pageSize: PAGE_SIZE, query: debouncedQuery, sort })
             .then((result) => {
                 if (cancelled) return;
                 setState({
@@ -60,6 +69,7 @@ export const useAdminUsers = () => {
                     total: result.total,
                     loading: false,
                     error: null,
+                    errorStatus: null,
                 });
             })
             .catch((error) => {
@@ -68,6 +78,7 @@ export const useAdminUsers = () => {
                     users: [],
                     total: 0,
                     loading: false,
+                    errorStatus: error?.response?.status ?? null,
                     error:
                         error?.response?.status === 403
                             ? "Доступ запрещён"
@@ -78,7 +89,7 @@ export const useAdminUsers = () => {
         return () => {
             cancelled = true;
         };
-    }, [page, debouncedQuery, refreshToken]);
+    }, [page, debouncedQuery, sort, refreshToken]);
 
     return {
         ...state,
@@ -87,6 +98,8 @@ export const useAdminUsers = () => {
         page,
         pageSize: PAGE_SIZE,
         setPage,
+        sort,
+        setSort,
         refresh: () => setRefreshToken((token) => token + 1),
     };
 };

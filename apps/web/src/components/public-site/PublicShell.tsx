@@ -4,6 +4,7 @@ import { Inter } from "next/font/google";
 import type { ReactNode } from "react";
 import { DOTA_COMPANION_DOWNLOAD_URL } from "@/shared/config/dota-companion";
 import { COMPANION_LATEST_RELEASE_URL, COMPANION_REPO_URL } from "@/shared/config/product-sources";
+import { AccountNav } from "./AccountNav";
 import styles from "./public-site.module.scss";
 
 // WK-188 - frame of the public pages (landing, /changelog), styled after the
@@ -37,7 +38,7 @@ export const PublicShell = ({ children }: { children: ReactNode }) => (
           <Link className={styles.navSection} href="/#features">Возможности</Link>
           <Link className={styles.navSection} href="/#plugins">Плагины</Link>
           <Link href="/changelog">Обновления</Link>
-          <Link href="/stream/login">Войти</Link>
+          <AccountNav placement="header" />
         </nav>
         <span className={styles.headerDownload}><DownloadButton size="small" label="Скачать" /></span>
       </div>
@@ -49,8 +50,7 @@ export const PublicShell = ({ children }: { children: ReactNode }) => (
         <nav aria-label="Ссылки в подвале">
           <Link href="/changelog">История обновлений</Link>
           <a href={COMPANION_REPO_URL} rel="noopener">GitHub</a>
-          <Link href="/stream/login">Войти</Link>
-          <Link href="/stream/register">Регистрация</Link>
+          <AccountNav placement="footer" />
         </nav>
       </div>
     </footer>

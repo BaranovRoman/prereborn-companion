@@ -3,6 +3,7 @@ import {
     getMeController,
     regenerateTokenController,
     regenerateCompanionTokenController,
+    revokeCompanionTokenController,
     patchGameModeController,
     completeOnboardingController,
 } from "../../controllers/stream/account.js";
@@ -55,6 +56,7 @@ streamAccountRouter.post(
     "/me/companion-token/regenerate",
     regenerateCompanionTokenController
 );
+streamAccountRouter.delete("/me/companion-token", revokeCompanionTokenController);
 streamAccountRouter.post("/me/onboarding/complete", completeOnboardingController);
 
 streamAccountRouter.get("/session", getSessionController);

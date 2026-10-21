@@ -4,11 +4,13 @@ import {
     findStreamUserById,
     regeneratePublicToken,
     regenerateCompanionToken,
+    revokeCompanionToken,
     setGameMode,
     completeOnboarding,
 } from "../../services/stream-user-service.js";
 import { logger } from "../../utils/logger.js";
 import { env } from "../../config/env.js";
+import { isAdminEmail } from "../../middleware/require-admin.js";
 
 // req.streamUserId гарантирован middleware authenticateStreamUser,
 // подключённым в routes/stream/account.ts перед этими контроллерами.
@@ -19,7 +21,9 @@ export const getMeController = async (req: Request, res: Response) => {
         if (!user) {
             return res.status(404).json({ error: "Пользователь не найден" });
         }
-        res.json(user);
+        // WK-189 - isAdmin only tells the site whether to show the /admin
+        // link; /api/admin/* is still guarded by requireAdmin on its own.
+        res.json({ ...user, isAdmin: isAdminEmail(user.email) });
     } catch (error) {
         logger.error("Stream get me error", {
             requestId: req.requestId,
@@ -149,5 +153,26 @@ export const regenerateCompanionTokenController = async (
             };
         }
         res.status(500).json(body);
+    }
+};
+
+// WK-189 - "Отозвать" in the account page. Never returns or logs the token.
+export const revokeCompanionTokenController = async (req: Request, res: Response) => {
+    try {
+        const user = await revokeCompanionToken(req.streamUserId as string);
+        if (!user) {
+            return res.status(404).json({ error: "Пользователь не найден" });
+        }
+        logger.info("Companion token revoked", {
+            requestId: req.requestId,
+            streamUserId: req.streamUserId,
+        });
+        res.json(user);
+    } catch (error) {
+        logger.error("Stream revoke companion token error", {
+            requestId: req.requestId,
+            message: error instanceof Error ? error.message : String(error),
+        });
+        res.status(500).json({ error: "Внутренняя ошибка сервера" });
     }
 };

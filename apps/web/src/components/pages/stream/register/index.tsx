@@ -42,7 +42,7 @@ export const StreamRegisterPage = () => {
             // Регистрация сразу авторизует пользователя - stream-auth.ts
             // (register) уже сохраняет access/refresh токены.
             await streamAuthApi.register(values.email, values.password);
-            router.push("/stream");
+            router.push("/account");
         } catch (error) {
             messageApi.error(
                 extractErrorMessage(error, "Не удалось зарегистрироваться.")
@@ -71,7 +71,7 @@ export const StreamRegisterPage = () => {
                     </div>
                 </div>
                 <p className={styles.subtitle}>
-                    Подключите Companion и подготовьте оверлей для первого стрима.
+                    Один аккаунт для сайта и Companion: после регистрации войдите в приложении с этими данными.
                 </p>
 
                 <Form

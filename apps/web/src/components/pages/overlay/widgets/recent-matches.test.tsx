@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { PREVIEW_MATCHES } from "../../stream/overlay-editor/preview-data";
+import { PREVIEW_MATCHES } from "./preview-data";
 import { RecentMatches } from "./recent-matches";
 
 afterEach(cleanup);
