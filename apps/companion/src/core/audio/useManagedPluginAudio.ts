@@ -14,8 +14,11 @@ interface Transport {
   onTiming?: (item: PluginAudioPlayback, stage: string) => void;
   synthesize?: (text:string)=>Promise<string>;
   voiceNotificationsEnabled?:boolean;
+  /** Both listeners are registered: native fences now get an answer. */
+  onReady?: () => void;
 }
-export function useManagedPluginAudio({ enabled, eventName, fenceEvent, fenceAckCommand, onTiming,synthesize,voiceNotificationsEnabled=true }: Transport, overallVolume: number) {
+export function useManagedPluginAudio({ enabled, eventName, fenceEvent, fenceAckCommand, onTiming,synthesize,voiceNotificationsEnabled=true,onReady }: Transport, overallVolume: number) {
+  const readyRef = useRef(onReady); readyRef.current = onReady;
   // Speech synthesis may wait behind the core TTS engine. It must not hold
   // up media clips; both bounded lanes still share the same native fence.
   const lanes = useRef([createLane(2), createLane(1)]);
@@ -65,7 +68,10 @@ export function useManagedPluginAudio({ enabled, eventName, fenceEvent, fenceAck
       // Revocation precedes cancellation callbacks, so completion cannot start an old queued clip.
       void invoke(fenceAckCommand, { request: payload, stopped }).catch(() => {});
     });
+    let alive = true;
+    void Promise.all([unlistenPromise, fenceListener]).then(() => { if (alive) readyRef.current?.(); }, () => {});
     return () => {
+      alive = false;
       mounted.current = false;
       for (const lane of lanes.current) {
         let queued: PluginAudioPlayback | null;

@@ -53,6 +53,7 @@ export function companionCommand(cmd: string, args: Record<string, unknown> = {}
     case "test_obs_connection": return ["Между матчами", "Игра", "Драфт", "Перерыв", "Камера крупно", "Starting Soon", "BRB"];
     case "check_companion_update": return null;
     case "plugins_view": return pluginsView();
+    case "plugins_set_autostart": autostart = Boolean(args.enabled); return null;
     case "plugins_command": return dotaCommand(String(args.name), (args.args ?? {}) as Record<string, unknown>);
     case "plugin:autostart|is_enabled": return true;
     default: return null;
@@ -65,6 +66,7 @@ const dotaManifest = {
   description: "Звуки способностей и предметов, история матчей, автоматическое переключение сцен OBS и оверлей для трансляции.",
   uiCommands: ["asset.import", "asset.preview", "audio.receipt", "backend.pending", "backend.reconcile", "backend.request", "catalog.heroes", "catalog.items", "directory.pick", "gsi.find", "gsi.install", "history.context", "history.edit", "history.hero", "history.summary", "history.sync", "image.import", "items.trace", "items.trace.start", "items.trace.stop", "link.open", "obs.save", "obs.settings", "overlay.hotkey", "overlay.hotkey.save", "overlay.image.apply", "overlay.image.get", "overlay.image.remove", "overlay.reference", "overlay.reference.save", "overlay.visibility", "sound.assets", "sound.bindings", "sound.import", "sound.master", "sound.remove", "sound.summary", "status"],
 };
+let autostart = scenario === "default";
 function pluginsView() {
   const release = (id: string, name: string, version: string, description: string) => ({ manifest: { ...dotaManifest, id, name, version, description, icon: undefined }, url: "", sha256: "", signature: "" });
   return {
@@ -73,7 +75,7 @@ function pluginsView() {
     installed: scenario === "empty" ? [] : [{
       id: "dota", manifest: dotaManifest, error: null, transport: null,
       runtime: { phase: "running", pluginVersion: "0.2.7", lastError: null, state: { prepared: true } },
-      installed: { active: "0.2.7", previous: "0.2.6", pending: null, enabled: true },
+      installed: { active: "0.2.7", previous: "0.2.6", pending: null, enabled: true, autostart },
     }],
     catalog: scenario === "errors" ? [] : [
       release("dota", "Dota 2", "0.2.7", dotaManifest.description),

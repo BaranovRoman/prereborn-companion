@@ -20,12 +20,13 @@ const host={companion_version:"test",backend_state:"waiting",obs_state:"waiting"
 let chat:TwitchChatSession;
 beforeEach(()=>{
   vi.clearAllMocks();localStorage.clear();window.HTMLElement.prototype.scrollTo=vi.fn();
-  chat={status:{accountConnected:true,configured:true,displayName:"Streamer",connected:true,state:"connected",messages:[]},error:null,unread:0,settings:{...DEFAULT_CHAT_SETTINGS},sileroStatus:null,sileroBusy:false,previewBusy:false,previewError:null,previewSileroVoice:vi.fn(),updateSetting:controls.update,stopTts:controls.stop,isSpeaking:()=>false,setViewerAtBottom:vi.fn(),markRead:vi.fn(),skipTts:controls.skip,lastSkipAt:null,skipHotkeyStatus:null,skipHotkeyBusy:false,updateSkipHotkey:vi.fn()};
+  chat={status:{accountConnected:true,configured:true,displayName:"Streamer",connected:true,state:"connected",messages:[]},error:null,unread:0,settings:{...DEFAULT_CHAT_SETTINGS},sileroStatus:null,sileroBusy:false,previewBusy:false,previewError:null,previewSileroVoice:vi.fn(),previewSpeech:vi.fn(),updateSetting:controls.update,stopTts:controls.stop,isSpeaking:()=>false,setViewerAtBottom:vi.fn(),markRead:vi.fn(),skipTts:controls.skip,lastSkipAt:null,skipHotkeyStatus:null,skipHotkeyBusy:false,updateSkipHotkey:vi.fn()};
   const config={...host.obs_config};
   vi.mocked(invoke).mockImplementation(async(command,args)=>{
     if(command==="get_status")return {...host,obs_config:{...config,password:""}};
     if(command==="plugins_view")return {installed:[],catalog:[],error:null,catalogError:null,localInstallAllowed:false,transfer:{busy:false,id:null,received:0,total:null,stage:"",error:null}};
     if(command==="test_obs_connection")return ["Scene A"];
+    if(command==="plugins_autostart")return undefined;
     if(command==="save_obs_config"){Object.assign(config,(args as {config:typeof config}).config);return {...host,obs_config:{...config,password:""}};}
     throw new Error(`Unexpected command: ${command}`);
   });
@@ -67,4 +68,19 @@ it("shows native read failures while keeping unrelated core navigation usable",a
   fireEvent.click(within(screen.getByRole("navigation")).getByRole("button",{name:"Настройки"}));
   expect(screen.getByText("Аккаунт Companion")).toBeTruthy();
   expect(controls.stop).not.toHaveBeenCalled();
+});
+
+// WK-184
+it("starts plugins only once the plugin audio fence listener reports ready",async()=>{
+  render(<App/>);await screen.findByText("Версия test");
+  const options=vi.mocked(controls.playback).mock.calls.at(-1)![0] as {onReady?:()=>void};
+  expect(vi.mocked(invoke).mock.calls.some(([name])=>name==="plugins_autostart")).toBe(false);
+  options.onReady!();
+  expect(invoke).toHaveBeenCalledWith("plugins_autostart");
+});
+it("shows the pronunciation dictionary in the speech section",async()=>{
+  render(<App/>);await screen.findByText("Версия test");
+  fireEvent.click(within(screen.getByRole("navigation")).getByRole("button",{name:"Озвучка"}));
+  expect(await screen.findByRole("heading",{name:"Словарь произношений"})).toBeTruthy();
+  expect(screen.getByText("хэзэ, аха-ха-ха плюс двадцать пять")).toBeTruthy();
 });

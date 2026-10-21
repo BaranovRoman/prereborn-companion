@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { Badge, Button, Checkbox, Field, Input, Notice } from "../components/ui";
+import { Badge, Button, Checkbox, Field, Input, Notice, Switch } from "../components/ui";
 import * as api from "../plugins/api";
 import { greeting } from "../plugins/helloBridge";
 import { ready as uiReady, request as uiRequest, UI_VERSION } from "../../../../plugins/protocol/ui";
@@ -30,6 +30,8 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
   const [busy, setBusy] = useState(false);
   const [opened, setOpened] = useState<string | null>(initialPluginId ?? null);
   const [local, setLocal] = useState("");
+  // Independent of `busy`: the flag never touches a running process.
+  const [autostartBusy, setAutostartBusy] = useState(false);
   const mounted = useRef(true);
   const refresh = useCallback(async () => {
     try { const next = await api.view(); if (mounted.current) setView(next); }
@@ -79,7 +81,8 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
     {!view && !error && <p className="ui-text-muted" role="status">Загрузка библиотеки…</p>}
     {view?.catalogError && <Notice tone="warning">{api.errorText(view.catalogError)} Установленные плагины доступны независимо от каталога.</Notice>}
     {view?.transfer.busy && <div className="plugin-transfer" role="status">
-      {["activation","operation","file_selection"].includes(view.transfer.stage) ? <p>Выполняется ручная операция плагина…</p> : <>
+      {view.transfer.stage === "autostart" ? <p>Автозапуск плагина {view.installed.find((p) => p.id === view.transfer.id)?.manifest?.name ?? view.transfer.id}…</p>
+        : ["activation","operation","file_selection"].includes(view.transfer.stage) ? <p>Выполняется ручная операция плагина…</p> : <>
         <p>{view.transfer.stage === "verify_install" ? "Проверка и установка" : "Загрузка"}: {Math.round(view.transfer.received / 1024)} КБ</p>
         <progress value={view.transfer.total ? view.transfer.received : undefined} max={view.transfer.total ?? 1} />
         <Button size="small" onClick={() => void api.cancel().catch((e) => setError(api.errorText(e)))}>Отменить загрузку</Button>
@@ -102,10 +105,14 @@ export function PluginsPage({ initialPluginId }: { initialPluginId?: string } = 
           {selected.installed.previous && <Button disabled={disabled || selected.runtime?.phase === "running"} onClick={() => void run(() => api.action(selected.id, "rollback"))}>Откатить на {selected.installed.previous}</Button>}
         </div>}
         {view?.catalog.filter((r) => r.manifest.id === selected.id && r.manifest.version !== selected.installed.active).map((r) => <div key={r.manifest.version}>{installButton(r)}</div>)}
+        <Switch label="Запускать вместе с Companion" hint="Разрешения и OBS не меняются" checked={!!selected.installed.autostart} disabled={autostartBusy}
+          onChange={(e) => { const enabled = e.target.checked; setAutostartBusy(true); setError(null);
+            void api.setAutostart(selected.id, enabled).catch((cause) => { if (mounted.current) setError(api.errorText(cause)); })
+              .finally(() => { if (mounted.current) { setAutostartBusy(false); void refresh(); } }); }} />
         <details className="ui-disclosure plugin-about"><summary>О плагине</summary>
           <div className="plugin-about__body">
             <p>{selected.manifest?.description}</p>
-            <small className="ui-text-muted">При удалении пользовательские данные сохраняются. Включение только вручную: после перезапуска приложение не запускает live-плагин автоматически.</small>
+            <small className="ui-text-muted">При удалении пользовательские данные сохраняются, а настройка автозапуска удаляется. Без автозапуска плагин включается только вручную; с ним Companion при старте выполняет то же включение, что и кнопка, и ничего не разрешает сверх уже выданного. Отключение вручную действует до следующего запуска.</small>
             <div className="plugin-actions"><Button variant="danger" size="small" disabled={disabled} onClick={() => void run(() => api.action(selected.id, "remove"))}>Удалить</Button></div>
             {(selected.transport!=null||selected.error)&&<pre className="ui-code">{JSON.stringify({error:selected.error,runtime:selected.runtime,transport:selected.transport},null,2)}</pre>}
           </div>

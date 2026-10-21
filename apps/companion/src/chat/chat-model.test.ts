@@ -58,7 +58,7 @@ describe("chat model", () => {
   it("normalizes the username and message for speech without touching the displayed message", () => {
     const raw = message("5", "хахахахахаха го дальше 🔥", "text");
     raw.author = "Roma_Romych_TV";
-    expect(prepareTtsText(raw, enabled)).toBe("Рома Ромыч: ха-ха го дальше");
+    expect(prepareTtsText(raw, enabled)).toBe("Рома Ромыч: ха-ха-ха го дальше");
     // The chat UI renders message.text/message.author directly - normalization
     // must never mutate the original message object.
     expect(raw.text).toBe("хахахахахаха го дальше 🔥");

@@ -10,7 +10,8 @@ export interface Runtime { phase: "running" | "starting" | "stopped" | "failed";
 export interface Installed {
   id: string; manifest: Manifest | null; error: string | null; runtime: Runtime | null;
   transport?: unknown;
-  installed: { active: string; previous: string | null; pending: string | null; enabled: boolean };
+  // autostart is omitted by the core when off.
+  installed: { active: string; previous: string | null; pending: string | null; enabled: boolean; autostart?: boolean };
 }
 export interface View {
   apiVersion?: number;
@@ -23,6 +24,9 @@ export const refresh = () => invoke<void>("plugins_refresh");
 export const install = (id: string, version: string, local?: string) => invoke<void>("plugins_install", { id, version, local: local ?? null });
 export const cancel = () => invoke<void>("plugins_cancel");
 export const action = (id: string, action: string) => invoke<void>("plugins_action", { id, action });
+export const setAutostart = (id: string, enabled: boolean) => invoke<void>("plugins_set_autostart", { id, enabled });
+// Once per app process (the core ignores repeats); results land in view().
+export const autostart = () => invoke<void>("plugins_autostart");
 export const command = (id: string, text: string) => invoke<{ text: string }>("plugins_command", { id, name: "greet", args: { text } });
 export const request = (id: string, name: string, args: unknown, expectedVersion:string) => invoke<unknown>("plugins_command", { id, name, args,expectedVersion });
 
@@ -58,6 +62,8 @@ export function errorText(error: unknown): string {
     source_changed_after_backup: "Данные изменились между backup и подготовкой. Backup сохранён; операция не завершена.",
     second_coordinator_denied: "Хранилище занято другим координатором. Конкурентная подготовка запрещена.",
     prepare_in_progress: "Предыдущая подготовка ещё выполняется.",
+    not_prepared: "Плагин ещё не подготовлен. Выполните первую подготовку вручную, затем автозапуск будет работать.",
+    plugin_transport_unavailable: "Транспорт плагинов недоступен. Перезапустите Companion.",
   };
   if (text.includes("download_failed")) return "Источник загрузки недоступен или пакет ещё не опубликован. Установленные пакеты сохранены; состояние запуска показано отдельно.";
   const code = text.replace(/^Error: /, "");

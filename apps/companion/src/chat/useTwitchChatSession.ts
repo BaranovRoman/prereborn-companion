@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { applyAudioContextSinkId, applySinkId } from "../audio/outputDevice";
 import { BoundedTtsQueue, DEFAULT_CHAT_SETTINGS, nextUnreadCount, normalizeSpeechVolume, type ChatSettings } from "./chat-model";
+import { normalizePronunciationRules } from "./pronunciation";
 import {
   diagnosticsTraceTtsFrontend, getSileroTtsStatus, getSkipHotkeyStatus, getTwitchChat,
   setSileroTtsEnabled, setSkipHotkey, synthesizeSileroTts,
@@ -53,6 +54,7 @@ const loadSettings = (): ChatSettings => {
     // with a corrupted value) must normalize to DEFAULT_SPEECH_VOLUME (70),
     // not silently default to a max-volume 100 for existing users.
     merged.speechVolume = normalizeSpeechVolume(merged.speechVolume);
+    merged.pronunciationRules = normalizePronunciationRules(merged.pronunciationRules);
     return merged;
   }
   catch { return DEFAULT_CHAT_SETTINGS; }
@@ -68,6 +70,9 @@ export interface TwitchChatSession {
   previewBusy: boolean;
   previewError: string | null;
   previewSileroVoice: (voice: SileroVoice) => void;
+  // WK-184 - speaks already-prepared text with the selected engine and voice
+  // (dictionary preview), outside the chat queue.
+  previewSpeech: (text: string) => void;
   updateSetting: <K extends keyof ChatSettings>(key: K, value: ChatSettings[K]) => void;
   stopTts: () => void;
   isSpeaking: () => boolean;
@@ -438,10 +443,10 @@ export function useTwitchChatSession(overallVolume: number = 100): TwitchChatSes
   // audio but never updated the label, and a failed one was swallowed
   // silently by `.catch(() => setPreviewBusy(false))` with no visible error
   // at all - indistinguishable from the button "doing nothing".
-  const previewSileroVoice = useCallback((voice: SileroVoice) => {
+  const previewWithSilero = useCallback((text: string, voice: SileroVoice) => {
     setPreviewBusy(true);
     setPreviewError(null);
-    synthesizeSileroTts(SILERO_PREVIEW_PHRASE, voice)
+    synthesizeSileroTts(text, voice)
       .then((base64) => {
         void refreshSileroStatus();
         const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
@@ -465,6 +470,21 @@ export function useTwitchChatSession(overallVolume: number = 100): TwitchChatSes
         setPreviewBusy(false);
       });
   }, [refreshSileroStatus]);
+  const previewSileroVoice = useCallback((voice: SileroVoice) => previewWithSilero(SILERO_PREVIEW_PHRASE, voice), [previewWithSilero]);
+  const previewSpeech = useCallback((text: string) => {
+    if (!text.trim()) return;
+    const { ttsEngine, sileroVoice } = settingsRef.current;
+    if (ttsEngine === "silero") return previewWithSilero(text, sileroVoice);
+    if (!("speechSynthesis" in window)) { setPreviewError("Системный голос недоступен"); return; }
+    setPreviewBusy(true);
+    setPreviewError(null);
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "ru-RU";
+    utterance.volume = effectiveSpeechVolume();
+    utterance.onend = () => setPreviewBusy(false);
+    utterance.onerror = () => setPreviewBusy(false);
+    window.speechSynthesis.speak(utterance);
+  }, [previewWithSilero]);
 
   // WK-83 - loads the persisted skip-hotkey status once at startup (mirrors
   // the silero status effect above) and listens for the global
@@ -495,7 +515,7 @@ export function useTwitchChatSession(overallVolume: number = 100): TwitchChatSes
 
   return {
     status, error, unread, settings, sileroStatus, sileroBusy, previewBusy, previewError,
-    previewSileroVoice, updateSetting, stopTts, isSpeaking, setViewerAtBottom, markRead,
+    previewSileroVoice, previewSpeech, updateSetting, stopTts, isSpeaking, setViewerAtBottom, markRead,
     skipTts, lastSkipAt, skipHotkeyStatus, skipHotkeyBusy, updateSkipHotkey,
   };
 }

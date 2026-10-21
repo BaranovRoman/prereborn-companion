@@ -56,3 +56,30 @@ it("plays media while speech synthesis is pending and fences both lanes without 
  for(const item of [voice,media])expect(invoke).toHaveBeenCalledWith("plugin_audio_ack",{token:item.playback,status:"cancelled"});
  expect(invoke).toHaveBeenCalledWith("plugin_fence_ack",expect.objectContaining({stopped:true}));
 });
+
+// WK-184 - plugin autostart is triggered from here: a live enable fences
+// frontend audio, so it may only start once the fence listener can answer.
+it("reports ready only after both listeners are registered, once per mount",async()=>{
+ let registerFence!:(unlisten:()=>void)=>void;
+ vi.mocked(listen).mockImplementation(((event:string)=>event==="plugin-fence"?new Promise(r=>{registerFence=r;}):Promise.resolve(()=>{})) as never);
+ const onReady=vi.fn();
+ function Ready(){useManagedPluginAudio({enabled:true,eventName:"plugin-play",fenceEvent:"plugin-fence",fenceAckCommand:"plugin_fence_ack",onReady},100);return null;}
+ const view=render(<Ready/>);
+ await act(async()=>{await Promise.resolve();});
+ expect(onReady).not.toHaveBeenCalled();
+ await act(async()=>registerFence(()=>{}));
+ expect(onReady).toHaveBeenCalledTimes(1);
+ view.rerender(<Ready/>);await act(async()=>{await Promise.resolve();});
+ expect(onReady).toHaveBeenCalledTimes(1);
+ vi.mocked(listen).mockResolvedValue(()=>{});
+});
+it("does not report ready after unmounting first",async()=>{
+ let registerFence!:(unlisten:()=>void)=>void;
+ vi.mocked(listen).mockImplementation(((event:string)=>event==="plugin-fence"?new Promise(r=>{registerFence=r;}):Promise.resolve(()=>{})) as never);
+ const onReady=vi.fn();
+ function Ready(){useManagedPluginAudio({enabled:true,eventName:"plugin-play",fenceEvent:"plugin-fence",fenceAckCommand:"plugin_fence_ack",onReady},100);return null;}
+ const view=render(<Ready/>);view.unmount();
+ await act(async()=>registerFence(()=>{}));
+ expect(onReady).not.toHaveBeenCalled();
+ vi.mocked(listen).mockResolvedValue(()=>{});
+});

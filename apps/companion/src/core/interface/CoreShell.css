@@ -101,6 +101,24 @@ code { font-family: var(--font-mono); font-size: .92em; }
 .chat-settings__voice-row .ui-field { width: 220px; }
 .chat-settings__voice-row .ui-badge { margin-bottom: 8px; }
 .chat-settings__length { width: 200px; }
+/* WK-184 pronunciation dictionary */
+.pronunciation { display: grid; gap: var(--space-4); }
+.pronunciation__preview { display: grid; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--ui-edge-soft); border-radius: var(--radius); }
+.pronunciation__preview-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, 200px); align-items: start; gap: var(--space-3); }
+.pronunciation__result { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.pronunciation__result p { min-width: 0; overflow-wrap: anywhere; }
+.pronunciation__list { display: grid; margin: 0; padding: 0; list-style: none; }
+.pronunciation__rule { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--ui-edge-soft); }
+.pronunciation__rule:last-child { border-bottom: 0; }
+.pronunciation__rule.is-off .pronunciation__pair { opacity: .5; }
+.pronunciation__rule.is-editing .pronunciation__pair { color: var(--accent); }
+.pronunciation__pair { display: flex; flex-wrap: wrap; gap: var(--space-2); min-width: 0; overflow-wrap: anywhere; }
+.pronunciation__pair > span:nth-child(2) { color: var(--ui-text-muted); }
+.pronunciation__actions { display: flex; gap: var(--space-1); }
+.pronunciation__empty { font-size: var(--fs-sm); }
+.pronunciation__form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); align-items: start; }
+.pronunciation__form-title { grid-column: 1 / -1; margin: 0; padding-top: var(--space-3); border-top: 1px solid var(--ui-edge-soft); }
+.pronunciation__form-actions { display: flex; gap: var(--space-2); grid-column: 1 / -1; }
 .tts-license-note { color: var(--ui-text-muted); font-size: var(--fs-xs); line-height: 1.6; }
 .output-settings__device { max-width: 520px; }
 .output-settings__range { display: block; width: 280px; max-width: 100%; }

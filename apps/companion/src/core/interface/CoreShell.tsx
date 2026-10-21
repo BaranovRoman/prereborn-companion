@@ -13,6 +13,7 @@ import { IntegrationsPanel } from "../../components/IntegrationsPanel";
 import { TwitchChatPage } from "../../components/TwitchChatPage";
 import { TwitchClipsSettings } from "../../components/TwitchClipsSettings";
 import { ChatTtsSettings, SpeechNotifications } from "../../components/settings/ChatTtsSettings";
+import { PronunciationDictionary } from "../../components/settings/PronunciationDictionary";
 import { UpdateBanner } from "../../components/UpdateBanner";
 import { PluginsPage } from "../../pages/PluginsPage";
 import { Badge, Button, Notice, Panel, SettingsGroup, SettingsRow } from "../../components/ui";
@@ -20,6 +21,7 @@ import { OutputSettings } from "./OutputSettings";
 import { ObsConnectionPage } from "./ObsConnectionPage";
 import { useHostStatus } from "./hostStatus";
 import { synthesizeSileroTts } from "../api";
+import { autostart as autostartPlugins } from "../../plugins/api";
 import "../../components/ui/ui.css";
 import "./CoreShell.css";
 
@@ -47,7 +49,10 @@ export function CoreShell() {
   const [voiceNotifications,setVoiceNotifications]=useState(()=>{try{const raw=localStorage.getItem(VOICE_REMINDERS_KEY);return raw==null||raw==="true";}catch{return true;}});
   const synthesizeNotification=useCallback((text:string)=>synthesizeSileroTts(text,chat.settings.sileroVoice),[chat.settings.sileroVoice]);
   // Core never loads a game catalog, bindings, game hooks or a second Twitch queue.
-  useManagedPluginAudio({enabled:true,eventName:"plugin-audio-play",fenceEvent:"plugin-audio-fence",fenceAckCommand:"plugin_audio_fence_ack",synthesize:synthesizeNotification,voiceNotificationsEnabled:voiceNotifications},overallVolume);
+  // Per-plugin results and errors surface in the plugin library view.
+  const startPlugins=useCallback(()=>{void autostartPlugins().catch(()=>{});},[]);
+  // Plugin autostart waits for the fence listener: live enable fences frontend audio.
+  useManagedPluginAudio({enabled:true,eventName:"plugin-audio-play",fenceEvent:"plugin-audio-fence",fenceAckCommand:"plugin_audio_fence_ack",synthesize:synthesizeNotification,voiceNotificationsEnabled:voiceNotifications,onReady:startPlugins},overallVolume);
   useEffect(()=>{void updater.checkForUpdate();},[]); // same standard updater and signature verification
   const diagnostic=async(command:string)=>{if(diagnosticBusy)return;setDiagnosticBusy(true);setDiagnosticError(null);try{const result=await invoke<unknown>(command);setDiagnosticResult(typeof result==="string"?result:"Операция подтверждена приложением.");}catch(e){setDiagnosticError(String(e));}finally{setDiagnosticBusy(false);}};
   const connection=(state:string|undefined)=>state==="connected"?"Подключён":state==="recovering"||state==="reconnecting"?"Переподключение":state==="unavailable"?"Недоступен":"Ожидание подключения";
@@ -102,6 +107,7 @@ export function CoreShell() {
         <div className="core-column">
           <OutputSettings session={chat} output={output} volume={overallVolume} onVolume={setOverallVolume}/>
           <Panel title="Уведомления"><SpeechNotifications session={chat} voiceNotifications={voiceNotifications} onVoiceNotifications={setVoiceReminders}/></Panel>
+          <Panel title="Словарь произношений" description="Как читать слова в сообщениях Twitch. Сообщения в чате не меняются."><PronunciationDictionary session={chat}/></Panel>
         </div>
         <div className="core-column">
           <Panel title="Озвучка чата" description="Чтение сообщений Twitch вслух. Пропуск и остановка — на экране «Чат» и по горячей клавише."><ChatTtsSettings session={chat}/></Panel>

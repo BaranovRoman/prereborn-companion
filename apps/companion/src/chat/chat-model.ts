@@ -1,4 +1,5 @@
 import type { SileroVoice, TwitchChatMessage } from "../core/api";
+import { applyPronunciations, type PronunciationRule, type SpeechAuthor } from "./pronunciation";
 import { normalizeMessageForSpeech, parsePronunciationOverrides, resolveSpokenUsername } from "./tts-normalize";
 
 // WK-81 - Silero is the primary engine (see docs/research/wk-81-silero-tts-feasibility.md).
@@ -22,6 +23,9 @@ export interface ChatSettings {
   // tts-normalize.ts's parsePronunciationOverrides. Deliberately a plain
   // string, not a structured list/editor.
   usernamePronunciations: string;
+  // WK-184 - message-text dictionary ("Озвучка" settings): global and
+  // per-viewer rules, see pronunciation.ts. Normalized on load.
+  pronunciationRules: PronunciationRule[];
   // 0-100, applied as `audio.volume = speechVolume / 100` (and mapped to
   // SpeechSynthesisUtterance.volume, which is 0-1, the same way) on both
   // engines. Only affects TTS playback - never the chat-notification beep()
@@ -50,6 +54,7 @@ export const DEFAULT_CHAT_SETTINGS: ChatSettings = {
   // (see loadSettings in useTwitchChatSession.ts).
   sileroVoice: "xenia",
   usernamePronunciations: "",
+  pronunciationRules: [],
   speechVolume: DEFAULT_SPEECH_VOLUME,
 };
 
@@ -81,6 +86,13 @@ interface SpeechParts {
   speechText: string;
 }
 
+// Message body as it is handed to the engine: dictionary on the text as the
+// viewer typed it (so rules match what people actually write), then the
+// built-in speech normalization on the result. Also drives the settings
+// preview, so what the preview shows is exactly what gets spoken.
+export const speechTextFor = (text: string, settings: Pick<ChatSettings, "pronunciationRules">, author?: SpeechAuthor): string =>
+  normalizeMessageForSpeech(applyPronunciations(text, settings.pronunciationRules, author));
+
 // Shared filtering/normalization core for both prepareTtsText (below - the
 // simple "just give me the full spoken string" call site used by tests and
 // anything that doesn't care about cross-message state) and
@@ -94,7 +106,7 @@ const buildSpeechParts = (message: TwitchChatMessage, settings: ChatSettings): S
   if (settings.maxLength > 0 && text.length > settings.maxLength) {
     text = `${text.slice(0, Math.max(1, settings.maxLength - 1)).trimEnd()}…`;
   }
-  const speechText = normalizeMessageForSpeech(text);
+  const speechText = speechTextFor(text, settings, { id: message.authorId, login: message.authorLogin, name: message.author });
   if (!speechText) return null;
   if (!settings.speakAuthor) return { authorKey: null, speechAuthor: null, speechText };
   const overrides = parsePronunciationOverrides(settings.usernamePronunciations);

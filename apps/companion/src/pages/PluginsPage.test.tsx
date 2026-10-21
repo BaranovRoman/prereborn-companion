@@ -3,15 +3,41 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PluginsPage } from "./PluginsPage";
 import * as api from "../plugins/api";
-vi.mock("../plugins/api", async (original) => ({ ...await original<typeof api>(), view: vi.fn(), refresh: vi.fn(), install: vi.fn(), cancel: vi.fn(), action: vi.fn(), command: vi.fn(), request: vi.fn() }));
+vi.mock("../plugins/api", async (original) => ({ ...await original<typeof api>(), view: vi.fn(), refresh: vi.fn(), install: vi.fn(), cancel: vi.fn(), action: vi.fn(), setAutostart: vi.fn(), command: vi.fn(), request: vi.fn() }));
 // Mirrors Tauri's real convertFileSrc, which percent-encodes the whole path.
 vi.mock("@tauri-apps/api/core", () => ({ convertFileSrc: (p: string, protocol: string) => `${protocol}://localhost/${encodeURIComponent(p)}` }));
 const manifest = { id: "hello", name: "Hello World", description: "Test plugin", version: "0.1.0", platform: "macos", arch: "aarch64", minApi: 1, maxApi: 1, ui: "ui/index.html", permissions: ["ui"] };
 const initial = (): api.View => ({ installed: [], catalog: [{ manifest, url: "https://github.com/test", sha256: "hash", signature: "sig" }], error: null, catalogError: null, localInstallAllowed: false, transfer: { busy: false, id: null, received: 0, total: null, stage: "", error: null } });
 let view: api.View;
-beforeEach(() => { view = initial(); vi.mocked(api.view).mockImplementation(async () => view); vi.mocked(api.action).mockResolvedValue(); vi.mocked(api.install).mockResolvedValue(); vi.mocked(api.cancel).mockResolvedValue(); vi.mocked(api.refresh).mockResolvedValue(); vi.mocked(api.command).mockResolvedValue({ text: "Hello" }); });
+beforeEach(() => { view = initial(); vi.mocked(api.view).mockImplementation(async () => view); vi.mocked(api.action).mockResolvedValue(); vi.mocked(api.setAutostart).mockResolvedValue(); vi.mocked(api.install).mockResolvedValue(); vi.mocked(api.cancel).mockResolvedValue(); vi.mocked(api.refresh).mockResolvedValue(); vi.mocked(api.command).mockResolvedValue({ text: "Hello" }); });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 describe("PluginsPage", () => {
+  // WK-184
+  it("toggles start-with-Companion per plugin without any plugin action", async () => {
+    view.apiVersion=2;view.installed=[{id:"dota2",manifest:{...manifest,id:"dota2",name:"Dota 2",minApi:2,maxApi:2,execution:"live"},installed:{active:"0.3.0",enabled:false,pending:null,previous:null},runtime:null,error:null}];
+    vi.mocked(api.setAutostart).mockImplementation(async(_id,enabled)=>{view={...view,installed:view.installed.map(p=>({...p,installed:{...p.installed,autostart:enabled}}))};});
+    render(<PluginsPage initialPluginId="dota2"/>);
+    const toggle=await screen.findByRole("switch",{name:/Запускать вместе с Companion/}) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    fireEvent.click(toggle);
+    await waitFor(()=>expect(api.setAutostart).toHaveBeenCalledWith("dota2",true));
+    await waitFor(()=>expect((screen.getByRole("switch",{name:/Запускать вместе с Companion/}) as HTMLInputElement).checked).toBe(true));
+    expect(api.action).not.toHaveBeenCalled();
+    // Disabling the plugin by hand keeps the setting on.
+    fireEvent.click(screen.getByRole("switch",{name:/Запускать вместе с Companion/}));
+    await waitFor(()=>expect(api.setAutostart).toHaveBeenLastCalledWith("dota2",false));
+  });
+  it("shows a failed autostart as that plugin's own error", async () => {
+    view.apiVersion=2;view.installed=[{id:"dota2",manifest:{...manifest,id:"dota2",name:"Dota 2",minApi:2,maxApi:2,execution:"live"},installed:{active:"0.3.0",enabled:false,pending:null,previous:null,autostart:true},runtime:null,error:"not_prepared"}];
+    render(<PluginsPage/>);
+    expect(await screen.findByText(/Плагин ещё не подготовлен/)).toBeTruthy();
+  });
+  it("names the plugin being autostarted", async () => {
+    view.installed=[{id:"dota2",manifest:{...manifest,id:"dota2",name:"Dota 2"},installed:{active:"0.3.0",enabled:false,pending:null,previous:null,autostart:true},runtime:null,error:null}];
+    view.transfer={busy:true,id:"dota2",received:0,total:null,stage:"autostart",error:null};
+    render(<PluginsPage/>);
+    expect(await screen.findByText("Автозапуск плагина Dota 2…")).toBeTruthy();
+  });
   it("applies a pending update by stopping and re-enabling only what was enabled", async () => {
     view.apiVersion=2;view.installed=[{id:"dota2",manifest:{...manifest,id:"dota2",name:"Dota 2",minApi:2,maxApi:2,execution:"live",version:"0.2.0"},installed:{active:"0.2.0",enabled:true,pending:"0.2.1",previous:null},runtime:null,error:null}];
     render(<PluginsPage initialPluginId="dota2"/>);

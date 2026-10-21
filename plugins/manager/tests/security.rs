@@ -175,3 +175,30 @@ fn official_dota_package_integrity_and_overlay_assets() {
     let mut api1=manifest.clone();api1.min_api=1;api1.max_api=1;assert!(api1.validate().is_err(),"API2 policy cannot be signed as API1");
     let mut extra=manifest.clone();extra.permissions.push("data.private".into());assert!(extra.validate().is_err());
 }
+#[test]
+fn autostart_is_off_for_existing_registries_persists_and_is_removed_with_the_plugin() {
+    // Platform-independent: a registry written by a Companion version without the field.
+    let dir = tempfile::tempdir().unwrap();
+    fs::create_dir_all(dir.path().join("plugins")).unwrap();
+    let legacy = r#"{"schema":1,"plugins":{"dota2":{"active":"0.3.0","previous":null,"pending":null,"enabled":false},"hello":{"active":"0.1.0","previous":null,"pending":null,"enabled":true}}}"#;
+    fs::write(dir.path().join("plugins/registry.json"), legacy).unwrap();
+    let mut s = store(&dir);
+    assert!(s.installed().values().all(|p| !p.autostart));
+    // Opting out is never written, so an untouched registry stays readable by older versions.
+    s.enable("hello", true).unwrap();
+    assert!(!fs::read_to_string(s.root().join("registry.json")).unwrap().contains("autostart"));
+    s.set_autostart("dota2", true).unwrap();
+    // A manual disable stops the plugin for this session only.
+    s.enable("dota2", false).unwrap();
+    assert!(s.installed()["dota2"].autostart && !s.installed()["dota2"].enabled);
+    assert!(!s.installed()["hello"].autostart);
+    drop(s); let mut s = store(&dir);
+    assert!(s.installed()["dota2"].autostart, "survives a restart");
+    assert_eq!(s.installed()["dota2"].active, "0.3.0");
+    assert!(s.set_autostart("missing", true).is_err());
+    s.remove("dota2").unwrap();
+    drop(s); let mut s = store(&dir);
+    assert!(!s.installed().contains_key("dota2"));
+    s.set_autostart("hello", true).unwrap(); s.set_autostart("hello", false).unwrap();
+    assert!(!fs::read_to_string(s.root().join("registry.json")).unwrap().contains("autostart"));
+}
