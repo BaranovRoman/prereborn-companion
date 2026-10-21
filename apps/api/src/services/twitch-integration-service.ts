@@ -158,7 +158,7 @@ export const saveTwitchLink = async (
     stopTwitchChat(streamUserId);
 };
 
-const getTwitchUserToken = async (streamUserId: string) => {
+export const getTwitchUserToken = async (streamUserId: string) => {
     const result = await pool.query<{
         access_token: string | null;
         refresh_token: string | null;

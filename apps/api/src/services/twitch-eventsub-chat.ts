@@ -213,7 +213,7 @@ export const classifySubscribeFailure = async (
     return "transient";
 };
 
-const defaultValidateToken = async (token: string): Promise<TwitchTokenValidation | null> => {
+export const validateTwitchToken = async (token: string): Promise<TwitchTokenValidation | null> => {
     try {
         const response = await fetch("https://id.twitch.tv/oauth2/validate", {
             headers: { Authorization: `OAuth ${token}` },
@@ -243,7 +243,7 @@ export class TwitchEventSubChatClient {
 
     constructor(private readonly options: Options) {
         this.createSocket = options.createSocket ?? ((url) => new WebSocket(url) as EventSubSocket);
-        this.validateToken = options.validateToken ?? defaultValidateToken;
+        this.validateToken = options.validateToken ?? validateTwitchToken;
         this.setTimer = options.setTimer ?? setTimeout;
         this.clearTimer = options.clearTimer ?? clearTimeout;
     }

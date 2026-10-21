@@ -10,6 +10,10 @@ import {
 } from "../../controllers/stream/companion.js";
 import { getCompanionObsCommandController } from "../../controllers/stream/obs-scene.js";
 import {
+    getCompanionTwitchClipsAccessController,
+    postCompanionTwitchClipController,
+} from "../../controllers/stream/twitch-clips.js";
+import {
     getCompanionQuizStateController,
     putCompanionQuizGeometryController,
 } from "../../controllers/stream/quiz.js";
@@ -32,6 +36,19 @@ streamCompanionRouter.get(
     "/twitch-chat",
     authenticateCompanionSession,
     getCompanionTwitchChatController
+);
+
+// WK-178 - clip hotkey. POST waits for Get Clips to confirm the clip
+// (up to ~15 s), so Companion uses a longer timeout for it.
+streamCompanionRouter.get(
+    "/twitch/clips/access",
+    authenticateCompanionSession,
+    getCompanionTwitchClipsAccessController
+);
+streamCompanionRouter.post(
+    "/twitch/clips",
+    authenticateCompanionSession,
+    postCompanionTwitchClipController
 );
 
 // WK-83 - startup "продолжить прошлый стрим?" предложение в Companion.
