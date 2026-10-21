@@ -32,8 +32,14 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                 silero::stop(app);
                 hotkeys::stop(app);
                 clips::stop(app);
-                if let Some(manager)=app.try_state::<core::plugin_manager::PluginManager>(){manager.shutdown();}
-                app.exit(0);
+                // Off the UI thread: a clean worker stop waits for the WebView's
+                // audio-fence ACK, which cannot arrive while this event loop is
+                // blocked. Without it the process journal stays Draining.
+                let app=app.clone();
+                std::thread::spawn(move||{
+                    if let Some(manager)=app.try_state::<core::plugin_manager::PluginManager>(){manager.shutdown();}
+                    app.exit(0);
+                });
             }
             _ => {}
         })
@@ -95,7 +101,7 @@ pub fn run(){
    Ok(audio)
   })();
   core::plugin_manager::setup(&handle);let manager=handle.state::<core::plugin_manager::PluginManager>();
-  match native{Ok(audio)=>{if let Err(error)=manager.attach_worker_host(handle.clone(),audio){manager.transport_unavailable(error);}else{manager.consume_workers();}},Err(error)=>{storage::append_rolling_log(&handle,&format!("Plugin transport unavailable: {error}"));manager.transport_unavailable(error);}}
+  match native{Ok(audio)=>{if let Err(error)=manager.attach_worker_host(handle.clone(),audio){manager.transport_unavailable(error);}else{manager.consume_workers();let manager=manager.inner().clone();std::thread::spawn(move||manager.recover_interrupted());}},Err(error)=>{storage::append_rolling_log(&handle,&format!("Plugin transport unavailable: {error}"));manager.transport_unavailable(error);}}
   let config=handle.config().app.windows.first().ok_or("main_window_configuration_missing")?;
   tauri::WebviewWindowBuilder::from_config(app,config)?.visible(!launched_hidden(std::env::args())).build()?;
   silero::init(&handle);hotkeys::init(&handle);clips::init(&handle);backend::init(handle.clone());obs::init(handle.clone());diagnostics::recover_last_session(&handle);

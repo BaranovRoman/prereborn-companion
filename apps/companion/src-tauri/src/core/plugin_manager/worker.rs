@@ -228,6 +228,26 @@ fn reconcile_stopped_setting(app:&tauri::AppHandle,audio:&HostAudio,process:&Pro
   read_unknown_setting(app,&pin,action,None)
  })
 }
+/// The resent intent must be the exact admitted one (revision and context it
+/// was planned with); the scene and OBS endpoint come from the stored action.
+fn admitted_scene_target<'a>(action:&'a super::super::plugin_audio::store::Action,intent:&companion_plugin_protocol::obs::SceneIntent)->Result<(&'a str,&'a str),String>{
+ let super::super::plugin_audio::store::Action::Scene{name,config_revision,transport_identity:Some(target),context}=action else{return Err("scene_scope_mismatch".into());};
+ if config_revision.as_deref()!=Some(intent.config_revision.as_str())||*context!=intent.context{return Err("scene_scope_mismatch".into());}
+ Ok((name,target))
+}
+#[cfg(test)]mod scene_tests{use super::*;use super::super::super::plugin_audio::store::Action;
+ fn intent(revision:&str,context:Option<&str>)->companion_plugin_protocol::obs::SceneIntent{companion_plugin_protocol::obs::SceneIntent{operation_key:"scene:1".into(),semantic:"gameplay".into(),config_revision:revision.into(),context:context.map(Into::into)}}
+ fn stored(context:Option<&str>)->Action{Action::Scene{name:"Game".into(),config_revision:Some("a".repeat(64)),transport_identity:Some("t".repeat(64)),context:context.map(Into::into)}}
+ #[test]fn an_admitted_scene_is_reobserved_by_its_stored_identity_only(){
+  // The worker resends the exact admitted intent after the match context ended.
+  assert_eq!(admitted_scene_target(&stored(Some("match:1")),&intent(&"a".repeat(64),Some("match:1"))).unwrap(),("Game","t".repeat(64).as_str()));
+  assert_eq!(admitted_scene_target(&stored(Some("match:1")),&intent(&"b".repeat(64),Some("match:1"))).unwrap_err(),"scene_scope_mismatch");
+  assert_eq!(admitted_scene_target(&stored(Some("match:1")),&intent(&"a".repeat(64),Some("match:2"))).unwrap_err(),"scene_scope_mismatch");
+  assert_eq!(admitted_scene_target(&stored(None),&intent(&"a".repeat(64),Some("match:1"))).unwrap_err(),"scene_scope_mismatch");
+  let unbound=Action::Scene{name:"Game".into(),config_revision:Some("a".repeat(64)),transport_identity:None,context:None};
+  assert_eq!(admitted_scene_target(&unbound,&intent(&"a".repeat(64),None)).unwrap_err(),"scene_scope_mismatch");
+ }
+}
 fn reconcile_stopped_scenes(app:&tauri::AppHandle,audio:&HostAudio,process:&ProcessBinding,epoch:u64)->Result<(),String>{
  audio.reconcile_scenes_after_native_exit(process,epoch,|desired,target|{
   let config=read_obs_config(app)?;if config.transport_identity(&process.package.id)?!=target{return Err("obs_operation_target_changed".into());}
@@ -267,12 +287,21 @@ impl Task{
  }
  fn scene_intent(&self,intent:&companion_plugin_protocol::obs::SceneIntent,context:Option<&str>)->Result<companion_plugin_protocol::obs::SceneReceipt,String>{
   use std::time::{Instant,Duration};use companion_plugin_protocol::{obs::SceneReceipt,audio::Status};
-  if !self.worker.pin.permits("obs.scene")||intent.operation_key.is_empty()||intent.operation_key.len()>128||intent.context.as_deref()!=context{return Err("invalid_scene_intent".into());}
+  if !self.worker.pin.permits("obs.scene")||intent.operation_key.is_empty()||intent.operation_key.len()>128{return Err("invalid_scene_intent".into());}
   self.audio.locked_authorize(&self.worker.binding,self.worker.epoch)?;
-  let config=read_obs_config(&self.app)?;
-  if !config.enabled||config.plugin_revision(&self.worker.pin.package.id,&self.worker.pin.obs_bindings)?!=intent.config_revision{return Err("obs_configuration_changed".into());}
-  let mappings=config.plugin_bindings(&self.worker.pin.package.id,&self.worker.pin.obs_bindings)?;let name=mappings.get(&intent.semantic).filter(|s|!s.is_empty()).ok_or("obs_semantic_denied")?;
+  let id=&self.worker.pin.package.id;
   let key=super::super::plugin_audio::store::ordered_key(&self.worker.binding.generation,self.worker.epoch,&intent.operation_key)?;
+  // The worker keeps an admitted operation's exact identity across later
+  // session/config changes; the host may only re-observe it, never write.
+  if let Some(stored)=self.audio.receipt(id,&key)?{return self.observe_admitted_scene(intent,&key,stored);}
+  if intent.context.as_deref()!=context{return Err("invalid_scene_intent".into());}
+  let config=read_obs_config(&self.app)?;
+  if !config.enabled||config.plugin_revision(id,&self.worker.pin.obs_bindings)?!=intent.config_revision{
+   // Planned from an older observation; nothing was admitted or written.
+   crate::storage::append_rolling_log(&self.app,&format!("[plugins] {id}: OBS {} {} cancelled before write: configuration changed",intent.operation_key,intent.semantic));
+   return Ok(SceneReceipt{operation_key:intent.operation_key.clone(),status:Status::Cancelled});
+  }
+  let mappings=config.plugin_bindings(id,&self.worker.pin.obs_bindings)?;let name=mappings.get(&intent.semantic).filter(|s|!s.is_empty()).ok_or("obs_semantic_denied")?;
   let action=super::super::plugin_audio::store::Action::Scene{name:name.clone(),config_revision:Some(intent.config_revision.clone()),transport_identity:Some(config.transport_identity(&self.worker.pin.package.id)?),context:intent.context.clone()};
   let receipt=self.audio.scene(&self.worker.pin,&self.worker.binding,self.worker.epoch,&key,action,|may_write|{
    let deadline=Instant::now()+Duration::from_millis(1500);
@@ -283,6 +312,23 @@ impl Task{
   })?;
   // Queued/playing do not describe a synchronous scene operation.
   if !matches!(receipt.status,Status::Completed|Status::Unknown|Status::Cancelled){return Err("obs_receipt_invalid".into());}
+  crate::storage::append_rolling_log(&self.app,&format!("[plugins] {id}: OBS {} {} -> \"{name}\": {:?}",intent.operation_key,intent.semantic,receipt.status));
+  Ok(SceneReceipt{operation_key:intent.operation_key.clone(),status:receipt.status})
+ }
+ /// Observe-only query for an already admitted scene operation, bound to its
+ /// stored scene and OBS endpoint. A changed endpoint can never confirm it.
+ fn observe_admitted_scene(&self,intent:&companion_plugin_protocol::obs::SceneIntent,key:&str,stored:super::super::plugin_audio::store::Receipt)->Result<companion_plugin_protocol::obs::SceneReceipt,String>{
+  use std::time::{Instant,Duration};use companion_plugin_protocol::{obs::SceneReceipt,audio::Status};
+  let(name,target)=admitted_scene_target(&stored.action,intent)?;
+  let id=&self.worker.pin.package.id;let was=stored.status;
+  let receipt=self.audio.scene(&self.worker.pin,&self.worker.binding,self.worker.epoch,key,stored.action.clone(),|may_write|{
+   let config=read_obs_config(&self.app)?;
+   if may_write||config.transport_identity(id)?!=target{return Ok(Status::Unknown);}
+   let current=super::super::obs_transport::program_scene_before(&config.connection(),Instant::now()+Duration::from_millis(500));
+   Ok(if current.is_ok_and(|current|current==name)&&read_obs_config(&self.app)?.same_transport(&config){Status::Completed}else{Status::Unknown})
+  })?;
+  if !matches!(receipt.status,Status::Completed|Status::Unknown|Status::Cancelled){return Err("obs_receipt_invalid".into());}
+  if receipt.status!=was{crate::storage::append_rolling_log(&self.app,&format!("[plugins] {id}: OBS {} -> \"{name}\" reconciled: {:?}",intent.operation_key,receipt.status));}
   Ok(SceneReceipt{operation_key:intent.operation_key.clone(),status:receipt.status})
  }
  fn stream_observation(&self,scene:Option<&companion_plugin_protocol::obs::SceneObservation>)->Result<companion_plugin_protocol::obs::StreamObservation,String>{
@@ -546,6 +592,26 @@ impl PluginManager{
  pub(crate) fn attach_worker_host(&self,app:tauri::AppHandle,audio:Arc<HostAudio>)->Result<(),String>{
   let mut guard=self.service.lock().map_err(|_|locked())?;let service=guard.as_mut().map_err(|e|e.clone())?;
   service.native=Some((app,audio));Ok(())
+ }
+ /// Startup only, after the native host is attached. A journal left
+ /// Starting/Running/Draining by a closed or crashed session goes through the
+ /// same gates as the manual recovery: kernel job fence, OBS/backend
+ /// reconciliation and audio fence. It never enables or starts the plugin; a
+ /// failed gate keeps the block and records its concrete reason.
+ pub(crate) fn recover_interrupted(&self){
+  if !cfg!(windows){return;}
+  let Ok(mut guard)=self.service.lock()else{return;};let Ok(service)=guard.as_mut()else{return;};
+  let Some((app,audio))=service.native.clone()else{return;};
+  let ids:Vec<String>=service.store.installed().into_keys().filter(|id|service.manifests.get(id).is_some_and(|m|m.execution==packages::ExecutionMode::Live)).collect();
+  for id in ids{
+   if self.shutting_down.load(Ordering::SeqCst){return;}
+   let interrupted=match audio.process(&id){Ok(record)=>record.is_some_and(|p|p.phase!=ProcessPhase::Stopped),Err(error)=>{service.errors.insert(id,error);continue;}};
+   if !interrupted||service.workers.contains_key(&id){continue;}
+   match service.recover_worker(&id){
+    Ok(())=>{service.errors.remove(&id);crate::storage::append_rolling_log(&app,&format!("[plugins] {id}: previous process exit confirmed at startup; journal recovered."));}
+    Err(error)=>{crate::storage::append_rolling_log(&app,&format!("[plugins] {id}: startup recovery blocked: {error}"));service.errors.insert(id,error);}
+   }
+  }
  }
  pub(crate) fn consume_workers(&self){
   let manager=self.clone();std::thread::spawn(move||{

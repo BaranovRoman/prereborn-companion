@@ -43,7 +43,11 @@ export function errorText(error: unknown): string {
     use_rollback_for_older_version: "Для предыдущей версии используйте откат установленного плагина.",
     plugin_update_required: "Для запуска требуется совместимая обновлённая версия пакета.",
     stale_ui_package: "Версия плагина изменилась. Откройте его страницу заново.",
-    previous_process_stop_unproven: "Остановка предыдущего процесса ещё не подтверждена. Выполните восстановление.",
+    previous_process_stop_unproven: "Остановка предыдущего процесса плагина не подтверждена. Нажмите «Проверить остановку и восстановить».",
+    plugin_process_requires_recovery: "Процесс плагина остановился. Нажмите «Проверить остановку и восстановить».",
+    process_fence_unproven: "Не удалось подтвердить завершение предыдущего процесса плагина. Перезапустите Companion; если ошибка повторится, перезагрузите Windows.",
+    backend_reconciliation_inconclusive: "Не удалось подтвердить сохранение настроек на сервере. Проверьте подключение аккаунта и повторите восстановление.",
+    account_not_connected: "Аккаунт не подключён. Подключите аккаунт и повторите операцию.",
     unknown_effects_require_explicit_reconciliation: "Есть действия с неподтверждённым результатом. Требуется восстановление плагина.",
     frontend_process_uncontained: "Процесс воспроизведения не прошёл native-проверку. Запуск заблокирован.",
     frontend_containment_unproven: "Не удалось подтвердить безопасность процесса воспроизведения.",
@@ -56,5 +60,19 @@ export function errorText(error: unknown): string {
     prepare_in_progress: "Предыдущая подготовка ещё выполняется.",
   };
   if (text.includes("download_failed")) return "Источник загрузки недоступен или пакет ещё не опубликован. Установленные пакеты сохранены; состояние запуска показано отдельно.";
-  return messages[text.replace(/^Error: /, "")] ?? text;
+  const code = text.replace(/^Error: /, "");
+  // "<cause>; stop: <stop error>" - the cause is what the user acts on; the
+  // full chain stays in the plugin diagnostics.
+  return messages[code] ?? messages[code.split("; stop: ")[0]] ?? text;
+}
+
+const RECOVERY_CODES = ["previous_process_stop_unproven", "plugin_process_requires_recovery", "unknown_effects_require_explicit_reconciliation", "obs_fence_unconfirmed"];
+export function needsRecovery(plugin: Installed): boolean {
+  const code = String(plugin.error ?? "").replace(/^Error: /, "");
+  return plugin.runtime?.phase === "failed" || RECOVERY_CODES.some((c) => code === c || code.startsWith(`${c}; stop: `) || code.includes(`; stop: ${c}`));
+}
+export function stateText(plugin: Installed): string {
+  if (needsRecovery(plugin)) return "Требуется восстановление";
+  if (!plugin.installed.enabled) return "Отключён";
+  return { running: "Работает", starting: "Запускается", stopped: "Остановлен", failed: "Ошибка процесса" }[plugin.runtime?.phase ?? "stopped"];
 }
