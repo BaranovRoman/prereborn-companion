@@ -32,7 +32,9 @@ export const connectTwitchController = async (req: Request, res: Response) => {
     url.searchParams.set("state", state);
     url.searchParams.set(
         "scope",
-        "user:read:chat channel:read:subscriptions moderator:read:followers"
+        // clips:edit (WK-178) - Companion's clip hotkey. Links made before it
+        // was added keep working for chat; clips report reauth_required.
+        "user:read:chat channel:read:subscriptions moderator:read:followers clips:edit"
     );
     url.searchParams.set("force_verify", "true");
     res.json({ redirectUrl: url.toString() });
