@@ -13,10 +13,6 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export const ACTIVITY_RETENTION_DAYS = 90;
 const PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 
-// The public block stays hidden until heartbeats have been collected for at
-// least this many full UTC days, so "active in 30 days" is never an
-// undercount of a window that tracking didn't cover yet.
-export const PUBLIC_READY_MIN_TRACKED_DAYS = 30;
 export const AVERAGE_DAU_DAYS = 30;
 
 const PUBLIC_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -43,7 +39,12 @@ export type PublicUsageStats = {
     registeredUsers: number;
     activeUsers7d: number;
     activeUsers30d: number;
-    ready: boolean;
+    /**
+     * First UTC day with any heartbeat (null before the first one). While it
+     * is less than 7/30 days ago, the 7d/30d numbers cover only the days
+     * since then - the landing says so instead of hiding them.
+     */
+    trackingSince: string | null;
     generatedAt: string;
 };
 
@@ -149,7 +150,7 @@ export const toPublicUsageStats = (stats: UsageStats): PublicUsageStats => ({
     registeredUsers: stats.registeredUsers,
     activeUsers7d: stats.wau,
     activeUsers30d: stats.mau,
-    ready: stats.trackedFullDays >= PUBLIC_READY_MIN_TRACKED_DAYS,
+    trackingSince: stats.trackingSince,
     generatedAt: stats.generatedAt,
 });
 

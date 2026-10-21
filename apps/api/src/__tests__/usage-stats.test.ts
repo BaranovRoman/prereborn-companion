@@ -225,19 +225,22 @@ describe("public usage stats", () => {
         generatedAt: "2099-01-31T00:00:00.000Z",
     };
 
-    it("exposes only registered/7d/30d aggregates and a readiness flag", () => {
+    it("exposes only registered/7d/30d aggregates and the tracking start date", () => {
         expect(toPublicUsageStats(baseStats)).toEqual({
             registeredUsers: 10,
             activeUsers7d: 4,
             activeUsers30d: 6,
-            ready: true,
+            trackingSince: "2099-01-01",
             generatedAt: "2099-01-31T00:00:00.000Z",
         });
     });
 
-    it("is not ready until 30 full days of heartbeats are collected", () => {
-        expect(toPublicUsageStats({ ...baseStats, trackedFullDays: 29 }).ready).toBe(false);
-        expect(toPublicUsageStats({ ...baseStats, trackingSince: null, trackedFullDays: 0 }).ready).toBe(false);
+    it("returns real values right away, before 7/30 days of history exist", () => {
+        const partial = toPublicUsageStats({ ...baseStats, trackingSince: "2099-01-30", trackedFullDays: 1 });
+        expect(partial.activeUsers7d).toBe(4);
+        expect(partial.activeUsers30d).toBe(6);
+        expect(partial.trackingSince).toBe("2099-01-30");
+        expect(toPublicUsageStats({ ...baseStats, trackingSince: null, trackedFullDays: 0 }).trackingSince).toBeNull();
     });
 
     it("GET /api/public/usage-stats returns aggregates without personal data", async () => {
@@ -247,7 +250,7 @@ describe("public usage stats", () => {
         const res = await request(app).get("/api/public/usage-stats");
         expect(res.status).toBe(200);
         expect(Object.keys(res.body).sort()).toEqual(
-            ["activeUsers30d", "activeUsers7d", "generatedAt", "ready", "registeredUsers"]
+            ["activeUsers30d", "activeUsers7d", "generatedAt", "registeredUsers", "trackingSince"]
         );
         expect(res.headers["cache-control"]).toBe("public, max-age=300");
         expect(JSON.stringify(res.body)).not.toContain("@example.com");

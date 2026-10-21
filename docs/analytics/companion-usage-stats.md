@@ -47,7 +47,7 @@ kept separate.
 - `POST /api/stream/companion/heartbeat`: Companion auth (session JWT or legacy companion
   token). `204` on success, `401` without valid auth or for a deleted account. Rate limited per IP.
 - `GET /api/public/usage-stats`: public and read-only. Returns
-  `{ registeredUsers, activeUsers7d, activeUsers30d, ready, generatedAt }` and nothing else.
+  `{ registeredUsers, activeUsers7d, activeUsers30d, trackingSince, generatedAt }` and nothing else.
   Cached for 5 minutes in the API (`Cache-Control: public, max-age=300`). If a refresh fails it
   serves the last good value. If none exists it returns `503`, never zeros. Rate limited per IP.
 - `GET /api/admin/usage-stats`: admins only. Returns all metrics above plus `trackingSince`,
@@ -56,7 +56,7 @@ kept separate.
 ## Public block on prereborn.ru
 
 The landing (`apps/web/src/components/pages/landing/UsageStats.tsx`) shows registered users,
-active in 7 days and active in 30 days, and only when `ready` is true. `ready` becomes true
-once heartbeats have been collected for at least 30 full UTC days, so the 30-day number is
-never an undercount of a window tracking didn't cover. While loading, on any error, or before
-`ready`, the block isn't rendered at all.
+active in 7 days and active in 30 days as soon as the API returns them, with real values from
+day one. Until `trackingSince` is 30 days back, the caption reads "Статистика собирается с
+<date>", so short-history 7d/30d numbers aren't read as a full observation window. While
+loading or on any error, the block isn't rendered at all (never zeros).
