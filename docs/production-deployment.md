@@ -281,7 +281,8 @@ change.
 ### Production procedure
 
 Every step runs as root on the server. Each one waits for an explicit go
-from the owner.
+from the owner. root's login shell on the server is zsh, which doesn't
+word-split `$VAR`: run multi-command snippets through `ssh kiwi 'bash -s' <<'EOF'`.
 
 **0. Read-only pre-checks** (nothing changes, no log contents are read):
 
@@ -332,12 +333,23 @@ and the overlay `Referrer-Policy`. `release.sh` does `pm2 delete` + `start`
 `api-error.log`, `web-out.log` and `web-error.log`, and no new `*-<id>.log`
 files.
 
-**4. Switch the vhost**: in ISPmanager, paste `nginx.production.conf` as
-the site's nginx config. The changes are the `access_log ...
-prereborn_masked`, the two overlay locations and `log_not_found off`.
-Then:
+**4. Switch the vhost**: through ISPmanager's own site config editor
+(Сайты → prereborn.ru → Конфигурационные файлы, nginx), so the panel knows
+about the change. The changes are the `access_log ... prereborn_masked`,
+the two overlay locations and `log_not_found off`. From the shell the
+same editor is the `webdomain.plain` function (field `nginx_data`):
 
 ```bash
+# 4a. validate the new vhost with the whole real config before saving: a
+# throwaway main file next to nginx.conf (relative includes such as
+# fastcgi_params resolve from /etc/nginx), nothing includes it
+for f in /etc/nginx/vhosts/*/*.conf; do [ "$f" = /etc/nginx/vhosts/www-root/prereborn.ru.conf ] || echo "include $f;"; done > "$B/vhosts.inc"
+echo "include $PWD/nginx.production.conf;" >> "$B/vhosts.inc"
+sed "s#include /etc/nginx/vhosts/\*/\*.conf;#include $B/vhosts.inc;#" /etc/nginx/nginx.conf > /etc/nginx/wk196-nginx-test.conf
+nginx -t -c /etc/nginx/wk196-nginx-test.conf; rm -f /etc/nginx/wk196-nginx-test.conf
+# 4b. save through the panel (it drops the final newline, nothing else)
+/usr/local/mgr5/sbin/mgrctl -m ispmgr webdomain.plain elid=prereborn.ru nginx_data="$(cat nginx.production.conf)" sok=ok
+diff <(cat /etc/nginx/vhosts/www-root/prereborn.ru.conf; echo) nginx.production.conf
 nginx -t && systemctl reload nginx     # graceful: old workers finish their requests, no downtime
 ```
 
@@ -368,9 +380,16 @@ curl -s -o /dev/null -H 'Referer: https://prereborn.ru/overlay/wk196fake?debug=1
 grep -c wk196fake /var/www/httpd-logs/prereborn.ru.access.log /var/www/httpd-logs/prereborn.ru.error.log   # 0 and 0
 tail -n 3 /var/www/httpd-logs/prereborn.ru.access.log     # [token], ?[redacted], "https://prereborn.ru"
 sudo -u postgres psql -Atc "SHOW log_error_verbosity"     # terse
-# next day:
+# after the second nightly logrotate run (see below):
 ls -l --time-style=long-iso /var/www/www-root/data/www/prereborn.ru/shared/logs   # *.log.1 present, nothing older than 14 days
+grep -E 'prereborn|postgresql' /var/lib/logrotate/status
 ```
+
+logrotate rotates a file only once it has a state entry. The first nightly
+run after step 3 merely records the four new PM2 files (`log does not need
+rotating`), so `lastaction` (the cleanup of older files) doesn't run until
+the **second** night. PostgreSQL already has a state entry and rotates on
+the first night.
 
 **8. Rollback**: each step is independent.
 
@@ -378,9 +397,35 @@ ls -l --time-style=long-iso /var/www/www-root/data/www/prereborn.ru/shared/logs 
 |---|---|
 | 2 nginx format | `rm /etc/nginx/conf.d/prereborn-logging.conf` only **after** the vhost no longer references it, then `nginx -t && systemctl reload nginx` |
 | 2 logrotate | `rm /etc/logrotate.d/prereborn-pm2`; `cp -a "$B/postgresql-common" /etc/logrotate.d/` |
-| 3 app | revert the PR on `main` (normal deploy), or `release.sh` with the previous release |
-| 4 vhost | paste the vhost from `"$B"` in ISPmanager, `nginx -t && systemctl reload nginx` |
+| 3 app | revert the PR on `main` (normal deploy), or `release.sh` with the previous release. A release without `merge_logs` goes back to `*-<pm_id>.log` files, which can reuse an old, never-written file, so also `rm /etc/logrotate.d/prereborn-pm2`: its cleanup would otherwise be able to delete a file PM2 has open |
+| 4 vhost | `mgrctl -m ispmgr webdomain.plain elid=prereborn.ru nginx_data="$(cat "$B/prereborn.ru.conf.orig")" sok=ok`, then `nginx -t && systemctl reload nginx` |
 | 5 PostgreSQL | `ALTER SYSTEM RESET log_error_verbosity; SELECT pg_reload_conf();` |
+
+### Production state
+
+Applied on 2026-10-22, release `fc5287c` (PR #158). Backups of the
+previous configs are in `/root/wk196-backup-20261022/` (mode 700):
+`prereborn.ru.conf.orig`, `postgresql-common.orig`, `nginx-T.orig.txt`,
+`pg-settings.orig.txt`.
+
+- PM2 runs as **root** (`/root/.pm2`) and also hosts other sites' apps. Only
+  `prereborn-api` and `prereborn-web` use `shared/logs` (`root:root 755`),
+  which is why the logrotate file uses `su root root`. logrotate runs as
+  root and the directory isn't group/world-writable, so `su` isn't strictly
+  required. It overrides the global `su root adm` and matches
+  `postgresql-common`.
+- nginx 1.26, PostgreSQL 16 (`logging_collector=off`, stderr →
+  `/var/log/postgresql/`), logrotate 3.21 via `logrotate.timer` at 00:00 MSK.
+- The ISPmanager includes inside the vhost have regex locations only for
+  their own paths (phpMyAdmin, Roundcube), so no conflict with the overlay
+  locations. `conf.d/*.conf` is included at http level before the vhosts.
+- Checked in production with fake markers: access.log masks overlay
+  tokens (also `/OVERLAY`, `//overlay`, `%6Fverlay`), callback query strings
+  (Twitch, DonationAlerts, Steam, any parameter order) and Referer. The
+  markers are absent from access/error, PM2 and PostgreSQL logs. Upstream
+  failures (502/504) were checked in the lab only.
+- No live legacy overlay traffic during the check, so a real OBS source was
+  not observed after the switch.
 
 ### Logs written before masking
 
