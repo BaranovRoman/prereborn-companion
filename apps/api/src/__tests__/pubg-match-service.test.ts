@@ -125,6 +125,36 @@ describe("getPubgMatches", () => {
         expect(await getPubgMatches("xbox", "Busy", 10, 1_000)).toEqual({ status: "rate_limited" });
     });
 
+    it("tells when a new match first showed up in the player's list (latency diagnostics)", async () => {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        try {
+            vi.setSystemTime(new Date("2026-10-22T10:00:00Z"));
+            let listed = ids.slice(1, 4);
+            fetchMock.mockImplementation(async (url: string | URL) => {
+                const path = String(url);
+                if (path.includes("/players?")) return json(200, playerBody(listed));
+                const index = ids.findIndex((id) => path.endsWith(`/matches/${id}`));
+                return json(200, matchBody(index));
+            });
+            const first = await getPubgMatches("steam", "ProPlayer", 3, 1_000);
+            if (first.status !== "ok") throw new Error("expected ok");
+            // The first list has no baseline: when PUBG listed these is unknown.
+            expect(first.timing.playerFetchedAt).toBe("2026-10-22T10:00:00.000Z");
+            expect(first.timing.matches[0]).toMatchObject({ listedAt: "2026-10-22T10:00:00.000Z", listedAfter: null });
+            vi.setSystemTime(new Date("2026-10-22T10:01:30Z"));
+            listed = ids.slice(0, 3);
+            const second = await getPubgMatches("steam", "ProPlayer", 3, 1_000);
+            if (second.status !== "ok") throw new Error("expected ok");
+            expect(second.timing.matches[0]).toEqual({
+                id: ids[0], listedAfter: "2026-10-22T10:00:00.000Z", listedAt: "2026-10-22T10:01:30.000Z", detailsAt: "2026-10-22T10:01:30.000Z",
+            });
+            // Already known matches keep their first sighting.
+            expect(second.timing.matches[1]).toMatchObject({ id: ids[1], listedAt: "2026-10-22T10:00:00.000Z" });
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("never spends more than the shared per-minute player budget", async () => {
         for (let i = 0; i < 8; i++) await getPubgMatches("steam", `Player${i}`, 1, 1_000);
         const before = fetchMock.mock.calls.filter(([url]) => String(url).includes("/players?")).length;

@@ -1,4 +1,5 @@
 import { env } from "../config/env.js";
+import { logger } from "../utils/logger.js";
 
 // WK-183 - PUBG plugin match history. The PUBG Developer API key lives only
 // here (PUBG_API_KEY); the installed plugin never sees it. Only a compact
@@ -33,6 +34,18 @@ export interface PubgMatchSummary {
     damage: number;
 }
 
+// Latency diagnostics: PUBG listed a match for this player somewhere in
+// (listedAfter, listedAt] - the previous player fetch without it and the
+// first one with it (listedAfter is null when this process had no earlier
+// list). detailsAt is when the match details were fetched. Clients that do
+// not know this field ignore it.
+export interface PubgMatchTiming {
+    id: string;
+    listedAt: string | null;
+    listedAfter: string | null;
+    detailsAt: string | null;
+}
+
 export type PubgMatchesResult =
     | {
           status: "ok";
@@ -40,6 +53,7 @@ export type PubgMatchesResult =
           matches: PubgMatchSummary[];
           complete: boolean;
           fetchedAt: string;
+          timing: { playerFetchedAt: string | null; matches: PubgMatchTiming[] };
       }
     | { status: "not_configured" | "player_not_found" | "rate_limited" | "unavailable" };
 
@@ -73,11 +87,22 @@ const MAP_NAMES: Record<string, string> = {
 export const mapDisplayName = (mapName: string): string =>
     MAP_NAMES[mapName] ?? (mapName.replace(/_Main$/, "") || "—");
 
-type FetchResult =
+type FetchResult = (
     | { status: "ok"; data: unknown }
-    | { status: "not_found" | "rate_limited" | "unavailable" };
+    | { status: "not_found" | "rate_limited" | "unavailable" }
+) & { durationMs?: number; rateRemaining?: number | null };
 
+// Upstream duration and the key's remaining per-minute budget, for the
+// latency log only.
 const fetchPubg = async (path: string, apiKey: string): Promise<FetchResult> => {
+    const started = Date.now();
+    let response: Response | undefined;
+    const result = await fetchPubgRaw(path, apiKey, (seen) => { response = seen; });
+    const remaining = Number(response?.headers.get("X-RateLimit-Remaining") ?? Number.NaN);
+    return { ...result, durationMs: Date.now() - started, rateRemaining: Number.isFinite(remaining) ? remaining : null };
+};
+
+const fetchPubgRaw = async (path: string, apiKey: string, seen: (response: Response) => void): Promise<FetchResult> => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
@@ -85,6 +110,7 @@ const fetchPubg = async (path: string, apiKey: string): Promise<FetchResult> => 
             signal: controller.signal,
             headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/vnd.api+json" },
         });
+        seen(response);
         if (response.status === 404) return { status: "not_found" };
         if (response.status === 429) return { status: "rate_limited" };
         if (!response.ok) return { status: "unavailable" };
@@ -136,6 +162,8 @@ interface MatchEntry {
     gameMode: string;
     // Only the stats this product shows, per account id.
     participants: Map<string, { place: number | null; kills: number; damage: number }>;
+    // When this process fetched the details (latency diagnostics).
+    fetchedAt?: number;
 }
 
 const num = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) ? value : 0);
@@ -190,8 +218,15 @@ const getMatch = (platform: PubgPlatform, id: string, apiKey: string): Promise<M
     const request = fetchPubg(`/shards/${platform}/matches/${id}`, apiKey)
         .then((result) => {
             // Failures are not cached: the next refresh retries the match.
-            const entry = result.status === "ok" ? parseMatch(result.data) : null;
+            const parsed = result.status === "ok" ? parseMatch(result.data) : null;
+            const entry = parsed && { ...parsed, fetchedAt: Date.now() };
             if (entry) rememberMatch(key, entry);
+            const finishedAt = entry ? Date.parse(entry.createdAt) + entry.durationSec * 1000 : null;
+            logger.info("pubg.match", {
+                platform, id, status: entry ? "ok" : result.status, durationMs: result.durationMs,
+                createdAt: entry?.createdAt, finishedAt: finishedAt === null ? undefined : new Date(finishedAt).toISOString(),
+                sinceFinishSec: finishedAt === null ? undefined : Math.round((Date.now() - finishedAt) / 1000),
+            });
             return entry;
         })
         .finally(() => matchInFlight.delete(key));
@@ -200,10 +235,21 @@ const getMatch = (platform: PubgPlatform, id: string, apiKey: string): Promise<M
 };
 
 type PlayerState =
-    | { status: "ok"; player: PlayerEntry; expiresAt: number }
+    | { status: "ok"; player: PlayerEntry; expiresAt: number; fetchedAt: number }
     | { status: "player_not_found" | "rate_limited" | "unavailable"; expiresAt: number };
 
 const playerCache = new Map<string, PlayerState>();
+// `${platform}:${player}:${matchId}` -> when a match first showed up in that
+// player's list and the previous fetch without it (bounded, diagnostics).
+const listings = new Map<string, { listedAt: number; listedAfter: number | null }>();
+const rememberListing = (key: string, listing: { listedAt: number; listedAfter: number | null }) => {
+    listings.set(key, listing);
+    while (listings.size > MATCH_CACHE_LIMIT) {
+        const oldest = listings.keys().next().value;
+        if (oldest === undefined) break;
+        listings.delete(oldest);
+    }
+};
 const refreshes = new Map<string, Promise<void>>();
 const playerCalls: number[] = [];
 
@@ -235,8 +281,21 @@ const refreshPlayer = (platform: PubgPlatform, name: string, apiKey: string, lim
                 apiKey
             );
             const player = result.status === "ok" ? parsePlayer(result.data) : null;
+            const fetchedAt = Date.now();
+            const known = previous?.status === "ok" ? previous : null;
+            const newIds = player ? player.matchIds.filter((id) => !known?.player.matchIds.includes(id)) : [];
+            for (const id of newIds) {
+                if (!listings.has(`${key}:${id}`)) rememberListing(`${key}:${id}`, { listedAt: fetchedAt, listedAfter: known?.fetchedAt ?? null });
+            }
+            logger.info("pubg.player", {
+                platform, player: name, status: player ? "ok" : result.status, durationMs: result.durationMs,
+                rateRemaining: result.rateRemaining, matches: player?.matchIds.length,
+                // The first list of a player (or after a restart) has no baseline.
+                newIds: known ? newIds : undefined, initial: player !== null && !known,
+                previousFetchAt: known ? new Date(known.fetchedAt).toISOString() : undefined,
+            });
             if (player) {
-                playerCache.set(key, { status: "ok", player, expiresAt: Date.now() + PLAYER_TTL_MS });
+                playerCache.set(key, { status: "ok", player, expiresAt: fetchedAt + PLAYER_TTL_MS, fetchedAt });
             } else if (previous?.status === "ok" && result.status !== "not_found") {
                 // Transient upstream failure: retry soon, keep the old list.
                 playerCache.set(key, { ...previous, expiresAt: Date.now() + 15_000 });
@@ -271,12 +330,21 @@ const snapshot = (platform: PubgPlatform, name: string, limit: number): PubgMatc
         matches.push({ id, createdAt: match.createdAt, durationSec: match.durationSec, map: match.map, gameMode: match.gameMode, ...stats });
     }
     matches.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    const iso = (at: number | null | undefined) => (at == null ? null : new Date(at).toISOString());
+    const playerKey = `${platform}:${name.toLowerCase()}`;
     return {
         status: "ok",
         player: { name: state.player.name || name, platform },
         matches,
         complete: ids.every((id) => matchCache.has(`${platform}:${id}`)),
         fetchedAt: new Date().toISOString(),
+        timing: {
+            playerFetchedAt: iso(state.fetchedAt),
+            matches: matches.map(({ id }) => {
+                const listing = listings.get(`${playerKey}:${id}`);
+                return { id, listedAt: iso(listing?.listedAt), listedAfter: iso(listing?.listedAfter), detailsAt: iso(matchCache.get(`${platform}:${id}`)?.fetchedAt) };
+            }),
+        },
     };
 };
 
@@ -300,6 +368,7 @@ export const getPubgMatches = async (
         matches: [],
         complete: false,
         fetchedAt: new Date().toISOString(),
+        timing: { playerFetchedAt: null, matches: [] },
     };
 };
 
@@ -307,6 +376,7 @@ export const __resetPubgCachesForTests = (): void => {
     matchCache.clear();
     matchInFlight.clear();
     playerCache.clear();
+    listings.clear();
     refreshes.clear();
     playerCalls.length = 0;
 };
