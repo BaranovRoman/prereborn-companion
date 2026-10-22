@@ -1,7 +1,10 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { env } from "../config/env.js";
-import { findStreamUserIdByCompanionToken } from "../services/stream-user-service.js";
+import {
+    findStreamUserIdByCompanionToken,
+    streamUserExists,
+} from "../services/stream-user-service.js";
 
 // Третья, отдельная схема авторизации сервиса стрим-оверлеев (после JWT
 // access-токена и публичного overlay-токена) - companion (apps/dota-companion)
@@ -64,16 +67,28 @@ export const authenticateCompanionSession = async (
         return res.status(401).json({ error: "Companion token не предоставлен" });
     }
 
+    let decoded: { streamUserId: string } | null = null;
     try {
-        const decoded = jwt.verify(token, env.streamJwtSecret, {
+        decoded = jwt.verify(token, env.streamJwtSecret, {
             algorithms: ["HS256"],
         }) as { streamUserId: string };
-        req.streamUserId = decoded.streamUserId;
-        return next();
     } catch {
         // Not a valid session JWT (or none was ever issued for this
         // install) - fall through to the legacy companion-token path below,
         // never treated as a hard failure on its own.
+    }
+
+    if (decoded) {
+        // WK-192 - a deleted account's session JWT stops working at once.
+        try {
+            if (!(await streamUserExists(String(decoded.streamUserId)))) {
+                return res.status(401).json({ error: "Аккаунт не найден" });
+            }
+        } catch (error) {
+            return next(error);
+        }
+        req.streamUserId = String(decoded.streamUserId);
+        return next();
     }
 
     return authenticateCompanionToken(req, res, next);

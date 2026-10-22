@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { DownloadButton } from "@/components/public-site/PublicShell";
 import { streamAuthApi } from "@/entities/stream-user/api/stream-auth";
@@ -22,11 +22,14 @@ export const AccountPage = () => {
   const searchParams = useSearchParams();
   const { status, user } = useStreamSession();
   const notice = callbackNotice(searchParams);
+  // WK-192 - set right before the session is dropped after a deletion, so
+  // the guest redirect below doesn't race the navigation to "/".
+  const leavingRef = useRef(false);
 
   useEffect(() => {
     // An OAuth callback started in Companion may land here in a browser that
     // is not signed in to the site - show its result instead of bouncing.
-    if (status === "guest" && !notice) router.replace("/stream/login?next=/account");
+    if (status === "guest" && !notice && !leavingRef.current) router.replace("/stream/login?next=/account");
   }, [status, notice, router]);
 
   if (status !== "user" || !user) {
@@ -68,7 +71,7 @@ export const AccountPage = () => {
             <SignOutButton />
             {user.isAdmin && <Link className={styles.linkButton} href="/admin">Администрирование</Link>}
           </div>
-          <DeleteAccount />
+          <DeleteAccount onDeleted={() => (leavingRef.current = true)} />
         </section>
 
         <section className={styles.card} aria-labelledby="companion-title">
@@ -170,7 +173,7 @@ const LegacyToken = ({ createdAt: initialCreatedAt }: { createdAt: string | null
 // WK-192 - self-service deletion (152-ФЗ). Two steps: open the warning, then
 // confirm with the password - the server re-checks it before erasing the
 // account, its streams, Companion history, integrations and uploaded files.
-const DeleteAccount = () => {
+const DeleteAccount = ({ onDeleted }: { onDeleted: () => void }) => {
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [password, setPassword] = useState("");
@@ -187,11 +190,14 @@ const DeleteAccount = () => {
     setState("busy");
     try {
       await streamAuthApi.deleteAccount(password);
-      router.replace("/");
     } catch (error) {
       const status = (error as { response?: { status?: number } }).response?.status;
       setState(status === 403 ? "wrong-password" : "error");
+      return;
     }
+    onDeleted();
+    streamAuthApi.endLocalSession();
+    router.replace("/");
   };
 
   return (

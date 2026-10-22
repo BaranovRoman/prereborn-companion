@@ -14,22 +14,28 @@ import { getOrCreateActiveSession } from "../services/stream-session-service.js"
 import { saveQueueSettings } from "../services/stream-queue-settings-service.js";
 import { disconnectTwitch, saveTwitchLink } from "../services/twitch-integration-service.js";
 import { saveDonationAlertsLink } from "../services/donation-alerts-integration-service.js";
+import { deleteStreamUserAccount } from "../services/account-deletion-service.js";
+import { processPendingCleanups } from "../services/pending-cleanup-service.js";
 
 // WK-192 - account deletion: self-service with a password, admin action for
-// requests that come in by email. ADMIN_EMAILS is pinned to
+// requests that come in by email, and the out-of-database cleanup (files,
+// Twitch tokens) that has to survive failures. ADMIN_EMAILS is pinned to
 // admin_wk52_test@example.com in vitest.config.ts.
 const suffix = `${Date.now()}-wk192`;
 const adminEmail = "admin_wk52_test@example.com";
 const password = "test-password-123";
 const createdIds: number[] = [];
+const seededSessionIds: number[] = [];
 let adminId: number;
+let emailCounter = 0;
 
 const sessionJwt = (streamUserId: number) =>
     jwt.sign({ streamUserId: streamUserId.toString() }, process.env.STREAM_JWT_SECRET!, {
         expiresIn: "5m",
     });
+const bearer = (streamUserId: number) => ({ Authorization: `Bearer ${sessionJwt(streamUserId)}` });
 
-const insertUser = async (email: string): Promise<number> => {
+const insertUser = async (email = `user_${suffix}_${++emailCounter}@example.com`): Promise<number> => {
     const hashed = await bcrypt.hash(password, 4);
     const result = await pool.query(
         `INSERT INTO stream_users (email, password_hash, public_token) VALUES ($1, $2, $3) RETURNING id`,
@@ -40,7 +46,8 @@ const insertUser = async (email: string): Promise<number> => {
 };
 
 // Every table that carries stream_user_id - discovered, not listed, so a
-// table added later without ON DELETE CASCADE fails this test.
+// new table is covered automatically - plus the tables that reach an
+// account only through stream_sessions / quiz_rounds.
 const remainingRows = async (streamUserId: number) => {
     const tables = await pool.query<{ table_name: string }>(
         `SELECT table_name FROM information_schema.columns
@@ -48,32 +55,68 @@ const remainingRows = async (streamUserId: number) => {
     );
     const counts: Record<string, number> = {};
     for (const { table_name } of tables.rows) {
-        const result = await pool.query(`SELECT COUNT(*)::int AS n FROM ${table_name} WHERE stream_user_id = $1`, [
-            streamUserId,
-        ]);
+        const result = await pool.query(
+            `SELECT COUNT(*)::int AS n FROM ${table_name} WHERE stream_user_id = $1`,
+            [streamUserId]
+        );
         counts[table_name] = result.rows[0].n;
     }
-    const scores = await pool.query(
-        `SELECT COUNT(*)::int AS n FROM quiz_viewer_scores WHERE stream_session_id = ANY($1::int[])`,
-        [seededSessionIds]
-    );
-    counts.quiz_viewer_scores = scores.rows[0].n;
-    counts.stream_users = (await pool.query("SELECT COUNT(*)::int AS n FROM stream_users WHERE id = $1", [streamUserId])).rows[0].n;
+    const bySession = async (table: string) =>
+        (await pool.query(`SELECT COUNT(*)::int AS n FROM ${table} WHERE stream_session_id = ANY($1::int[])`, [
+            seededSessionIds,
+        ])).rows[0].n;
+    counts.quiz_viewer_scores = await bySession("quiz_viewer_scores");
+    counts.quiz_answers = (await pool.query(
+        `SELECT COUNT(*)::int AS n FROM quiz_answers WHERE twitch_viewer_id = $1`,
+        [`viewer-${suffix}-${streamUserId}`]
+    )).rows[0].n;
+    counts.stream_users = (await pool.query("SELECT COUNT(*)::int AS n FROM stream_users WHERE id = $1", [
+        streamUserId,
+    ])).rows[0].n;
     return counts;
 };
+const leftovers = async (streamUserId: number) =>
+    Object.entries(await remainingRows(streamUserId)).filter(([, n]) => n > 0);
 
-let seededSessionIds: number[] = [];
+const pendingCleanups = async (streamUserId: number) =>
+    (await pool.query<{ kind: string; attempts: number }>(
+        "SELECT kind, attempts FROM pending_data_cleanups WHERE subject_id = $1 ORDER BY id",
+        [streamUserId]
+    )).rows;
 
-// Seeds the user with rows across the tables a real streamer accumulates,
-// two uploaded files and a Twitch + DonationAlerts link.
+let questionId: number;
+
+// Seeds the rows a real streamer accumulates, two uploaded files and a
+// Twitch + DonationAlerts link.
 const seedAccount = async (streamUserId: number) => {
     const id = streamUserId.toString();
-    const session = await getOrCreateActiveSession(id);
+    const session = (await getOrCreateActiveSession(id))!;
     seededSessionIds.push(Number(session.id));
+    const viewer = `viewer-${suffix}-${id}`;
     await pool.query(
         `INSERT INTO quiz_viewer_scores (stream_session_id, twitch_viewer_id, twitch_display_name, score)
          VALUES ($1, $2, 'viewer', 3)`,
-        [session.id, `viewer-${suffix}`]
+        [session.id, viewer]
+    );
+    const round = await pool.query(
+        `INSERT INTO quiz_rounds (stream_user_id, stream_session_id, question_id, state)
+         VALUES ($1, $2, $3, 'completed') RETURNING id`,
+        [id, session.id, questionId]
+    );
+    await pool.query(
+        `INSERT INTO quiz_answers (round_id, twitch_viewer_id, twitch_display_name, selected_option_ids, is_correct)
+         VALUES ($1, $2, 'viewer', '[]', true)`,
+        [round.rows[0].id, viewer]
+    );
+    await pool.query(
+        `INSERT INTO stream_matches (stream_user_id, match_key, hero_id, kills, deaths, assists, result, started_at, ended_at)
+         VALUES ($1, $2, 1, 1, 1, 1, 'win', NOW(), NOW())`,
+        [id, `wk192-${id}`]
+    );
+    await pool.query(
+        `INSERT INTO stream_match_events (stream_user_id, stream_session_id, match_id, hero_id, is_win, match_started_at)
+         VALUES ($1, $2, $3, 1, true, NOW())`,
+        [id, session.id, Number(id)]
     );
     await recordCompanionHeartbeat(streamUserId);
     await saveTwitchLink(
@@ -85,6 +128,11 @@ const seedAccount = async (streamUserId: number) => {
         id,
         { id: Number(id), code: "streamer", name: "Streamer", avatar: null },
         { access_token: `da-${id}`, refresh_token: `da-refresh-${id}`, expires_in: 3600, token_type: "Bearer" }
+    );
+    await pool.query(
+        `INSERT INTO stream_donation_alerts_donations (donation_id, stream_user_id, username, amount, currency, message)
+         VALUES ($1, $2, 'donor', 100, 'RUB', 'hi')`,
+        [Number(id) * 1000 + 1, id]
     );
 
     fs.mkdirSync(env.uploadsDir, { recursive: true });
@@ -101,45 +149,62 @@ const seedAccount = async (streamUserId: number) => {
     return { files: [background, webcam].map((name) => path.join(env.uploadsDir, name)) };
 };
 
-const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+const twitchOk = () => new Response(null, { status: 200 });
+const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => twitchOk());
+
+const revokedTokens = () =>
+    fetchMock.mock.calls
+        .filter(([url]) => String(url) === "https://id.twitch.tv/oauth2/revoke")
+        .map(([, init]) => new URLSearchParams(String(init?.body)).get("token"));
 
 beforeAll(async () => {
     await createTables();
     await pool.query("DELETE FROM stream_users WHERE email = $1", [adminEmail]);
     adminId = await insertUser(adminEmail);
+    const question = await pool.query(
+        `INSERT INTO quiz_questions (category, prompt, is_active) VALUES ('wk192', 'test', false) RETURNING id`
+    );
+    questionId = question.rows[0].id;
     vi.stubGlobal("fetch", fetchMock);
 });
 
 afterEach(() => {
-    fetchMock.mockClear();
+    fetchMock.mockReset();
+    fetchMock.mockImplementation(async () => twitchOk());
 });
 
 afterAll(async () => {
     vi.unstubAllGlobals();
     await pool.query("DELETE FROM stream_users WHERE id = ANY($1::int[])", [createdIds]);
+    await pool.query("DELETE FROM pending_data_cleanups WHERE subject_id = ANY($1::int[])", [createdIds]);
+    await pool.query("DELETE FROM quiz_questions WHERE id = $1", [questionId]);
     await pool.end();
 });
 
-const revokedTokens = () =>
-    fetchMock.mock.calls
-        .filter(([url]) => String(url) === "https://id.twitch.tv/oauth2/revoke")
-        .map(([, init]) => new URLSearchParams(String((init as RequestInit).body)).get("token"));
+describe("schema", () => {
+    it("every foreign key to stream_users cascades", async () => {
+        const result = await pool.query<{ table_name: string; delete_rule: string }>(
+            `SELECT kcu.table_name, rc.delete_rule
+               FROM information_schema.referential_constraints rc
+               JOIN information_schema.key_column_usage kcu
+                 ON kcu.constraint_name = rc.constraint_name AND kcu.constraint_schema = rc.constraint_schema
+               JOIN information_schema.constraint_column_usage ccu
+                 ON ccu.constraint_name = rc.unique_constraint_name AND ccu.constraint_schema = rc.unique_constraint_schema
+              WHERE ccu.table_name = 'stream_users' AND rc.constraint_schema = current_schema()`
+        );
+        expect(result.rows.length).toBeGreaterThan(10);
+        expect(result.rows.filter((row) => row.delete_rule !== "CASCADE")).toEqual([]);
+    });
+});
 
 describe("DELETE /api/stream/account/me", () => {
     it("requires a session and the account password", async () => {
-        const id = await insertUser(`guarded_${suffix}@example.com`);
+        const id = await insertUser();
 
         expect((await request(app).delete("/api/stream/account/me").send({ password })).status).toBe(401);
-        const noPassword = await request(app)
-            .delete("/api/stream/account/me")
-            .set("Authorization", `Bearer ${sessionJwt(id)}`)
-            .send({});
-        expect(noPassword.status).toBe(403);
-        const wrongPassword = await request(app)
-            .delete("/api/stream/account/me")
-            .set("Authorization", `Bearer ${sessionJwt(id)}`)
-            .send({ password: "not-the-password" });
-        expect(wrongPassword.status).toBe(403);
+        expect((await request(app).delete("/api/stream/account/me").set(bearer(id)).send({})).status).toBe(403);
+        const wrong = await request(app).delete("/api/stream/account/me").set(bearer(id)).send({ password: "nope" });
+        expect(wrong.status).toBe(403);
 
         expect((await remainingRows(id)).stream_users).toBe(1);
     });
@@ -148,46 +213,67 @@ describe("DELETE /api/stream/account/me", () => {
         const email = `deleted_${suffix}@example.com`;
         const id = await insertUser(email);
         // A real login leaves a refresh-token row behind too.
-        const login = await request(app).post("/api/stream/auth/login").send({ email, password });
-        expect(login.status).toBe(200);
+        expect((await request(app).post("/api/stream/auth/login").send({ email, password })).status).toBe(200);
         const { files } = await seedAccount(id);
 
         const before = await remainingRows(id);
         for (const table of [
             "stream_sessions",
             "stream_refresh_tokens",
+            "stream_matches",
+            "stream_match_events",
             "stream_twitch_links",
             "stream_donation_alerts_links",
+            "stream_donation_alerts_donations",
             "stream_overlay_reference_backgrounds",
             "stream_queue_settings",
             "companion_activity_days",
+            "quiz_rounds",
+            "quiz_answers",
             "quiz_viewer_scores",
         ]) {
             expect(before[table], table).toBeGreaterThan(0);
         }
 
-        const res = await request(app)
-            .delete("/api/stream/account/me")
-            .set("Authorization", `Bearer ${sessionJwt(id)}`)
-            .send({ password });
+        const res = await request(app).delete("/api/stream/account/me").set(bearer(id)).send({ password });
         expect(res.status).toBe(204);
 
-        const after = await remainingRows(id);
-        expect(Object.entries(after).filter(([, n]) => n > 0)).toEqual([]);
+        expect(await leftovers(id)).toEqual([]);
         for (const file of files) expect(fs.existsSync(file)).toBe(false);
         expect(revokedTokens().sort()).toEqual([`access-${id}`, `refresh-${id}`]);
+        expect(await pendingCleanups(id)).toEqual([]);
+    });
+
+    it("ends every session of the account at once, on every device", async () => {
+        const email = `devices_${suffix}@example.com`;
+        const id = await insertUser(email);
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+        const site = await request(app).post("/api/stream/auth/login").send({ email, password });
+        const companion = await request(app).post("/api/stream/auth/login").send({ email, password });
+        await new Promise((resolve) => setTimeout(resolve, 1100)); // 1s/5-request test bucket
+
+        await request(app)
+            .delete("/api/stream/account/me")
+            .set("Authorization", `Bearer ${site.body.accessToken}`)
+            .send({ password })
+            .expect(204);
+
+        // The other device's access JWT is still validly signed - and refused.
+        const otherDevice = { Authorization: `Bearer ${companion.body.accessToken}` };
+        expect((await request(app).get("/api/stream/account/me").set(otherDevice)).status).toBe(401);
+        expect((await request(app).post("/api/stream/companion/heartbeat").set(otherDevice).send({})).status).toBe(401);
+        expect((await request(app).get("/api/stream/companion/session").set(otherDevice)).status).toBe(401);
+        // ...and neither refresh token can mint a new one.
+        for (const refreshToken of [site.body.refreshToken, companion.body.refreshToken]) {
+            expect((await request(app).post("/api/stream/auth/refresh").send({ refreshToken })).status).toBe(401);
+        }
     });
 
     it("blocks signing in with the deleted email; registering again starts an empty account", async () => {
         const email = `reborn_${suffix}@example.com`;
         const id = await insertUser(email);
         await seedAccount(id);
-        await request(app)
-            .delete("/api/stream/account/me")
-            .set("Authorization", `Bearer ${sessionJwt(id)}`)
-            .send({ password })
-            .expect(204);
-        // Deletion shares the 1s/5-request test bucket with login/register.
+        await request(app).delete("/api/stream/account/me").set(bearer(id)).send({ password }).expect(204);
         await new Promise((resolve) => setTimeout(resolve, 1100));
 
         expect((await request(app).post("/api/stream/auth/login").send({ email, password })).status).toBe(401);
@@ -197,26 +283,119 @@ describe("DELETE /api/stream/account/me", () => {
         const newId = Number(registered.body.user.id);
         createdIds.push(newId);
         expect(newId).not.toBe(id);
-        const fresh = await remainingRows(newId);
-        expect(Object.entries(fresh).filter(([table, n]) => table !== "stream_users" && table !== "stream_refresh_tokens" && n > 0)).toEqual([]);
+        expect(
+            (await leftovers(newId)).filter(([table]) => !["stream_users", "stream_refresh_tokens"].includes(table))
+        ).toEqual([]);
+    });
+
+    it("a repeated request after deletion is refused, not re-run", async () => {
+        const id = await insertUser();
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+        await request(app).delete("/api/stream/account/me").set(bearer(id)).send({ password }).expect(204);
+        expect((await request(app).delete("/api/stream/account/me").set(bearer(id)).send({ password })).status).toBe(401);
+    });
+});
+
+describe("concurrent and repeated deletion", () => {
+    it("two parallel deletions: one deletes, the other finds nothing; tokens revoked once", async () => {
+        const id = await insertUser();
+        const { files } = await seedAccount(id);
+
+        const results = await Promise.all([
+            deleteStreamUserAccount(id.toString()),
+            deleteStreamUserAccount(id.toString()),
+        ]);
+        expect(results.sort()).toEqual([false, true]);
+        expect(await leftovers(id)).toEqual([]);
+        for (const file of files) expect(fs.existsSync(file)).toBe(false);
+        expect(revokedTokens().sort()).toEqual([`access-${id}`, `refresh-${id}`]);
+        expect(await deleteStreamUserAccount(id.toString())).toBe(false);
+    });
+
+    it("parallel self + admin requests resolve to one 204", async () => {
+        const email = `race_${suffix}@example.com`;
+        const id = await insertUser(email);
+        await seedAccount(id);
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+        const [self, admin] = await Promise.all([
+            request(app).delete("/api/stream/account/me").set(bearer(id)).send({ password }),
+            request(app).delete(`/api/admin/users/${id}`).set(bearer(adminId)).send({ confirmEmail: email }),
+        ]);
+        expect([self.status, admin.status].filter((status) => status === 204)).toHaveLength(1);
+        expect([self.status, admin.status].every((status) => [204, 401, 403, 404].includes(status))).toBe(true);
+        expect(await leftovers(id)).toEqual([]);
+    });
+});
+
+describe("cleanup after the database delete", () => {
+    it("keeps a failed Twitch revoke queued and finishes it on a later sweep", async () => {
+        const id = await insertUser();
+        await seedAccount(id);
+        fetchMock.mockImplementation(async () => new Response(null, { status: 503 }));
+
+        expect(await deleteStreamUserAccount(id.toString())).toBe(true);
+        expect(await leftovers(id)).toEqual([]);
+        expect((await pendingCleanups(id)).map((row) => row.kind)).toEqual(["twitch_revoke", "twitch_revoke"]);
+
+        // Backed off: a sweep right away doesn't hammer Twitch again.
+        fetchMock.mockClear();
+        await processPendingCleanups({ subjectId: id.toString() });
+        expect(revokedTokens()).toEqual([]);
+
+        fetchMock.mockImplementation(async () => twitchOk());
+        await pool.query("UPDATE pending_data_cleanups SET not_before = NOW() WHERE subject_id = $1", [id]);
+        await processPendingCleanups({ subjectId: id.toString() });
+        expect(revokedTokens().sort()).toEqual([`access-${id}`, `refresh-${id}`]);
+        expect(await pendingCleanups(id)).toEqual([]);
+    });
+
+    it("retries a file that couldn't be removed; a missing file counts as done", async () => {
+        const id = await insertUser();
+        const { files } = await seedAccount(id);
+        const [background, webcam] = files;
+        // A directory in the file's place makes unlink fail (EISDIR/EPERM).
+        fs.unlinkSync(background);
+        fs.mkdirSync(background);
+        fs.unlinkSync(webcam);
+
+        expect(await deleteStreamUserAccount(id.toString())).toBe(true);
+        expect((await pendingCleanups(id)).map((row) => row.kind)).toEqual(["upload"]);
+
+        fs.rmdirSync(background);
+        fs.writeFileSync(background, "x");
+        await pool.query("UPDATE pending_data_cleanups SET not_before = NOW() WHERE subject_id = $1", [id]);
+        await processPendingCleanups({ subjectId: id.toString() });
+        expect(fs.existsSync(background)).toBe(false);
+        expect(await pendingCleanups(id)).toEqual([]);
+    });
+
+    it("drops a task that keeps failing instead of keeping the token forever", async () => {
+        const id = await insertUser();
+        await pool.query(
+            `INSERT INTO pending_data_cleanups (kind, payload, subject_id, attempts, created_at)
+             VALUES ('twitch_revoke', 'stale-token', $1, 0, NOW() - INTERVAL '8 days')`,
+            [id]
+        );
+        fetchMock.mockImplementation(async () => new Response(null, { status: 503 }));
+        const result = await processPendingCleanups({ subjectId: id.toString() });
+        expect(result.dropped).toBe(1);
+        expect(await pendingCleanups(id)).toEqual([]);
     });
 });
 
 describe("DELETE /api/admin/users/:id", () => {
     it("is admin-only", async () => {
-        const id = await insertUser(`target_${suffix}@example.com`);
-        const other = await insertUser(`other_${suffix}@example.com`);
+        const id = await insertUser();
+        const other = await insertUser();
         expect((await request(app).delete(`/api/admin/users/${id}`)).status).toBe(401);
-        expect(
-            (await request(app).delete(`/api/admin/users/${id}`).set("Authorization", `Bearer ${sessionJwt(other)}`)).status
-        ).toBe(403);
+        expect((await request(app).delete(`/api/admin/users/${id}`).set(bearer(other))).status).toBe(403);
         expect((await remainingRows(id)).stream_users).toBe(1);
     });
 
     it("refuses to delete the admin's own account", async () => {
         const res = await request(app)
             .delete(`/api/admin/users/${adminId}`)
-            .set("Authorization", `Bearer ${sessionJwt(adminId)}`)
+            .set(bearer(adminId))
             .send({ confirmEmail: adminEmail });
         expect(res.status).toBe(403);
         expect((await remainingRows(adminId)).stream_users).toBe(1);
@@ -226,15 +405,14 @@ describe("DELETE /api/admin/users/:id", () => {
         const email = `requested_${suffix}@example.com`;
         const id = await insertUser(email);
         const { files } = await seedAccount(id);
-        const admin = (body: object) =>
-            request(app).delete(`/api/admin/users/${id}`).set("Authorization", `Bearer ${sessionJwt(adminId)}`).send(body);
+        const admin = (body: object) => request(app).delete(`/api/admin/users/${id}`).set(bearer(adminId)).send(body);
 
         expect((await admin({})).status).toBe(400);
         expect((await admin({ confirmEmail: "someone-else@example.com" })).status).toBe(400);
         expect((await remainingRows(id)).stream_users).toBe(1);
 
         expect((await admin({ confirmEmail: email.toUpperCase() })).status).toBe(204);
-        expect(Object.entries(await remainingRows(id)).filter(([, n]) => n > 0)).toEqual([]);
+        expect(await leftovers(id)).toEqual([]);
         for (const file of files) expect(fs.existsSync(file)).toBe(false);
         expect(revokedTokens()).toContain(`access-${id}`);
 
@@ -243,15 +421,25 @@ describe("DELETE /api/admin/users/:id", () => {
 });
 
 describe("disconnecting Twitch", () => {
-    it("revokes the stored tokens at Twitch", async () => {
-        const id = await insertUser(`disconnect_${suffix}@example.com`);
-        await saveTwitchLink(
-            id.toString(),
-            { id: `tw-disc-${suffix}`, login: "s", display_name: "S", profile_image_url: "" },
-            { access_token: "disc-access", refresh_token: "disc-refresh", expires_in: 3600 }
-        );
+    it("revokes the stored tokens at Twitch, and queues them if Twitch is down", async () => {
+        const id = await insertUser();
+        const link = (n: number) =>
+            saveTwitchLink(
+                id.toString(),
+                { id: `tw-disc-${suffix}`, login: "s", display_name: "S", profile_image_url: "" },
+                { access_token: `disc-access-${n}`, refresh_token: `disc-refresh-${n}`, expires_in: 3600 }
+            );
+        await link(1);
         await disconnectTwitch(id.toString());
-        expect(revokedTokens().sort()).toEqual(["disc-access", "disc-refresh"]);
+        expect(revokedTokens().sort()).toEqual(["disc-access-1", "disc-refresh-1"]);
         expect((await remainingRows(id)).stream_twitch_links).toBe(0);
+
+        await link(2);
+        fetchMock.mockImplementation(async () => {
+            throw new Error("network down");
+        });
+        await disconnectTwitch(id.toString());
+        expect((await remainingRows(id)).stream_twitch_links).toBe(0);
+        expect(await pendingCleanups(id)).toHaveLength(2);
     });
 });

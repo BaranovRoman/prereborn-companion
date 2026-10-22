@@ -726,6 +726,26 @@ export const createTables = async (): Promise<void> => {
         ON companion_activity_days(last_seen_at);
     `);
 
+        // WK-192 - cleanup that can't be part of the DB transaction (uploaded
+        // files, provider token revocation), queued in the same transaction
+        // that deletes the account/link and retried until it succeeds.
+        // subject_id is deliberately not a FK: the account is usually gone
+        // already. Rows live only until the task is done or given up (see
+        // services/pending-cleanup-service.ts) - no email, nothing else.
+        await client.query(`
+      CREATE TABLE IF NOT EXISTS pending_data_cleanups (
+        id SERIAL PRIMARY KEY,
+        kind VARCHAR(32) NOT NULL,
+        payload TEXT NOT NULL,
+        subject_id INTEGER NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        not_before TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_pending_data_cleanups_due
+        ON pending_data_cleanups(not_before);
+    `);
+
         await client.query("COMMIT");
     } catch (error) {
         await client.query("ROLLBACK");

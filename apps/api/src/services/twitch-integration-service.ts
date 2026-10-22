@@ -3,6 +3,7 @@ import { TwitchEventSubChatClient, type TwitchChatMessage, type TwitchChatState,
 import { env } from "../config/env.js";
 import { pool } from "../db/client.js";
 import { logger } from "../utils/logger.js";
+import { enqueueCleanups, processPendingCleanups, type CleanupTask } from "./pending-cleanup-service.js";
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 const CHAT_MESSAGE_LIMIT = 40;
@@ -457,59 +458,46 @@ export const clearTwitchUserState = (streamUserId: string) => {
     viewerEvents.delete(streamUserId);
 };
 
-export interface TwitchStoredTokens {
-    accessToken: string | null;
-    refreshToken: string | null;
-}
+export const twitchRevokeTasks = (link: {
+    access_token: string | null;
+    refresh_token: string | null;
+}): CleanupTask[] =>
+    // Both tokens: an expired access token is rejected with 400, while its
+    // refresh token would otherwise still be redeemable.
+    [link.access_token, link.refresh_token]
+        .filter((token): token is string => Boolean(token))
+        .map((token) => ({ kind: "twitch_revoke" as const, payload: token }));
 
-// WK-192 - asks Twitch to invalidate the tokens we held, so nothing stays
-// usable at the provider once the link row is gone. Best-effort: the local
-// row is deleted regardless, a failed revoke is only logged (never the token
-// itself). Both tokens are sent: an expired access token is rejected with
-// 400, while its refresh token would otherwise still be redeemable.
-export const revokeTwitchTokens = async (
-    streamUserId: string,
-    tokens: TwitchStoredTokens
-): Promise<void> => {
-    const clientId = env.twitchClientId;
-    if (!clientId) return;
-    const values = [tokens.accessToken, tokens.refreshToken].filter(
-        (token): token is string => Boolean(token)
-    );
-    await Promise.all(values.map(async (token) => {
-        try {
-            const response = await fetch("https://id.twitch.tv/oauth2/revoke", {
-                method: "POST",
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                body: new URLSearchParams({ client_id: clientId, token }),
-            });
-            // 400 "Invalid token" means it is already dead - nothing to do.
-            if (!response.ok && response.status !== 400) {
-                logger.warn("Twitch token revoke failed", { streamUserId, status: response.status });
-            }
-        } catch (error) {
-            logger.warn("Twitch token revoke failed", {
-                streamUserId,
-                message: error instanceof Error ? error.message : String(error),
-            });
-        }
-    }));
-};
-
+// WK-192 - the link row and the revoke tasks for its tokens are written in
+// one transaction; the revoke then runs right away and, if Twitch is
+// unreachable, is retried by the cleanup sweeper (pending-cleanup-service).
 export const disconnectTwitch = async (streamUserId: string) => {
     clearTwitchUserState(streamUserId);
-    const result = await pool.query<{ access_token: string | null; refresh_token: string | null }>(
-        `DELETE FROM stream_twitch_links WHERE stream_user_id = $1
-         RETURNING access_token, refresh_token`,
-        [streamUserId]
-    );
-    const link = result.rows[0];
-    if (link) {
-        await revokeTwitchTokens(streamUserId, {
-            accessToken: link.access_token,
-            refreshToken: link.refresh_token,
-        });
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+        const result = await client.query<{ access_token: string | null; refresh_token: string | null }>(
+            `DELETE FROM stream_twitch_links WHERE stream_user_id = $1
+             RETURNING access_token, refresh_token`,
+            [streamUserId]
+        );
+        if (result.rows[0]) {
+            await enqueueCleanups(client, streamUserId, twitchRevokeTasks(result.rows[0]));
+        }
+        await client.query("COMMIT");
+    } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
+    } finally {
+        client.release();
     }
+    // The link is already gone; a failed run here is retried by the sweeper.
+    await processPendingCleanups({ subjectId: streamUserId }).catch((error) => {
+        logger.warn("Twitch revoke run failed, left to the cleanup sweeper", {
+            streamUserId,
+            message: error instanceof Error ? error.message : String(error),
+        });
+    });
 };
 
 // WK-116 Phase 4 - the reverse of every other lookup in this file: the

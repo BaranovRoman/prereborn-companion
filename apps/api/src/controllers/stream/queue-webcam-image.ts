@@ -47,6 +47,9 @@ export const uploadQueueWebcamImageController = async (
         return res.status(400).json({ error: "Изображение не загружено" });
     }
 
+    // WK-192 - see overlay-reference-background.ts: don't orphan the
+    // finalized file if saving the setting fails.
+    let finalPath: string | null = null;
     try {
         const result = await validateAndFinalizeImage(
             req.file.path,
@@ -58,6 +61,7 @@ export const uploadQueueWebcamImageController = async (
             return res.status(415).json({ error: "Неподдерживаемое изображение" });
         }
 
+        finalPath = path.join(uploadsDir, result.finalFilename);
         const streamUserId = req.streamUserId as string;
         const current = await getQueueSettings(streamUserId);
         const webcamImageUrl = `/uploads/${result.finalFilename}`;
@@ -66,6 +70,7 @@ export const uploadQueueWebcamImageController = async (
         res.json({ webcamImageUrl, settings: saved });
     } catch (error) {
         await safeUnlink(req.file.path);
+        if (finalPath) await safeUnlink(finalPath);
         logger.error("Queue webcam image upload error", {
             requestId: req.requestId,
             message: error instanceof Error ? error.message : String(error),

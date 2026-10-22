@@ -102,6 +102,9 @@ describe("AccountPage", () => {
     await vi.waitFor(() => expect(router.replace).toHaveBeenCalledWith("/"));
     expect(http.delete).toHaveBeenLastCalledWith("/account/me", { data: { password: "right" } });
     expect(localStorage.getItem("stream_access_token")).toBeNull();
+    // The session drop must not bounce to the login form (it raced "/").
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(router.replace).not.toHaveBeenCalledWith("/stream/login?next=/account");
   });
 
   it("signs out to the landing page", async () => {
