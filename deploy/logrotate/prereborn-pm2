@@ -2,23 +2,36 @@
 # Install as /etc/logrotate.d/prereborn-pm2 (root:root, 0644) - see
 # docs/production-deployment.md "Logs and retention".
 #
-# copytruncate: PM2 keeps the file descriptor open and has no reopen signal
-# usable from logrotate; a few lines written during the copy may be lost,
-# acceptable for these logs.
-# lastaction: removes anything older than 14 days left in shared/logs,
-# including pre-WK-196 per-pm_id files (api-out-37.log, ...) that nothing
-# writes to anymore.
-/var/www/www-root/data/www/prereborn.ru/shared/logs/*.log {
+# Only the four files PM2 writes to (fixed names, merge_logs in
+# ecosystem.config.cjs) are rotated - not a *.log glob, which would also
+# "rotate" pre-WK-196 per-pm_id files and keep their content 14 more days.
+# copytruncate: PM2 holds the descriptor open and appends (O_APPEND), so
+# truncating in place is safe; lines written during the copy may be lost.
+# maxsize: rotate early if a file passes 100M (still checked once a day,
+# when logrotate runs).
+# lastaction: deletes anything else in shared/logs older than 14 days -
+# per-pm_id leftovers and stray archives - but never the four active files:
+# one that simply wasn't written to for 14 days (web-error.log) is still
+# open in PM2, and unlinking it would silently drop its future output.
+/var/www/www-root/data/www/prereborn.ru/shared/logs/api-out.log
+/var/www/www-root/data/www/prereborn.ru/shared/logs/api-error.log
+/var/www/www-root/data/www/prereborn.ru/shared/logs/web-out.log
+/var/www/www-root/data/www/prereborn.ru/shared/logs/web-error.log
+{
     su www-root www-root
     daily
     rotate 14
     maxage 14
+    maxsize 100M
     missingok
     notifempty
     compress
     delaycompress
     copytruncate
+    sharedscripts
     lastaction
-        find /var/www/www-root/data/www/prereborn.ru/shared/logs -type f -mtime +14 -delete
+        find /var/www/www-root/data/www/prereborn.ru/shared/logs -type f -mtime +14 \
+            ! -name api-out.log ! -name api-error.log ! -name web-out.log ! -name web-error.log \
+            -delete
     endscript
 }

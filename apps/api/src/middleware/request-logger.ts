@@ -3,8 +3,9 @@ import { logger } from "../utils/logger.js";
 
 // WK-196 - публичный токен оверлея действует до перевыпуска, в логах ему не
 // место (то же маскирование делает nginx, см. deploy/nginx/prereborn-logging.conf).
-// Query string сюда не попадает: req.path её не содержит.
-const OVERLAY_TOKEN_PATH = /^(\/(?:api\/stream\/)?overlay\/)[^/]+/;
+// Query string сюда не попадает: req.path её не содержит. Регистр и повторные
+// слэши не важны: Express по умолчанию маршрутизирует без учёта регистра.
+const OVERLAY_TOKEN_PATH = /^(\/+(?:api\/+stream\/+)?overlay\/+)[^/]+/i;
 
 export const maskLogPath = (path: string): string =>
     path.replace(OVERLAY_TOKEN_PATH, "$1[token]");
