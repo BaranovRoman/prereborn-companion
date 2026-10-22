@@ -2,10 +2,15 @@ import path from "path";
 import { pool } from "../db/client.js";
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
-import { clearTwitchUserState, twitchRevokeTasks } from "./twitch-integration-service.js";
+import { clearTwitchUserState } from "./twitch-integration-service.js";
 import { clearObsSceneState } from "./obs-scene-command-service.js";
 import { clearDotaSyncState } from "./dota-sync-service.js";
-import { enqueueCleanups, processPendingCleanups, type CleanupTask } from "./pending-cleanup-service.js";
+import {
+    enqueueCleanups,
+    processPendingCleanups,
+    twitchRevokeTask,
+    type CleanupTask,
+} from "./pending-cleanup-service.js";
 import { forgetIntegrationStatus } from "../controllers/stream/overlay.js";
 
 // A request that read the Twitch link just before the deletion can still be
@@ -66,7 +71,12 @@ export const deleteStreamUserAccount = async (
                 .map((row) => row.filename)
                 .filter((name): name is string => Boolean(name))
                 .map((name) => ({ kind: "upload" as const, payload: path.basename(name) })),
-            ...(twitch.rows[0] ? twitchRevokeTasks(twitch.rows[0]) : []),
+            ...(twitch.rows[0]
+                ? twitchRevokeTask({
+                      accessToken: twitch.rows[0].access_token,
+                      refreshToken: twitch.rows[0].refresh_token,
+                  })
+                : []),
         ];
         await enqueueCleanups(client, streamUserId, tasks);
         // DonationAlerts has no revoke endpoint - its tokens go with the

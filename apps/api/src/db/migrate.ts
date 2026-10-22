@@ -744,6 +744,9 @@ export const createTables = async (): Promise<void> => {
       );
       CREATE INDEX IF NOT EXISTS idx_pending_data_cleanups_due
         ON pending_data_cleanups(not_before);
+      -- A task given up on stays as a tombstone (payload wiped) so the
+      -- number of permanently failed cleanups can be counted.
+      ALTER TABLE pending_data_cleanups ADD COLUMN IF NOT EXISTS gave_up_at TIMESTAMPTZ;
     `);
 
         await client.query("COMMIT");

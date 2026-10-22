@@ -15,7 +15,12 @@ import { saveQueueSettings } from "../services/stream-queue-settings-service.js"
 import { disconnectTwitch, saveTwitchLink } from "../services/twitch-integration-service.js";
 import { saveDonationAlertsLink } from "../services/donation-alerts-integration-service.js";
 import { deleteStreamUserAccount } from "../services/account-deletion-service.js";
-import { processPendingCleanups } from "../services/pending-cleanup-service.js";
+import {
+    getCleanupStats,
+    processPendingCleanups,
+    startPendingCleanupSweeper,
+} from "../services/pending-cleanup-service.js";
+import { logger } from "../utils/logger.js";
 
 // WK-192 - account deletion: self-service with a password, admin action for
 // requests that come in by email, and the out-of-database cleanup (files,
@@ -79,8 +84,9 @@ const leftovers = async (streamUserId: number) =>
     Object.entries(await remainingRows(streamUserId)).filter(([, n]) => n > 0);
 
 const pendingCleanups = async (streamUserId: number) =>
-    (await pool.query<{ kind: string; attempts: number }>(
-        "SELECT kind, attempts FROM pending_data_cleanups WHERE subject_id = $1 ORDER BY id",
+    (await pool.query<{ kind: string; attempts: number; payload: string; gave_up: boolean }>(
+        `SELECT kind, attempts, payload, gave_up_at IS NOT NULL AS gave_up
+           FROM pending_data_cleanups WHERE subject_id = $1 ORDER BY id`,
         [streamUserId]
     )).rows;
 
@@ -149,13 +155,30 @@ const seedAccount = async (streamUserId: number) => {
     return { files: [background, webcam].map((name) => path.join(env.uploadsDir, name)) };
 };
 
-const twitchOk = () => new Response(null, { status: 200 });
-const fetchMock = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => twitchOk());
-
-const revokedTokens = () =>
+// A fake of the two Twitch endpoints the cleanup uses. Default: revoke
+// succeeds, and the refresh token is already dead (as it should be once the
+// access token is revoked). This is a mock - it proves what we SEND and how
+// we react to documented responses, not that Twitch really revokes.
+const jsonResponse = (status: number, body: unknown) =>
+    new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+type FakeTwitch = { revoke: (token: string) => Response; token: (refreshToken: string) => Response };
+const defaultTwitch: FakeTwitch = {
+    revoke: () => new Response(null, { status: 200 }),
+    token: () => jsonResponse(400, { status: 400, message: "Invalid refresh token" }),
+};
+let twitch: FakeTwitch = defaultTwitch;
+const fetchMock = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    const body = new URLSearchParams(String(init?.body));
+    if (String(url) === "https://id.twitch.tv/oauth2/revoke") return twitch.revoke(body.get("token") ?? "");
+    if (String(url) === "https://id.twitch.tv/oauth2/token") return twitch.token(body.get("refresh_token") ?? "");
+    return new Response(null, { status: 404 });
+});
+const bodiesFor = (endpoint: string) =>
     fetchMock.mock.calls
-        .filter(([url]) => String(url) === "https://id.twitch.tv/oauth2/revoke")
-        .map(([, init]) => new URLSearchParams(String(init?.body)).get("token"));
+        .filter(([url]) => String(url) === `https://id.twitch.tv/oauth2/${endpoint}`)
+        .map(([, init]) => new URLSearchParams(String(init?.body)));
+const revokedTokens = () => bodiesFor("revoke").map((body) => body.get("token"));
+const redeemedRefreshTokens = () => bodiesFor("token").map((body) => body.get("refresh_token"));
 
 beforeAll(async () => {
     await createTables();
@@ -169,8 +192,9 @@ beforeAll(async () => {
 });
 
 afterEach(() => {
-    fetchMock.mockReset();
-    fetchMock.mockImplementation(async () => twitchOk());
+    fetchMock.mockClear();
+    twitch = defaultTwitch;
+    vi.restoreAllMocks();
 });
 
 afterAll(async () => {
@@ -240,7 +264,11 @@ describe("DELETE /api/stream/account/me", () => {
 
         expect(await leftovers(id)).toEqual([]);
         for (const file of files) expect(fs.existsSync(file)).toBe(false);
-        expect(revokedTokens().sort()).toEqual([`access-${id}`, `refresh-${id}`]);
+        expect(revokedTokens()).toEqual([`access-${id}`]);
+        // The refresh token is checked to be dead, not assumed dead.
+        expect(redeemedRefreshTokens()).toEqual([`refresh-${id}`]);
+        const [revoke] = bodiesFor("revoke");
+        expect(Object.fromEntries(revoke)).toEqual({ client_id: "test-twitch-client-id", token: `access-${id}` });
         expect(await pendingCleanups(id)).toEqual([]);
     });
 
@@ -308,7 +336,8 @@ describe("concurrent and repeated deletion", () => {
         expect(results.sort()).toEqual([false, true]);
         expect(await leftovers(id)).toEqual([]);
         for (const file of files) expect(fs.existsSync(file)).toBe(false);
-        expect(revokedTokens().sort()).toEqual([`access-${id}`, `refresh-${id}`]);
+        expect(revokedTokens()).toEqual([`access-${id}`]);
+        expect(redeemedRefreshTokens()).toEqual([`refresh-${id}`]);
         expect(await deleteStreamUserAccount(id.toString())).toBe(false);
     });
 
@@ -331,21 +360,21 @@ describe("cleanup after the database delete", () => {
     it("keeps a failed Twitch revoke queued and finishes it on a later sweep", async () => {
         const id = await insertUser();
         await seedAccount(id);
-        fetchMock.mockImplementation(async () => new Response(null, { status: 503 }));
+        twitch = { ...defaultTwitch, revoke: () => new Response(null, { status: 503 }) };
 
         expect(await deleteStreamUserAccount(id.toString())).toBe(true);
         expect(await leftovers(id)).toEqual([]);
-        expect((await pendingCleanups(id)).map((row) => row.kind)).toEqual(["twitch_revoke", "twitch_revoke"]);
+        expect((await pendingCleanups(id)).map((row) => row.kind)).toEqual(["twitch_revoke"]);
 
         // Backed off: a sweep right away doesn't hammer Twitch again.
         fetchMock.mockClear();
         await processPendingCleanups({ subjectId: id.toString() });
         expect(revokedTokens()).toEqual([]);
 
-        fetchMock.mockImplementation(async () => twitchOk());
+        twitch = defaultTwitch;
         await pool.query("UPDATE pending_data_cleanups SET not_before = NOW() WHERE subject_id = $1", [id]);
         await processPendingCleanups({ subjectId: id.toString() });
-        expect(revokedTokens().sort()).toEqual([`access-${id}`, `refresh-${id}`]);
+        expect(revokedTokens()).toEqual([`access-${id}`]);
         expect(await pendingCleanups(id)).toEqual([]);
     });
 
@@ -369,17 +398,84 @@ describe("cleanup after the database delete", () => {
         expect(await pendingCleanups(id)).toEqual([]);
     });
 
-    it("drops a task that keeps failing instead of keeping the token forever", async () => {
+    it("gives up after the limit: error log, token wiped, failure still countable", async () => {
         const id = await insertUser();
+        const statsBefore = await getCleanupStats();
+        const stale = JSON.stringify({ accessToken: "stale-access", refreshToken: "stale-refresh" });
         await pool.query(
             `INSERT INTO pending_data_cleanups (kind, payload, subject_id, attempts, created_at)
-             VALUES ('twitch_revoke', 'stale-token', $1, 0, NOW() - INTERVAL '8 days')`,
-            [id]
+             VALUES ('twitch_revoke', $2, $1, 0, NOW() - INTERVAL '8 days'),
+                    ('twitch_revoke', $2, $1, 12, NOW())`,
+            [id, stale]
         );
-        fetchMock.mockImplementation(async () => new Response(null, { status: 503 }));
+        twitch = { ...defaultTwitch, revoke: () => new Response(null, { status: 503 }) };
+        const errorLog = vi.spyOn(logger, "error");
+
         const result = await processPendingCleanups({ subjectId: id.toString() });
-        expect(result.dropped).toBe(1);
+        expect(result.gaveUp).toBe(2);
+        expect(await pendingCleanups(id)).toEqual([
+            { kind: "twitch_revoke", attempts: 1, payload: "", gave_up: true },
+            { kind: "twitch_revoke", attempts: 13, payload: "", gave_up: true },
+        ]);
+        const logged = errorLog.mock.calls.filter(([message]) => message === "Data cleanup given up");
+        expect(logged).toHaveLength(2);
+        expect(JSON.stringify(logged)).not.toContain("stale-");
+
+        const statsAfter = await getCleanupStats();
+        expect(statsAfter.failed - statsBefore.failed).toBe(2);
+        // Tombstones are never picked up again.
+        fetchMock.mockClear();
+        await pool.query("UPDATE pending_data_cleanups SET not_before = NOW() WHERE subject_id = $1", [id]);
+        expect((await processPendingCleanups({ subjectId: id.toString() })).gaveUp).toBe(0);
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("an expired access token doesn't end the job: the live refresh token is redeemed and its new access token revoked", async () => {
+        const id = await insertUser();
+        await seedAccount(id);
+        twitch = {
+            revoke: (token) =>
+                token === `access-${id}`
+                    ? jsonResponse(400, { status: 400, message: "Invalid token" })
+                    : new Response(null, { status: 200 }),
+            token: () => jsonResponse(200, { access_token: "fresh-access", refresh_token: "fresh-refresh", expires_in: 3600 }),
+        };
+        const warn = vi.spyOn(logger, "warn");
+
+        expect(await deleteStreamUserAccount(id.toString())).toBe(true);
+        expect(revokedTokens()).toEqual([`access-${id}`, "fresh-access"]);
+        expect(redeemedRefreshTokens()).toEqual([`refresh-${id}`]);
         expect(await pendingCleanups(id)).toEqual([]);
+        expect(warn.mock.calls.some(([message]) => String(message).startsWith("Twitch refresh token was still valid"))).toBe(true);
+    });
+
+    it.each([
+        ["404 client does not exist", () => jsonResponse(404, { status: 404, message: "client does not exist" })],
+        ["400 with another message", () => jsonResponse(400, { status: 400, message: "missing client id" })],
+        ["429", () => new Response(null, { status: 429 })],
+        ["a network error", () => { throw new Error("offline"); }],
+    ])("keeps retrying on %s", async (_label, revoke) => {
+        const id = await insertUser();
+        await seedAccount(id);
+        twitch = { ...defaultTwitch, revoke };
+        expect(await deleteStreamUserAccount(id.toString())).toBe(true);
+        expect(await pendingCleanups(id)).toMatchObject([{ kind: "twitch_revoke", gave_up: false }]);
+        await pool.query("DELETE FROM pending_data_cleanups WHERE subject_id = $1", [id]);
+    });
+
+    it("tasks left before a restart are picked up by the sweeper on startup", async () => {
+        const id = await insertUser();
+        await pool.query(
+            `INSERT INTO pending_data_cleanups (kind, payload, subject_id) VALUES ('twitch_revoke', $2, $1)`,
+            [id, JSON.stringify({ accessToken: "left-over-access", refreshToken: null })]
+        );
+        const stop = startPendingCleanupSweeper();
+        try {
+            await vi.waitFor(async () => expect(await pendingCleanups(id)).toEqual([]), { timeout: 5000 });
+        } finally {
+            stop();
+        }
+        expect(revokedTokens()).toContain("left-over-access");
     });
 });
 
@@ -431,15 +527,19 @@ describe("disconnecting Twitch", () => {
             );
         await link(1);
         await disconnectTwitch(id.toString());
-        expect(revokedTokens().sort()).toEqual(["disc-access-1", "disc-refresh-1"]);
+        expect(revokedTokens()).toEqual(["disc-access-1"]);
+        expect(redeemedRefreshTokens()).toEqual(["disc-refresh-1"]);
         expect((await remainingRows(id)).stream_twitch_links).toBe(0);
 
         await link(2);
-        fetchMock.mockImplementation(async () => {
-            throw new Error("network down");
-        });
+        twitch = {
+            ...defaultTwitch,
+            revoke: () => {
+                throw new Error("network down");
+            },
+        };
         await disconnectTwitch(id.toString());
         expect((await remainingRows(id)).stream_twitch_links).toBe(0);
-        expect(await pendingCleanups(id)).toHaveLength(2);
+        expect(await pendingCleanups(id)).toMatchObject([{ kind: "twitch_revoke", gave_up: false }]);
     });
 });

@@ -84,5 +84,23 @@ describe("/admin users screen", () => {
     expect(within(table).getByText("не запускал")).toBeTruthy();
     expect(within(table).getByText("Steam")).toBeTruthy();
     expect(admin.get).toHaveBeenCalledWith("/users", expect.objectContaining({ params: expect.objectContaining({ sort: "created_desc" }) }));
+    // No failed post-deletion cleanups -> no warning.
+    expect(screen.queryByText(/Не завершены очистки/)).toBeNull();
+  });
+
+  it("warns about post-deletion cleanups that were given up (WK-192)", async () => {
+    setStreamTokens("a", "r");
+    http.get.mockResolvedValue({ data: { id: "1", email: "admin@example.com", isAdmin: true } });
+    admin.get.mockImplementation((url: string) =>
+      Promise.resolve({
+        data:
+          url === "/usage-stats"
+            ? { registeredUsers: 1, dau: 0, wau: 0, mau: 0, trackingSince: null, generatedAt: "2026-10-22T00:00:00Z",
+                dataCleanups: { pending: 1, failed: 2 } }
+            : { users: [], total: 0, page: 1, pageSize: 20 },
+      })
+    );
+    render(<AdminUsersListPage />);
+    expect((await screen.findByText(/Не завершены очистки после удаления данных: 2/)).getAttribute("role")).toBe("alert");
   });
 });

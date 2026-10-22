@@ -149,6 +149,12 @@ export const AdminUsersListPage = () => {
                     </div>
                 ))}
             </dl>
+            {stats?.dataCleanups?.failed ? (
+                <p className={styles.muted} role="alert">
+                    Не завершены очистки после удаления данных: {stats.dataCleanups.failed}. Подробности — в логах
+                    API («Data cleanup given up»).
+                </p>
+            ) : null}
             {statsFailed && <p className={styles.error} role="alert">Не удалось загрузить сводку.</p>}
 
             <ConfigProvider

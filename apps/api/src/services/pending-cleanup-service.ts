@@ -9,15 +9,16 @@ import { logger } from "../utils/logger.js";
 // WK-192 - work that has to happen outside the database after an account (or
 // a Twitch link) is deleted: removing uploaded files and revoking tokens at
 // Twitch. Tasks are inserted in the SAME transaction as the DELETE, so a
-// crash or a provider outage right after the commit can't silently lose
+// crash, a restart or a provider outage right after the commit can't lose
 // them, and every task is idempotent (a missing file or an already-dead
 // token counts as done), so retries are safe.
 //
 // A row holds the minimum needed to finish the job: a random upload
-// basename or the token to revoke, plus the numeric account id for log
-// correlation. It is deleted as soon as the task succeeds; a task that
-// keeps failing is dropped after MAX_ATTEMPTS / MAX_AGE_MS so a token is
-// never kept around indefinitely.
+// basename or the Twitch token pair, plus the numeric account id for log
+// correlation. It is deleted as soon as the task succeeds. A task that keeps
+// failing is given up after MAX_ATTEMPTS / MAX_AGE_MS: the payload (the
+// token) is wiped and the row stays as a tombstone, so failures can be
+// counted (getCleanupStats) without keeping any secret.
 
 export type CleanupTask =
     | { kind: "upload"; payload: string }
@@ -41,6 +42,14 @@ export const enqueueCleanups = async (
     }
 };
 
+export const twitchRevokeTask = (tokens: {
+    accessToken: string | null;
+    refreshToken: string | null;
+}): CleanupTask[] =>
+    tokens.accessToken || tokens.refreshToken
+        ? [{ kind: "twitch_revoke", payload: JSON.stringify(tokens) }]
+        : [];
+
 type Outcome = "done" | "retry";
 
 const removeUpload = async (basename: string, uploadsDir: string): Promise<Outcome> => {
@@ -54,22 +63,94 @@ const removeUpload = async (basename: string, uploadsDir: string): Promise<Outco
     }
 };
 
-// POST id.twitch.tv/oauth2/revoke. 200 = revoked, 400 = already invalid
-// (expired/revoked) - both mean nothing is left to revoke. Network errors,
-// 429 and 5xx are retried. Without a client id there is nothing we can call.
-const revokeTwitchToken = async (token: string): Promise<Outcome> => {
-    const clientId = env.twitchClientId;
-    if (!clientId) return "done";
+// https://dev.twitch.tv/docs/authentication/revoke-tokens/ - POST,
+// form-urlencoded client_id + token (an ACCESS token). 200 = revoked;
+// 400 {"message":"Invalid token"} = it is already dead (expired/revoked).
+// Anything else (404 "client does not exist", 429, 5xx, network) is retried.
+type RevokeResult = "revoked" | "already_invalid" | "retry";
+
+const revokeAccessToken = async (clientId: string, token: string): Promise<RevokeResult> => {
     try {
         const response = await fetch("https://id.twitch.tv/oauth2/revoke", {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: new URLSearchParams({ client_id: clientId, token }),
         });
-        return response.ok || response.status === 400 ? "done" : "retry";
+        if (response.ok) return "revoked";
+        if (response.status === 400) {
+            const body = (await response.json().catch(() => null)) as { message?: string } | null;
+            if (body?.message?.toLowerCase() === "invalid token") return "already_invalid";
+        }
+        return "retry";
     } catch {
         return "retry";
     }
+};
+
+// The revoke endpoint documents access tokens only, and refresh tokens of a
+// confidential client never expire - so a refresh token is never assumed
+// dead. It is redeemed instead: 400/401 proves it is dead; a new access token
+// means it was alive, and that new token is revoked in turn.
+type RefreshResult = { status: "dead" } | { status: "alive"; accessToken: string } | { status: "retry" };
+
+const redeemRefreshToken = async (
+    clientId: string,
+    clientSecret: string,
+    refreshToken: string
+): Promise<RefreshResult> => {
+    try {
+        const response = await fetch("https://id.twitch.tv/oauth2/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+                client_id: clientId,
+                client_secret: clientSecret,
+                grant_type: "refresh_token",
+                refresh_token: refreshToken,
+            }),
+        });
+        if (response.status === 400 || response.status === 401) return { status: "dead" };
+        if (!response.ok) return { status: "retry" };
+        const body = (await response.json()) as { access_token?: string };
+        return body.access_token ? { status: "alive", accessToken: body.access_token } : { status: "retry" };
+    } catch {
+        return { status: "retry" };
+    }
+};
+
+// Revoke the stored access token, then make sure the refresh token can't mint
+// a new one. Logs only outcomes, never a token.
+const revokeTwitchTokens = async (payload: string, subjectId: string): Promise<Outcome> => {
+    const clientId = env.twitchClientId;
+    const clientSecret = env.twitchClientSecret;
+    if (!clientId) return "done";
+    let tokens: { accessToken: string | null; refreshToken: string | null };
+    try {
+        tokens = JSON.parse(payload);
+    } catch {
+        return "done";
+    }
+
+    if (tokens.accessToken) {
+        const result = await revokeAccessToken(clientId, tokens.accessToken);
+        if (result === "retry") return "retry";
+    }
+    if (!tokens.refreshToken || !clientSecret) return "done";
+
+    const refreshed = await redeemRefreshToken(clientId, clientSecret, tokens.refreshToken);
+    if (refreshed.status === "retry") return "retry";
+    if (refreshed.status === "dead") {
+        logger.info("Twitch tokens revoked", { streamUserId: subjectId, refreshTokenDead: true });
+        return "done";
+    }
+    const second = await revokeAccessToken(clientId, refreshed.accessToken);
+    if (second === "retry") return "retry";
+    // Twitch doesn't document whether revoking an access token also ends its
+    // refresh token; this line makes the answer visible in production logs.
+    logger.warn("Twitch refresh token was still valid after access revoke; revoked the new access token", {
+        streamUserId: subjectId,
+    });
+    return "done";
 };
 
 interface CleanupRow {
@@ -83,7 +164,7 @@ interface CleanupRow {
 
 const runTask = (row: CleanupRow, uploadsDir: string): Promise<Outcome> => {
     if (row.kind === "upload") return removeUpload(row.payload, uploadsDir);
-    if (row.kind === "twitch_revoke") return revokeTwitchToken(row.payload);
+    if (row.kind === "twitch_revoke") return revokeTwitchTokens(row.payload, row.subject_id.toString());
     return Promise.resolve("done");
 };
 
@@ -93,7 +174,7 @@ const runTask = (row: CleanupRow, uploadsDir: string): Promise<Outcome> => {
 // subjectId to process only one account's tasks (right after its deletion).
 export const processPendingCleanups = async (
     options: { subjectId?: string; uploadsDir?: string } = {}
-): Promise<{ done: number; failed: number; dropped: number }> => {
+): Promise<{ done: number; failed: number; gaveUp: number }> => {
     const uploadsDir = options.uploadsDir ?? env.uploadsDir;
     const claimed = await pool.query<CleanupRow>(
         `UPDATE pending_data_cleanups
@@ -101,7 +182,8 @@ export const processPendingCleanups = async (
                 not_before = NOW() + LEAST(POWER(2, attempts) * INTERVAL '1 minute', INTERVAL '6 hours')
           WHERE id IN (
                 SELECT id FROM pending_data_cleanups
-                 WHERE not_before <= NOW() AND ($1::int IS NULL OR subject_id = $1)
+                 WHERE gave_up_at IS NULL AND not_before <= NOW()
+                   AND ($1::int IS NULL OR subject_id = $1)
                  ORDER BY id
                  LIMIT ${BATCH_SIZE}
                  FOR UPDATE SKIP LOCKED)
@@ -111,7 +193,7 @@ export const processPendingCleanups = async (
 
     let done = 0;
     let failed = 0;
-    let dropped = 0;
+    let gaveUp = 0;
     for (const row of claimed.rows) {
         const outcome = await runTask(row, uploadsDir);
         if (outcome === "done") {
@@ -122,8 +204,11 @@ export const processPendingCleanups = async (
         const expired =
             row.attempts >= MAX_ATTEMPTS || Date.now() - row.created_at.getTime() > MAX_AGE_MS;
         if (expired) {
-            await pool.query("DELETE FROM pending_data_cleanups WHERE id = $1", [row.id]);
-            dropped += 1;
+            await pool.query(
+                "UPDATE pending_data_cleanups SET payload = '', gave_up_at = NOW() WHERE id = $1",
+                [row.id]
+            );
+            gaveUp += 1;
             logger.error("Data cleanup given up", {
                 streamUserId: row.subject_id.toString(),
                 kind: row.kind,
@@ -138,11 +223,22 @@ export const processPendingCleanups = async (
             });
         }
     }
-    return { done, failed, dropped };
+    return { done, failed, gaveUp };
+};
+
+// Counts only - for /api/admin/usage-stats. No payloads, no ids.
+export const getCleanupStats = async (): Promise<{ pending: number; failed: number }> => {
+    const result = await pool.query<{ pending: number; failed: number }>(
+        `SELECT COUNT(*) FILTER (WHERE gave_up_at IS NULL)::int AS pending,
+                COUNT(*) FILTER (WHERE gave_up_at IS NOT NULL)::int AS failed
+           FROM pending_data_cleanups`
+    );
+    return result.rows[0];
 };
 
 // Single PM2 fork instance (see ecosystem.config.cjs) - one in-process timer
-// is enough; the claim above keeps it safe even if that ever changes.
+// is enough; the claim above keeps it safe even if that ever changes. The
+// first sweep runs at startup, so tasks left by a restart are picked up.
 export const startPendingCleanupSweeper = (): (() => void) => {
     let running = false;
     const tick = async () => {
