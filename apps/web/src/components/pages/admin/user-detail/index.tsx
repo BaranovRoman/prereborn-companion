@@ -9,6 +9,8 @@ import {
     Card,
     ConfigProvider,
     Descriptions,
+    Input,
+    Modal,
     Popconfirm,
     Spin,
     Tag,
@@ -32,6 +34,9 @@ export const AdminUserDetailPage = ({ id }: { id: string }) => {
     const [messageApi, contextHolder] = message.useMessage();
     const [isEndingSession, setIsEndingSession] = useState(false);
     const [isResettingOnboarding, setIsResettingOnboarding] = useState(false);
+    const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+    const [deleteConfirmEmail, setDeleteConfirmEmail] = useState("");
+    const [isDeleting, setIsDeleting] = useState(false);
 
     const { ready } = usePageReady(600);
     useEffect(() => {
@@ -68,6 +73,23 @@ export const AdminUserDetailPage = ({ id }: { id: string }) => {
             messageApi.error("Не удалось сбросить онбординг");
         } finally {
             setIsResettingOnboarding(false);
+        }
+    };
+
+    // WK-192 - executes a deletion request received by email. The admin
+    // retypes the user's email; the server checks it again and refuses the
+    // admin's own account.
+    const handleDeleteUser = async () => {
+        setIsDeleting(true);
+        try {
+            await adminUsersApi.deleteUser(id, deleteConfirmEmail.trim());
+            setIsDeleteOpen(false);
+            messageApi.success("Пользователь и его данные удалены");
+            router.replace("/admin");
+        } catch {
+            messageApi.error("Не удалось удалить пользователя");
+        } finally {
+            setIsDeleting(false);
         }
     };
 
@@ -231,6 +253,53 @@ export const AdminUserDetailPage = ({ id }: { id: string }) => {
                         </Button>
                     </Popconfirm>
                 </Card>
+
+                {detail.id !== sessionUser?.id && (
+                    <Card title="Удаление" className={styles.card}>
+                        <Typography.Paragraph type="secondary">
+                            Для исполнения запроса на удаление персональных данных.
+                            Удаляет аккаунт, все стримы, матчи, данные Companion,
+                            привязки и загруженные файлы, отзывает токены Twitch.
+                        </Typography.Paragraph>
+                        <Button
+                            danger
+                            onClick={() => {
+                                setDeleteConfirmEmail("");
+                                setIsDeleteOpen(true);
+                            }}
+                        >
+                            Удалить пользователя
+                        </Button>
+                        <Modal
+                            open={isDeleteOpen}
+                            title="Удалить пользователя навсегда?"
+                            okText="Удалить"
+                            cancelText="Отмена"
+                            okButtonProps={{
+                                danger: true,
+                                loading: isDeleting,
+                                disabled:
+                                    deleteConfirmEmail.trim().toLowerCase() !==
+                                    detail.email.toLowerCase(),
+                            }}
+                            onOk={handleDeleteUser}
+                            onCancel={() => setIsDeleteOpen(false)}
+                        >
+                            <Typography.Paragraph>
+                                Действие необратимо. Для подтверждения введите email
+                                пользователя: <b>{detail.email}</b>
+                            </Typography.Paragraph>
+                            <Input
+                                value={deleteConfirmEmail}
+                                onChange={(event) =>
+                                    setDeleteConfirmEmail(event.target.value)
+                                }
+                                placeholder={detail.email}
+                                aria-label="Email пользователя"
+                            />
+                        </Modal>
+                    </Card>
+                )}
             </>
         );
     }

@@ -65,3 +65,9 @@ export const takeObsSceneCommand = (
     if (command) pendingCommands.delete(streamUserId);
     return command;
 };
+
+// WK-192 - account deletion: nothing of the user stays in the mailbox.
+export const clearObsSceneState = (streamUserId: string): void => {
+    pendingCommands.delete(streamUserId);
+    sceneOverrides.delete(streamUserId);
+};

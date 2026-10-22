@@ -3,6 +3,7 @@ import { TwitchEventSubChatClient, type TwitchChatMessage, type TwitchChatState,
 import { env } from "../config/env.js";
 import { pool } from "../db/client.js";
 import { logger } from "../utils/logger.js";
+import { enqueueCleanups, processPendingCleanups, twitchRevokeTask } from "./pending-cleanup-service.js";
 
 const STATE_TTL_MS = 10 * 60 * 1000;
 const CHAT_MESSAGE_LIMIT = 40;
@@ -447,13 +448,49 @@ export const getTwitchChatStatus = async (streamUserId: string) => {
 export const getTwitchViewerEvents = (streamUserId: string): TwitchViewerEvent[] =>
     viewerEvents.get(streamUserId) ?? [];
 
-export const disconnectTwitch = async (streamUserId: string) => {
+// WK-192 - drops the EventSub connection and every per-user in-memory cache.
+// Used by disconnect and by account deletion.
+export const clearTwitchUserState = (streamUserId: string) => {
     stopTwitchChat(streamUserId);
     chatMessages.delete(streamUserId);
     recentSubscribers.delete(streamUserId);
     audienceCache.delete(streamUserId);
     viewerEvents.delete(streamUserId);
-    await pool.query("DELETE FROM stream_twitch_links WHERE stream_user_id = $1", [streamUserId]);
+};
+
+// WK-192 - the link row and the revoke task for its tokens are written in
+// one transaction; the revoke then runs right away and, if Twitch is
+// unreachable, is retried by the cleanup sweeper (pending-cleanup-service).
+export const disconnectTwitch = async (streamUserId: string) => {
+    clearTwitchUserState(streamUserId);
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+        const result = await client.query<{ access_token: string | null; refresh_token: string | null }>(
+            `DELETE FROM stream_twitch_links WHERE stream_user_id = $1
+             RETURNING access_token, refresh_token`,
+            [streamUserId]
+        );
+        if (result.rows[0]) {
+            await enqueueCleanups(client, streamUserId, twitchRevokeTask({
+                accessToken: result.rows[0].access_token,
+                refreshToken: result.rows[0].refresh_token,
+            }));
+        }
+        await client.query("COMMIT");
+    } catch (error) {
+        await client.query("ROLLBACK").catch(() => {});
+        throw error;
+    } finally {
+        client.release();
+    }
+    // The link is already gone; a failed run here is retried by the sweeper.
+    await processPendingCleanups({ subjectId: streamUserId }).catch((error) => {
+        logger.warn("Twitch revoke run failed, left to the cleanup sweeper", {
+            streamUserId,
+            message: error instanceof Error ? error.message : String(error),
+        });
+    });
 };
 
 // WK-116 Phase 4 - the reverse of every other lookup in this file: the

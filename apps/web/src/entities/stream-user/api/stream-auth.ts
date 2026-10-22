@@ -69,6 +69,20 @@ export const streamAuthApi = {
         return data;
     },
 
+    // WK-192 - irreversible: the server re-checks the password, then deletes
+    // the account with all its data. The caller ends the local session with
+    // endLocalSession() once it has decided where to navigate.
+    deleteAccount: async (password: string): Promise<void> => {
+        await streamApiClient.delete("/account/me", { data: { password } });
+    },
+
+    // Drops the local session without a server call (the account and its
+    // refresh tokens are already gone server-side).
+    endLocalSession: (): void => {
+        clearStreamTokens();
+        notifySessionChanged();
+    },
+
     // WK-189 - revokes the legacy static Companion token (no new one is
     // issued: the current Companion signs in with email and password).
     revokeCompanionToken: async (): Promise<StreamUser> => {

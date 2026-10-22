@@ -6,6 +6,7 @@ import {
     revokeCompanionTokenController,
     patchGameModeController,
     completeOnboardingController,
+    deleteMeController,
 } from "../../controllers/stream/account.js";
 import {
     endSessionController,
@@ -37,7 +38,7 @@ import {
     deleteReferenceBackgroundController,
 } from "../../controllers/stream/overlay-reference-background.js";
 import { authenticateStreamUser } from "../../middleware/stream-auth.js";
-import { uploadRateLimiter } from "../../middleware/rate-limit.js";
+import { streamAuthRateLimiter, uploadRateLimiter } from "../../middleware/rate-limit.js";
 import {
     deleteQueueWebcamImageController,
     uploadQueueWebcamImageController,
@@ -50,6 +51,8 @@ export const streamAccountRouter = Router();
 streamAccountRouter.use(authenticateStreamUser);
 
 streamAccountRouter.get("/me", getMeController);
+// WK-192 - password-confirmed, so it shares the login brute-force limiter.
+streamAccountRouter.delete("/me", streamAuthRateLimiter, deleteMeController);
 streamAccountRouter.patch("/me/game-mode", patchGameModeController);
 streamAccountRouter.post("/me/regenerate-token", regenerateTokenController);
 streamAccountRouter.post(

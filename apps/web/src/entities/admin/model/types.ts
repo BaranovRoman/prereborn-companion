@@ -26,6 +26,9 @@ export interface AdminUsageStats {
     mau: number;
     trackingSince: string | null;
     generatedAt: string;
+    // WK-192 - post-deletion cleanups (file removal, Twitch revoke): still
+    // being retried / given up for good. Counts only.
+    dataCleanups?: { pending: number; failed: number };
 }
 
 export interface AdminUserListResult {

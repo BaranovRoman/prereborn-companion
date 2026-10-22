@@ -4,6 +4,7 @@ import {
     getPublicUsageStats,
     recordCompanionHeartbeat,
 } from "../services/usage-stats-service.js";
+import { getCleanupStats } from "../services/pending-cleanup-service.js";
 import { logger } from "../utils/logger.js";
 
 // WK-186 - see services/usage-stats-service.ts and
@@ -53,7 +54,10 @@ export const getPublicUsageStatsController = async (req: Request, res: Response)
 export const getAdminUsageStatsController = async (req: Request, res: Response) => {
     try {
         res.set("Cache-Control", "no-store");
-        res.json(await computeUsageStats());
+        // WK-192 - counts of pending / permanently failed post-deletion
+        // cleanups (files, Twitch revoke); counts only, no payloads.
+        const [stats, dataCleanups] = await Promise.all([computeUsageStats(), getCleanupStats()]);
+        res.json({ ...stats, dataCleanups });
     } catch (error) {
         logger.error("Admin usage stats error", {
             requestId: req.requestId,

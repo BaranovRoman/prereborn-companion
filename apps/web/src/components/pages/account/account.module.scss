@@ -104,6 +104,26 @@
   background: rgba(239, 169, 169, 0.06);
 }
 
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--text-soft);
+}
+
+.input {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--edge);
+  border-radius: var(--radius);
+  background: var(--raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  &:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+}
+
 .state { color: var(--text) !important; }
 .ok { color: var(--success); font-weight: 600; }
 .subtle, .muted { color: var(--text-muted) !important; font-size: 14px !important; }

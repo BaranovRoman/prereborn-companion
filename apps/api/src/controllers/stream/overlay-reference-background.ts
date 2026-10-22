@@ -79,6 +79,10 @@ export const uploadReferenceBackgroundController = async (
         return res.status(400).json({ error: "Файл не загружен" });
     }
 
+    // WK-192 - the renamed/recoded file, once it exists: if saving the row
+    // fails (e.g. the account was deleted mid-upload) it must not be left
+    // behind with nothing referencing it.
+    let finalPath: string | null = null;
     try {
         const result = await validateAndFinalizeImage(
             req.file.path,
@@ -95,6 +99,7 @@ export const uploadReferenceBackgroundController = async (
             });
         }
 
+        finalPath = path.join(uploadsDir, result.finalFilename);
         const record = await saveReferenceBackground(
             req.streamUserId as string,
             uploadsDir,
@@ -108,6 +113,7 @@ export const uploadReferenceBackgroundController = async (
         res.json(toResponse(record));
     } catch (error) {
         await safeUnlink(req.file.path);
+        if (finalPath) await safeUnlink(finalPath);
         logger.error("Stream upload overlay reference background error", {
             requestId: req.requestId,
             message: error instanceof Error ? error.message : String(error),

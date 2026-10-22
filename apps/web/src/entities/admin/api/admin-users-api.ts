@@ -44,6 +44,12 @@ export const adminUsersApi = {
         return data;
     },
 
+    // WK-192 - executes an emailed deletion request; confirmEmail must repeat
+    // the target's email (server-side guard against a wrong id).
+    deleteUser: async (id: string, confirmEmail: string): Promise<void> => {
+        await adminApiClient.delete(`/users/${id}`, { data: { confirmEmail } });
+    },
+
     resetOnboarding: async (
         id: string
     ): Promise<{ id: string; onboardingCompletedAt: string | null }> => {

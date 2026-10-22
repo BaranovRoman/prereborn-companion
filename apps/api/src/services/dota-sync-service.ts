@@ -235,3 +235,8 @@ const performSync = async (streamUserId: string): Promise<SyncResult> => {
         client.release();
     }
 };
+
+// WK-192 - account deletion drops the per-user cooldown entry.
+export const clearDotaSyncState = (streamUserId: string): void => {
+    lastAttemptAt.delete(streamUserId);
+};

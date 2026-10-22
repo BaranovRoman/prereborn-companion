@@ -80,6 +80,33 @@ describe("AccountPage", () => {
     expect(http.delete).toHaveBeenCalledWith("/account/me/companion-token");
   });
 
+  it("deletes the account only after a warning and the password", async () => {
+    setStreamTokens("a", "r");
+    routeGet(me());
+    http.delete.mockRejectedValueOnce({ response: { status: 403 } }).mockResolvedValueOnce({ data: undefined });
+    render(<AccountPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Удалить аккаунт" }));
+    expect(http.delete).not.toHaveBeenCalled();
+    expect(screen.getByText(/Это действие необратимо/)).toBeTruthy();
+    const confirm = screen.getByRole("button", { name: "Удалить навсегда" }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Пароль от аккаунта"), { target: { value: "wrong" } });
+    fireEvent.click(confirm);
+    expect(await screen.findByText("Неверный пароль.")).toBeTruthy();
+    expect(localStorage.getItem("stream_access_token")).toBe("a");
+
+    fireEvent.change(screen.getByLabelText("Пароль от аккаунта"), { target: { value: "right" } });
+    fireEvent.click(confirm);
+    await vi.waitFor(() => expect(router.replace).toHaveBeenCalledWith("/"));
+    expect(http.delete).toHaveBeenLastCalledWith("/account/me", { data: { password: "right" } });
+    expect(localStorage.getItem("stream_access_token")).toBeNull();
+    // The session drop must not bounce to the login form (it raced "/").
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(router.replace).not.toHaveBeenCalledWith("/stream/login?next=/account");
+  });
+
   it("signs out to the landing page", async () => {
     setStreamTokens("a", "r");
     routeGet(me());

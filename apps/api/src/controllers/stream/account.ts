@@ -7,7 +7,9 @@ import {
     revokeCompanionToken,
     setGameMode,
     completeOnboarding,
+    verifyStreamUserPassword,
 } from "../../services/stream-user-service.js";
+import { deleteStreamUserAccount } from "../../services/account-deletion-service.js";
 import { logger } from "../../utils/logger.js";
 import { env } from "../../config/env.js";
 import { isAdminEmail } from "../../middleware/require-admin.js";
@@ -170,6 +172,38 @@ export const revokeCompanionTokenController = async (req: Request, res: Response
         res.json(user);
     } catch (error) {
         logger.error("Stream revoke companion token error", {
+            requestId: req.requestId,
+            message: error instanceof Error ? error.message : String(error),
+        });
+        res.status(500).json({ error: "Внутренняя ошибка сервера" });
+    }
+};
+
+const deleteAccountSchema = z.object({ password: z.string().min(1).max(200) });
+
+// WK-192 - self-service account deletion. The password is re-checked even
+// though the request is already authenticated: a stolen access token alone
+// must not be enough to erase an account. Missing or wrong password -> 403.
+// The log line carries the id only, never the email.
+export const deleteMeController = async (req: Request, res: Response) => {
+    const parsed = deleteAccountSchema.safeParse(req.body);
+    const streamUserId = req.streamUserId as string;
+    try {
+        if (!parsed.success || !(await verifyStreamUserPassword(streamUserId, parsed.data.password))) {
+            return res.status(403).json({ error: "Неверный пароль" });
+        }
+        const deleted = await deleteStreamUserAccount(streamUserId);
+        if (!deleted) {
+            return res.status(404).json({ error: "Пользователь не найден" });
+        }
+        logger.info("Stream account deleted", {
+            requestId: req.requestId,
+            streamUserId,
+            initiatedBy: "self",
+        });
+        res.status(204).end();
+    } catch (error) {
+        logger.error("Stream delete account error", {
             requestId: req.requestId,
             message: error instanceof Error ? error.message : String(error),
         });

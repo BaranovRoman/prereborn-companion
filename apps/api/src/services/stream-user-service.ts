@@ -145,6 +145,30 @@ export const verifyStreamUserCredentials = async (
     return toStreamUser(row);
 };
 
+// WK-192 - a signed access JWT outlives the account it was issued for (up to
+// ACCESS_TOKEN_TTL). The auth middlewares check this on every request, so a
+// deleted account's sessions stop working at once on every device - one
+// primary-key lookup.
+export const streamUserExists = async (id: string): Promise<boolean> => {
+    if (!/^\d{1,10}$/.test(id)) return false;
+    const result = await pool.query("SELECT 1 FROM stream_users WHERE id = $1", [id]);
+    return result.rows.length > 0;
+};
+
+// WK-192 - re-confirms the signed-in user's password before an irreversible
+// action (account deletion). Never returns the hash.
+export const verifyStreamUserPassword = async (
+    id: string,
+    password: string
+): Promise<boolean> => {
+    const result = await pool.query<{ password_hash: string }>(
+        "SELECT password_hash FROM stream_users WHERE id = $1",
+        [id]
+    );
+    const row = result.rows[0];
+    return row ? bcrypt.compare(password, row.password_hash) : false;
+};
+
 export const findStreamUserById = async (
     id: string
 ): Promise<StreamUser | null> => {
