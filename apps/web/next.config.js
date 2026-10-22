@@ -8,6 +8,16 @@ const nextConfig = {
   transpilePackages: ["antd", "@ant-design/icons"],
   sassOptions: { api: "modern-compiler" },
   images: { formats: ["image/avif", "image/webp"] },
+  // WK-196 - the overlay page URL carries the streamer's public token; the
+  // browser default (strict-origin-when-cross-origin) would send that full
+  // URL as Referer on every same-origin request the page makes (API
+  // polling, /_next/static, /media), i.e. into server logs. strict-origin
+  // sends only https://prereborn.ru.
+  async headers() {
+    return [
+      { source: "/overlay/:path*", headers: [{ key: "Referrer-Policy", value: "strict-origin" }] }
+    ];
+  },
   async rewrites() {
     const backendUrl = process.env.BACKEND_URL || "http://127.0.0.1:3001";
     return [

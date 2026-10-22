@@ -1,0 +1,16 @@
+# WK-196 - PostgreSQL server log: keep 14 days instead of the Debian default
+# (weekly, rotate 10, ~10 weeks).
+# Replaces /etc/logrotate.d/postgresql-common (a dpkg conffile: on a future
+# postgresql-common upgrade keep the locally modified version) - see
+# docs/production-deployment.md "Logs and retention".
+/var/log/postgresql/*.log {
+    su root root
+    daily
+    rotate 14
+    maxage 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}
