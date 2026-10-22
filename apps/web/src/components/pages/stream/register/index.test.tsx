@@ -16,8 +16,10 @@ beforeAll(() => {
 describe("StreamRegisterPage", () => {
   afterEach(cleanup);
 
-  it("tells what the account data is for and links the policy, without a consent checkbox", () => {
+  it("states that the button accepts the agreement, links both documents, no consent checkbox", () => {
     render(<StreamRegisterPage />);
+    expect(screen.getByText(/Нажимая «Создать аккаунт», вы принимаете/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "пользовательское соглашение" }).getAttribute("href")).toBe("/terms");
     const link = screen.getByRole("link", { name: /политике обработки персональных данных/ });
     expect(link.getAttribute("href")).toBe("/privacy");
     expect(screen.queryByRole("checkbox")).toBeNull();

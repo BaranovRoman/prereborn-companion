@@ -8,7 +8,7 @@ import Image from "next/image";
 import axios from "axios";
 import { streamAuthApi } from "@/entities/stream-user/api/stream-auth";
 import { usePageReady } from "@/shared/ui/route-transition/usePageReady";
-import { PRIVACY_PATH } from "@/shared/config/legal";
+import { PRIVACY_PATH, TERMS_PATH } from "@/shared/config/legal";
 import styles from "../stream-auth.module.scss";
 
 interface RegisterFormValues {
@@ -114,13 +114,15 @@ export const StreamRegisterPage = () => {
                         />
                     </Form.Item>
 
-                    {/* WK-191 - informing, not a consent checkbox: the account
-                        data is processed to provide the service itself (see
-                        docs/research/personal-data-audit.md, registration). */}
+                    {/* WK-191 - the button accepts the user agreement (public
+                        offer, ст. 438 ГК РФ), which is the basis for the account
+                        data (п. 5 ч. 1 ст. 6 152-ФЗ). Informing only, no consent
+                        checkbox: see docs/legal/wk-191-publication-readiness.md. */}
                     <p className={styles.privacyNotice}>
-                        Email и пароль нужны только для учётной записи: мы не используем их для рассылок
-                        и рекламы. Подробно о том, как мы храним и защищаем данные, —{" "}
-                        <Link href={PRIVACY_PATH}>в политике обработки персональных данных</Link>.
+                        Нажимая «Создать аккаунт», вы принимаете{" "}
+                        <Link href={TERMS_PATH}>пользовательское соглашение</Link>. Email и пароль нужны только
+                        для учётной записи: мы не используем их для рассылок и рекламы. Как мы храним и защищаем
+                        данные — <Link href={PRIVACY_PATH}>в политике обработки персональных данных</Link>.
                     </p>
 
                     <Form.Item>

@@ -1,25 +1,19 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { PublicShell } from "@/components/public-site/PublicShell";
-import { isPrivacyPolicyComplete, PRIVACY_OPERATOR, type PrivacyOperatorDetails } from "@/shared/config/legal";
+import { formatLegalDate, isLegalDocumentPublished, LEGAL_OPERATOR, TERMS_PATH, type LegalOperatorDetails } from "@/shared/config/legal";
 import styles from "./privacy.module.scss";
 
 // WK-191 - personal-data processing policy (ч. 2 ст. 18.1 152-ФЗ). The text
 // describes what the code actually does - see docs/research/personal-data-audit.md
-// for the audit each statement is based on. Operator details come only from
+// for the audit each statement is based on, and docs/legal/wk-191-publication-readiness.md
+// for the verified retention terms. Operator details come only from
 // shared/config/legal.ts; a missing one is shown as "not filled in", never guessed.
+// Retention terms below are only the ones that are actually implemented.
 
 const Missing = () => <span className={styles.missing}>не заполнено</span>;
 
 const Value = ({ value }: { value: string | null }) => (value ? <>{value}</> : <Missing />);
-
-const formatDate = (iso: string | null) => {
-  if (!iso) return null;
-  const date = new Date(`${iso}T00:00:00Z`);
-  return Number.isNaN(date.getTime())
-    ? iso
-    : date.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
-};
 
 interface DataCategory {
   title: string;
@@ -73,12 +67,12 @@ const ACCOUNT_DATA: DataCategory[] = [
   },
 ];
 
-const otherSubjects = (operator: PrivacyOperatorDetails): DataCategory[] => [
+const OTHER_SUBJECTS: DataCategory[] = [
   {
     title: "Зрители — участники викторины в Twitch-расширении",
     data: "Идентификатор Twitch (если зритель разрешил расширению видеть его) или анонимный идентификатор расширения, отображаемое имя, ответы и набранные очки.",
     purpose: "Проведение викторины на стриме и таблица лидеров.",
-    retention: "До удаления данных стрима или учётной записи стримера.",
+    retention: "До удаления учётной записи стримера.",
   },
   {
     title: "Авторы донатов",
@@ -90,7 +84,7 @@ const otherSubjects = (operator: PrivacyOperatorDetails): DataCategory[] => [
     title: "Посетители сайта",
     data: "IP-адрес, адрес страницы, время запроса, User-Agent браузера — в журналах веб-сервера.",
     purpose: "Работа и безопасность сайта, разбор сбоев.",
-    retention: <>Журналы веб-сервера хранятся: <Value value={operator.serverLogRetention} />.</>,
+    retention: "Не более 14 дней: журналы удаляются автоматически при ежедневной ротации.",
   },
 ];
 
@@ -112,9 +106,9 @@ const CategoryList = ({ items }: { items: DataCategory[] }) => (
   </div>
 );
 
-export const PrivacyPage = ({ operator = PRIVACY_OPERATOR }: { operator?: PrivacyOperatorDetails }) => {
-  const complete = isPrivacyPolicyComplete(operator);
-  const effectiveDate = formatDate(operator.effectiveDate);
+export const PrivacyPage = ({ operator = LEGAL_OPERATOR }: { operator?: LegalOperatorDetails }) => {
+  const published = isLegalDocumentPublished(operator);
+  const effectiveDate = formatLegalDate(operator.effectiveDate);
   const contact = operator.contactEmail ? <a href={`mailto:${operator.contactEmail}`}>{operator.contactEmail}</a> : <Missing />;
 
   return (
@@ -127,13 +121,13 @@ export const PrivacyPage = ({ operator = PRIVACY_OPERATOR }: { operator?: Privac
             вы можете ими управлять.
           </p>
           <p className={styles.meta}>
-            Действует с: {effectiveDate ?? <Missing />}
+            Действует с: {effectiveDate ?? "даты публикации"}
           </p>
         </header>
 
-        {!complete ? (
+        {!published ? (
           <p className={styles.draft} role="note">
-            Черновик: реквизиты оператора ещё не заполнены. Документ не вступил в силу.
+            Черновик: документ ещё не опубликован и не вступил в силу.
           </p>
         ) : null}
 
@@ -145,8 +139,8 @@ export const PrivacyPage = ({ operator = PRIVACY_OPERATOR }: { operator?: Privac
             Политика составлена в соответствии с Федеральным законом от 27.07.2006 № 152-ФЗ «О персональных данных».
           </p>
           <p>
-            Пользуясь сервисом, вы можете ознакомиться с этой политикой в любой момент — ссылка есть внизу
-            каждой страницы сайта и на странице регистрации.
+            Условия использования сервиса описаны в <Link href={TERMS_PATH}>пользовательском соглашении</Link>.
+            Ссылки на оба документа есть внизу каждой страницы сайта и на странице регистрации.
           </p>
         </section>
 
@@ -171,7 +165,7 @@ export const PrivacyPage = ({ operator = PRIVACY_OPERATOR }: { operator?: Privac
           <p>Данные зарегистрированных пользователей (стримеров):</p>
           <CategoryList items={ACCOUNT_DATA} />
           <p>Данные других лиц, которые попадают в сервис при его использовании стримером:</p>
-          <CategoryList items={otherSubjects(operator)} />
+          <CategoryList items={OTHER_SUBJECTS} />
           <p>
             Мы не запрашиваем имя, телефон, платёжные данные и документы, не используем данные для рекламы
             и рассылок, не продаём их и не принимаем на их основе решений, порождающих юридические последствия.
@@ -183,8 +177,9 @@ export const PrivacyPage = ({ operator = PRIVACY_OPERATOR }: { operator?: Privac
           <ul>
             <li>
               Данные учётной записи, ключи доступа, данные подключённых вами сервисов, матчи, настройки
-              и загруженные изображения — заключение и исполнение пользовательского соглашения, стороной
-              которого вы являетесь (п. 5 ч. 1 ст. 6 152-ФЗ). Без email и пароля создать учётную запись
+              и загруженные изображения — заключение и исполнение{" "}
+              <Link href={TERMS_PATH}>пользовательского соглашения</Link>, стороной которого вы являетесь
+              (п. 5 ч. 1 ст. 6 152-ФЗ). Без email и пароля создать учётную запись
               и пользоваться сервисом нельзя.
             </li>
             <li>
@@ -196,6 +191,11 @@ export const PrivacyPage = ({ operator = PRIVACY_OPERATOR }: { operator?: Privac
               подключает викторину и донаты к своему стриму (п. 7 ч. 1 ст. 6 152-ФЗ).
             </li>
           </ul>
+          <p>
+            Отдельного согласия на обработку персональных данных мы сейчас не запрашиваем: ни одна из целей выше
+            на нём не основана. Если появится цель, для которой нужно согласие (например, рассылки), мы запросим
+            его отдельно, и отказ не помешает пользоваться сервисом.
+          </p>
         </section>
 
         <section className={styles.section}>
@@ -213,6 +213,11 @@ export const PrivacyPage = ({ operator = PRIVACY_OPERATOR }: { operator?: Privac
             <li>
               Companion хранит токены входа на вашем компьютере в защищённом хранилище операционной системы.
               Сайт хранит токены сеанса в локальном хранилище браузера (localStorage) и удаляет их при выходе.
+            </li>
+            <li>
+              Технические журналы приложения (ошибки и служебные события) содержат внутренний номер учётной
+              записи, но не email и не IP-адрес. Автоматическое удаление этих журналов ещё не настроено: пока
+              они хранятся на сервере без ограничения срока, и мы настраиваем их удаление.
             </li>
             <li>
               Сайт не использует рекламные и аналитические счётчики и cookie для отслеживания. Шрифты

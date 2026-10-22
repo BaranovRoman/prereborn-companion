@@ -206,7 +206,7 @@
     }
 }
 
-// WK-191 - registration informing note and the policy link under both forms.
+// WK-191 - registration note (offer acceptance + policy) and the legal links under login.
 .privacyNotice {
     margin: 0 0 16px;
     color: rgba(255, 242, 239, 0.62);
@@ -224,17 +224,22 @@
     }
 }
 
-.privacyLink {
-    display: block;
+.legalLinks {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px 16px;
     margin-top: 14px;
-    color: rgba(255, 242, 239, 0.5) !important;
-    font-size: 12px;
-    text-align: center;
-    text-decoration: none;
 
-    &:hover,
-    &:focus-visible {
-        color: rgba(255, 242, 239, 0.8) !important;
+    a {
+        color: rgba(255, 242, 239, 0.5) !important;
+        font-size: 12px;
+        text-decoration: none;
+
+        &:hover,
+        &:focus-visible {
+            color: rgba(255, 242, 239, 0.8) !important;
+        }
     }
 }
 
