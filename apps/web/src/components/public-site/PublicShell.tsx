@@ -4,6 +4,7 @@ import { Inter } from "next/font/google";
 import type { ReactNode } from "react";
 import { DOTA_COMPANION_DOWNLOAD_URL } from "@/shared/config/dota-companion";
 import { COMPANION_LATEST_RELEASE_URL, COMPANION_REPO_URL } from "@/shared/config/product-sources";
+import { PRIVACY_PATH } from "@/shared/config/legal";
 import { AccountNav } from "./AccountNav";
 import styles from "./public-site.module.scss";
 
@@ -50,6 +51,7 @@ export const PublicShell = ({ children }: { children: ReactNode }) => (
         <nav aria-label="Ссылки в подвале">
           <Link href="/changelog">История обновлений</Link>
           <a href={COMPANION_REPO_URL} rel="noopener">GitHub</a>
+          <Link href={PRIVACY_PATH}>Политика обработки данных</Link>
           <AccountNav placement="footer" />
         </nav>
       </div>

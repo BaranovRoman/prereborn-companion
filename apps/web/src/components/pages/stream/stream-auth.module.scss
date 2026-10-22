@@ -206,6 +206,38 @@
     }
 }
 
+// WK-191 - registration informing note and the policy link under both forms.
+.privacyNotice {
+    margin: 0 0 16px;
+    color: rgba(255, 242, 239, 0.62);
+    font-size: 12px;
+    line-height: 1.55;
+
+    a {
+        color: #ec7479;
+        text-underline-offset: 2px;
+
+        &:hover,
+        &:focus-visible {
+            color: #ff9a9e;
+        }
+    }
+}
+
+.privacyLink {
+    display: block;
+    margin-top: 14px;
+    color: rgba(255, 242, 239, 0.5) !important;
+    font-size: 12px;
+    text-align: center;
+    text-decoration: none;
+
+    &:hover,
+    &:focus-visible {
+        color: rgba(255, 242, 239, 0.8) !important;
+    }
+}
+
 @media (max-width: 560px) {
     .page {
         align-items: start;

@@ -8,6 +8,7 @@ import Image from "next/image";
 import axios from "axios";
 import { streamAuthApi } from "@/entities/stream-user/api/stream-auth";
 import { usePageReady } from "@/shared/ui/route-transition/usePageReady";
+import { PRIVACY_PATH } from "@/shared/config/legal";
 import styles from "../stream-auth.module.scss";
 
 interface RegisterFormValues {
@@ -112,6 +113,15 @@ export const StreamRegisterPage = () => {
                             autoComplete="new-password"
                         />
                     </Form.Item>
+
+                    {/* WK-191 - informing, not a consent checkbox: the account
+                        data is processed to provide the service itself (see
+                        docs/research/personal-data-audit.md, registration). */}
+                    <p className={styles.privacyNotice}>
+                        Email и пароль нужны только для учётной записи: мы не используем их для рассылок
+                        и рекламы. Подробно о том, как мы храним и защищаем данные, —{" "}
+                        <Link href={PRIVACY_PATH}>в политике обработки персональных данных</Link>.
+                    </p>
 
                     <Form.Item>
                         <Button

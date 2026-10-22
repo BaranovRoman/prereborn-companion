@@ -1,0 +1,84 @@
+// WK-191 - /privacy, a long reading page in the public-site frame (PublicShell tokens).
+.page {
+  width: 100%;
+  max-width: calc(860px + 2 * var(--gutter));
+  margin: 0 auto;
+  padding: clamp(40px, 7vh, 72px) var(--gutter) 0;
+}
+
+.intro {
+  margin-bottom: 28px;
+  h1 { font-size: clamp(30px, 4vw, 44px); font-weight: 700; letter-spacing: -0.03em; line-height: 1.1; }
+  p { margin-top: 12px; color: var(--text-soft); font-size: 17px; }
+}
+
+.meta { font-size: 15px !important; color: var(--text-muted) !important; }
+
+.draft {
+  margin-bottom: 28px !important;
+  padding: 14px 16px;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  background: rgba(239, 169, 169, 0.08);
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.missing {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(239, 169, 169, 0.12);
+  color: var(--danger);
+  font-size: 0.875em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.section {
+  padding: 28px 0;
+  border-top: 1px solid var(--edge-soft);
+  h2 { margin-bottom: 14px; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.3; }
+  p + p, p + ul, ul + p, p + .categories, .categories + p { margin-top: 14px; }
+  ul { margin: 0; padding-left: 22px; display: grid; gap: 8px; }
+  p, li { color: var(--text-soft); }
+  strong { color: var(--text); font-weight: 600; }
+  a { color: var(--accent); text-underline-offset: 3px; &:hover { color: var(--accent-hover); } }
+}
+
+.operator {
+  display: grid;
+  grid-template-columns: minmax(180px, max-content) 1fr;
+  gap: 10px 24px;
+  margin: 0;
+  dt { color: var(--text-muted); }
+  dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+}
+
+.categories {
+  display: grid;
+  gap: 12px;
+}
+
+.category {
+  padding: clamp(16px, 2.5vw, 22px);
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--radius-lg);
+  background: var(--panel);
+  h3 { margin: 0 0 12px; font-size: 17px; font-weight: 600; }
+  dl {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 8px 20px;
+    margin: 0;
+    font-size: 15px;
+  }
+  dt { color: var(--text-muted); }
+  dd { margin: 0; color: var(--text-soft); }
+}
+
+@media (max-width: 640px) {
+  .operator,
+  .category dl { grid-template-columns: 1fr; gap: 2px; }
+  .operator dd,
+  .category dd { margin-bottom: 10px; }
+}
