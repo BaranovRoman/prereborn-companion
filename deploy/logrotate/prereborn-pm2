@@ -1,0 +1,24 @@
+# WK-196 - PM2 (API + web) logs: keep 14 days, then delete.
+# Install as /etc/logrotate.d/prereborn-pm2 (root:root, 0644) - see
+# docs/production-deployment.md "Logs and retention".
+#
+# copytruncate: PM2 keeps the file descriptor open and has no reopen signal
+# usable from logrotate; a few lines written during the copy may be lost,
+# acceptable for these logs.
+# lastaction: removes anything older than 14 days left in shared/logs,
+# including pre-WK-196 per-pm_id files (api-out-37.log, ...) that nothing
+# writes to anymore.
+/var/www/www-root/data/www/prereborn.ru/shared/logs/*.log {
+    su www-root www-root
+    daily
+    rotate 14
+    maxage 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    lastaction
+        find /var/www/www-root/data/www/prereborn.ru/shared/logs -type f -mtime +14 -delete
+    endscript
+}

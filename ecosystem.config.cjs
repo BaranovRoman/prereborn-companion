@@ -43,6 +43,12 @@ module.exports = {
       },
       error_file: `${sharedLogs}/api-error.log`,
       out_file: `${sharedLogs}/api-out.log`,
+      // WK-196 - release.sh does `pm2 delete` + `pm2 start` on every deploy,
+      // so each release gets a new pm_id; without merge_logs PM2 suffixes
+      // log files with it (api-out-37.log, ...) and shared/logs grows by new
+      // files forever. Fixed names also let deploy/logrotate/prereborn-pm2
+      // rotate them.
+      merge_logs: true,
       time: true,
       max_memory_restart: "500M",
       kill_timeout: 5000
@@ -67,6 +73,7 @@ module.exports = {
       },
       error_file: `${sharedLogs}/web-error.log`,
       out_file: `${sharedLogs}/web-out.log`,
+      merge_logs: true, // WK-196 - see prereborn-api above
       time: true,
       max_memory_restart: "1G",
       kill_timeout: 5000
