@@ -48,8 +48,10 @@ describe("PrivacyPage", () => {
   it("marks missing operator details instead of guessing them and flags the draft", () => {
     render(<PrivacyPage operator={empty} />);
     expect(screen.getByRole("note").textContent).toMatch(/Черновик/);
-    // name, address, email (twice: operator + rights), date, log retention
+    // name, email (twice: operator + rights), date, log retention
     expect(screen.getAllByText("не заполнено").length).toBeGreaterThanOrEqual(5);
+    // the postal address is optional and simply absent, never a placeholder
+    expect(screen.queryByText("Почтовый адрес для обращений")).toBeNull();
     expect(screen.queryByRole("link", { name: /@/ })).toBeNull();
   });
 
@@ -76,6 +78,10 @@ describe("isPrivacyPolicyComplete", () => {
     expect(isPrivacyPolicyComplete(filled)).toBe(true);
     expect(isPrivacyPolicyComplete({ ...filled, contactEmail: "  " })).toBe(false);
     expect(isPrivacyPolicyComplete(empty)).toBe(false);
+  });
+
+  it("does not require a postal address", () => {
+    expect(isPrivacyPolicyComplete({ ...filled, postalAddress: null })).toBe(true);
   });
 
   it("keeps the shipped config a draft until the owner confirms the details", () => {

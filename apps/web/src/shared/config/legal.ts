@@ -5,13 +5,20 @@
 export interface PrivacyOperatorDetails {
   /** Full name of the operator (an individual, the project owner). */
   operatorName: string | null;
-  /** Postal address for written requests (ч. 3 ст. 14 152-ФЗ). */
+  /**
+   * Optional postal address for written requests. Not required in the policy by
+   * ст. 18.1 152-ФЗ; the owner decided not to publish a home address, so it is
+   * shown only when set and does not block publication.
+   */
   postalAddress: string | null;
   /** Email that receives data-subject requests. */
   contactEmail: string | null;
   /** Policy effective date, ISO YYYY-MM-DD. */
   effectiveDate: string | null;
-  /** How long nginx access logs (IP, User-Agent) live on the server, e.g. "30 дней". */
+  /**
+   * How long nginx access logs (IP, User-Agent) live on the server. Fill in only a
+   * term that is actually configured and verified (see the readiness doc).
+   */
   serverLogRetention: string | null;
 }
 
@@ -25,5 +32,10 @@ export const PRIVACY_OPERATOR: PrivacyOperatorDetails = {
 
 export const PRIVACY_PATH = "/privacy";
 
+const REQUIRED_DETAILS = ["operatorName", "contactEmail", "effectiveDate", "serverLogRetention"] as const;
+
 export const isPrivacyPolicyComplete = (details: PrivacyOperatorDetails): boolean =>
-  Object.values(details).every((value) => typeof value === "string" && value.trim().length > 0);
+  REQUIRED_DETAILS.every((key) => {
+    const value = details[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });

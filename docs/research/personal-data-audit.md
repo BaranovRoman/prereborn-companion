@@ -1,5 +1,11 @@
 # WK-191: аудит обработки персональных данных Prereborn
 
+> **Обновлено 2026-10-22 после решений владельца.** Юридические выводы сверены с первоисточниками,
+> фактическая конфигурация логов проверена, план и вопросы перед публикацией —
+> в [docs/legal/wk-191-publication-readiness.md](../legal/wk-191-publication-readiness.md).
+> Где документы расходятся, верным считается readiness-документ. Тикеты: удаление аккаунта —
+> WK-192, шифрование OAuth-токенов — WK-193, TLS — WK-194.
+
 ## Question
 
 Какие персональные данные (ПДн) фактически обрабатывают сайт prereborn.ru, API, Companion,
@@ -49,7 +55,7 @@
 | Дни активности Companion | `companion_activity_days` | heartbeat | агрегаты в /admin и публичной статистике | 90 дней (`ACTIVITY_RETENTION_DAYS`) | — |
 | Версия Companion, last seen | `stream_users`, `stream_companion_states` | Companion | — | до удаления | — |
 | Ник PUBG и платформа | только в памяти (кеш игроков 60 с, LRU матчей) | плагин PUBG | api.pubg.com | минуты | ключ API только на сервере |
-| IP, User-Agent, URL | **nginx access log** `/var/www/httpd-logs/prereborn.ru.access.log` (формат по умолчанию) | каждый запрос | — | **не известно** — ротация ISPmanager/logrotate не видна из репозитория | — |
+| IP, User-Agent, URL | **nginx access log** `/var/www/httpd-logs/prereborn.ru.access.log` (формат `combined`) | каждый запрос | — | ротация ISPmanager: daily, rotate 10, около 11 суток (проверено на сервере 2026-10-22) | — |
 | IP | rate limiter `express-rate-limit` (в памяти) | auth/upload | — | окно лимита | — |
 | Логи приложения (PM2 stdout) | requestId, метод, путь, статус, длительность, `streamUserId` в части событий; **без IP, email и тел запросов** | — | — | не известно (ротация PM2 не настроена в репо) | — |
 | Админ-доступ | allowlist `ADMIN_EMAILS` (secret деплоя) | — | — | — | `requireAdmin` |
