@@ -70,3 +70,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @prereborn/pubg-ui test
       - run: pnpm --filter @prereborn/pubg-ui build
+      # Finished match → real worker → loopback server → /pubg/widget in Chromium.
+      - run: pnpm --filter @prereborn/pubg-ui exec playwright install --with-deps chromium
+      - run: pnpm --filter @prereborn/pubg-ui test:e2e

@@ -93,6 +93,7 @@ impl Server {
         Ok(())
     }
     pub fn clients(&self) -> usize { self.clients.load(Ordering::SeqCst) }
+    pub fn address(&self) -> Option<std::net::SocketAddr> { self.http.server_addr().to_ip() }
     pub fn closed(&self) -> bool { self.closed.load(Ordering::SeqCst) }
     pub fn stop(&self) { self.closed.store(true, Ordering::SeqCst); self.http.unblock(); }
 }

@@ -56,7 +56,7 @@ pub struct Worker {
     history: History,
     active: bool,
     /// The session begins when this process is activated (autostart activates
-    /// it with Companion), in UTC, compared with each match's start time.
+    /// it with Companion), in UTC, compared with each match's finish time.
     session_started_at: Option<DateTime<Utc>>,
     overlay: Option<overlay::Server>,
     widget_error: Option<String>,
@@ -138,12 +138,15 @@ impl Worker {
 
     fn activate(&mut self) -> Result<Value, String> {
         if self.active { return Err("already_active".into()); }
-        if self.permits("overlay.publish") {
-            // A busy port must not cost the user their match history.
-            match overlay::Server::bind(&self.launch.package) {
-                Ok(server) => { self.overlay = Some(server); self.widget_error = None; },
-                Err(error) => self.widget_error = Some(error),
-            }
+        let overlay = self.permits("overlay.publish").then(|| overlay::Server::bind(&self.launch.package));
+        self.start_session(overlay)
+    }
+    fn start_session(&mut self, overlay: Option<Result<overlay::Server, String>>) -> Result<Value, String> {
+        // A busy port must not cost the user their match history.
+        match overlay {
+            Some(Ok(server)) => { self.overlay = Some(server); self.widget_error = None; },
+            Some(Err(error)) => self.widget_error = Some(error),
+            None => {},
         }
         self.active = true;
         self.session_started_at = Some(Utc::now());
@@ -192,12 +195,15 @@ impl Worker {
                "sessionStartedAt": self.session_started_at, "revision": self.revision})
     }
 
+    /// `configured`, `sessionStartedAt` and `apiStatus` only explain an empty
+    /// widget when it is opened in a browser; OBS never shows them.
     fn widget_state(&self) -> Value {
         let w = &self.settings.widget;
         let matches: Vec<Value> = self.session().into_iter().take(w.count as usize)
             .map(|m| json!({"id": m.id, "map": m.map, "place": m.place, "kills": m.kills, "damage": m.damage})).collect();
         json!({"enabled": w.enabled, "count": w.count, "scale": w.scale, "backgroundOpacity": w.background_opacity,
-               "showHeaders": w.show_headers, "matches": matches, "revision": self.revision})
+               "showHeaders": w.show_headers, "matches": matches, "revision": self.revision,
+               "configured": self.settings.configured(), "sessionStartedAt": self.session_started_at, "apiStatus": self.api_status})
     }
     fn publish_widget(&mut self, force: bool) {
         let Some(server) = &self.overlay else { return };
@@ -290,6 +296,24 @@ impl Worker {
     }
 }
 
+/// Test-only entry for the OBS page's browser test: a worker with every grant
+/// and its widget served on an ephemeral loopback port from `renderer`.
+#[cfg(feature = "harness")]
+pub fn harness(data_root: PathBuf, renderer: Vec<u8>) -> Result<(Worker, std::net::SocketAddr, DateTime<Utc>), String> {
+    let launch = Launch {
+        data_root, generation: uuid::Uuid::new_v4().to_string(),
+        package: PackageBinding { id: crate::PLUGIN_ID.into(), version: env!("CARGO_PKG_VERSION").into(), executable_hash: "0".repeat(64), manifest_hash: "0".repeat(64) },
+        capabilities: CAPABILITIES.iter().map(|c| c.to_string()).collect(),
+    };
+    let server = overlay::Server::start("127.0.0.1:0", std::sync::Arc::new(renderer))?;
+    let address = server.address().ok_or("widget_bind_failed")?;
+    let mut worker = Worker::new(launch);
+    worker.load();
+    worker.start_session(Some(Ok(server)))?;
+    let started = worker.session_started_at.ok_or("session_not_started")?;
+    Ok((worker, address, started))
+}
+
 fn empty(args: &Value) -> Result<(), String> {
     if args.is_null() || args == &json!({}) { Ok(()) } else { Err("unexpected_command_payload".into()) }
 }
@@ -332,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn one_request_in_flight_no_duplicates_and_session_uses_match_start() {
+    fn one_request_in_flight_no_duplicates_and_session_uses_match_finish() {
         let root = tempfile::tempdir().unwrap();
         let mut w = worker(root.path(), &CAPS);
         w.command("settings.save", settings("ProPlayer")).unwrap();
@@ -346,14 +370,15 @@ mod tests {
             w.backend_response(&request, Response::failed(&request, "backend_request_pending")).unwrap();
             assert_eq!(w.backend_request().unwrap().unwrap(), request);
         }
-        let earlier = entry(1, start - chrono::Duration::minutes(10));
+        // Started 40 min before the session and lasted 1700 s: finished before it.
+        let earlier = entry(1, start - chrono::Duration::minutes(40));
         let later = entry(2, start + chrono::Duration::minutes(5));
         w.backend_response(&request, ok(&request, page(json!([later, earlier]), true))).unwrap();
         assert!(w.backend_request().unwrap().is_none(), "next refresh is scheduled, not immediate");
         w.next_fetch_at = Some(Instant::now());
         let again = w.backend_request().unwrap().unwrap();
         assert_ne!(again.operation_key, request.operation_key);
-        w.backend_response(&again, ok(&again, page(json!([entry(2, start + chrono::Duration::minutes(5)), entry(1, start - chrono::Duration::minutes(10))]), true))).unwrap();
+        w.backend_response(&again, ok(&again, page(json!([entry(2, start + chrono::Duration::minutes(5)), entry(1, start - chrono::Duration::minutes(40))]), true))).unwrap();
         let listed = w.command("matches", json!({})).unwrap();
         assert_eq!(listed["matches"].as_array().unwrap().len(), 2);
         assert_eq!(listed["sessionIds"], json!(["00000000-0000-4000-8000-000000000002"]));
@@ -367,8 +392,10 @@ mod tests {
         let mut first = worker(root.path(), &CAPS);
         first.command("settings.save", settings("ProPlayer")).unwrap();
         first.command("host.activate", json!({})).unwrap();
+        first.session_started_at = Some(Utc::now() - chrono::Duration::hours(2));
         let request = first.backend_request().unwrap().unwrap();
-        first.backend_response(&request, ok(&request, page(json!([entry(1, Utc::now())]), true))).unwrap();
+        // Finished about half an hour ago, inside the first run.
+        first.backend_response(&request, ok(&request, page(json!([entry(1, Utc::now() - chrono::Duration::hours(1))]), true))).unwrap();
         assert_eq!(first.session().len(), 1);
         first.stop();
         std::thread::sleep(Duration::from_millis(5));
@@ -377,6 +404,46 @@ mod tests {
         assert_eq!(second.history.matches.len(), 1, "history kept");
         assert_eq!(second.session().len(), 0, "previous run's match is not in this session");
         assert_eq!(second.widget_state()["matches"], json!([]));
+    }
+
+    /// Worker → loopback overlay → `/pubg/widget/state`: what the OBS page
+    /// polls, without restarting the worker or reopening the page.
+    #[test]
+    fn a_finished_match_reaches_the_served_widget_state_while_running() {
+        use std::{io::{Read, Write}, net::TcpStream};
+        let root = tempfile::tempdir().unwrap();
+        let mut w = worker(root.path(), &["ui", "data.private", "backend.access", "overlay.publish"]);
+        w.command("settings.save", settings("ProPlayer")).unwrap();
+        let server = overlay::Server::start("127.0.0.1:0", std::sync::Arc::new(b"renderer".to_vec())).unwrap();
+        let address = server.address().unwrap();
+        w.start_session(Some(Ok(server))).unwrap();
+        let state = || {
+            let mut stream = TcpStream::connect(address).unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            write!(stream, "GET /pubg/widget/state HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").unwrap();
+            let mut response = String::new(); stream.read_to_string(&mut response).unwrap();
+            assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+            serde_json::from_str::<Value>(response.split("\r\n\r\n").nth(1).unwrap()).unwrap()
+        };
+        let empty = state();
+        assert_eq!((empty["enabled"].as_bool(), empty["configured"].as_bool()), (Some(true), Some(true)));
+        assert_eq!(empty["matches"], json!([]));
+        assert!(empty["sessionStartedAt"].is_string());
+        // Already running when the plugin started; its result arrives later.
+        let start = w.session_started_at.unwrap();
+        let request = w.backend_request().unwrap().unwrap();
+        w.backend_response(&request, ok(&request, page(json!([entry(7, start - chrono::Duration::minutes(10)), entry(1, start - chrono::Duration::hours(2))]), true))).unwrap();
+        let shown = state();
+        assert_eq!(shown["matches"], json!([{"id": "00000000-0000-4000-8000-000000000007", "map": "Erangel", "place": 7, "kills": 7, "damage": 700}]));
+        // The next finished match is added to the same served projection.
+        w.command("refresh", json!({})).unwrap();
+        let next = w.backend_request().unwrap().unwrap();
+        w.backend_response(&next, ok(&next, page(json!([entry(8, start + chrono::Duration::minutes(30)), entry(7, start - chrono::Duration::minutes(10))]), true))).unwrap();
+        assert_eq!(state()["matches"].as_array().unwrap().iter().map(|m| m["kills"].as_u64().unwrap()).collect::<Vec<_>>(), vec![8, 7]);
+        // Turning the widget off is published at once, matches stay.
+        w.command("settings.save", json!({"settings": {"player": "ProPlayer", "platform": "steam", "widget": {"enabled": false, "count": 3, "scale": 100, "backgroundOpacity": 50, "showHeaders": true}}})).unwrap();
+        assert_eq!(state()["enabled"], false);
+        w.stop();
     }
 
     #[test]

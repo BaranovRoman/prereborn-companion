@@ -3,7 +3,7 @@
   "id": "pubg",
   "name": "PUBG",
   "description": "История матчей PUBG через официальный PUBG API: карта, место, убийства и урон. Каждый запуск Companion — новая сессия; необязательный OBS-виджет с матчами сессии.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "platform": "windows",
   "arch": "x86_64",
   "minApi": 2,

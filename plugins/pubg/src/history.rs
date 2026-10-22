@@ -11,8 +11,8 @@ pub const LIMIT: usize = 200;
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Match {
     pub id: String,
-    /// Match start (PUBG `createdAt`): session membership is decided by this,
-    /// never by when the result reached us.
+    /// Match start (PUBG `createdAt`). With the duration it gives the finish
+    /// time that decides session membership, never when the result reached us.
     pub created_at: DateTime<Utc>,
     pub duration_sec: u32,
     pub map: String,
@@ -29,6 +29,7 @@ impl Match {
             && self.place.is_none_or(|p| (1..=200).contains(&p)) && self.kills <= 200 && self.damage <= 100_000
             && self.duration_sec <= 6 * 3600
     }
+    pub fn finished_at(&self) -> DateTime<Utc> { self.created_at + chrono::Duration::seconds(self.duration_sec.into()) }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -67,10 +68,11 @@ impl History {
         self.matches.truncate(LIMIT);
         added
     }
-    /// Matches that started at or after the session start, newest first.
+    /// Matches that finished at or after the session start, newest first: a
+    /// match already running when Companion started belongs to this session.
     pub fn session(&self, started_at: Option<DateTime<Utc>>) -> Vec<&Match> {
         match started_at {
-            Some(start) => self.matches.iter().filter(|m| m.created_at >= start).collect(),
+            Some(start) => self.matches.iter().filter(|m| m.finished_at() >= start).collect(),
             None => Vec::new(),
         }
     }
@@ -101,13 +103,16 @@ mod tests {
         assert_eq!(h.matches[1].damage, 7);
     }
     #[test]
-    fn session_counts_by_match_start_not_by_arrival() {
+    fn session_counts_by_match_finish_not_by_start_or_arrival() {
         let mut h = History::default();
         let start = Utc::now() - chrono::Duration::minutes(15);
-        // Already running when Companion started, result arrives later.
-        h.merge(vec![sample(1, 25)]);
-        h.merge(vec![sample(2, 5)]);
-        assert_eq!(h.session(Some(start)).iter().map(|m| m.kills).collect::<Vec<_>>(), vec![2]);
+        // Finished (25 min) before Companion started: a previous session.
+        h.merge(vec![sample(1, 50)]);
+        // Already running when Companion started (began 25 min ago, lasted
+        // 25 min), its result arrives later: this session.
+        h.merge(vec![sample(2, 35)]);
+        h.merge(vec![sample(3, 5)]);
+        assert_eq!(h.session(Some(start)).iter().map(|m| m.kills).collect::<Vec<_>>(), vec![3, 2]);
         assert!(h.session(None).is_empty());
     }
     #[test]

@@ -1,6 +1,6 @@
 [package]
 name = "companion-pubg-plugin"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 
 [dependencies]
@@ -15,3 +15,12 @@ chrono = { version = "0.4", features = ["clock", "serde"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+[features]
+# Test-only: drives a real worker and its widget server without the Companion
+# host (examples/widget_harness.rs, used by ui/e2e/widget.e2e.mjs).
+harness = []
+
+[[example]]
+name = "widget_harness"
+required-features = ["harness"]
