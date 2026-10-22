@@ -1,6 +1,6 @@
 //! Commands of the installed PUBG executable. Paths and grants come from the
 //! verified host launch, never from an iframe command or a backend response.
-use crate::{history::{History, Match}, overlay, settings::Settings};
+use crate::{diagnostics, history::{History, Match}, overlay, settings::Settings};
 use chrono::{DateTime, Utc};
 use companion_plugin_protocol::{backend::{Request, Response}, PackageBinding};
 use serde::Deserialize;
@@ -70,6 +70,11 @@ pub struct Worker {
     last_fetch_at: Option<DateTime<Utc>>,
     /// Bumped on every visible change; the UI re-reads matches when it moves.
     revision: u64,
+    /// Latency diagnostics: when the pending request was planned, the match
+    /// ids last published to the widget, and new ones not yet read by a page.
+    pending_since: Option<Instant>,
+    published_ids: Vec<String>,
+    awaiting_serve: Option<Vec<String>>,
 }
 
 impl Worker {
@@ -78,6 +83,7 @@ impl Worker {
             launch, loaded: false, settings: Settings::default(), history: History::default(), active: false,
             session_started_at: None, overlay: None, widget_error: None, published: None, pending: None, sequence: 0,
             next_fetch_at: None, failures: 0, api_status: None, last_error: None, last_fetch_at: None, revision: 0,
+            pending_since: None, published_ids: Vec::new(), awaiting_serve: None,
         }
     }
     fn permits(&self, capability: &str) -> bool { self.launch.capabilities.iter().any(|c| c == capability) }
@@ -94,6 +100,7 @@ impl Worker {
         if let Err(error) = self.history.save(&self.launch.data_root) { self.last_error = Some(error); }
     }
     fn session(&self) -> Vec<&Match> { self.history.session(self.session_started_at) }
+    fn diag(&self, event: &str, fields: Value) { diagnostics::record(&self.launch.data_root, event, fields); }
 
     pub fn status(&self) -> Value {
         json!({
@@ -119,6 +126,7 @@ impl Worker {
             "host.poll" => {
                 if !(args.is_null() || args.is_object()) { return Err("invalid_poll_context".into()); }
                 self.publish_widget(false);
+                self.note_widget_served();
                 Ok(json!({"status": self.status(), "soundIntents": []}))
             },
             _ if name.starts_with("host.") => Err("unsupported_worker_command".into()),
@@ -214,10 +222,29 @@ impl Worker {
         }
         let fresh = self.published.is_some_and(|(rev, at)| rev == self.revision && at.elapsed() < Duration::from_secs(5));
         if fresh && !force { return; }
-        match server.publish(&self.widget_state()) {
-            Ok(()) => self.published = Some((self.revision, Instant::now())),
+        let state = self.widget_state();
+        let ids: Vec<String> = state["matches"].as_array().into_iter().flatten().filter_map(|m| m["id"].as_str().map(str::to_string)).collect();
+        let changed = ids != self.published_ids;
+        // A read recorded for an earlier state must not count for this one.
+        if changed { server.take_served(); }
+        match server.publish(&state) {
+            Ok(()) => {
+                self.published = Some((self.revision, Instant::now()));
+                if changed {
+                    let added: Vec<String> = ids.iter().filter(|id| !self.published_ids.contains(id)).cloned().collect();
+                    self.diag("widget_published", json!({"revision": self.revision, "enabled": state["enabled"], "ids": ids, "newIds": added}));
+                    self.awaiting_serve = (!added.is_empty()).then_some(added);
+                    self.published_ids = ids;
+                }
+            },
             Err(error) => self.widget_error = Some(error),
         }
+    }
+    fn note_widget_served(&mut self) {
+        if self.awaiting_serve.is_none() { return; }
+        let Some(at) = self.overlay.as_ref().and_then(overlay::Server::take_served) else { return };
+        let ids = self.awaiting_serve.take();
+        self.diag("widget_served", json!({"servedAt": at, "newIds": ids, "clients": self.overlay.as_ref().map_or(0, overlay::Server::clients)}));
     }
 
     fn query(&self) -> std::collections::BTreeMap<String, String> {
@@ -234,6 +261,8 @@ impl Worker {
         let request = Request { resource: "matches".into(), operation_key: format!("matches:{}:{}", self.launch.generation, self.sequence), query: self.query(), body: None };
         request.validate()?;
         self.pending = Some(request.clone());
+        self.pending_since = Some(Instant::now());
+        self.diag("request", json!({"seq": self.sequence}));
         Ok(Some(request))
     }
     fn retry_in(&mut self, delay: Duration) { self.next_fetch_at = Some(Instant::now() + delay); }
@@ -251,13 +280,18 @@ impl Worker {
             return Ok(());
         }
         self.pending = None;
+        let latency_ms = self.pending_since.take().map(|at| at.elapsed().as_millis() as u64);
         if request.query != self.query() || !self.active {
             // Settings changed while the call was in flight.
             if self.active { self.retry_in(Duration::ZERO); }
+            self.diag("response", json!({"seq": self.sequence, "latencyMs": latency_ms, "discarded": true}));
             return Ok(());
         }
         self.last_fetch_at = Some(Utc::now());
         let before = (self.api_status.clone(), self.history.matches.len());
+        let known: std::collections::HashSet<String> = self.history.matches.iter().map(|m| m.id.clone()).collect();
+        let http_status = response.status;
+        let transport_error = response.error.clone();
         let ok = response.error.is_none() && response.status.is_some_and(|s| (200..300).contains(&s));
         let body = response.body.filter(|b| ok && b.is_object() && companion_plugin_protocol::backend::public_response(b));
         match body.as_ref().and_then(|b| b.get("status")).and_then(Value::as_str) {
@@ -291,8 +325,34 @@ impl Worker {
             },
         }
         if before != (self.api_status.clone(), self.history.matches.len()) { self.revision += 1; }
+        self.note_response(latency_ms, http_status, transport_error, body.as_ref(), &known);
         self.publish_widget(true);
         Ok(())
+    }
+
+    /// One `response` line, and a `match_added` line per new match with how
+    /// long after its finish it arrived and the backend's own timestamps.
+    fn note_response(&self, latency_ms: Option<u64>, http_status: Option<u16>, error: Option<String>, body: Option<&Value>, known: &std::collections::HashSet<String>) {
+        let added: Vec<&Match> = self.history.matches.iter().filter(|m| !known.contains(&m.id)).collect();
+        let timing = body.and_then(|b| b.get("timing"));
+        self.diag("response", json!({
+            "seq": self.sequence, "latencyMs": latency_ms, "httpStatus": http_status, "error": error, "apiStatus": self.api_status,
+            "complete": body.and_then(|b| b.get("complete")), "matches": body.and_then(|b| b.get("matches")).and_then(Value::as_array).map(Vec::len),
+            "newIds": added.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            "playerFetchedAt": timing.and_then(|t| t.get("playerFetchedAt")),
+        }));
+        let now = Utc::now();
+        for m in added {
+            let backend = timing.and_then(|t| t.get("matches")).and_then(Value::as_array).into_iter().flatten()
+                .find(|t| t.get("id").and_then(Value::as_str) == Some(m.id.as_str()));
+            let field = |name: &str| backend.and_then(|t| t.get(name)).cloned().unwrap_or(Value::Null);
+            self.diag("match_added", json!({
+                "id": m.id, "map": m.map, "createdAt": m.created_at, "finishedAt": m.finished_at(),
+                "sinceFinishSec": (now - m.finished_at()).num_seconds(),
+                "inSession": self.session_started_at.is_some_and(|start| m.finished_at() >= start),
+                "listedAfter": field("listedAfter"), "listedAt": field("listedAt"), "detailsAt": field("detailsAt"),
+            }));
+        }
     }
 }
 
@@ -432,9 +492,25 @@ mod tests {
         // Already running when the plugin started; its result arrives later.
         let start = w.session_started_at.unwrap();
         let request = w.backend_request().unwrap().unwrap();
-        w.backend_response(&request, ok(&request, page(json!([entry(7, start - chrono::Duration::minutes(10)), entry(1, start - chrono::Duration::hours(2))]), true))).unwrap();
+        let mut body = page(json!([entry(7, start - chrono::Duration::minutes(10)), entry(1, start - chrono::Duration::hours(2))]), true);
+        body["timing"] = json!({"playerFetchedAt": "2026-10-22T10:01:30Z", "matches": [
+            {"id": "00000000-0000-4000-8000-000000000007", "listedAfter": "2026-10-22T10:00:30Z", "listedAt": "2026-10-22T10:01:30Z", "detailsAt": "2026-10-22T10:01:31Z"}]});
+        w.backend_response(&request, ok(&request, body)).unwrap();
         let shown = state();
         assert_eq!(shown["matches"], json!([{"id": "00000000-0000-4000-8000-000000000007", "map": "Erangel", "place": 7, "kills": 7, "damage": 700}]));
+        // The latency log follows the match from the request to the page read.
+        w.command("host.poll", json!({})).unwrap();
+        let log: Vec<Value> = std::fs::read_to_string(root.path().join(diagnostics::FILE)).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        let events: Vec<&str> = log.iter().map(|e| e["event"].as_str().unwrap()).collect();
+        assert_eq!(&events[events.len() - 6..], ["request", "response", "match_added", "match_added", "widget_published", "widget_served"], "{events:?}");
+        let added = log.iter().find(|e| e["event"] == "match_added" && e["id"] == "00000000-0000-4000-8000-000000000007").unwrap();
+        assert_eq!((added["inSession"].as_bool(), added["listedAfter"].as_str(), added["listedAt"].as_str()), (Some(true), Some("2026-10-22T10:00:30Z"), Some("2026-10-22T10:01:30Z")));
+        assert!(added["sinceFinishSec"].as_i64().unwrap() < 0, "this fixture match ends after now");
+        let response = log.iter().rev().find(|e| e["event"] == "response").unwrap();
+        assert_eq!((response["httpStatus"].as_u64(), response["apiStatus"].as_str(), response["newIds"].as_array().map(Vec::len)), (Some(200), Some("ok"), Some(2)));
+        assert!(response["latencyMs"].is_u64());
+        let published = log.iter().rev().find(|e| e["event"] == "widget_published").unwrap();
+        assert_eq!(published["newIds"], json!(["00000000-0000-4000-8000-000000000007"]));
         // The next finished match is added to the same served projection.
         w.command("refresh", json!({})).unwrap();
         let next = w.backend_request().unwrap().unwrap();
