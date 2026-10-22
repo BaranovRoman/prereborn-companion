@@ -24,3 +24,11 @@
 .pubg-widget__map { min-width: 6.5em; font-weight: 500; }
 .pubg-widget__place--win { color: #f5c542; }
 .pubg-widget__place--top { color: #8fd694; }
+/* Browser-only explanation of an empty widget (never rendered in OBS). */
+.pubg-widget-notice {
+  max-width: 32em; margin: 1em; padding: .75em 1em; border-radius: .5em;
+  font: 500 15px/1.4 "Inter", "Segoe UI", system-ui, sans-serif;
+  color: #f2f4f7; background: rgba(12, 14, 18, .85);
+}
+.pubg-widget-notice p { margin: 0; }
+.pubg-widget-notice__hint { margin-top: .5em !important; font-size: .85em; color: rgba(242, 244, 247, .62); }

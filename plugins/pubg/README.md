@@ -19,17 +19,19 @@ generic plugin runtime, its signed manifest grants and the host's backend transp
   other failures. API errors are statuses, never worker errors, so they cannot stop the
   plugin or Companion.
 - **Session.** Starts when the worker is activated: with «Запускать вместе с Companion»
-  that is each Companion launch. A match belongs to the session when its PUBG start time
-  (`createdAt`) is at or after the session start, so a match already running at launch is
-  excluded and a late API result still counts by its start. No manual session controls.
+  that is each Companion launch. A match belongs to the session when it finished
+  (`createdAt` + duration) at or after the session start, so a match already running at
+  launch counts, and a late API result still counts by its finish. No manual session controls.
 - **History.** `plugins/data/pubg/history.json`, deduplicated by match id, newest first,
   at most 200, kept across launches. Changing nickname or platform starts a new history.
 - **Settings.** `plugins/data/pubg/settings.json`: nickname, platform
   (`steam`/`kakao`/`psn`/`xbox`) and widget options. Edited only in the plugin UI.
 - **OBS widget.** While the plugin is enabled the worker serves
   `http://127.0.0.1:3667/pubg/widget` (the signed `ui/widget/index.html`) and its state at
-  `/pubg/widget/state`. Transparent page, polls every 2 s. It renders nothing when it is
-  turned off or the session has no matches. Options: on/off, 3–10 matches, scale
+  `/pubg/widget/state`. Transparent page, polls every 2 s and redraws when the state's
+  content changes. In OBS it renders nothing when it is turned off or the session has no
+  matches; opened in an ordinary browser it says why instead (off, no nickname, no
+  finished match yet, no connection to the plugin). Options: on/off, 3–10 matches, scale
   50–200 %, background opacity, column headers.
 
 The plugin does not read game memory, the game process or the anti-cheat.
@@ -40,6 +42,7 @@ The plugin does not read game memory, the game process or the anti-cheat.
 cargo test --manifest-path plugins/Cargo.toml -p companion-pubg-plugin
 pnpm --filter @prereborn/pubg-ui test
 pnpm --filter @prereborn/pubg-ui build        # dist/ (UI) + dist/widget/index.html
+pnpm --filter @prereborn/pubg-ui test:e2e     # after build: finished match → worker → /pubg/widget in Chromium
 ```
 
 ## Release

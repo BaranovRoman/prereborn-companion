@@ -88,7 +88,7 @@ function MatchesView({ matches, status }: { matches: api.Matches | null; status:
   return <section className="pubg-view">
     <div className="pubg-view__header"><div>
       <h2>Последние матчи</h2>
-      <p>Обновляется автоматически. В сессию попадают матчи, начатые после запуска Companion.</p>
+      <p>Обновляется автоматически. В сессию попадают матчи, завершённые после запуска Companion.</p>
     </div>
     <Button variant="ghost" disabled={!status?.active || !status.configured || status.fetching} onClick={() => void api.invoke("refresh").catch(() => undefined)}>Обновить</Button></div>
     {!matches ? <p className="ui-text-muted">Чтение истории…</p>
