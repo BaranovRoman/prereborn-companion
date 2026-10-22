@@ -62,6 +62,11 @@ const integrationStatusCache = new Map<
 >();
 const integrationStatusRefreshes = new Map<string, Promise<IntegrationStatus>>();
 
+// WK-192 - account deletion: no cached Twitch/DonationAlerts status survives.
+export const forgetIntegrationStatus = (streamUserId: string): void => {
+    integrationStatusCache.delete(streamUserId);
+};
+
 export const loadIntegrationStatus = async (
     streamUserId: string,
     requestId?: string

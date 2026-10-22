@@ -6,6 +6,7 @@ import {
     getUserController,
     endSessionController,
     resetOnboardingController,
+    deleteUserController,
 } from "../../controllers/admin/users.js";
 
 export const adminUsersRouter = Router();
@@ -19,3 +20,4 @@ adminUsersRouter.get("/", listUsersController);
 adminUsersRouter.get("/:id", getUserController);
 adminUsersRouter.post("/:id/session/end", endSessionController);
 adminUsersRouter.post("/:id/onboarding/reset", resetOnboardingController);
+adminUsersRouter.delete("/:id", deleteUserController);

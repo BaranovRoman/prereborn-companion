@@ -184,6 +184,9 @@ export const getDonationAlertsStatus = async (streamUserId: string) => {
     };
 };
 
+// WK-192 - DonationAlerts' public OAuth API has no token revocation endpoint,
+// so dropping the stored tokens is all we can do on our side; the user can
+// also remove the app's access in their DonationAlerts settings.
 export const disconnectDonationAlerts = async (streamUserId: string) => {
     await pool.query("DELETE FROM stream_donation_alerts_links WHERE stream_user_id=$1", [streamUserId]);
 };

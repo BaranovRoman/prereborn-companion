@@ -447,13 +447,69 @@ export const getTwitchChatStatus = async (streamUserId: string) => {
 export const getTwitchViewerEvents = (streamUserId: string): TwitchViewerEvent[] =>
     viewerEvents.get(streamUserId) ?? [];
 
-export const disconnectTwitch = async (streamUserId: string) => {
+// WK-192 - drops the EventSub connection and every per-user in-memory cache.
+// Used by disconnect and by account deletion.
+export const clearTwitchUserState = (streamUserId: string) => {
     stopTwitchChat(streamUserId);
     chatMessages.delete(streamUserId);
     recentSubscribers.delete(streamUserId);
     audienceCache.delete(streamUserId);
     viewerEvents.delete(streamUserId);
-    await pool.query("DELETE FROM stream_twitch_links WHERE stream_user_id = $1", [streamUserId]);
+};
+
+export interface TwitchStoredTokens {
+    accessToken: string | null;
+    refreshToken: string | null;
+}
+
+// WK-192 - asks Twitch to invalidate the tokens we held, so nothing stays
+// usable at the provider once the link row is gone. Best-effort: the local
+// row is deleted regardless, a failed revoke is only logged (never the token
+// itself). Both tokens are sent: an expired access token is rejected with
+// 400, while its refresh token would otherwise still be redeemable.
+export const revokeTwitchTokens = async (
+    streamUserId: string,
+    tokens: TwitchStoredTokens
+): Promise<void> => {
+    const clientId = env.twitchClientId;
+    if (!clientId) return;
+    const values = [tokens.accessToken, tokens.refreshToken].filter(
+        (token): token is string => Boolean(token)
+    );
+    await Promise.all(values.map(async (token) => {
+        try {
+            const response = await fetch("https://id.twitch.tv/oauth2/revoke", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: new URLSearchParams({ client_id: clientId, token }),
+            });
+            // 400 "Invalid token" means it is already dead - nothing to do.
+            if (!response.ok && response.status !== 400) {
+                logger.warn("Twitch token revoke failed", { streamUserId, status: response.status });
+            }
+        } catch (error) {
+            logger.warn("Twitch token revoke failed", {
+                streamUserId,
+                message: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }));
+};
+
+export const disconnectTwitch = async (streamUserId: string) => {
+    clearTwitchUserState(streamUserId);
+    const result = await pool.query<{ access_token: string | null; refresh_token: string | null }>(
+        `DELETE FROM stream_twitch_links WHERE stream_user_id = $1
+         RETURNING access_token, refresh_token`,
+        [streamUserId]
+    );
+    const link = result.rows[0];
+    if (link) {
+        await revokeTwitchTokens(streamUserId, {
+            accessToken: link.access_token,
+            refreshToken: link.refresh_token,
+        });
+    }
 };
 
 // WK-116 Phase 4 - the reverse of every other lookup in this file: the

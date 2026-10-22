@@ -145,6 +145,20 @@ export const verifyStreamUserCredentials = async (
     return toStreamUser(row);
 };
 
+// WK-192 - re-confirms the signed-in user's password before an irreversible
+// action (account deletion). Never returns the hash.
+export const verifyStreamUserPassword = async (
+    id: string,
+    password: string
+): Promise<boolean> => {
+    const result = await pool.query<{ password_hash: string }>(
+        "SELECT password_hash FROM stream_users WHERE id = $1",
+        [id]
+    );
+    const row = result.rows[0];
+    return row ? bcrypt.compare(password, row.password_hash) : false;
+};
+
 export const findStreamUserById = async (
     id: string
 ): Promise<StreamUser | null> => {

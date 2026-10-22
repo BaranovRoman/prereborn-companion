@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
 import { pool } from "../db/client.js";
@@ -61,9 +61,12 @@ const createTestUser = async (): Promise<string> => {
 
 beforeAll(async () => {
     await createTables();
+    // WK-192 - disconnect now revokes the tokens at Twitch; keep it offline.
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(null, { status: 200 })));
 });
 
 afterAll(async () => {
+    vi.unstubAllGlobals();
     __setChatClientFactoryForTests(null);
     if (createdUserIds.length > 0) {
         await pool.query(`DELETE FROM stream_users WHERE id = ANY($1::int[])`, [createdUserIds.map(Number)]);

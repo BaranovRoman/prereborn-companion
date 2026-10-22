@@ -9,7 +9,8 @@ import {
 import {
     endActiveSession,
 } from "../../services/stream-session-service.js";
-import { resetOnboarding } from "../../services/stream-user-service.js";
+import { findStreamUserById, resetOnboarding } from "../../services/stream-user-service.js";
+import { deleteStreamUserAccount } from "../../services/account-deletion-service.js";
 import { logger } from "../../utils/logger.js";
 
 // req.streamUserId гарантирован authenticateStreamUser, admin-статус -
@@ -132,6 +133,54 @@ export const resetOnboardingController = async (
         });
     } catch (error) {
         logger.error("Admin reset onboarding error", {
+            requestId: req.requestId,
+            message: error instanceof Error ? error.message : String(error),
+        });
+        res.status(500).json({ error: "Внутренняя ошибка сервера" });
+    }
+};
+
+const adminDeleteSchema = z.object({ confirmEmail: z.string().min(1).max(320) });
+
+// WK-192 - executes a deletion request that came in by email, without SQL.
+// An admin can't delete their own account here (that goes through /account
+// with a password). The body must repeat the target's email - a guard
+// against deleting the wrong id, not an auth factor. The log line carries
+// ids only.
+export const deleteUserController = async (req: Request, res: Response) => {
+    if (!/^\d{1,10}$/.test(req.params.id)) {
+        return res.status(404).json({ error: "Пользователь не найден" });
+    }
+    const targetId = String(Number(req.params.id));
+    try {
+        if (targetId === req.streamUserId) {
+            return res.status(403).json({ error: "Нельзя удалить собственный аккаунт из админки" });
+        }
+        const parsed = adminDeleteSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: "Укажите email удаляемого пользователя" });
+        }
+        const target = await findStreamUserById(targetId);
+        if (!target) {
+            return res.status(404).json({ error: "Пользователь не найден" });
+        }
+        if (target.email.toLowerCase() !== parsed.data.confirmEmail.trim().toLowerCase()) {
+            return res.status(400).json({ error: "Email не совпадает" });
+        }
+
+        const deleted = await deleteStreamUserAccount(targetId);
+        if (!deleted) {
+            return res.status(404).json({ error: "Пользователь не найден" });
+        }
+        logger.info("Stream account deleted", {
+            requestId: req.requestId,
+            streamUserId: targetId,
+            initiatedBy: "admin",
+            adminStreamUserId: req.streamUserId,
+        });
+        res.status(204).end();
+    } catch (error) {
+        logger.error("Admin delete user error", {
             requestId: req.requestId,
             message: error instanceof Error ? error.message : String(error),
         });

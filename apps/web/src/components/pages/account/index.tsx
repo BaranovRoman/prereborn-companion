@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { DownloadButton } from "@/components/public-site/PublicShell";
 import { streamAuthApi } from "@/entities/stream-user/api/stream-auth";
@@ -68,6 +68,7 @@ export const AccountPage = () => {
             <SignOutButton />
             {user.isAdmin && <Link className={styles.linkButton} href="/admin">Администрирование</Link>}
           </div>
+          <DeleteAccount />
         </section>
 
         <section className={styles.card} aria-labelledby="companion-title">
@@ -162,6 +163,78 @@ const LegacyToken = ({ createdAt: initialCreatedAt }: { createdAt: string | null
         </div>
       )}
       {state === "error" && <p className={styles.error} role="alert">Не удалось отозвать токен. Попробуйте ещё раз.</p>}
+    </div>
+  );
+};
+
+// WK-192 - self-service deletion (152-ФЗ). Two steps: open the warning, then
+// confirm with the password - the server re-checks it before erasing the
+// account, its streams, Companion history, integrations and uploaded files.
+const DeleteAccount = () => {
+  const router = useRouter();
+  const [confirming, setConfirming] = useState(false);
+  const [password, setPassword] = useState("");
+  const [state, setState] = useState<"idle" | "busy" | "wrong-password" | "error">("idle");
+
+  const cancel = () => {
+    setConfirming(false);
+    setPassword("");
+    setState("idle");
+  };
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setState("busy");
+    try {
+      await streamAuthApi.deleteAccount(password);
+      router.replace("/");
+    } catch (error) {
+      const status = (error as { response?: { status?: number } }).response?.status;
+      setState(status === 403 ? "wrong-password" : "error");
+    }
+  };
+
+  return (
+    <div className={styles.sub}>
+      <h3>Удаление аккаунта</h3>
+      {confirming ? (
+        <form className={styles.confirm} onSubmit={submit} aria-label="Подтверждение удаления аккаунта">
+          <p>
+            <b>Это действие необратимо.</b> Будут удалены аккаунт, история стримов и матчей, данные Companion, привязки
+            Steam, Twitch и DonationAlerts и загруженные изображения. Восстановить их будет нельзя.
+          </p>
+          <label className={styles.field}>
+            <span>Пароль от аккаунта</span>
+            <input
+              className={styles.input}
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+            />
+          </label>
+          <div className={styles.actions}>
+            <button type="submit" className={`${styles.button} ${styles.danger}`} disabled={state === "busy" || !password}>
+              Удалить навсегда
+            </button>
+            <button type="button" className={styles.button} onClick={cancel} disabled={state === "busy"}>
+              Отмена
+            </button>
+          </div>
+          {state === "wrong-password" && <p className={styles.error} role="alert">Неверный пароль.</p>}
+          {state === "error" && <p className={styles.error} role="alert">Не удалось удалить аккаунт. Попробуйте позже.</p>}
+        </form>
+      ) : (
+        <>
+          <p className={styles.subtle}>Аккаунт и все связанные с ним данные будут удалены без возможности восстановления.</p>
+          <div className={styles.actions}>
+            <button type="button" className={`${styles.button} ${styles.danger}`} onClick={() => setConfirming(true)}>
+              Удалить аккаунт
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 };
