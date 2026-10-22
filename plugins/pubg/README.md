@@ -24,6 +24,10 @@ generic plugin runtime, its signed manifest grants and the host's backend transp
   launch counts, and a late API result still counts by its finish. No manual session controls.
 - **History.** `plugins/data/pubg/history.json`, deduplicated by match id, newest first,
   at most 200, kept across launches. Changing nickname or platform starts a new history.
+- **Latency diagnostics.** `plugins/data/pubg/diagnostics.log` (JSON lines, 256 KB + one rotated
+  file): each backend request/response, every new match with seconds since its finish and the
+  backend's `timing` (when it first saw the match in the player's list), and when the widget
+  published and an open page first read it. See `docs/research/pubg-widget-latency.md`.
 - **Settings.** `plugins/data/pubg/settings.json`: nickname, platform
   (`steam`/`kakao`/`psn`/`xbox`) and widget options. Edited only in the plugin UI.
 - **OBS widget.** While the plugin is enabled the worker serves

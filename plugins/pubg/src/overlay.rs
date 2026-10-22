@@ -13,9 +13,13 @@ const MAX_CLIENTS: usize = 8;
 pub struct Server {
     http: Arc<tiny_http::Server>,
     state: Arc<Mutex<Option<Arc<Vec<u8>>>>>,
+    /// When a page first read the latest changed state (latency diagnostics).
+    served: Arc<Served>,
     closed: Arc<AtomicBool>,
     clients: Arc<AtomicUsize>,
 }
+#[derive(Default)]
+struct Served { unread: AtomicBool, at: Mutex<Option<chrono::DateTime<chrono::Utc>>> }
 
 fn header(name: &str, value: &str) -> tiny_http::Header {
     tiny_http::Header::from_bytes(name.as_bytes(), value.as_bytes()).unwrap()
@@ -67,8 +71,8 @@ impl Server {
         let http = Arc::new(tiny_http::Server::http(address).map_err(|e| {
             format!("widget_bind_failed:os={}", e.downcast_ref::<std::io::Error>().and_then(std::io::Error::raw_os_error).unwrap_or(0))
         })?);
-        let server = Self { http: http.clone(), state: Default::default(), closed: Default::default(), clients: Default::default() };
-        let (state, closed, clients) = (server.state.clone(), server.closed.clone(), server.clients.clone());
+        let server = Self { http: http.clone(), state: Default::default(), served: Default::default(), closed: Default::default(), clients: Default::default() };
+        let (state, served, closed, clients) = (server.state.clone(), server.served.clone(), server.closed.clone(), server.clients.clone());
         std::thread::spawn(move || while !closed.load(Ordering::SeqCst) {
             let request = match http.recv_timeout(Duration::from_millis(100)) {
                 Ok(Some(request)) => request,
@@ -80,8 +84,8 @@ impl Server {
                 reply(request, 503, "application/json", br#"{"error":"widget_client_limit"}"#.to_vec());
                 continue;
             }
-            let (state, clients, renderer) = (state.clone(), clients.clone(), renderer.clone());
-            std::thread::spawn(move || { serve(request, &renderer, &state); clients.fetch_sub(1, Ordering::SeqCst); });
+            let (state, served, clients, renderer) = (state.clone(), served.clone(), clients.clone(), renderer.clone());
+            std::thread::spawn(move || { serve(request, &renderer, &state, &served); clients.fetch_sub(1, Ordering::SeqCst); });
         });
         Ok(server)
     }
@@ -89,9 +93,15 @@ impl Server {
         if self.closed() { return Err("widget_closed".into()); }
         let bytes = serde_json::to_vec(state).map_err(|_| "widget_encoding_failed")?;
         if bytes.len() > 64 * 1024 { return Err("widget_projection_limit".into()); }
-        *self.state.lock().map_err(|_| "widget_state_poisoned")? = Some(Arc::new(bytes));
+        let mut current = self.state.lock().map_err(|_| "widget_state_poisoned")?;
+        if current.as_deref() != Some(&bytes) {
+            *current = Some(Arc::new(bytes));
+            self.served.unread.store(true, Ordering::SeqCst);
+        }
         Ok(())
     }
+    /// Once per changed state: when a page first read it.
+    pub fn take_served(&self) -> Option<chrono::DateTime<chrono::Utc>> { self.served.at.lock().ok()?.take() }
     pub fn clients(&self) -> usize { self.clients.load(Ordering::SeqCst) }
     pub fn address(&self) -> Option<std::net::SocketAddr> { self.http.server_addr().to_ip() }
     pub fn closed(&self) -> bool { self.closed.load(Ordering::SeqCst) }
@@ -99,14 +109,17 @@ impl Server {
 }
 impl Drop for Server { fn drop(&mut self) { self.stop(); } }
 
-fn serve(request: tiny_http::Request, renderer: &[u8], state: &Mutex<Option<Arc<Vec<u8>>>>) {
+fn serve(request: tiny_http::Request, renderer: &[u8], state: &Mutex<Option<Arc<Vec<u8>>>>, served: &Served) {
     if request.url().len() > 2048 { reply(request, 414, "application/json", vec![]); return; }
     if request.method() != &tiny_http::Method::Get { reply(request, 405, "application/json", vec![]); return; }
     let path = request.url().split('?').next().unwrap_or("").to_string();
     match path.as_str() {
         "/pubg/widget" | "/pubg/widget/" => reply(request, 200, "text/html; charset=utf-8", renderer.to_vec()),
         "/pubg/widget/state" => match state.lock().ok().and_then(|s| s.clone()) {
-            Some(bytes) => reply(request, 200, "application/json; charset=utf-8", bytes.to_vec()),
+            Some(bytes) => {
+                if served.unread.swap(false, Ordering::SeqCst) { if let Ok(mut at) = served.at.lock() { *at = Some(chrono::Utc::now()); } }
+                reply(request, 200, "application/json; charset=utf-8", bytes.to_vec())
+            },
             None => reply(request, 503, "application/json", br#"{"error":"widget_state_unavailable"}"#.to_vec()),
         },
         _ => reply(request, 404, "application/json", vec![]),
