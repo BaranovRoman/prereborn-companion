@@ -523,6 +523,27 @@ mod tests {
     }
 
     #[test]
+    fn diagnostics_never_break_the_worker_and_hold_no_identity() {
+        let root = tempfile::tempdir().unwrap();
+        let mut w = worker(root.path(), &CAPS);
+        w.command("settings.save", settings("ProPlayer")).unwrap();
+        w.command("host.activate", json!({})).unwrap();
+        let request = w.backend_request().unwrap().unwrap();
+        w.backend_response(&request, ok(&request, page(json!([entry(1, Utc::now())]), true))).unwrap();
+        let text = std::fs::read_to_string(root.path().join(diagnostics::FILE)).unwrap();
+        for leak in ["ProPlayer", "proplayer", "http://", "https://", "token", root.path().to_str().unwrap()] { assert!(!text.contains(leak), "{leak} in {text}"); }
+        // An unwritable log (here a directory in its place) changes nothing.
+        std::fs::remove_file(root.path().join(diagnostics::FILE)).unwrap();
+        std::fs::create_dir(root.path().join(diagnostics::FILE)).unwrap();
+        w.next_fetch_at = Some(Instant::now());
+        let next = w.backend_request().unwrap().unwrap();
+        w.backend_response(&next, ok(&next, page(json!([entry(2, Utc::now()), entry(1, Utc::now())]), true))).unwrap();
+        assert_eq!(w.history.matches.len(), 2);
+        assert_eq!(w.status()["apiStatus"], "ok");
+        assert!(w.command("host.poll", json!({})).is_ok());
+    }
+
+    #[test]
     fn api_failures_are_statuses_with_backoff_never_errors() {
         let root = tempfile::tempdir().unwrap();
         let mut w = worker(root.path(), &CAPS);
