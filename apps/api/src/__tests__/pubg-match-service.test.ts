@@ -11,6 +11,7 @@ import {
     __resetPubgCachesForTests,
     getPubgMatches,
     mapDisplayName,
+    playerRef,
     parseMatch,
     parsePlayer,
 } from "../services/pubg-match-service.js";
@@ -70,6 +71,21 @@ describe("PUBG parsing", () => {
         expect(match.map).toBe("Erangel");
         expect(match.participants.get(ACCOUNT)).toEqual({ place: 3, kills: 2, damage: 103 });
         expect(parseMatch({ data: { attributes: { createdAt: "nope" } } })).toBeNull();
+    });
+});
+
+describe("latency log", () => {
+    it("identifies a player by a short hash, never by the nickname or the key", async () => {
+        const { logger } = await import("../utils/logger.js");
+        const info = vi.spyOn(logger, "info");
+        await getPubgMatches("steam", "ProPlayer", 2, 1_000);
+        const lines = JSON.stringify(info.mock.calls);
+        expect(lines).toContain(playerRef("steam:proplayer"));
+        expect(playerRef("steam:proplayer")).toMatch(/^[0-9a-f]{12}$/);
+        expect(lines.toLowerCase()).not.toContain("proplayer");
+        expect(lines).not.toContain("unit-pubg-key");
+        expect(lines).not.toContain("api.pubg.com");
+        info.mockRestore();
     });
 });
 

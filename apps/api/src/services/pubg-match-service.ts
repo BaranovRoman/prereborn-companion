@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 
@@ -239,6 +240,9 @@ type PlayerState =
     | { status: "player_not_found" | "rate_limited" | "unavailable"; expiresAt: number };
 
 const playerCache = new Map<string, PlayerState>();
+// Logs carry no nickname: a short hash of `platform:name` still lets one
+// player's lines be followed (and matched against a known nickname).
+export const playerRef = (key: string): string => createHash("sha256").update(key).digest("hex").slice(0, 12);
 // `${platform}:${player}:${matchId}` -> when a match first showed up in that
 // player's list and the previous fetch without it (bounded, diagnostics).
 const listings = new Map<string, { listedAt: number; listedAfter: number | null }>();
@@ -288,7 +292,7 @@ const refreshPlayer = (platform: PubgPlatform, name: string, apiKey: string, lim
                 if (!listings.has(`${key}:${id}`)) rememberListing(`${key}:${id}`, { listedAt: fetchedAt, listedAfter: known?.fetchedAt ?? null });
             }
             logger.info("pubg.player", {
-                platform, player: name, status: player ? "ok" : result.status, durationMs: result.durationMs,
+                platform, playerRef: playerRef(key), status: player ? "ok" : result.status, durationMs: result.durationMs,
                 rateRemaining: result.rateRemaining, matches: player?.matchIds.length,
                 // The first list of a player (or after a restart) has no baseline.
                 newIds: known ? newIds : undefined, initial: player !== null && !known,

@@ -78,17 +78,18 @@ appears in the player's match list.
 ## Diagnostics added (this change, not deployed or released)
 - **Backend** (`pubg-match-service.ts`, needs a production deploy from `main`):
   - `pubg.player` log line per PUBG player call: duration, `X-RateLimit-Remaining`, new match ids,
-    previous fetch time.
+    previous fetch time. The player is identified by `playerRef` = first 12 hex of
+    sha256(`platform:nickname-lowercase`), never by the nickname; no key, token or URL is logged.
   - `pubg.match` line per match details call: duration, finish time, seconds since finish.
   - The response gains `timing` = `{playerFetchedAt, matches: [{id, listedAfter, listedAt,
     detailsAt}]}`: PUBG listed the match in `(listedAfter, listedAt]`. Plugins up to 0.1.2 ignore
     the field.
-- **Plugin** (needs a release): `%APPDATA%\com.romanbaranov.dota-companion\plugins\data\pubg\diagnostics.log`,
+- **Plugin** (released as 0.1.3): `%APPDATA%\com.romanbaranov.dota-companion\plugins\data\pubg\diagnostics.log`,
   JSON lines, 256 KB + one rotated file. Events: `request` (seq), `response` (latency, HTTP
   status/error, apiStatus, complete, new ids, backend `playerFetchedAt`), `match_added` (finish
   time, `sinceFinishSec` by the PC clock, in session, backend `listedAfter/listedAt/detailsAt`),
   `widget_published` (new ids in the projection) and `widget_served` (first read of that state by
-  an open widget page).
+  an open widget page). No nickname, URL or path; a write failure is ignored (tested).
 
 With both deployed, one match splits into: finish → PUBG listing (bounded by
 `listedAfter..listedAt`) → backend details → plugin receives it → widget publishes → OBS reads it.
