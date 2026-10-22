@@ -2,6 +2,10 @@
 # Install as /etc/logrotate.d/prereborn-pm2 (root:root, 0644) - see
 # docs/production-deployment.md "Logs and retention".
 #
+# su root root: on production the PM2 daemon runs as root (/root/.pm2) and
+# shared/logs plus every file in it is root:root - as www-root logrotate
+# could neither truncate nor delete them.
+#
 # Only the four files PM2 writes to (fixed names, merge_logs in
 # ecosystem.config.cjs) are rotated - not a *.log glob, which would also
 # "rotate" pre-WK-196 per-pm_id files and keep their content 14 more days.
@@ -18,7 +22,7 @@
 /var/www/www-root/data/www/prereborn.ru/shared/logs/web-out.log
 /var/www/www-root/data/www/prereborn.ru/shared/logs/web-error.log
 {
-    su www-root www-root
+    su root root
     daily
     rotate 14
     maxage 14
