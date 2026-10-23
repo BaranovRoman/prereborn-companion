@@ -45,6 +45,7 @@ import {
     uploadQueueWebcamImageMiddleware,
 } from "../../controllers/stream/queue-webcam-image.js";
 import { postObsTestSceneController } from "../../controllers/stream/obs-scene.js";
+import { acceptTermsController } from "../../controllers/stream/terms.js";
 
 export const streamAccountRouter = Router();
 
@@ -61,6 +62,8 @@ streamAccountRouter.post(
 );
 streamAccountRouter.delete("/me/companion-token", revokeCompanionTokenController);
 streamAccountRouter.post("/me/onboarding/complete", completeOnboardingController);
+// WK-191 - accepting the user agreement (accounts created before it, or a new edition).
+streamAccountRouter.post("/me/terms/accept", acceptTermsController);
 
 streamAccountRouter.get("/session", getSessionController);
 streamAccountRouter.patch("/session", patchSessionController);

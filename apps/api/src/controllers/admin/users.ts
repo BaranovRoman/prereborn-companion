@@ -12,6 +12,7 @@ import {
 import { findStreamUserById, resetOnboarding } from "../../services/stream-user-service.js";
 import { deleteStreamUserAccount } from "../../services/account-deletion-service.js";
 import { logger } from "../../utils/logger.js";
+import { getTermsStatus } from "../../services/terms-acceptance-service.js";
 
 // req.streamUserId гарантирован authenticateStreamUser, admin-статус -
 // requireAdmin, оба подключены в routes/admin/users.ts перед этими
@@ -71,6 +72,8 @@ export const getUserController = async (req: Request, res: Response) => {
                     detail.companion.lastGsiState?.companionVersion ?? null,
             },
             latestSession: detail.latestSession,
+            // WK-191 - which agreement edition the account accepted, and when.
+            terms: await getTermsStatus(detail.user.id),
         });
     } catch (error) {
         logger.error("Admin get user error", {

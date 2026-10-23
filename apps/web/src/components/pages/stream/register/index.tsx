@@ -8,6 +8,7 @@ import Image from "next/image";
 import axios from "axios";
 import { streamAuthApi } from "@/entities/stream-user/api/stream-auth";
 import { usePageReady } from "@/shared/ui/route-transition/usePageReady";
+import { LEGAL_OPERATOR, PRIVACY_PATH, TERMS_PATH } from "@/shared/config/legal";
 import styles from "../stream-auth.module.scss";
 
 interface RegisterFormValues {
@@ -41,7 +42,7 @@ export const StreamRegisterPage = () => {
         try {
             // Регистрация сразу авторизует пользователя - stream-auth.ts
             // (register) уже сохраняет access/refresh токены.
-            await streamAuthApi.register(values.email, values.password);
+            await streamAuthApi.register(values.email, values.password, LEGAL_OPERATOR.effectiveDate);
             router.push("/account");
         } catch (error) {
             messageApi.error(
@@ -112,6 +113,17 @@ export const StreamRegisterPage = () => {
                             autoComplete="new-password"
                         />
                     </Form.Item>
+
+                    {/* WK-191 - the button accepts the user agreement (public
+                        offer, ст. 438 ГК РФ), which is the basis for the account
+                        data (п. 5 ч. 1 ст. 6 152-ФЗ). Informing only, no consent
+                        checkbox: see docs/legal/wk-191-publication-readiness.md. */}
+                    <p className={styles.privacyNotice}>
+                        Нажимая «Создать аккаунт», вы принимаете{" "}
+                        <Link href={TERMS_PATH}>пользовательское соглашение</Link>. Email и пароль нужны только
+                        для учётной записи: мы не используем их для рассылок и рекламы. Как мы храним и защищаем
+                        данные — <Link href={PRIVACY_PATH}>в политике обработки персональных данных</Link>.
+                    </p>
 
                     <Form.Item>
                         <Button

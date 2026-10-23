@@ -4,7 +4,9 @@ import { Inter } from "next/font/google";
 import type { ReactNode } from "react";
 import { DOTA_COMPANION_DOWNLOAD_URL } from "@/shared/config/dota-companion";
 import { COMPANION_LATEST_RELEASE_URL, COMPANION_REPO_URL } from "@/shared/config/product-sources";
+import { PRIVACY_PATH, TERMS_PATH } from "@/shared/config/legal";
 import { AccountNav } from "./AccountNav";
+import { TermsNotice } from "./TermsNotice";
 import styles from "./public-site.module.scss";
 
 // WK-188 - frame of the public pages (landing, /changelog), styled after the
@@ -43,13 +45,18 @@ export const PublicShell = ({ children }: { children: ReactNode }) => (
         <span className={styles.headerDownload}><DownloadButton size="small" label="Скачать" /></span>
       </div>
     </header>
-    <main id="content" className={styles.main}>{children}</main>
+    <main id="content" className={styles.main}>
+      <TermsNotice />
+      {children}
+    </main>
     <footer className={styles.footer}>
       <div className={styles.footerInner}>
         <span>Prereborn Companion — приложение для стримеров на Windows</span>
         <nav aria-label="Ссылки в подвале">
           <Link href="/changelog">История обновлений</Link>
           <a href={COMPANION_REPO_URL} rel="noopener">GitHub</a>
+          <Link href={TERMS_PATH}>Пользовательское соглашение</Link>
+          <Link href={PRIVACY_PATH}>Политика обработки данных</Link>
           <AccountNav placement="footer" />
         </nav>
       </div>

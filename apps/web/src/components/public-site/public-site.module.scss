@@ -153,6 +153,33 @@
 
 .main { flex: 1; }
 
+// WK-191 - user agreement acceptance banner (TermsNotice.tsx), in the flow
+// under the header so it never covers the page's own controls.
+.termsNotice {
+  border-bottom: 1px solid var(--edge-soft);
+  background: var(--accent-soft);
+}
+
+.termsNoticeInner {
+  display: flex;
+  align-items: center;
+  gap: 16px 32px;
+  width: 100%;
+  max-width: calc(var(--content) + 2 * var(--gutter));
+  margin: 0 auto;
+  padding: 18px var(--gutter);
+  h2 { margin: 0 0 6px; font-size: 16px; font-weight: 600; }
+  p { margin: 0; color: var(--text-soft); font-size: 15px; }
+  p + p { margin-top: 6px; color: var(--danger); }
+  a { color: var(--accent); text-underline-offset: 3px; &:hover { color: var(--accent-hover); } }
+  button { flex: none; }
+
+  @media (max-width: 640px) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
 .footer {
   margin-top: 96px;
   border-top: 1px solid var(--edge-soft);

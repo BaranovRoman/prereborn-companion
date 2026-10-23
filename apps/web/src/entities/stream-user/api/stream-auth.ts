@@ -1,16 +1,19 @@
 import { streamApiClient } from "./stream-client";
 import { clearStreamTokens, getStreamRefreshToken, setStreamTokens } from "../lib/tokens";
 import { notifySessionChanged } from "../lib/session-events";
-import type { AccountUser, StreamAuthResponse, StreamUser } from "../model/types";
+import type { AccountUser, StreamAuthResponse, StreamUser, TermsStatus } from "../model/types";
 
 export const streamAuthApi = {
+    // acceptedTermsVersion - WK-191: the user agreement edition the form
+    // showed next to the "Создать аккаунт" button (none while unpublished).
     register: async (
         email: string,
-        password: string
+        password: string,
+        acceptedTermsVersion?: string | null
     ): Promise<StreamAuthResponse> => {
         const { data } = await streamApiClient.post<StreamAuthResponse>(
             "/auth/register",
-            { email, password }
+            acceptedTermsVersion ? { email, password, acceptedTermsVersion } : { email, password }
         );
         setStreamTokens(data.accessToken, data.refreshToken);
         notifySessionChanged();
@@ -66,6 +69,14 @@ export const streamAuthApi = {
         const { data } = await streamApiClient.get<AccountUser>(
             "/account/me"
         );
+        return data;
+    },
+
+    // WK-191 - accepts the user agreement edition the site shows; a 409 means
+    // the server already has a newer one.
+    acceptTerms: async (version: string): Promise<TermsStatus> => {
+        const { data } = await streamApiClient.post<TermsStatus>("/account/me/terms/accept", { version });
+        notifySessionChanged();
         return data;
     },
 

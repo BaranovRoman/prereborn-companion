@@ -206,6 +206,43 @@
     }
 }
 
+// WK-191 - registration note (offer acceptance + policy) and the legal links under login.
+.privacyNotice {
+    margin: 0 0 16px;
+    color: rgba(255, 242, 239, 0.62);
+    font-size: 12px;
+    line-height: 1.55;
+
+    a {
+        color: #ec7479;
+        text-underline-offset: 2px;
+
+        &:hover,
+        &:focus-visible {
+            color: #ff9a9e;
+        }
+    }
+}
+
+.legalLinks {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px 16px;
+    margin-top: 14px;
+
+    a {
+        color: rgba(255, 242, 239, 0.5) !important;
+        font-size: 12px;
+        text-decoration: none;
+
+        &:hover,
+        &:focus-visible {
+            color: rgba(255, 242, 239, 0.8) !important;
+        }
+    }
+}
+
 @media (max-width: 560px) {
     .page {
         align-items: start;

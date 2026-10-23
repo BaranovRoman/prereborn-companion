@@ -1041,6 +1041,61 @@ pub async fn get_steam_integration_status(app: &AppHandle) -> Result<serde_json:
         .map_err(|error| format!("Internal error: {error}"))?
 }
 
+// WK-191 - user agreement acceptance for users who only use Companion. The
+// server says which edition is in force and whether this account accepted
+// it; nothing in Companion is blocked while it isn't (see TermsBanner.tsx).
+fn fetch_terms_status(token: &str) -> Result<serde_json::Value, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .get(format!("{DEFAULT_BACKEND_URL}/stream/companion/terms"))
+        .bearer_auth(token)
+        .send()
+        .map_err(|error| format!("Статус соглашения недоступен: {error}"))?;
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json()
+        .map_err(|error| format!("Неверный ответ статуса соглашения: {error}"))
+}
+
+pub async fn get_terms_status(app: &AppHandle) -> Result<serde_json::Value, String> {
+    let token = require_companion_token(app)?;
+    tauri::async_runtime::spawn_blocking(move || fetch_terms_status(&token))
+        .await
+        .map_err(|error| format!("Internal error: {error}"))?
+}
+
+fn post_accept_terms(token: &str, version: &str) -> Result<serde_json::Value, String> {
+    let response = reqwest::blocking::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|error| format!("HTTP client error: {error}"))?
+        .post(format!("{DEFAULT_BACKEND_URL}/stream/companion/terms/accept"))
+        .bearer_auth(token)
+        .json(&serde_json::json!({ "version": version }))
+        .send()
+        .map_err(|error| format!("Не удалось принять соглашение: {error}"))?;
+    if response.status() == reqwest::StatusCode::CONFLICT {
+        return Err("Соглашение обновилось. Откройте его ещё раз и примите действующую редакцию.".to_string());
+    }
+    if !response.status().is_success() {
+        return Err(format!("Backend ответил {}", response.status()));
+    }
+    response
+        .json()
+        .map_err(|error| format!("Неверный ответ статуса соглашения: {error}"))
+}
+
+pub async fn accept_terms(app: &AppHandle, version: String) -> Result<serde_json::Value, String> {
+    let token = require_companion_token(app)?;
+    tauri::async_runtime::spawn_blocking(move || post_accept_terms(&token, &version))
+        .await
+        .map_err(|error| format!("Internal error: {error}"))?
+}
+
 fn perform_disconnect_steam(token: &str) -> Result<(), String> {
     let response = reqwest::blocking::Client::builder()
         .timeout(REQUEST_TIMEOUT)

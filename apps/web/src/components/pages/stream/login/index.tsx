@@ -9,6 +9,7 @@ import axios from "axios";
 import { streamAuthApi } from "@/entities/stream-user/api/stream-auth";
 import { safeNextPath } from "@/entities/stream-user/lib/session-events";
 import { usePageReady } from "@/shared/ui/route-transition/usePageReady";
+import { PRIVACY_PATH, TERMS_PATH } from "@/shared/config/legal";
 import styles from "../stream-auth.module.scss";
 
 interface LoginFormValues {
@@ -130,6 +131,10 @@ export const StreamLoginPage = () => {
 
                 <div className={styles.switchLink}>
                     Нет аккаунта? <Link href="/stream/register">Зарегистрироваться</Link>
+                </div>
+                <div className={styles.legalLinks}>
+                    <Link href={TERMS_PATH}>Пользовательское соглашение</Link>
+                    <Link href={PRIVACY_PATH}>Политика обработки персональных данных</Link>
                 </div>
             </div>
         </div>

@@ -9,11 +9,15 @@ import {
     signAccessToken,
     verifyStreamUserCredentials,
 } from "../../services/stream-user-service.js";
+import { acceptTerms } from "../../services/terms-acceptance-service.js";
 import { logger } from "../../utils/logger.js";
 
 const registerSchema = z.object({
     email: z.string().trim().toLowerCase().email(),
     password: z.string().min(8).max(200),
+    // WK-191 - the agreement edition the registration page showed next to
+    // the "Создать аккаунт" button; recorded only if it is the one in force.
+    acceptedTermsVersion: z.string().max(32).optional(),
 });
 
 const loginSchema = z.object({
@@ -27,13 +31,14 @@ const refreshSchema = z.object({
 
 export const registerController = async (req: Request, res: Response) => {
     try {
-        const { email, password } = registerSchema.parse(req.body);
+        const { email, password, acceptedTermsVersion } = registerSchema.parse(req.body);
 
         if (await emailExists(email)) {
             return res.status(409).json({ error: "Этот email уже занят" });
         }
 
         const user = await createStreamUser(email, password);
+        if (acceptedTermsVersion) await acceptTerms(user.id, acceptedTermsVersion);
         const accessToken = signAccessToken(user.id);
         const refreshToken = await issueRefreshToken(user.id);
 
