@@ -19,7 +19,8 @@ describe("PrivacyPage", () => {
       /Оператор/,
       /Какие данные и зачем/,
       /Правовые основания/,
-      /собираются, хранятся и удаляются/,
+      /собираются и хранятся/,
+      /Отключение сервисов и удаление учётной записи/,
       /Передача третьим лицам/,
       /Трансграничная передача/,
       /Меры защиты/,
@@ -53,11 +54,29 @@ describe("PrivacyPage", () => {
     expect(screen.getByText(/1 ноября 2026/)).toBeTruthy();
   });
 
-  it("claims only implemented retention: app logs are explicitly not limited yet", () => {
+  it("claims only implemented retention: 14-day logs, 90-day activity, no unconfigured-log caveat", () => {
     render(<PrivacyPage operator={published} />);
     expect(screen.getByText(/Не более 14 дней/)).toBeTruthy();
-    expect(screen.getByText(/Автоматическое удаление этих журналов ещё не настроено/)).toBeTruthy();
+    expect(screen.getByText(/хранение не более 14 дней/).textContent).toMatch(/до 22 октября 2026 года, удаляются/);
+    expect(screen.queryByText(/Автоматическое удаление этих журналов ещё не настроено/)).toBeNull();
     expect(screen.queryByText(/90 дней/, { selector: "dd" })?.textContent).toMatch(/днях использования/);
+  });
+
+  it("describes self-service deletion as WK-192 implements it", () => {
+    render(<PrivacyPage operator={published} />);
+    const section = screen.getByRole("heading", { level: 2, name: /удаление учётной записи/ }).closest("section")!;
+    const text = section.textContent ?? "";
+    expect(text).toMatch(/«Удалить аккаунт» и подтвердите удаление паролем/);
+    expect(within(section).getAllByRole("link", { name: "личном кабинете" })[0].getAttribute("href")).toBe("/account");
+    expect(within(section).getByRole("link", { name: "baranov.react@gmail.com" })).toBeTruthy();
+    // Twitch tokens are revoked through the retried cleanup queue; DonationAlerts has no revoke API.
+    expect(text).toMatch(/в Twitch направляется запрос на отзыв токенов/);
+    expect(text).toMatch(/повторяется автоматически в течение 7 дней/);
+    expect(text).toMatch(/DonationAlerts не даёт способа отозвать токен/);
+    // What stays after deletion is named, not promised away.
+    expect(text).toMatch(/не более 14 дней/);
+    expect(text).not.toMatch(/по запросу оператору/);
+    expect(text).not.toMatch(/мгновенно|безвозвратно уничтож/);
   });
 
   it("links the user agreement and is linked from the footer", () => {

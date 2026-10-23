@@ -28,6 +28,8 @@ export const LEGAL_OPERATOR: LegalOperatorDetails = {
 
 export const PRIVACY_PATH = "/privacy";
 export const TERMS_PATH = "/terms";
+/** Where an account is deleted and integrations are unlinked (WK-189, WK-192). */
+export const ACCOUNT_PATH = "/account";
 
 const REQUIRED_DETAILS = ["operatorName", "contactEmail", "effectiveDate"] as const;
 

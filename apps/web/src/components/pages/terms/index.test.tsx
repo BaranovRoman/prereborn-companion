@@ -37,4 +37,14 @@ describe("TermsPage", () => {
     expect(screen.queryByRole("note")).toBeNull();
     expect(screen.getByText(/1 ноября 2026/)).toBeTruthy();
   });
+
+  it("describes the real product: free, third-party dependent, self-service deletion", () => {
+    render(<TermsPage />);
+    expect(screen.getByText(/бесплатное приложение-компаньон для стримеров/)).toBeTruthy();
+    expect(screen.queryByText(/подписк[аиу] (на|за) сервис|тариф|оплат[аы] услуг/i)).toBeNull();
+    expect(screen.getByText(/зависят от Twitch, DonationAlerts/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "личном кабинете" }).getAttribute("href")).toBe("/account");
+    // Liability limits must not override mandatory rights.
+    expect(screen.getByText(/не ограничивают права, которые предоставлены вам законом/)).toBeTruthy();
+  });
 });
