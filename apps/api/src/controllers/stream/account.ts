@@ -13,6 +13,7 @@ import { deleteStreamUserAccount } from "../../services/account-deletion-service
 import { logger } from "../../utils/logger.js";
 import { env } from "../../config/env.js";
 import { isAdminEmail } from "../../middleware/require-admin.js";
+import { getTermsStatus } from "../../services/terms-acceptance-service.js";
 
 // req.streamUserId гарантирован middleware authenticateStreamUser,
 // подключённым в routes/stream/account.ts перед этими контроллерами.
@@ -25,7 +26,8 @@ export const getMeController = async (req: Request, res: Response) => {
         }
         // WK-189 - isAdmin only tells the site whether to show the /admin
         // link; /api/admin/* is still guarded by requireAdmin on its own.
-        res.json({ ...user, isAdmin: isAdminEmail(user.email) });
+        // WK-191 - terms tells the site whether to ask for the agreement.
+        res.json({ ...user, isAdmin: isAdminEmail(user.email), terms: await getTermsStatus(user.id) });
     } catch (error) {
         logger.error("Stream get me error", {
             requestId: req.requestId,

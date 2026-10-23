@@ -114,6 +114,19 @@ export const getSteamIntegrationStatus = () =>
   invoke<SteamIntegrationStatus>("get_steam_integration_status");
 export const disconnectSteam = () => invoke<void>("disconnect_steam");
 
+// WK-191 - user agreement acceptance (mirrors the API's TermsStatus).
+// getTermsStatus fails when Companion isn't signed in; the caller treats that
+// as "nothing to accept".
+export interface TermsStatus {
+  currentVersion: string | null;
+  acceptedVersion: string | null;
+  acceptedAt: string | null;
+  acceptanceRequired: boolean;
+}
+export const getTermsStatus = () => invoke<TermsStatus>("get_terms_status");
+export const acceptTerms = (version: string) => invoke<TermsStatus>("accept_terms", { version });
+export const openLegalDocument = (document: "terms" | "privacy") => invoke<void>("open_legal_document", { document });
+
 export interface TwitchIntegrationStatus {
   connected: boolean;
   login?: string;

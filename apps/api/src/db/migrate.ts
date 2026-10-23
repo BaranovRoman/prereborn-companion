@@ -749,6 +749,14 @@ export const createTables = async (): Promise<void> => {
       ALTER TABLE pending_data_cleanups ADD COLUMN IF NOT EXISTS gave_up_at TIMESTAMPTZ;
     `);
 
+        // WK-191 - which user agreement edition the account accepted and when
+        // (services/terms-acceptance-service.ts). NULL = never accepted:
+        // accounts created before the agreement was published.
+        await client.query(`
+      ALTER TABLE stream_users ADD COLUMN IF NOT EXISTS terms_accepted_version VARCHAR(32);
+      ALTER TABLE stream_users ADD COLUMN IF NOT EXISTS terms_accepted_at TIMESTAMPTZ;
+    `);
+
         await client.query("COMMIT");
     } catch (error) {
         await client.query("ROLLBACK");

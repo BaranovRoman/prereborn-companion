@@ -201,7 +201,7 @@ const DeleteAccount = ({ onDeleted }: { onDeleted: () => void }) => {
   };
 
   return (
-    <div className={styles.sub}>
+    <div className={styles.sub} id="delete-account">
       <h3>Удаление аккаунта</h3>
       {confirming ? (
         <form className={styles.confirm} onSubmit={submit} aria-label="Подтверждение удаления аккаунта">

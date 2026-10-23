@@ -47,4 +47,9 @@ describe("TermsPage", () => {
     // Liability limits must not override mandatory rights.
     expect(screen.getByText(/не ограничивают права, которые предоставлены вам законом/)).toBeTruthy();
   });
+
+  it("tells accounts created earlier that they will be asked to accept, without blocking exit", () => {
+    render(<TermsPage />);
+    expect(screen.getByText(/попросят вас принять её кнопкой «Принимаю»/).textContent).toMatch(/выйти из учётной записи или удалить её/);
+  });
 });

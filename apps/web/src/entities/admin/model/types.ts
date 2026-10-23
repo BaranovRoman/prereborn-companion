@@ -1,3 +1,5 @@
+import type { TermsStatus } from "@/entities/stream-user/model/types";
+
 export interface AdminUserSummary {
     id: string;
     email: string;
@@ -73,6 +75,8 @@ export interface AdminUserDetail {
     gameMode: "ranked" | "unranked";
     companionTokenConfigured: boolean;
     companionTokenCreatedAt: string | null;
+    // WK-191 - user agreement acceptance (null on an older API).
+    terms?: TermsStatus | null;
     steam: AdminSteamLink | null;
     twitch: AdminTwitchLink | null;
     companion: {

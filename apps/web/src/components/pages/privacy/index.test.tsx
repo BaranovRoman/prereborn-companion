@@ -1,5 +1,7 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import fs from "fs";
+import path from "path";
 
 vi.mock("next/font/google", () => ({ Inter: () => ({ className: "inter" }) }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), refresh: vi.fn(), push: vi.fn() }) }));
@@ -86,6 +88,14 @@ describe("PrivacyPage", () => {
     expect(within(footer).getByRole("link", { name: "Пользовательское соглашение" }).getAttribute("href")).toBe("/terms");
     expect(screen.getAllByRole("link", { name: /пользовательского соглашения|пользовательском соглашении/ })[0].getAttribute("href")).toBe("/terms");
   });
+
+  it("names the cross-border recipients by country and stores the terms acceptance", () => {
+    render(<PrivacyPage operator={published} />);
+    const section = screen.getByRole("heading", { level: 2, name: /Трансграничная передача/ }).closest("section")!;
+    expect(section.textContent).toMatch(/Twitch и Valve — в США, KRAFTON — в Республике Корея/);
+    expect(section.textContent).toMatch(/Email и данные учётной записи Prereborn им не передаются/);
+    expect(screen.getByText(/редакция и дата принятия пользовательского соглашения/)).toBeTruthy();
+  });
 });
 
 describe("isLegalDocumentPublished", () => {
@@ -94,6 +104,14 @@ describe("isLegalDocumentPublished", () => {
     expect(isLegalDocumentPublished({ ...published, contactEmail: "  " })).toBe(false);
     expect(isLegalDocumentPublished({ ...published, effectiveDate: null })).toBe(false);
     expect(isLegalDocumentPublished({ ...published, postalAddress: null })).toBe(true);
+  });
+
+  it("asks for the same agreement edition the site shows (api config/legal.ts)", () => {
+    // The API decides who must accept; the site shows the text. Both change in the publication commit.
+    const api = fs.readFileSync(path.resolve(__dirname, "../../../../../api/src/config/legal.ts"), "utf8");
+    const match = api.match(/currentVersion:\s*(null|"[^"]*")/);
+    expect(match, "currentVersion not found in apps/api/src/config/legal.ts").toBeTruthy();
+    expect(JSON.parse(match![1])).toBe(LEGAL_OPERATOR.effectiveDate);
   });
 
   it("keeps the shipped config unpublished until the owner approves publication", () => {

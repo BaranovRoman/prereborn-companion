@@ -30,6 +30,7 @@ import {
 import { authenticateCompanionSession } from "../../middleware/authenticate-companion-token.js";
 import { companionHeartbeatRateLimiter, streamCompanionRateLimiter } from "../../middleware/rate-limit.js";
 import { postCompanionHeartbeatController } from "../../controllers/usage-stats.js";
+import { acceptTermsController, getTermsStatusController } from "../../controllers/stream/terms.js";
 
 export const streamCompanionRouter = Router();
 
@@ -41,6 +42,10 @@ streamCompanionRouter.post(
     authenticateCompanionSession,
     postCompanionHeartbeatController
 );
+
+// WK-191 - users who only use Companion see and accept the user agreement there.
+streamCompanionRouter.get("/terms", authenticateCompanionSession, getTermsStatusController);
+streamCompanionRouter.post("/terms/accept", authenticateCompanionSession, acceptTermsController);
 
 streamCompanionRouter.get(
     "/twitch-chat",

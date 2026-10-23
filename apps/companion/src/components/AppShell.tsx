@@ -5,6 +5,7 @@ import { AudioDeviceChangeBanner } from "./AudioDeviceChangeBanner";
 import { ProblemBar } from "./ProblemBar";
 import { SessionPromptBanner } from "./SessionPromptBanner";
 import { SettingsModal, type Category as SettingsCategory } from "./SettingsModal";
+import { TermsBanner } from "./TermsBanner";
 import { TwitchChatPage } from "./TwitchChatPage";
 import { UpdateBanner } from "./UpdateBanner";
 import { useTwitchChatSession } from "../chat/useTwitchChatSession";
@@ -22,6 +23,7 @@ import { useRuntimeHealth } from "../hooks/useRuntimeHealth";
 import { useStatus } from "../hooks/useStatus";
 import { useSyncOutboxStatus } from "../hooks/useSyncOutboxStatus";
 import { useStreamSessionPrompt } from "../hooks/useStreamSessionPrompt";
+import { useTermsAcceptance } from "../hooks/useTermsAcceptance";
 import { useUpdater } from "../hooks/useUpdater";
 import { DiagnosticsPage } from "../pages/DiagnosticsPage";
 import { DesignPage } from "../pages/DesignPage";
@@ -57,6 +59,7 @@ const MAIN_NAV_ITEMS: { key: Section; label: string }[] = [
 // rule.
 export function AppShell() {
   const { status, setStatus, refresh } = useStatus();
+  const terms = useTermsAcceptance();
   const history = useGsiEvents();
   const diagnostics = useDiagnostics();
   const updater = useUpdater();
@@ -234,6 +237,14 @@ export function AppShell() {
       <div className="app-header__ledge" aria-hidden="true" />
 
       <main className="main">
+        <TermsBanner
+          show={terms.required}
+          version={terms.version}
+          busy={terms.busy}
+          error={terms.error}
+          onAccept={() => void terms.accept()}
+        />
+
         <UpdateBanner
           state={updater.state}
           onCheck={() => void updater.checkForUpdate()}

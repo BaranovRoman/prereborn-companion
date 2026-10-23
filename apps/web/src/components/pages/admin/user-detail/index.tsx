@@ -132,6 +132,16 @@ export const AdminUserDetailPage = ({ id }: { id: string }) => {
                                 <Tag>не завершён</Tag>
                             )}
                         </Descriptions.Item>
+                        <Descriptions.Item label="Соглашение">
+                            {detail.terms?.acceptedVersion ? (
+                                <Tag color={detail.terms.acceptanceRequired ? "orange" : "green"}>
+                                    редакция {detail.terms.acceptedVersion}, принято{" "}
+                                    {formatDate(detail.terms.acceptedAt)}
+                                </Tag>
+                            ) : (
+                                <Tag>не принято</Tag>
+                            )}
+                        </Descriptions.Item>
                         <Descriptions.Item label="Companion-токен">
                             {detail.companionTokenConfigured ? (
                                 <Tag color="blue">

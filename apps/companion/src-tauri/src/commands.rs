@@ -261,6 +261,30 @@ pub async fn disconnect_steam(app: AppHandle) -> Result<(), String> {
     backend::disconnect_steam(&app).await
 }
 
+// WK-191 - user agreement: status, acceptance, and opening the documents on
+// the site (fixed paths only - the UI can't make Companion open other URLs).
+#[tauri::command]
+pub async fn get_terms_status(app: AppHandle) -> Result<serde_json::Value, String> {
+    backend::get_terms_status(&app).await
+}
+
+#[tauri::command]
+pub async fn accept_terms(app: AppHandle, version: String) -> Result<serde_json::Value, String> {
+    backend::accept_terms(&app, version).await
+}
+
+#[tauri::command]
+pub fn open_legal_document(app: AppHandle, document: String) -> Result<(), String> {
+    let path = match document.as_str() {
+        "terms" => "/terms",
+        "privacy" => "/privacy",
+        _ => return Err("Неизвестный документ".to_string()),
+    };
+    app.opener()
+        .open_url(format!("{DEFAULT_WEB_ORIGIN}{path}"), None::<String>)
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn get_twitch_integration_status(app: AppHandle) -> Result<serde_json::Value, String> {
     backend::get_twitch_integration_status(&app).await

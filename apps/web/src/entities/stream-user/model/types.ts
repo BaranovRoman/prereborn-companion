@@ -20,6 +20,16 @@ export interface StreamUser {
 // only used to show the /admin link; the backend guards /api/admin itself.
 export interface AccountUser extends StreamUser {
     isAdmin: boolean;
+    // WK-191 - user agreement acceptance; acceptanceRequired is true for
+    // accounts that haven't accepted the edition in force.
+    terms?: TermsStatus | null;
+}
+
+export interface TermsStatus {
+    currentVersion: string | null;
+    acceptedVersion: string | null;
+    acceptedAt: string | null;
+    acceptanceRequired: boolean;
 }
 
 export interface StreamAuthResponse {

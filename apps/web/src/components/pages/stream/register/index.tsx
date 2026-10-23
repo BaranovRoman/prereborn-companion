@@ -8,7 +8,7 @@ import Image from "next/image";
 import axios from "axios";
 import { streamAuthApi } from "@/entities/stream-user/api/stream-auth";
 import { usePageReady } from "@/shared/ui/route-transition/usePageReady";
-import { PRIVACY_PATH, TERMS_PATH } from "@/shared/config/legal";
+import { LEGAL_OPERATOR, PRIVACY_PATH, TERMS_PATH } from "@/shared/config/legal";
 import styles from "../stream-auth.module.scss";
 
 interface RegisterFormValues {
@@ -42,7 +42,7 @@ export const StreamRegisterPage = () => {
         try {
             // Регистрация сразу авторизует пользователя - stream-auth.ts
             // (register) уже сохраняет access/refresh токены.
-            await streamAuthApi.register(values.email, values.password);
+            await streamAuthApi.register(values.email, values.password, LEGAL_OPERATOR.effectiveDate);
             router.push("/account");
         } catch (error) {
             messageApi.error(
